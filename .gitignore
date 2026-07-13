@@ -1,0 +1,26 @@
+# Go build artifacts
+bin/
+*.exe
+*.out
+
+# Generated test data (committed; uncomment if regenerating)
+# testdata/clip_short.mp4
+# testdata/clip_short.expected.preview.mp4
+
+# Per-project working directories
+projects/*/footage/
+projects/*/preview.mp4
+projects/*/final.mp4
+projects/*/metadata.json
+projects/*/project.mlt
+projects/*/edl.json
+projects/*/edl.v*.json
+projects/*/edl.failed.json
+projects/*/preview.mp4.lck
+projects/*/final.mp4.lck
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
