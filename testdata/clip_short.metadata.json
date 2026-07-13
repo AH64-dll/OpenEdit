@@ -3,17 +3,22 @@
   "clips": [
     {
       "path": "/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4",
-      "durationSec": 10.0,
+      "durationSec": 10,
       "width": 1920,
       "height": 1080,
       "fps": 30,
       "hasAudio": false,
       "scenes": [
-        { "startSec": 0, "endSec": 4.0 },
-        { "startSec": 4.0, "endSec": 7.0 },
-        { "startSec": 7.0, "endSec": 10.0 }
+        {
+          "startSec": 0,
+          "endSec": 4
+        },
+        {
+          "startSec": 4,
+          "endSec": 10
+        }
       ]
     }
   ],
-  "totalDurationSec": 10.0
+  "totalDurationSec": 10
 }
