@@ -201,3 +201,16 @@ if [[ $DO_RENDER -eq 1 ]]; then
     run_args+=(--render)
 fi
 "${run_args[@]}"
+
+# --- Open result in Kdenlive (or whatever handles .mlt) -------------------
+
+MLT_PATH="$PROJECT_DIR/project.mlt"
+if [[ -f "$MLT_PATH" ]]; then
+    echo "edit.sh: launching $MLT_PATH" >&2
+    xdg-open "$MLT_PATH" &
+    # Don't wait on xdg-open; the user is now in Kdenlive.
+    disown 2>/dev/null || true
+else
+    echo "edit.sh: $MLT_PATH not created; pipeline failed" >&2
+    exit 1
+fi
