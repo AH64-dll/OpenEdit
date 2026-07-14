@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -44,10 +45,40 @@ func TestPipelineE2E_NoLLM(t *testing.T) {
 		t.Fatalf("analyze: %v\n%s", err, out)
 	}
 
-	// Stage 2: compile (using the pre-authored EDL).
+	// Stage 2: compile (using the pre-authored EDL, with the source path
+	// substituted to match what analyze recorded in the manifest). The
+	// fixture's source path is the relative path used during fixture
+	// generation; the test passes an absolute path to analyze, so we
+	// rewrite the EDL's source paths at runtime to match.
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var manifest struct {
+		Clips []struct {
+			Path string `json:"path"`
+		} `json:"clips"`
+	}
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	if len(manifest.Clips) == 0 {
+		t.Fatal("manifest has no clips")
+	}
+	edlData, err := os.ReadFile(filepath.Join(td, "clip_short.edl.handwritten.json"))
+	if err != nil {
+		t.Fatalf("read edl fixture: %v", err)
+	}
+	edlData = []byte(strings.ReplaceAll(string(edlData),
+		"testdata/clip_short.mp4", manifest.Clips[0].Path))
+	edlPath := filepath.Join(t.TempDir(), "edl.json")
+	if err := os.WriteFile(edlPath, edlData, 0644); err != nil {
+		t.Fatalf("write edl: %v", err)
+	}
+
 	mltPath := filepath.Join(t.TempDir(), "project.mlt")
 	compile := exec.Command(filepath.Join(bin, "compile"),
-		"--edl", filepath.Join(td, "clip_short.edl.handwritten.json"),
+		"--edl", edlPath,
 		"--metadata", manifestPath,
 		"--output", mltPath,
 	)

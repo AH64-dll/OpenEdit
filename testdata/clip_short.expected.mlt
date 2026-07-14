@@ -2,13 +2,13 @@
 <mlt version="7.0.0" title="auto_edit" producer="main_bin">
   <profile width="1920" height="1080" progressive="1" sample_aspect_num="1" sample_aspect_den="1" frame_rate_num="30" frame_rate_den="1" colorspace="709"/>
   <producer id="producer0">
-    <property name="resource">/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4</property>
+    <property name="resource">testdata/clip_short.mp4</property>
   </producer>
   <producer id="producer1">
-    <property name="resource">/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4</property>
+    <property name="resource">testdata/clip_short.mp4</property>
   </producer>
   <producer id="producer2">
-    <property name="resource">/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4</property>
+    <property name="resource">testdata/clip_short.mp4</property>
   </producer>
   <playlist id="video_track">
     <entry producer="producer0" in="00:00:00.000" out="00:00:02.000"/>

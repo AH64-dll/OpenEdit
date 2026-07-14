@@ -2,7 +2,7 @@
   "version": 1,
   "clips": [
     {
-      "path": "/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4",
+      "path": "testdata/clip_short.mp4",
       "durationSec": 10,
       "width": 1920,
       "height": 1080,
