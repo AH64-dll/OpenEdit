@@ -13,10 +13,13 @@
 package test
 
 import (
+	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAgentCanary_ProducesValidEDL(t *testing.T) {
@@ -55,14 +58,27 @@ func TestAgentCanary_ProducesValidEDL(t *testing.T) {
 		}
 	})
 
-	// Run the driver with --no-render (default).
-	driver := exec.Command(filepath.Join(root, "run.sh"), "agent-canary")
+	// Run the driver. The driver invokes the opencode agent, which emits a
+	// steady stream of JSON events to stdout. CombinedOutput() would fill
+	// a finite pipe buffer and deadlock; use io.Discard so Go's exec
+	// starts a draining goroutine. Use a 3-minute timeout so a hung agent
+	// (or melt) doesn't hang the test forever — exec.CommandContext
+	// sends SIGKILL to the direct child on timeout, and the descendants
+	// (opencode, melt) get SIGHUP from the closed pipes.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	driver := exec.CommandContext(ctx, filepath.Join(root, "run.sh"), "agent-canary")
 	driver.Dir = projectDir
-	if out, err := driver.CombinedOutput(); err != nil {
-		t.Fatalf("run.sh failed: %v\n%s", err, out)
+	driver.Stdout = io.Discard
+	driver.Stderr = io.Discard
+	if err := driver.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("run.sh timed out after 3m")
+		}
+		t.Fatalf("run.sh failed: %v", err)
 	}
 
-	// Assert that edl.json was created and validates against the manifest.
+	// Assert that edl.json was created and preview.mp4 was produced.
 	edlPath := filepath.Join(projectDir, "edl.json")
 	if _, err := os.Stat(edlPath); err != nil {
 		t.Fatalf("edl.json not created: %v", err)

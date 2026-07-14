@@ -24,3 +24,6 @@ projects/*/final.mp4.lck
 *.swp
 .idea/
 .vscode/
+
+# Subagent-driven development working directory (transient, not source)
+.superpowers/

@@ -66,7 +66,12 @@ fi
 if should_run edl.json; then
     echo
     echo "--- Stage 2: agent (opencode) ---"
-    nice -n 5 opencode -p "$ROOT/prompts/edl_writer.md" -f json -q
+    # Use `opencode run` with --format json. The prompt is the message body.
+    # --auto approves tool permissions without prompting (the agent needs to
+    # write edl.json, run compile + render --dry-run, and we don't want it
+    # hanging on permission prompts in a non-interactive run).
+    PROMPT_CONTENT=$(cat "$ROOT/prompts/edl_writer.md")
+    nice -n 5 opencode run --format json --auto "$PROMPT_CONTENT"
     AGENT_EXIT=$?
     if [[ $AGENT_EXIT -ne 0 || -f edl.failed.json ]]; then
         echo "agent failed; see edl.failed.json if present" >&2
