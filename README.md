@@ -2,23 +2,112 @@
 
 Autonomous video-editing pipeline. Raw footage → Kdenlive-editable `project.mlt` via an OpenCode-driven agent.
 
-See `docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md` for design.
-See `docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md` for implementation plan.
+## Design
 
-## Quickstart
+- **Spec:** [`docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md`](docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md)
+- **Plan:** [`docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md`](docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md)
+
+## Dependencies
+
+- Go 1.22+
+- `ffmpeg` / `ffprobe` (with libass for completeness — not strictly required for v1)
+- `melt` 7.x (MLT framework command-line renderer)
+- `opencode` Go binary, 1.17+ — https://github.com/sandonair/opencode or the upstream
+- `nice` (standard on Linux/macOS)
+- Kdenlive 26.x for the human-review step (open `project.mlt` after the agent runs)
+
+## Build
 
 ```bash
-# Stage 1: deterministic core
-go test ./...
-
-# Stage 2: end-to-end with hand-written EDL
-./bin/analyze testdata/clip_short.mp4 --output testdata/clip_short.metadata.json
-./bin/compile --edl testdata/clip_short.edl.handwritten.json \
-              --metadata testdata/clip_short.metadata.json \
-              --output testdata/clip_short.project.mlt
-./bin/render --mlt testdata/clip_short.project.mlt \
-             --output testdata/clip_short.expected.preview.mp4 --dry-run
-
-# Stage 3: full agent loop
-./run.sh my-project
+go build -o bin/analyze ./cmd/analyze
+go build -o bin/compile ./cmd/compile
+go build -o bin/render  ./cmd/render
 ```
+
+Or use the test-driven build: `go test ./...` builds and runs every test.
+
+## Use
+
+### 1. Set up a project
+
+```bash
+mkdir -p projects/my-clip/footage
+cp /path/to/raw/*.mp4 projects/my-clip/footage/
+```
+
+### 2. Run the pipeline
+
+```bash
+./run.sh my-clip
+```
+
+The driver:
+1. Runs `analyze` → `projects/my-clip/metadata.json`
+2. Invokes OpenCode with `prompts/edl_writer.md` → agent writes `edl.json`
+3. Runs `compile` → `projects/my-clip/project.mlt`
+4. Runs `render --dry-run` → `projects/my-clip/preview.mp4`
+
+By default, final `render` is skipped (use `--render` to enable). The driver's output is a `project.mlt` you open in Kdenlive.
+
+### 3. Open in Kdenlive
+
+```bash
+xdg-open projects/my-clip/project.mlt
+# or just: open it from Kdenlive's File menu
+```
+
+Kdenlive opens it as an "Untitled" project. Refine the cut, save as `.kdenlive` if you want a full project, or render to MP4 from Kdenlive.
+
+### 4. (Optional) Bake a final MP4 from the pipeline
+
+```bash
+./run.sh my-clip --render
+```
+
+This skips Kdenlive and runs `melt` directly to `projects/my-clip/final.mp4`.
+
+## Re-running stages
+
+`run.sh` is idempotent. To re-run from scratch:
+
+```bash
+rm projects/my-clip/{metadata.json,edl.json,project.mlt,preview.mp4,final.mp4}
+./run.sh my-clip
+```
+
+Or with one flag:
+
+```bash
+./run.sh my-clip --force
+```
+
+## Testing
+
+```bash
+go test ./...                                    # all unit + e2e tests
+go test -tags=agent_canary ./test/...            # agent canary (requires opencode + model)
+```
+
+## Project layout
+
+```
+mlt-pipeline/
+├── cmd/                # three CLI entry points
+├── internal/           # metadata, edl, mlt libraries
+├── schema/             # JSON Schema for edl.json
+├── testdata/           # synthetic fixtures
+├── prompts/            # system prompt for the agent
+├── test/               # e2e + agent canary
+├── projects/           # working directories, one per user project (gitignored)
+├── run.sh              # the driver
+└── docs/               # spec + plan
+```
+
+## Limits (v1)
+
+- `transition: "dissolve"` is not supported (use `cut` or `fade`).
+- Single-tractor timeline (no nested tracks).
+- No captions / subtitles.
+- No music / voiceover generation.
+- Footage must already be on disk; no remote sources.
+- Minimal MLT only — Kdenlive opens the file as "Untitled." For a full `.kdenlive` project, save the file in Kdenlive after opening.
