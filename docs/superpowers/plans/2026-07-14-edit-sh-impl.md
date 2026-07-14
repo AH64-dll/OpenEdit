@@ -279,12 +279,14 @@ Expected output (stderr):
 ```
 edit.sh: validated source OK
   source       = /tmp/edit-test/clips
-  project_name = edit-test-clips
+  project_name = clips
   files        = 2
   render       = 0
   force        = 0
 ```
 Exit code: 0.
+
+(The project name is `clips` — the basename of the source dir — not `edit-test-clips`. To get a different default, name the source dir differently or pass an explicit `<project-name>`.)
 
 - [ ] **Step 4: Test name sanitization**
 
@@ -295,7 +297,7 @@ touch "/tmp/edit test/clips/clip 1.mp4"
 ./edit.sh "/tmp/edit test/clips"
 ```
 
-Expected: `project_name = edit-test-clips` (spaces → dashes, the directory's space and the file's space both normalized).
+Expected: `project_name = clips` (the basename has no unsafe characters, so it passes through unchanged).
 
 - [ ] **Step 5: Test explicit project name**
 
