@@ -279,12 +279,14 @@ Expected output (stderr):
 ```
 edit.sh: validated source OK
   source       = /tmp/edit-test/clips
-  project_name = edit-test-clips
+  project_name = clips
   files        = 2
   render       = 0
   force        = 0
 ```
 Exit code: 0.
+
+(The project name is `clips` — the basename of the source dir — not `edit-test-clips`. To get a different default, name the source dir differently or pass an explicit `<project-name>`.)
 
 - [ ] **Step 4: Test name sanitization**
 
@@ -295,7 +297,7 @@ touch "/tmp/edit test/clips/clip 1.mp4"
 ./edit.sh "/tmp/edit test/clips"
 ```
 
-Expected: `project_name = edit-test-clips` (spaces → dashes, the directory's space and the file's space both normalized).
+Expected: `project_name = clips` (the basename has no unsafe characters, so it passes through unchanged).
 
 - [ ] **Step 5: Test explicit project name**
 
@@ -411,12 +413,12 @@ Expected: no output, exit 0.
 Clean any previous test project, then:
 
 ```bash
-rm -rf projects/edit-test-clips projects/my-cool-cut
+rm -rf projects/clips projects/my-cool-cut
 ./edit.sh /tmp/edit-test/clips
-ls -la projects/edit-test-clips/footage/
+ls -la projects/clips/footage/
 ```
 
-Expected: two symlinks (`clip1.mp4 -> /tmp/edit-test/clips/clip1.mp4`, `clip2.mov -> ...`), and the `edit.sh` script reports `symlinked 2 file(s)`.
+Expected: two symlinks (`clip1.mp4 -> /tmp/edit-test/clips/clip1.mp4`, `clip2.mov -> ...`), and the `edit.sh` script reports `symlinked 2 file(s)`. (The project name is `clips` — the basename of the source dir.)
 
 - [ ] **Step 4: Test idempotency**
 
@@ -429,8 +431,11 @@ Expected: `symlinks already exist; skipping`, exit 0.
 
 - [ ] **Step 5: Test the "real file in the way" refusal**
 
+Important: do NOT use `echo > projects/clips/footage/clip1.mp4` because that path is a symlink and the echo would follow it, overwriting the source file. Instead, remove the symlink first and then create a real file at the same path:
+
 ```bash
-echo "I am a real file" > projects/edit-test-clips/footage/clip1.mp4
+rm projects/clips/footage/clip1.mp4
+echo "I am a real file" > projects/clips/footage/clip1.mp4
 ./edit.sh /tmp/edit-test/clips 2>&1; echo "exit=$?"
 ```
 
@@ -438,7 +443,7 @@ Expected: `is not a symlink. Refusing to overwrite.`, `exit=1`.
 
 Clean up:
 ```bash
-rm -rf projects/edit-test-clips
+rm -rf projects/clips
 ```
 
 - [ ] **Step 6: Commit**
@@ -483,18 +488,31 @@ Expected: no output, exit 0.
 
 - [ ] **Step 3: Test delegation on a stub project**
 
-The full e2e would call the agent. To test delegation without the agent, create a project with a pre-baked `edl.json` and `metadata.json` so `run.sh` skips the agent and goes straight to compile. Use the existing `testdata/` fixtures:
+Prerequisite: build the Go CLIs first (`bin/` is gitignored):
+```bash
+export PATH=$HOME/go-install/go/bin:$PATH
+go build -o bin/analyze ./cmd/analyze
+go build -o bin/compile ./cmd/compile
+go build -o bin/render  ./cmd/render
+```
+
+To test delegation without calling the OpenCode agent, pre-bake `edl.json` and `metadata.json` from the `testdata/` fixtures (with paths adjusted to the symlink) so `run.sh` skips the agent and goes straight to compile:
 
 ```bash
 rm -rf projects/edit-test-delegation
+sed 's|testdata/clip_short.mp4|footage/clip_short.mp4|g' \
+    testdata/clip_short.edl.handwritten.json \
+    > projects/edit-test-delegation/edl.json
+sed 's|testdata/clip_short.mp4|footage/clip_short.mp4|g' \
+    testdata/clip_short.metadata.json \
+    > projects/edit-test-delegation/metadata.json
+# Copy the footage so the manifest's path matches the symlink target:
 mkdir -p projects/edit-test-delegation/footage
-ln -s /home/ah64/apps/mlt-pipeline/testdata/clip_short.mp4 projects/edit-test-delegation/footage/clip_short.mp4
-# Use a wrapper around edit.sh that injects a fake project name + skips Kdenlive.
-# Simplest: invoke the script with the test project name explicitly.
+ln -s "$(pwd)/testdata/clip_short.mp4" projects/edit-test-delegation/footage/clip_short.mp4
 ./edit.sh /tmp/edit-test/clips edit-test-delegation 2>&1 | tail -20
 ```
 
-Expected: `run.sh` runs, sees `edl.json` and `metadata.json` missing, calls the agent, may succeed or fail. That's OK — we just want to confirm `run.sh` was actually invoked. Look for `=== mlt-pipeline: edit-test-delegation ===` in the output.
+Expected: `run.sh` runs, `=== mlt-pipeline: edit-test-delegation ===` appears in the output, Stages 1–4 reach compile. (The OpenCode agent is skipped because `edl.json` already exists.)
 
 Clean up: `rm -rf projects/edit-test-delegation`
 
