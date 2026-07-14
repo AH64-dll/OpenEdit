@@ -65,8 +65,8 @@ $ ./edit.sh ~/Videos/wedding-raw
 ./edit.sh <source> [<project-name>] [--render] [--force]
 ```
 
-- `<source>` (required) — a directory containing raw video files, OR a single video file. Supported extensions: `.mp4`, `.mov`, `.mkv`, `.webm`.
-- `<project-name>` (optional) — overrides the default name. Default is `basename <source>` with extension stripped.
+- `<source>` (required) — a directory containing raw video files, OR a single video file. Supported extensions: `.mp4`, `.mov`, `.mkv`, `.webm`. (Only the last extension is stripped when deriving the default project name; e.g., `clip.tar.gz` → `clip.tar`.)
+- `<project-name>` (optional) — overrides the default name. Default is `basename <source>` with the last extension stripped. Spaces and unsafe characters in the derived name are replaced: spaces → `-`, characters outside `[A-Za-z0-9_-]` are stripped.
 - `--render` — also runs the final `melt` render to produce `final.mp4` (in addition to `preview.mp4`). Passed through to `run.sh`.
 - `--force` — wipe existing project outputs (`metadata.json`, `edl.json`, `edl.failed.json`, `project.mlt`, `preview.mp4`, `final.mp4`) and start over. Does NOT remove symlinks in `footage/`. To re-point symlinks, `rm -rf projects/<name>/footage` first.
 - `-h`, `--help` — print usage and exit 0.
@@ -139,7 +139,7 @@ Sibling of `run.sh`, ~50 lines. Sections:
 3. **Path resolution** — `ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)`. Derive `PROJECT_NAME` from `basename <source>` with extension stripped, if not given explicitly. Sanitize the name (replace spaces with `-`, strip non-`[A-Za-z0-9_-]`) so it's a safe directory name.
 4. **Validation** — `<source>` must exist and be readable. If a single file is passed, the project name is the file's stem, and the project will contain a single symlink to that file.
 5. **Setup** — `mkdir -p projects/$PROJECT_NAME/footage`, then for each video file in `<source>`, `ln -s` it into `footage/`. Skip files that are already correctly symlinked (idempotent). Refuse to overwrite a real (non-symlink) file in `footage/` unless `--force`.
-6. **Force handling** — if `--force`, delete `metadata.json`, `edl.json`, `edl.failed.json`, `project.mlt`, `preview.mp4`, `final.mp4`, plus `*.lck` files from `projects/$PROJECT_NAME/`. Leave `footage/` symlinks alone.
+6. **Force handling** — if `--force`, delete `metadata.json`, `edl.json`, `edl.failed.json`, `project.mlt`, `preview.mp4`, `final.mp4`, plus any `*.lck` lock files (melt's runtime locks) from `projects/$PROJECT_NAME/`. Leave `footage/` symlinks alone.
 7. **Delegation** — call `./run.sh $PROJECT_NAME` with `--render` passthrough if set. Capture exit code.
 8. **Open** — if `project.mlt` exists, `xdg-open projects/$PROJECT_NAME/project.mlt &` (background, so the script exits cleanly even if Kdenlive is still loading). If `project.mlt` is missing, print error and exit non-zero (do NOT open Kdenlive on a failed project).
 
@@ -192,13 +192,13 @@ Step by step, when the user runs `./edit.sh ~/Videos/wedding-raw`:
 | `footage/` contains a real file (not a symlink) | `edit.sh: projects/<name>/footage/<file> is not a symlink. Refusing to overwrite. Pass --force to wipe the project and start over.` → exit 1 |
 | Unknown flag | `edit.sh: unknown flag: <flag>` + usage → exit 2 |
 | `run.sh` fails (agent produces no `edl.json`, etc.) | Bubbles up; `edit.sh` does NOT open Kdenlive. Exits with `run.sh`'s exit code. |
-| `project.mlt` missing after `run.sh` succeeds | Should not happen if `run.sh` succeeded, but defensive check: `edit.sh: project.mlt not created` → exit 1 |
+| `project.mlt` missing after `run.sh` succeeds | Defensive check (in practice `run.sh` would have exited non-zero already): `edit.sh: project.mlt not created` → exit 1 |
 | `xdg-open` not available | Bubbles up as `xdg-open: command not found`; user is on a system without a desktop. Exit code is `xdg-open`'s exit code, but the project is still on disk. |
 | Kdenlive not installed / not associated with `.mlt` | Out of scope. `xdg-open` delegates to whatever handles `.mlt`. The README documents that Kdenlive is required. |
 | Single-file source | Detected and handled: project name = file stem, single symlink in `footage/`. |
 | Permission denied writing to `projects/<name>/` | Bubbles up as `mkdir: cannot create directory` from bash. `set -e` exits with that error. |
 | `--force` given, but `footage/` contains real files | `--force` only wipes outputs, not `footage/`. To re-point symlinks, `rm -rf projects/<name>/footage` first. Documented in `--help` and README. |
-| Project name collision (different source dir, same name) | If the existing project's `footage/` is correctly symlinked to the same source, OK (re-run). If symlinks point to a different source, error: `edit.sh: projects/<name>/footage/<file> already symlinked to <old-source>, expected <new-source>. Pass --force, or rm -rf projects/<name>/footage` → exit 1. |
+| Project name collision (different source dir, same name) | If the existing project's `footage/` is correctly symlinked to the same source, OK (re-run). If symlinks point to a different source, error: `edit.sh: projects/<name>/footage/<file> already symlinked to <old-source>, expected <new-source>. To re-point, run: rm -rf projects/<name>/footage` → exit 1. (Note: `--force` does not re-point symlinks — it only wipes outputs. To re-point, the user must `rm -rf footage/` first.) |
 
 ## Testing
 
