@@ -413,12 +413,12 @@ Expected: no output, exit 0.
 Clean any previous test project, then:
 
 ```bash
-rm -rf projects/edit-test-clips projects/my-cool-cut
+rm -rf projects/clips projects/my-cool-cut
 ./edit.sh /tmp/edit-test/clips
-ls -la projects/edit-test-clips/footage/
+ls -la projects/clips/footage/
 ```
 
-Expected: two symlinks (`clip1.mp4 -> /tmp/edit-test/clips/clip1.mp4`, `clip2.mov -> ...`), and the `edit.sh` script reports `symlinked 2 file(s)`.
+Expected: two symlinks (`clip1.mp4 -> /tmp/edit-test/clips/clip1.mp4`, `clip2.mov -> ...`), and the `edit.sh` script reports `symlinked 2 file(s)`. (The project name is `clips` — the basename of the source dir.)
 
 - [ ] **Step 4: Test idempotency**
 
@@ -431,8 +431,11 @@ Expected: `symlinks already exist; skipping`, exit 0.
 
 - [ ] **Step 5: Test the "real file in the way" refusal**
 
+Important: do NOT use `echo > projects/clips/footage/clip1.mp4` because that path is a symlink and the echo would follow it, overwriting the source file. Instead, remove the symlink first and then create a real file at the same path:
+
 ```bash
-echo "I am a real file" > projects/edit-test-clips/footage/clip1.mp4
+rm projects/clips/footage/clip1.mp4
+echo "I am a real file" > projects/clips/footage/clip1.mp4
 ./edit.sh /tmp/edit-test/clips 2>&1; echo "exit=$?"
 ```
 
@@ -440,7 +443,7 @@ Expected: `is not a symlink. Refusing to overwrite.`, `exit=1`.
 
 Clean up:
 ```bash
-rm -rf projects/edit-test-clips
+rm -rf projects/clips
 ```
 
 - [ ] **Step 6: Commit**
