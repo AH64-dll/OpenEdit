@@ -193,3 +193,11 @@ if [[ $linked_count -gt 0 ]]; then
 else
     echo "edit.sh: symlinks already exist; skipping" >&2
 fi
+
+# --- Delegate to run.sh ---------------------------------------------------
+
+run_args=("$ROOT/run.sh" "$PROJECT_NAME")
+if [[ $DO_RENDER -eq 1 ]]; then
+    run_args+=(--render)
+fi
+"${run_args[@]}"
