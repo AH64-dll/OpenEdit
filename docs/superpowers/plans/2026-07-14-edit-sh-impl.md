@@ -488,18 +488,31 @@ Expected: no output, exit 0.
 
 - [ ] **Step 3: Test delegation on a stub project**
 
-The full e2e would call the agent. To test delegation without the agent, create a project with a pre-baked `edl.json` and `metadata.json` so `run.sh` skips the agent and goes straight to compile. Use the existing `testdata/` fixtures:
+Prerequisite: build the Go CLIs first (`bin/` is gitignored):
+```bash
+export PATH=$HOME/go-install/go/bin:$PATH
+go build -o bin/analyze ./cmd/analyze
+go build -o bin/compile ./cmd/compile
+go build -o bin/render  ./cmd/render
+```
+
+To test delegation without calling the OpenCode agent, pre-bake `edl.json` and `metadata.json` from the `testdata/` fixtures (with paths adjusted to the symlink) so `run.sh` skips the agent and goes straight to compile:
 
 ```bash
 rm -rf projects/edit-test-delegation
+sed 's|testdata/clip_short.mp4|footage/clip_short.mp4|g' \
+    testdata/clip_short.edl.handwritten.json \
+    > projects/edit-test-delegation/edl.json
+sed 's|testdata/clip_short.mp4|footage/clip_short.mp4|g' \
+    testdata/clip_short.metadata.json \
+    > projects/edit-test-delegation/metadata.json
+# Copy the footage so the manifest's path matches the symlink target:
 mkdir -p projects/edit-test-delegation/footage
-ln -s /home/ah64/apps/mlt-pipeline/testdata/clip_short.mp4 projects/edit-test-delegation/footage/clip_short.mp4
-# Use a wrapper around edit.sh that injects a fake project name + skips Kdenlive.
-# Simplest: invoke the script with the test project name explicitly.
+ln -s "$(pwd)/testdata/clip_short.mp4" projects/edit-test-delegation/footage/clip_short.mp4
 ./edit.sh /tmp/edit-test/clips edit-test-delegation 2>&1 | tail -20
 ```
 
-Expected: `run.sh` runs, sees `edl.json` and `metadata.json` missing, calls the agent, may succeed or fail. That's OK — we just want to confirm `run.sh` was actually invoked. Look for `=== mlt-pipeline: edit-test-delegation ===` in the output.
+Expected: `run.sh` runs, `=== mlt-pipeline: edit-test-delegation ===` appears in the output, Stages 1–4 reach compile. (The OpenCode agent is skipped because `edl.json` already exists.)
 
 Clean up: `rm -rf projects/edit-test-delegation`
 
