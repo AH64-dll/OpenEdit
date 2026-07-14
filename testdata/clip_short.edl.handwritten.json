@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "targetDurationSec": 6.0,
+  "segments": [
+    { "source": "/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4", "inSec": 0,   "outSec": 2.0, "transition": "cut" },
+    { "source": "/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4", "inSec": 4,   "outSec": 6.0, "transition": "fade" },
+    { "source": "/home/ah64/apps/mlt-pipeline-feature/testdata/clip_short.mp4", "inSec": 7,   "outSec": 9.0, "transition": "cut" }
+  ]
+}
