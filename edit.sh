@@ -146,12 +146,50 @@ else
     exit 2
 fi
 
-# --- (later tasks will add setup, delegation, and open) -------------------
+# --- Setup: symlink footage ----------------------------------------------
 
-echo "edit.sh: validated source OK" >&2
-echo "  source       = $SOURCE" >&2
-echo "  project_name = $PROJECT_NAME" >&2
-echo "  files        = ${#VIDEO_FILES[@]}" >&2
-echo "  render       = $DO_RENDER" >&2
-echo "  force        = $DO_FORCE" >&2
-exit 0
+PROJECT_DIR="$ROOT/projects/$PROJECT_NAME"
+FOOTAGE_DIR="$PROJECT_DIR/footage"
+mkdir -p "$FOOTAGE_DIR"
+
+# Wipe outputs (not footage/) if --force.
+if [[ $DO_FORCE -eq 1 ]]; then
+    for out in metadata.json edl.json edl.failed.json project.mlt preview.mp4 final.mp4; do
+        rm -f "$PROJECT_DIR/$out"
+    done
+    # Melt's runtime lock files.
+    find "$PROJECT_DIR" -maxdepth 1 -name '*.lck' -type f -delete 2>/dev/null || true
+fi
+
+# Link each video file. If a symlink already points to the right source,
+# skip. If a real file is in the way, refuse (unless --force wipes it;
+# but --force doesn't touch footage/, so the user must rm -rf footage/
+# themselves to re-point).
+linked_count=0
+for f in "${VIDEO_FILES[@]}"; do
+    base="$(basename "$f")"
+    target="$FOOTAGE_DIR/$base"
+    if [[ -L "$target" ]]; then
+        existing="$(readlink "$target")"
+        if [[ "$existing" == "$f" ]]; then
+            continue  # already correctly linked
+        else
+            echo "edit.sh: $target already symlinked to $existing, expected $f" >&2
+            echo "         To re-point, run: rm -rf $FOOTAGE_DIR" >&2
+            exit 1
+        fi
+    elif [[ -e "$target" ]]; then
+        echo "edit.sh: $target is not a symlink. Refusing to overwrite." >&2
+        echo "         (--force does not touch footage/; rm -rf $FOOTAGE_DIR, or pick a different project name.)" >&2
+        exit 1
+    else
+        ln -s "$f" "$target"
+        linked_count=$((linked_count + 1))
+    fi
+done
+
+if [[ $linked_count -gt 0 ]]; then
+    echo "edit.sh: symlinked $linked_count file(s) into projects/$PROJECT_NAME/footage/" >&2
+else
+    echo "edit.sh: symlinks already exist; skipping" >&2
+fi
