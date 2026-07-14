@@ -86,7 +86,72 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# --- Sanity checks (placeholders, filled in by later tasks) ---------------
+# --- Derive project name --------------------------------------------------
 
-echo "edit.sh skeleton OK; source=$SOURCE project_name=$PROJECT_NAME render=$DO_RENDER force=$DO_FORCE" >&2
+sanitize_name() {
+    # Replace spaces with '-', strip characters outside [A-Za-z0-9_-].
+    local name="$1"
+    name="${name// /-}"
+    name="${name//[^A-Za-z0-9_-]/}"
+    # Trim leading/trailing dashes/underscores.
+    name="${name#[-+_]}"
+    name="${name%[-+_]}"
+    echo "$name"
+}
+
+if [[ -z "$PROJECT_NAME" ]]; then
+    if [[ -f "$SOURCE" ]]; then
+        # Single file: project name = file stem (last extension stripped).
+        PROJECT_NAME="$(basename "$SOURCE")"
+        PROJECT_NAME="${PROJECT_NAME%.*}"
+    else
+        # Directory: project name = directory basename.
+        PROJECT_NAME="$(basename "$SOURCE")"
+    fi
+    PROJECT_NAME="$(sanitize_name "$PROJECT_NAME")"
+    if [[ -z "$PROJECT_NAME" ]]; then
+        echo "edit.sh: cannot derive a project name from '$SOURCE'" >&2
+        exit 2
+    fi
+fi
+
+# --- Validate source -------------------------------------------------------
+
+if [[ ! -e "$SOURCE" ]]; then
+    echo "edit.sh: $SOURCE: not found" >&2
+    exit 2
+fi
+if [[ ! -r "$SOURCE" ]]; then
+    echo "edit.sh: $SOURCE: not readable" >&2
+    exit 2
+fi
+
+# Collect video files. If SOURCE is a file, treat it as a one-clip project.
+declare -a VIDEO_FILES=()
+if [[ -f "$SOURCE" ]]; then
+    case "${SOURCE,,}" in
+        *.mp4|*.mov|*.mkv|*.webm) VIDEO_FILES=("$SOURCE") ;;
+        *) echo "edit.sh: $SOURCE: unsupported file type (need .mp4/.mov/.mkv/.webm)" >&2; exit 2 ;;
+    esac
+elif [[ -d "$SOURCE" ]]; then
+    while IFS= read -r -d '' f; do
+        VIDEO_FILES+=("$f")
+    done < <(find "$SOURCE" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.mkv' -o -iname '*.webm' \) -print0 | sort -z)
+    if [[ ${#VIDEO_FILES[@]} -eq 0 ]]; then
+        echo "edit.sh: $SOURCE: no .mp4/.mov/.mkv/.webm files found" >&2
+        exit 2
+    fi
+else
+    echo "edit.sh: $SOURCE: not a file or directory" >&2
+    exit 2
+fi
+
+# --- (later tasks will add setup, delegation, and open) -------------------
+
+echo "edit.sh: validated source OK" >&2
+echo "  source       = $SOURCE" >&2
+echo "  project_name = $PROJECT_NAME" >&2
+echo "  files        = ${#VIDEO_FILES[@]}" >&2
+echo "  render       = $DO_RENDER" >&2
+echo "  force        = $DO_FORCE" >&2
 exit 0
