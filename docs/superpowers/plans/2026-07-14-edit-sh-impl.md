@@ -386,7 +386,7 @@ for f in "${VIDEO_FILES[@]}"; do
         fi
     elif [[ -e "$target" ]]; then
         echo "edit.sh: $target is not a symlink. Refusing to overwrite." >&2
-        echo "         Pass --force and rm -rf $FOOTAGE_DIR, or pick a different project name." >&2
+        echo "         (--force does not touch footage/; rm -rf $FOOTAGE_DIR, or pick a different project name.)" >&2
         exit 1
     else
         ln -s "$f" "$target"
