@@ -66,6 +66,37 @@ Kdenlive opens it as an "Untitled" project. Refine the cut, save as `.kdenlive` 
 
 This skips Kdenlive and runs `melt` directly to `projects/my-clip/final.mp4`.
 
+## One-shot usage
+
+If you just have a folder of raw clips and want the pipeline to do everything end-to-end, use `edit.sh`:
+
+```bash
+./edit.sh ~/Videos/wedding-raw
+```
+
+This single command:
+
+1. Derives a project name from the folder (`wedding-raw`)
+2. Creates `projects/wedding-raw/footage/` and **symlinks** the raw clips into it (no copying)
+3. Runs the pipeline (analyze → agent → compile → render --dry-run)
+4. Opens the resulting `project.mlt` in Kdenlive (via `xdg-open`)
+
+You can override the project name, force a final render, and re-run from scratch:
+
+```bash
+./edit.sh ~/Videos/wedding-raw my-wedding --render --force
+```
+
+Flags:
+
+- `<source>` (required) — a directory of `.mp4` / `.mov` / `.mkv` / `.webm` files, or a single video file.
+- `<project-name>` (optional) — override the auto-derived name.
+- `--render` — also produce a final `final.mp4` (skip the Kdenlive refinement step entirely).
+- `--force` — wipe the existing project outputs (`metadata.json`, `edl.json`, `project.mlt`, `preview.mp4`, `final.mp4`, `*.lck`) and re-run. **Does NOT remove `footage/` symlinks.** To re-point symlinks (e.g., you want to point at a different source folder), run `rm -rf projects/<name>/footage` first.
+- `-h`, `--help` — show usage.
+
+`edit.sh` is idempotent: re-running it on the same source is a no-op (existing symlinks are detected, finished pipeline stages are skipped) and re-opens the project in Kdenlive.
+
 ## Re-running stages
 
 `run.sh` is idempotent. To re-run from scratch:
