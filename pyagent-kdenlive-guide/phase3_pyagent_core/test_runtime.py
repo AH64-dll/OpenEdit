@@ -106,5 +106,59 @@ class TestReadOps(unittest.TestCase):
         self.assertIn("end_sec", clip)
 
 
+class TestMutatingOps(unittest.TestCase):
+    """Mutating ops. Each test copies demo.kdenlive to a temp file so the
+    fixture stays clean for the rest of the suite."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.project = os.path.join(self.tmpdir, "test.kdenlive")
+        # Copy the demo fixture to the temp location.
+        with open(FIXTURES_DIR / "demo.kdenlive", "rb") as src:
+            with open(self.project, "wb") as dst:
+                dst.write(src.read())
+        self.clip_path = str(TESTDATA_CLIP)
+        if not Path(self.clip_path).exists():
+            self.skipTest(f"test clip missing: {self.clip_path}")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_import_media_returns_clip_id(self):
+        code, resp = _run_runtime(
+            "import_media", {"paths": [self.clip_path]}, self.project,
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(resp["ok"])
+        ids = resp["result"]
+        self.assertIsInstance(ids, list)
+        self.assertEqual(len(ids), 1)
+        self.assertIsInstance(ids[0], str)
+
+    def test_append_clip_after_import(self):
+        # Import a clip, then append it. The full chain from the spec.
+        code, resp = _run_runtime(
+            "import_media", {"paths": [self.clip_path]}, self.project,
+        )
+        self.assertEqual(code, 0)
+        source_id = resp["result"][0]
+
+        code, resp = _run_runtime(
+            "append_clip",
+            {"track_index": 0, "source_id": source_id,
+             "source_in_sec": 0.0, "source_out_sec": 4.0},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(resp["ok"])
+        self.assertIsInstance(resp["result"], str)
+        # The new clip id should be visible in a fresh get_timeline_summary.
+        _, summary_resp = _run_runtime("get_timeline_summary", {}, self.project)
+        clip_ids = [c["clip_id"] for c in summary_resp["result"]["clips"]]
+        self.assertIn(resp["result"], clip_ids)
+        self.assertEqual(len(summary_resp["result"]["clips"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
