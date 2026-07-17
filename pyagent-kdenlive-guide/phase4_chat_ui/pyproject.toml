@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phase4-chat-ui"
+version = "0.1.0"
+description = "pyagent Phase 4 — local FastAPI chat UI wrapping the Phase 3 pi extension runtime."
+requires-python = ">=3.14"
+dependencies = [
+    "lxml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "websockets>=13.0",
+    "watchfiles>=0.22",
+]
+
+[tool.setuptools]
+packages = ["phase4_chat_ui"]
+package-dir = {"phase4_chat_ui" = "."}

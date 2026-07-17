@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PyAgent — Kdenlive Chat</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">PyAgent</div>
+    <div class="project" id="project-path" title="project">—</div>
+    <button id="state-refresh" class="ghost-btn" title="Refresh project state">↻</button>
+  </header>
+
+  <main class="layout">
+    <section class="chat-col">
+      <div id="transcript" class="transcript" aria-live="polite"></div>
+
+      <div id="plan-slot"></div>
+
+      <form id="composer" class="composer">
+        <textarea id="prompt-input" rows="2"
+          placeholder="Tell PyAgent what to do… (Enter to send, Shift+Enter for newline)"></textarea>
+        <button type="submit" id="send-btn">Send</button>
+      </form>
+      <div id="quick-actions" class="quick-actions"></div>
+    </section>
+
+    <aside class="state-col">
+      <h2>Project State</h2>
+      <div id="state-panel" class="state-panel">
+        <p class="muted">Loading…</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
