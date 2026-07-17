@@ -8,10 +8,11 @@
 //   PYAGENT_PROJECT      path to the .kdenlive file (required)
 //   PYAGENT_AUTO_APPROVE "true" to skip the per-tool confirm prompt
 //   PYAGENT_CATALOG      path to catalog.json (default: ../phase1_knowledge_base/catalog.json)
+//   PYAGENT_LIVE         "1" to route live-capable tools through Phase 5 D-Bus sync
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
 
@@ -43,6 +44,14 @@ function isMutating(toolName: string): boolean {
   return MUTATING.has(toolName);
 }
 
+// Live-capable tools: those that D-Bus can apply directly to a running
+// Kdenlive instance (vs. file-only edits that always require a reload).
+const LIVE_CAPABLE = new Set([
+  "pyagent_import_media",
+  "pyagent_append_clip",
+  "pyagent_apply_effect",
+]);
+
 // ---- Project path resolution ----
 
 function resolveProjectPath(): string | null {
@@ -54,6 +63,42 @@ function resolveCatalogPath(): string {
   // Default: ../phase1_knowledge_base/catalog.json relative to this file.
   // Use REAL_DIR (not dirname(import.meta.url)) to handle symlinked installs.
   return resolvePath(join(REAL_DIR, "..", "phase1_knowledge_base", "catalog.json"));
+}
+
+function resolveLiveSyncDir(): string {
+  return resolvePath(join(REAL_DIR, "..", "phase5_dbus_sync"));
+}
+
+function liveSyncEnabled(): boolean {
+  return process.env.PYAGENT_LIVE === "1";
+}
+
+// Route a live-capable tool call through Phase 5's Python LiveSync, which
+// (a) tries to apply the change in-place via D-Bus, (b) falls back to the
+// Phase 3 file backend + notify-and-reload if Kdenlive is not responding.
+//
+// Returns null on success, or an error string if the live path could not be
+// taken (caller should fall through to the file-mode path).
+function liveApply(toolName: string, args: Record<string, unknown>): string | null {
+  if (!liveSyncEnabled()) return "PYAGENT_LIVE not set";
+  const project = resolveProjectPath();
+  if (!project) return "PYAGENT_PROJECT not set";
+  const liveDir = resolveLiveSyncDir();
+  const payload = JSON.stringify({ tool: toolName, args, project });
+  const r = spawnSync(
+    "python3",
+    ["-m", "phase5_dbus_sync", "apply"],
+    {
+      cwd: resolvePath(join(liveDir, "..")),
+      input: payload,
+      encoding: "utf8",
+      timeout: 10_000,
+    },
+  );
+  if (r.status !== 0) {
+    return `live sync failed (status=${r.status}, stderr=${(r.stderr || "").slice(0, 200)})`;
+  }
+  return null;
 }
 
 function loadSystemPrompt(catalogPath: string): string {
@@ -88,6 +133,7 @@ interface RuntimeResult {
   result?: unknown;
   error?: string;
   fatal?: boolean;
+  mode?: "live" | "file";
 }
 
 function runRuntime(
@@ -134,6 +180,14 @@ async function callRuntime(
   const catalog = resolveCatalogPath();
   const toolName = `pyagent_${op}`;
   const autoApprove = process.env.PYAGENT_AUTO_APPROVE === "true";
+
+  if (liveSyncEnabled() && LIVE_CAPABLE.has(toolName)) {
+    const liveErr = liveApply(toolName, args);
+    if (liveErr === null) {
+      return { ok: true, mode: "live" } as RuntimeResult;
+    }
+    ctx?.ui?.notify?.(`Live sync unavailable (${liveErr}); using file-mode.`, "warn");
+  }
 
   if (isMutating(toolName) && !autoApprove) {
     const ok = await ctx.ui.confirm(

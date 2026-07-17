@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phase5-dbus-sync"
+version = "0.1.0"
+description = "pyagent Phase 5 — live D-Bus sync for Kdenlive."
+requires-python = ">=3.14"
+dependencies = [
+    "lxml>=6.0",
+    "jeepney>=0.9",
+]
+
+[tool.setuptools]
+packages = ["phase5_dbus_sync"]
+package-dir = {"phase5_dbus_sync" = "."}
