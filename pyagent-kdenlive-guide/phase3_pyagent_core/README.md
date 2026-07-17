@@ -15,7 +15,7 @@ This:
 1. Symlinks the extension into `~/.pi/agent/extensions/pyagent/` so pi
    auto-discovers it.
 2. Installs the Python runtime in editable mode so `python3 -m
-   pyagent_runtime` is importable from anywhere.
+   phase3_pyagent_core` is importable from anywhere.
 
 ## Use
 
