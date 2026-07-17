@@ -101,6 +101,38 @@ function liveApply(toolName: string, args: Record<string, unknown>): string | nu
   return null;
 }
 
+// ---- Phase 6 render + QC ----
+
+function resolveRenderQcDir(): string {
+  return resolvePath(join(REAL_DIR, "..", "phase6_render_qc"));
+}
+
+// Call into the Phase 6 Python module. Args become CLI flags; the module
+// writes JSON to stdout and exits 0 on success. Caller parses the result.
+function callPhase6(module: string, args: string[]): RuntimeResult {
+  const qcDir = resolveRenderQcDir();
+  const r = spawnSync(
+    "python3",
+    ["-m", `phase6_render_qc.${module}`, ...args],
+    {
+      cwd: resolvePath(join(qcDir, "..")),
+      encoding: "utf8",
+      timeout: 600_000,  // 10 min upper bound; melt proxy renders in seconds
+    },
+  );
+  if (r.status !== 0) {
+    return {
+      ok: false,
+      error: `phase6.${module} failed (status=${r.status}): ${(r.stderr || r.stdout || "").slice(0, 400)}`,
+    };
+  }
+  try {
+    return { ok: true, result: JSON.parse(r.stdout || "{}"), mode: "render-qc" as const };
+  } catch (e: any) {
+    return { ok: false, error: `phase6.${module} returned non-JSON: ${(r.stdout || "").slice(0, 200)}` };
+  }
+}
+
 function loadSystemPrompt(catalogPath: string): string {
   const tmpl = readFileSync(
     resolvePath(join(REAL_DIR, "system_prompt.md")),
@@ -133,7 +165,7 @@ interface RuntimeResult {
   result?: unknown;
   error?: string;
   fatal?: boolean;
-  mode?: "live" | "file";
+  mode?: "live" | "file" | "render-qc";
 }
 
 function runRuntime(
@@ -382,5 +414,149 @@ export default function (pi: ExtensionAPI): void {
       path: Type.Optional(Type.String()),
     }),
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("save", params, ctx),
+  });
+
+  // ---- Phase 6: render + QC tools ----
+  // These do NOT mutate the project — they read it. Listed in the order
+  // recommended by PHASE_6 §"The conversational QC loop": render first,
+  // then cheap deterministic checks, then expensive visual / audio samples.
+
+  // Tool 13: render (proxy or final).
+  pi.registerTool({
+    name: "pyagent_render",
+    label: "Render project",
+    description:
+      "Render the .kdenlive project to an MP4. " +
+      "mode='proxy' (640x360, fast) is the default for iteration; " +
+      "mode='final' uses the project's own profile and is slow. " +
+      "Optional in_sec/out_sec for a ranged render.",
+    parameters: Type.Object({
+      mode: Type.Union([Type.Literal("proxy"), Type.Literal("final")], { default: "proxy" }),
+      output: Type.String({ description: "absolute path for the rendered MP4" }),
+      in_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const project = resolveProjectPath();
+      if (!project) return { ok: false, error: "PYAGENT_PROJECT not set" };
+      const args = ["--project", project, "--output", params.output, "--mode", params.mode];
+      if (params.in_sec !== undefined) args.push("--in-sec", String(params.in_sec));
+      if (params.out_sec !== undefined) args.push("--out-sec", String(params.out_sec));
+      return callPhase6("render", args);
+    },
+  });
+
+  // Tool 14: get_thumbnail.
+  pi.registerTool({
+    name: "pyagent_get_thumbnail",
+    label: "Get thumbnail",
+    description:
+      "Extract a single JPEG frame at the given timestamp. " +
+      "Output is capped at <=480px on the long edge, ~70 quality, <250KB. " +
+      "Use this to visually verify a frame without pulling full-resolution data.",
+    parameters: Type.Object({
+      video: Type.String({ description: "path to the rendered video (from pyagent_render)" }),
+      timestamp_sec: Type.Number({ minimum: 0 }),
+      output: Type.String({ description: "absolute path for the output JPEG" }),
+    }),
+    execute: async (_toolCallId, params) => callPhase6("thumbnails", [
+      "--video", params.video,
+      "--timestamp-sec", String(params.timestamp_sec),
+      "--output", params.output,
+    ]),
+  });
+
+  // Tool 15: get_qc_crop.
+  pi.registerTool({
+    name: "pyagent_get_qc_crop",
+    label: "Get QC crop",
+    description:
+      "Extract a small crop of the frame at the given timestamp. " +
+      "region = {x, y, w, h} in source pixels. Same size/quality caps as get_thumbnail.",
+    parameters: Type.Object({
+      video: Type.String(),
+      timestamp_sec: Type.Number({ minimum: 0 }),
+      region: Type.Object({
+        x: Type.Integer({ minimum: 0 }),
+        y: Type.Integer({ minimum: 0 }),
+        w: Type.Integer({ minimum: 1 }),
+        h: Type.Integer({ minimum: 1 }),
+      }),
+      output: Type.String(),
+    }),
+    execute: async (_toolCallId, params) => callPhase6("thumbnails", [
+      "--video", params.video,
+      "--timestamp-sec", String(params.timestamp_sec),
+      "--region", JSON.stringify(params.region),
+      "--output", params.output,
+    ]),
+  });
+
+  // Tool 16: list_black_frames.
+  pi.registerTool({
+    name: "pyagent_list_black_frames",
+    label: "List black frames",
+    description:
+      "Return ranges where the average luma is below `threshold` (0..1) " +
+      "for at least `min_sec` consecutive seconds. Cheap deterministic check; " +
+      "use before pulling thumbnails.",
+    parameters: Type.Object({
+      video: Type.String(),
+      in_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      threshold: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+      min_sec: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+    execute: async (_toolCallId, params) => callPhase6("black_frames", [
+      "--video", params.video,
+      "--in-sec", String(params.in_sec ?? 0),
+      "--out-sec", String(params.out_sec ?? 0),
+      "--threshold", String(params.threshold ?? 0.10),
+      "--min-sec", String(params.min_sec ?? 0.5),
+    ]),
+  });
+
+  // Tool 17: list_silence.
+  pi.registerTool({
+    name: "pyagent_list_silence",
+    label: "List silence",
+    description:
+      "Return ranges where audio falls below `threshold_db` dB for at least " +
+      "`min_sec` consecutive seconds. Cheap deterministic check.",
+    parameters: Type.Object({
+      video: Type.String(),
+      in_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      threshold_db: Type.Optional(Type.Number({ maximum: 0 })),
+      min_sec: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+    execute: async (_toolCallId, params) => callPhase6("audio", [
+      "silence",
+      "--video", params.video,
+      "--in-sec", String(params.in_sec ?? 0),
+      "--out-sec", String(params.out_sec ?? 0),
+      "--threshold-db", String(params.threshold_db ?? -35),
+      "--min-sec", String(params.min_sec ?? 1.0),
+    ]),
+  });
+
+  // Tool 18: get_audio_levels.
+  pi.registerTool({
+    name: "pyagent_get_audio_levels",
+    label: "Get audio levels",
+    description:
+      "Return RMS and peak dB for the audio over the requested range. " +
+      "Numeric only — no waveform image.",
+    parameters: Type.Object({
+      video: Type.String(),
+      in_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+    execute: async (_toolCallId, params) => callPhase6("audio", [
+      "levels",
+      "--video", params.video,
+      "--in-sec", String(params.in_sec ?? 0),
+      "--out-sec", String(params.out_sec ?? 0),
+    ]),
   });
 }

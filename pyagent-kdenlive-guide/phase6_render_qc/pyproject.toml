@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phase6_render_qc"
+version = "0.1.0"
+description = "Phase 6: render + QC for the .kdenlive project via melt/ffmpeg"
+requires-python = ">=3.11"
+dependencies = [
+  "jeepney>=0.9",
+  "lxml>=5.0",
+]
+
+[tool.setuptools]
+packages = [
+  "phase6_render_qc",
+  "phase6_render_qc.render",
+  "phase6_render_qc.thumbnails",
+  "phase6_render_qc.audio",
+  "phase6_render_qc.black_frames",
+  "phase6_render_qc.qc_loop",
+]
