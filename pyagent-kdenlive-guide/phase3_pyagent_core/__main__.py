@@ -45,6 +45,13 @@ OP_TABLE: dict[str, str] = {
     # "list_catalog" handled specially (not a backend op).
 }
 
+# Ops that mutate the project. The runtime auto-saves after any of these so
+# subsequent subprocess calls see the change.
+MUTATING_OPS: frozenset[str] = frozenset({
+    "import_media", "insert_clip", "append_clip", "move_clip", "trim_clip",
+    "delete_clip", "add_transition", "apply_effect", "add_marker", "save",
+})
+
 
 def _emit(response: dict[str, Any]) -> None:
     """Write one JSON line to stdout, exactly one, no trailing whitespace."""
@@ -87,6 +94,11 @@ def run_op(op: str, args: dict, project_path: str, catalog_path: str) -> tuple[i
         )
         method = getattr(backend, OP_TABLE[op])
         result = method(**args)
+        # Auto-save after any mutating op so subsequent subprocess calls
+        # see the change. The `save` op is a no-op (already saved). Read-only
+        # ops do not save (they do not mutate).
+        if op in MUTATING_OPS or op == "save":
+            backend.save()
         return 0, {"ok": True, "result": result}
     except ValidationError as e:
         return 1, {"ok": False, "error": str(e)}
