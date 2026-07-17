@@ -144,4 +144,163 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({}),
     execute: async (_args, ctx) => callRuntime("get_project_info", {}, ctx),
   });
+
+  // Tool 2: get_timeline_summary (read-only).
+  pi.registerTool({
+    name: "pyagent_get_timeline_summary",
+    label: "Get timeline summary",
+    description:
+      "Get the current timeline: tracks, clips, transitions, markers. " +
+      "Call this BEFORE planning any edit (per the system prompt rules).",
+    parameters: Type.Object({}),
+    execute: async (_args, ctx) => callRuntime("get_timeline_summary", {}, ctx),
+  });
+
+  // Tool 13: list_catalog (read-only).
+  pi.registerTool({
+    name: "pyagent_list_catalog",
+    label: "List catalog",
+    description:
+      "Look up available effects, transitions, or generators from the catalog. " +
+      "Use kind='effects'|'transitions'|'generators' and an optional filter substring.",
+    parameters: Type.Object({
+      kind: Type.String({ enum: ["effects", "transitions", "generators"] }),
+      filter: Type.Optional(Type.String()),
+    }),
+    execute: async (args, ctx) => callRuntime("list_catalog", args as any, ctx),
+  });
+
+  // Tool 3: import_media.
+  pi.registerTool({
+    name: "pyagent_import_media",
+    label: "Import media",
+    description: "Add media files to the project bin. Returns the new source ids.",
+    parameters: Type.Object({
+      paths: Type.Array(Type.String(), { minItems: 1 }),
+    }),
+    execute: async (args, ctx) => callRuntime("import_media", args as any, ctx),
+  });
+
+  // Tool 4: insert_clip.
+  pi.registerTool({
+    name: "pyagent_insert_clip",
+    label: "Insert clip",
+    description: "Insert a clip from the bin onto the timeline at the given position.",
+    parameters: Type.Object({
+      track_index: Type.Integer({ minimum: 0 }),
+      position_sec: Type.Number({ minimum: 0 }),
+      source_id: Type.String(),
+      source_in_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      source_out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+    execute: async (args, ctx) => callRuntime("insert_clip", args as any, ctx),
+  });
+
+  // Tool 5: append_clip.
+  pi.registerTool({
+    name: "pyagent_append_clip",
+    label: "Append clip",
+    description: "Append a clip to the end of the given track.",
+    parameters: Type.Object({
+      track_index: Type.Integer({ minimum: 0 }),
+      source_id: Type.String(),
+      source_in_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      source_out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+    execute: async (args, ctx) => callRuntime("append_clip", args as any, ctx),
+  });
+
+  // Tool 6: move_clip.
+  pi.registerTool({
+    name: "pyagent_move_clip",
+    label: "Move clip",
+    description: "Move a clip to a different track and/or position.",
+    parameters: Type.Object({
+      clip_id: Type.String(),
+      new_track: Type.Integer({ minimum: 0 }),
+      new_position_sec: Type.Number({ minimum: 0 }),
+    }),
+    execute: async (args, ctx) => callRuntime("move_clip", args as any, ctx),
+  });
+
+  // Tool 7: trim_clip.
+  pi.registerTool({
+    name: "pyagent_trim_clip",
+    label: "Trim clip",
+    description:
+      "Trim a clip's in/out points. Both in_sec and out_sec are required " +
+      "and must be within the source clip's range.",
+    parameters: Type.Object({
+      clip_id: Type.String(),
+      new_in_sec: Type.Number({ minimum: 0 }),
+      new_out_sec: Type.Number({ minimum: 0 }),
+    }),
+    execute: async (args, ctx) => callRuntime("trim_clip", args as any, ctx),
+  });
+
+  // Tool 8: delete_clip.
+  pi.registerTool({
+    name: "pyagent_delete_clip",
+    label: "Delete clip",
+    description: "Remove a clip from the timeline.",
+    parameters: Type.Object({
+      clip_id: Type.String(),
+    }),
+    execute: async (args, ctx) => callRuntime("delete_clip", args as any, ctx),
+  });
+
+  // Tool 9: add_transition.
+  pi.registerTool({
+    name: "pyagent_add_transition",
+    label: "Add transition",
+    description:
+      "Add a transition between two adjacent clips on the same track. " +
+      "kind must be a transition id from the catalog (e.g. 'dissolve', 'composite', 'wipe').",
+    parameters: Type.Object({
+      clip_a_id: Type.String(),
+      clip_b_id: Type.String(),
+      kind: Type.Optional(Type.String()),
+      duration_sec: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+    execute: async (args, ctx) => callRuntime("add_transition", args as any, ctx),
+  });
+
+  // Tool 10: apply_effect.
+  pi.registerTool({
+    name: "pyagent_apply_effect",
+    label: "Apply effect",
+    description:
+      "Apply an effect to a clip. effect_id must come from the catalog " +
+      "(use pyagent_list_catalog to look it up). params is {name: value}.",
+    parameters: Type.Object({
+      clip_id: Type.String(),
+      effect_id: Type.String(),
+      params: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    }),
+    execute: async (args, ctx) => callRuntime("apply_effect", args as any, ctx),
+  });
+
+  // Tool 11: add_marker.
+  pi.registerTool({
+    name: "pyagent_add_marker",
+    label: "Add marker",
+    description: "Add a marker (or guide/chapter) at the given position.",
+    parameters: Type.Object({
+      position_sec: Type.Number({ minimum: 0 }),
+      label: Type.String(),
+      kind: Type.Optional(Type.String({ enum: ["marker", "guide", "chapter"] })),
+    }),
+    execute: async (args, ctx) => callRuntime("add_marker", args as any, ctx),
+  });
+
+  // Tool 12: save_project.
+  pi.registerTool({
+    name: "pyagent_save_project",
+    label: "Save project",
+    description: "Write the .kdenlive file to disk. Use this when you are done editing.",
+    parameters: Type.Object({
+      path: Type.Optional(Type.String()),
+    }),
+    execute: async (args, ctx) => callRuntime("save", args as any, ctx),
+  });
 }
