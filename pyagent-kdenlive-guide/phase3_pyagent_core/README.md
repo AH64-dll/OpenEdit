@@ -35,6 +35,21 @@ The runtime tests need no pi or LLM. The integration test needs an LLM
 provider configured (e.g., `OPENAI_API_KEY` or `GEMINI_API_KEY`) and
 will skip if none is set.
 
+## Test output
+
+```text
+test_append_clip_after_import ... ok
+test_apply_effect_with_invalid_id_returns_fix_hint ... ok
+test_apply_effect_with_valid_id ... ok
+... (~30 tests, 0 failures)
+test_full_crossfade_chain ... ok
+test_help_flag_prints_usage ... ok
+test_humanize_no_args ... ok
+test_prompt_contains_catalog_slice ... ok
+... (extension tests, ~6 tests)
+test_crossfade_chain_runs_end_to_end ... SKIPPED (no provider)
+```
+
 ## See also
 
 - `DESIGN.md` — the design spec
