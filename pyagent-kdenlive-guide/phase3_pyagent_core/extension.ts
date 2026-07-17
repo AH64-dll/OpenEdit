@@ -12,8 +12,17 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawn, execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
+
+// When this extension is loaded via a symlink (the install path:
+// `~/.pi/agent/extensions/pyagent.ts` -> `phase3_pyagent_core/extension.ts`),
+// `import.meta.url` resolves to the *symlink* path, not the real file. That
+// makes `dirname(import.meta.url)` point at the symlink's parent, where
+// `system_prompt.md` and the catalog do not exist. Resolve the real path
+// before deriving any other file paths.
+const REAL_FILE = realpathSync(new URL(import.meta.url).pathname);
+const REAL_DIR = dirname(REAL_FILE);
 
 // ---- Op name (pi) -> backend method (Python) ----
 
@@ -43,14 +52,13 @@ function resolveProjectPath(): string | null {
 function resolveCatalogPath(): string {
   if (process.env.PYAGENT_CATALOG) return process.env.PYAGENT_CATALOG;
   // Default: ../phase1_knowledge_base/catalog.json relative to this file.
-  return resolvePath(
-    join(dirname(new URL(import.meta.url).pathname),
-         "..", "phase1_knowledge_base", "catalog.json"));
+  // Use REAL_DIR (not dirname(import.meta.url)) to handle symlinked installs.
+  return resolvePath(join(REAL_DIR, "..", "phase1_knowledge_base", "catalog.json"));
 }
 
 function loadSystemPrompt(catalogPath: string): string {
   const tmpl = readFileSync(
-    resolvePath(join(dirname(new URL(import.meta.url).pathname), "system_prompt.md")),
+    resolvePath(join(REAL_DIR, "system_prompt.md")),
     "utf8",
   );
   // Build the slice by invoking catalog_slice via a small Python one-liner.
@@ -185,7 +193,7 @@ export default function (pi: ExtensionAPI): void {
       kind: Type.String({ enum: ["effects", "transitions", "generators"] }),
       filter: Type.Optional(Type.String()),
     }),
-    execute: async (args, ctx) => callRuntime("list_catalog", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("list_catalog", params, ctx),
   });
 
   // Tool 3: import_media.
@@ -196,7 +204,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({
       paths: Type.Array(Type.String(), { minItems: 1 }),
     }),
-    execute: async (args, ctx) => callRuntime("import_media", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("import_media", params, ctx),
   });
 
   // Tool 4: insert_clip.
@@ -211,7 +219,7 @@ export default function (pi: ExtensionAPI): void {
       source_in_sec: Type.Optional(Type.Number({ minimum: 0 })),
       source_out_sec: Type.Optional(Type.Number({ minimum: 0 })),
     }),
-    execute: async (args, ctx) => callRuntime("insert_clip", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("insert_clip", params, ctx),
   });
 
   // Tool 5: append_clip.
@@ -225,7 +233,7 @@ export default function (pi: ExtensionAPI): void {
       source_in_sec: Type.Optional(Type.Number({ minimum: 0 })),
       source_out_sec: Type.Optional(Type.Number({ minimum: 0 })),
     }),
-    execute: async (args, ctx) => callRuntime("append_clip", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("append_clip", params, ctx),
   });
 
   // Tool 6: move_clip.
@@ -238,7 +246,7 @@ export default function (pi: ExtensionAPI): void {
       new_track: Type.Integer({ minimum: 0 }),
       new_position_sec: Type.Number({ minimum: 0 }),
     }),
-    execute: async (args, ctx) => callRuntime("move_clip", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("move_clip", params, ctx),
   });
 
   // Tool 7: trim_clip.
@@ -253,7 +261,7 @@ export default function (pi: ExtensionAPI): void {
       new_in_sec: Type.Number({ minimum: 0 }),
       new_out_sec: Type.Number({ minimum: 0 }),
     }),
-    execute: async (args, ctx) => callRuntime("trim_clip", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("trim_clip", params, ctx),
   });
 
   // Tool 8: delete_clip.
@@ -264,7 +272,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({
       clip_id: Type.String(),
     }),
-    execute: async (args, ctx) => callRuntime("delete_clip", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("delete_clip", params, ctx),
   });
 
   // Tool 9: add_transition.
@@ -280,7 +288,7 @@ export default function (pi: ExtensionAPI): void {
       kind: Type.Optional(Type.String()),
       duration_sec: Type.Optional(Type.Number({ minimum: 0 })),
     }),
-    execute: async (args, ctx) => callRuntime("add_transition", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("add_transition", params, ctx),
   });
 
   // Tool 10: apply_effect.
@@ -295,7 +303,7 @@ export default function (pi: ExtensionAPI): void {
       effect_id: Type.String(),
       params: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     }),
-    execute: async (args, ctx) => callRuntime("apply_effect", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("apply_effect", params, ctx),
   });
 
   // Tool 11: add_marker.
@@ -308,7 +316,7 @@ export default function (pi: ExtensionAPI): void {
       label: Type.String(),
       kind: Type.Optional(Type.String({ enum: ["marker", "guide", "chapter"] })),
     }),
-    execute: async (args, ctx) => callRuntime("add_marker", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("add_marker", params, ctx),
   });
 
   // Tool 12: save_project.
@@ -319,6 +327,6 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({
       path: Type.Optional(Type.String()),
     }),
-    execute: async (args, ctx) => callRuntime("save", args as any, ctx),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("save", params, ctx),
   });
 }

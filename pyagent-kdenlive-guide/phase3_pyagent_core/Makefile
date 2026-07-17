@@ -1,11 +1,13 @@
 .PHONY: install test lint clean
 
 install:
-	# Link the extension into pi's auto-discovery directory.
+	# Symlink the .ts file directly into pi's auto-discovery directory.
+	# (pi looks for `extensions/*.ts` or `extensions/*/index.ts`, not
+	# `extensions/*/extension.ts`.)
 	mkdir -p $(HOME)/.pi/agent/extensions
-	ln -sfn $(PWD) $(HOME)/.pi/agent/extensions/pyagent
+	ln -sfn $(PWD)/extension.ts $(HOME)/.pi/agent/extensions/pyagent.ts
 	# Install the Python package in editable mode.
-	pip install -e .
+	pip install --break-system-packages -e . || pip install -e .
 
 test:
 	python3 -m unittest discover -s . -p "test_*.py" -v
