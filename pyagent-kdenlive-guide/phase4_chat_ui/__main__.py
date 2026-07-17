@@ -16,8 +16,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="Bind host (default: 127.0.0.1).")
     parser.add_argument("--port", type=int, default=8765,
                         help="Bind port (default: 8765).")
-    parser.add_argument("--provider", default="opencode",
-                        help="pi provider name (default: opencode).")
+    parser.add_argument("--provider", default="opencode-go",
+                        help="pi provider name (default: opencode-go). "
+                             "The auth.json on this machine is keyed to "
+                             "'opencode-go' (the opencode-go provider, not "
+                             "the legacy 'opencode' one).")
     parser.add_argument("--model", default="minimax-m3",
                         help="pi model id (default: minimax-m3).")
     parser.add_argument("--pi-binary", default=None,
