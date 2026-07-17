@@ -43,7 +43,8 @@ D-Bus bridge is wired).
 - **Phase 6 render + QC** — after any non-trivial edit, verify it.
   The cheap flow is:
   1. `pyagent_render(mode="proxy", in_sec=X, out_sec=Y)` — render a
-     small range around the change. 640x360, sub-2s for a 4s clip.
+     small range around the change. 640x360, typically a few seconds
+     for a 4s clip.
   2. `pyagent_list_black_frames(video)` and
      `pyagent_list_silence(video)` — deterministic, runs on the
      rendered video, returns spans.

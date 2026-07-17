@@ -149,7 +149,7 @@ class TestE2EPipeline(unittest.TestCase):
         self.assertLess(al.peak_db, 10.0)
         self.assertGreater(al.peak_db, -200.0)
 
-        from phase6_render_qc.thumbnails import get_thumbnail
+        from phase6_render_qc.thumbnails import get_thumbnail, get_qc_crop
         # Thumbnail at the dissolve midpoint (4s = cut point).
         th = get_thumbnail(self.proxy, 4.0, self.thumb)
         self.assertTrue(th.ok, f"thumbnail failed: {th.error}")
@@ -157,6 +157,14 @@ class TestE2EPipeline(unittest.TestCase):
         self.assertLess(th.file_bytes, 250_000)
         with open(self.thumb, "rb") as f:
             self.assertEqual(f.read(3), b"\xff\xd8\xff", "not a JPEG")
+
+        # QC crop — sample a 200x150 region at the same timestamp.
+        crop_out = os.path.join(self.tmp, "crop.jpg")
+        cr = get_qc_crop(self.proxy, 4.0,
+                         {"x": 200, "y": 100, "w": 200, "h": 150}, crop_out)
+        self.assertTrue(cr.ok, f"qc crop failed: {cr.error}")
+        self.assertLessEqual(max(cr.width, cr.height), 480)
+        self.assertLess(cr.file_bytes, 250_000)
 
 
 if __name__ == "__main__":
