@@ -319,5 +319,40 @@ class TestMutatingOps(unittest.TestCase):
         self.assertEqual(len(summary["result"]["markers"]), 1)
 
 
+class TestListCatalog(unittest.TestCase):
+    def test_list_catalog_effects(self):
+        code, resp = _run_runtime(
+            "list_catalog", {"kind": "effects"}, str(FIXTURES_DIR / "demo.kdenlive"),
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(resp["ok"])
+        self.assertIsInstance(resp["result"], list)
+        self.assertGreater(len(resp["result"]), 0)
+        # Every entry has at least id, name, tag.
+        entry = resp["result"][0]
+        self.assertIn("id", entry)
+        self.assertIn("name", entry)
+
+    def test_list_catalog_with_filter(self):
+        """`filter` is a substring match on name."""
+        code, resp = _run_runtime(
+            "list_catalog",
+            {"kind": "effects", "filter": "bright"},
+            str(FIXTURES_DIR / "demo.kdenlive"),
+        )
+        self.assertEqual(code, 0)
+        self.assertGreater(len(resp["result"]), 0)
+        for entry in resp["result"]:
+            self.assertIn("bright", entry["name"].lower())
+
+    def test_list_catalog_invalid_kind(self):
+        code, resp = _run_runtime(
+            "list_catalog", {"kind": "no_such_kind"},
+            str(FIXTURES_DIR / "demo.kdenlive"),
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("fix:", resp["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,47 @@ MUTATING_OPS: frozenset[str] = frozenset({
     "delete_clip", "add_transition", "apply_effect", "add_marker", "save",
 })
 
+_ALLOWED_CATALOG_KINDS = ("effects", "transitions", "generators")
+
+
+def _run_list_catalog(args: dict, catalog_path: str) -> tuple[int, dict]:
+    try:
+        cat = Catalog.from_json(catalog_path)
+    except Exception as e:  # noqa: BLE001
+        return 2, {"ok": False, "fatal": True, "error": f"BackendError: catalog unreadable: {e}"}
+
+    kind = args.get("kind", "effects")
+    if kind not in _ALLOWED_CATALOG_KINDS:
+        return 1, {
+            "ok": False,
+            "error": (
+                f"invalid kind: {kind!r}\n"
+                f"fix: use one of {_ALLOWED_CATALOG_KINDS}"
+            ),
+        }
+
+    # The catalog object has a by_id mapping; iterate it filtered by `kind`.
+    # (The schema of the catalog is in phase1_knowledge_base/catalog.json;
+    # each top-level key corresponds to a kind.)
+    raw = json.loads(Path(catalog_path).read_text())
+    items = raw.get(kind, [])
+    if "filter" in args and args["filter"]:
+        needle = str(args["filter"]).lower()
+        items = [e for e in items if needle in e.get("name", "").lower()]
+    # Project to a small dict per entry.
+    return 0, {
+        "ok": True,
+        "result": [
+            {
+                "id": e.get("id"),
+                "name": e.get("name"),
+                "tag": e.get("tag"),
+                "description": e.get("description", ""),
+            }
+            for e in items
+        ],
+    }
+
 
 def _emit(response: dict[str, Any]) -> None:
     """Write one JSON line to stdout, exactly one, no trailing whitespace."""
@@ -77,6 +118,9 @@ def run_op(op: str, args: dict, project_path: str, catalog_path: str) -> tuple[i
     exit_code: 0 = success, 1 = validation error (LLM self-corrects),
                2 = fatal error (project unreadable, op missing, etc.)
     """
+    if op == "list_catalog":
+        return _run_list_catalog(args, catalog_path)
+
     if op not in OP_TABLE:
         return 2, {"ok": False, "fatal": True, "error": f"unknown op: {op!r}"}
 
