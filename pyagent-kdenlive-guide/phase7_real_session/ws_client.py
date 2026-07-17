@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any
 
 import websockets
@@ -86,6 +87,16 @@ class WSClient:
                 )
                 ev = json.loads(raw)
                 events.append(ev)
+                if os.environ.get("PYAGENT_DEBUG_WS"):
+                    t = ev.get("type")
+                    extra = ""
+                    if t == "tool":
+                        extra = f" tool={ev.get('tool')}"
+                    elif t == "message":
+                        extra = f" role={ev.get('role')} text={(ev.get('text') or '')[:60]!r}"
+                    elif t == "status":
+                        extra = f" text={ev.get('text')!r}"
+                    print(f"[ws] {t}{extra}", flush=True)
                 # The chat UI signals "prompt finished, ready for the next"
                 # with {"type": "status", "text": "ready"}. We also
                 # accept the literal "done" type for forward compat.

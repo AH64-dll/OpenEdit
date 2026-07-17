@@ -89,6 +89,10 @@ class TestE2EPiSession(unittest.TestCase):
         self._chat_ui: ChatUIServer | None = None
         self._events: list[dict] = []
         self._transcript_path = self.tmp / "transcript.json"
+        # Set PYAGENT_KEEP_E2E_TMP=1 in the env to preserve the
+        # tempdir on teardown for post-mortem inspection. Off by
+        # default so the test doesn't litter /tmp.
+        self._keep_tmp = bool(os.environ.get("PYAGENT_KEEP_E2E_TMP"))
 
     def tearDown(self) -> None:
         # Cleanup order: Kdenlive -> chat UI -> Xvfb.
@@ -104,10 +108,14 @@ class TestE2EPiSession(unittest.TestCase):
             print(f"[e2e] kdenlive terminate error: {e}", file=sys.stderr)
         try:
             if self._xvfb is not None:
-                self._xvfb.__exit__(None, None, None)
+                 self._xvfb.__exit__(None, None, None)
         except Exception as e:
             print(f"[e2e] xvfb exit error: {e}", file=sys.stderr)
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        if not self._keep_tmp:
+            shutil.rmtree(self.tmp, ignore_errors=True)
+        else:
+            print(f"[e2e] tempdir preserved at {self.tmp} "
+                  f"(PYAGENT_KEEP_E2E_TMP=1)", file=sys.stderr)
 
     def _find_add_transition(self) -> tuple[dict | None, dict | None]:
         """Return (tool_event, args) for the add_transition call, if any."""
