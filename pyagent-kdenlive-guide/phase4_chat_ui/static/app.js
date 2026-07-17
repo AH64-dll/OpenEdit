@@ -201,6 +201,10 @@ const QUICK_ACTIONS = [
   { label: "Append test clip", prompt: "Import the test clip and append it to the end of the first track." },
   { label: "List effects", prompt: "List the available video effects from the catalog." },
   { label: "Show timeline", prompt: "Show me the current timeline summary." },
+  { label: "Render proxy", prompt: "Render a 640x360 proxy of the current project to /tmp/pyagent_proxy.mp4 and report the file size, duration, and elapsed render time." },
+  { label: "Render final", prompt: "Render the project at full quality to /tmp/pyagent_final.mp4 using the project's own profile. This is slow — confirm the user is okay with it before proceeding." },
+  { label: "Check QC", prompt: "Run the cheap deterministic QC checks (black frames, silence, audio levels) on /tmp/pyagent_proxy.mp4 over the full timeline and report any flags. If anything is flagged, pull a thumbnail for the affected timestamp and include it in the report." },
+  { label: "Get thumbnail", prompt: "Pick a representative timestamp around the middle of the timeline and extract a thumbnail to /tmp/pyagent_thumb.jpg so the user can see what the project looks like right now." },
 ];
 
 for (const qa of QUICK_ACTIONS) {

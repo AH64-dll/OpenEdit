@@ -33,6 +33,28 @@ D-Bus bridge is wired).
 - If a tool returns a `fix:`-hinted error, fix the call and retry.
   After 3 failed attempts on the same operation, stop and tell the
   user.
+- **Phase 5 live mode** — when `PYAGENT_LIVE=1` is set, three tools
+  (`pyagent_import_media`, `pyagent_append_clip`,
+  `pyagent_apply_effect`) apply via Kdenlive's D-Bus instead of the
+  file backend, so the user sees the change without a reload. In a long
+  session, prefer them. If a live call fails (Kdenlive not running,
+  D-Bus unavailable), the extension falls back to file mode
+  automatically — do not preemptively avoid them.
+- **Phase 6 render + QC** — after any non-trivial edit, verify it.
+  The cheap flow is:
+  1. `pyagent_render(mode="proxy", in_sec=X, out_sec=Y)` — render a
+     small range around the change. 640x360, sub-2s for a 4s clip.
+  2. `pyagent_list_black_frames(video)` and
+     `pyagent_list_silence(video)` — deterministic, runs on the
+     rendered video, returns spans.
+  3. `pyagent_get_audio_levels(video)` — numeric RMS + peak dB.
+  4. If anything is flagged, `pyagent_get_thumbnail(video,
+     timestamp_sec)` for a visual check. Output is capped at ≤480px
+     long-edge JPEG, q70, <250KB.
+
+  Do not skip step 1 — a QC pass on the source clips tells you nothing
+  about your edit; you have to render the *timeline* to see what your
+  edit actually produces.
 
 ## Available tools (summary)
 
@@ -46,6 +68,15 @@ D-Bus bridge is wired).
 - `pyagent_apply_effect` — apply an effect to a clip.
 - `pyagent_add_marker` — add a marker/guide/chapter.
 - `pyagent_save_project` — write the .kdenlive file to disk.
+- `pyagent_render` — render the project (or a range) to MP4.
+  `mode="proxy"` (default) is fast; `mode="final"` uses the project
+  profile and is slow.
+- `pyagent_get_thumbnail` — extract a single capped JPEG frame.
+- `pyagent_get_qc_crop` — extract a cropped frame for legibility
+  checks.
+- `pyagent_list_black_frames` — deterministic black-frame check.
+- `pyagent_list_silence` — deterministic silence check.
+- `pyagent_get_audio_levels` — numeric RMS + peak dB.
 
 ## Catalog slice
 
