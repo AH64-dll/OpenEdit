@@ -64,7 +64,15 @@ class WSClient:
             pass
 
     def send_prompt(self, text: str) -> list[dict]:
-        """Send one prompt and collect events until 'done'. Returns the events."""
+        """Send one prompt and collect events until done. Returns the events.
+
+        The chat UI's actual done signal is the WebSocket message
+        ``{"type": "status", "text": "ready"}`` (see phase4_chat_ui/app.py
+        relay_event for `kind == "done"`). The brief assumed
+        ``{"type": "done"}`` which the chat UI does not emit; we
+        also break on the literal done type for forward compat and
+        for tests that use a fake server.
+        """
         if self._ws is None:
             raise RuntimeError("WSClient not connected; call connect() first")
         loop = self._ensure_loop()
@@ -78,7 +86,13 @@ class WSClient:
                 )
                 ev = json.loads(raw)
                 events.append(ev)
+                # The chat UI signals "prompt finished, ready for the next"
+                # with {"type": "status", "text": "ready"}. We also
+                # accept the literal "done" type for forward compat.
                 if ev.get("type") == "done":
+                    break
+                if (ev.get("type") == "status"
+                        and ev.get("text") == "ready"):
                     break
             return events
 
