@@ -79,15 +79,17 @@ def _run_list_catalog(args: dict, catalog_path: str) -> tuple[int, dict]:
     if "filter" in args and args["filter"]:
         needle = str(args["filter"]).lower()
         items = [e for e in items if needle in e.get("name", "").lower()]
-    # Project to a small dict per entry.
+    # Project to a small dict per entry. The actual catalog schema (see
+    # phase1_knowledge_base/catalog.json) uses `kdenlive_id` and `mlt_service`,
+    # not `id` and `tag`. Project both so the LLM has what it needs.
     return 0, {
         "ok": True,
         "result": [
             {
-                "id": e.get("id"),
+                "kdenlive_id": e.get("kdenlive_id"),
                 "name": e.get("name"),
-                "tag": e.get("tag"),
-                "description": e.get("description", ""),
+                "mlt_service": e.get("mlt_service"),
+                "description": (e.get("description", "") or "").strip(),
             }
             for e in items
         ],
