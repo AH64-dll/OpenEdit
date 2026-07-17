@@ -1,10 +1,17 @@
 """Tests for catalog_slice.build_catalog_slice."""
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from catalog_slice import build_catalog_slice
+# Allow the test to be run with either `python3 -m unittest test_catalog_slice`
+# (cwd on sys.path) or `python3 -m unittest phase3_pyagent_core.test_catalog_slice`
+# (package-qualified). The try/except falls back gracefully.
+try:
+    from phase3_pyagent_core.catalog_slice import build_catalog_slice
+except ImportError:
+    from catalog_slice import build_catalog_slice  # type: ignore[no-redef]
 
 
 SAMPLE_CATALOG = {
