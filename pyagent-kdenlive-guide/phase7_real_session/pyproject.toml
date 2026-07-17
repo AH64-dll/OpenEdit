@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyagent-phase7-real-session"
+version = "0.1.0"
+description = "Real-pi-session end-to-end test for the pyagent Kdenlive toolchain."
+requires-python = ">=3.11"
+# No [project.scripts] — this module has no production entry point.
+
+[project.optional-dependencies]
+test = [
+    "websockets>=12",
+    "dbus-python>=1.3",
+]
+
+[tool.setuptools.packages.find]
+include = ["phase7_real_session*"]
