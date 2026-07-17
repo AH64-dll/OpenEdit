@@ -159,6 +159,56 @@ class TestMutatingOps(unittest.TestCase):
         self.assertIn(resp["result"], clip_ids)
         self.assertEqual(len(summary_resp["result"]["clips"]), 2)
 
+    def test_full_crossfade_chain(self):
+        """The spec's headline acceptance test: import two clips, append them,
+        add a transition between them, then save. The saved file must still
+        be a valid .kdenlive."""
+        # Import two copies of the test clip.
+        code, r = _run_runtime(
+            "import_media", {"paths": [self.clip_path, self.clip_path]}, self.project,
+        )
+        self.assertEqual(code, 0)
+        a_src, b_src = r["result"]
+
+        # Append both.
+        code, r = _run_runtime(
+            "append_clip",
+            {"track_index": 0, "source_id": a_src, "source_out_sec": 4.0},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+        a_id = r["result"]
+
+        code, r = _run_runtime(
+            "append_clip",
+            {"track_index": 0, "source_id": b_src, "source_out_sec": 4.0},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+        b_id = r["result"]
+
+        # Add the crossfade.
+        code, r = _run_runtime(
+            "add_transition",
+            {"clip_a_id": a_id, "clip_b_id": b_id,
+             "kind": "composite", "duration_sec": 1.0},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+        t_id = r["result"]
+        self.assertIsInstance(t_id, str)
+
+        # Save.
+        code, r = _run_runtime("save", {}, self.project)
+        self.assertEqual(code, 0)
+
+        # The saved file must be a valid .kdenlive that opens without errors.
+        # (Round-trip: reload and verify clip count + transition count.)
+        # demo.kdenlive starts with 1 clip; we appended 2 more, so 3 total.
+        _, summary = _run_runtime("get_timeline_summary", {}, self.project)
+        self.assertEqual(len(summary["result"]["clips"]), 3)
+        self.assertEqual(len(summary["result"]["transitions"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
