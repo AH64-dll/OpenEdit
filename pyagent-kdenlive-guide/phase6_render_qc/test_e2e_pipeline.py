@@ -114,6 +114,7 @@ class TestE2EPipeline(unittest.TestCase):
         # Save.
         code, resp = _run("save", {}, self.project, str(CATALOG))
         self.assertEqual(code, 0, f"save failed: {resp}")
+        self.assertTrue(resp.get("ok"), resp)
 
         # ---- Phase 6: render + QC every tool ----
         from phase6_render_qc.render import render
