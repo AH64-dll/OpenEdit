@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phase3-pyagent-core"
+version = "0.1.0"
+description = "pyagent Phase 3 — pi extension runtime for Kdenlive editing."
+requires-python = ">=3.14"
+dependencies = [
+    "lxml>=6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["phase3_pyagent_core*"]
