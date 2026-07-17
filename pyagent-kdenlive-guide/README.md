@@ -123,10 +123,45 @@ PYTHONPATH=. python3 -m unittest discover -s phase3_pyagent_core -p "test_*.py" 
 PYTHONPATH=. python3 -m unittest discover -s phase4_chat_ui -p "test_*.py"       # 22
 PYTHONPATH=. python3 -m unittest discover -s phase5_dbus_sync -p "test_*.py"     # 24
 PYTHONPATH=. python3 -m unittest discover -s phase6_render_qc -p "test_*.py"     # 24
+PYTHONPATH=. python3 -m unittest discover -s phase7_real_session/tests -p "test_*.py"  # 28
 ```
 
-99 tests total. Some Phase 5 and Phase 6 tests skip if `dbus-send`,
-`melt`, `ffmpeg`, or the demo fixture are unavailable.
+127 tests total. Some Phase 5 and Phase 6 tests skip if `dbus-send`,
+`melt`, `ffmpeg`, or the demo fixture are unavailable. The single
+Phase 7 skip is the real-session e2e test (see next section).
+
+## Real-session e2e test
+
+A persistent end-to-end test in `phase7_real_session/` that drives
+a real `pi` against a real Kdenlive in a virtual display via the
+chat UI's WebSocket. It asserts:
+
+1. The LLM picks `pyagent_add_transition` from the 19-tool catalog.
+2. The file-mode edit lands on disk.
+3. The same edit appears in the running Kdenlive via D-Bus.
+4. The LLM describes the action in its final assistant message.
+
+Run it from the project root:
+
+```bash
+make -C phase7_real_session test-e2e
+```
+
+Required deps (the test skips cleanly if any are missing):
+
+| Dep | Install on Arch |
+|---|---|
+| `pi` | already on this machine |
+| `kdenlive` | `sudo pacman -S kdenlive` |
+| `Xvfb` | `sudo pacman -S xorg-server-xvfb` |
+| `dbus-send` | `sudo pacman -S dbus` |
+| `OPENCODE_API_KEY` or `~/.pi/agent/auth.json` | `pi /login` |
+
+The test also skips if a kdenlive is already on the session D-Bus
+(to avoid colliding with the user's running Kdenlive). Close any
+open Kdenlive and re-run.
+
+Expected runtime: 20-45 seconds.
 
 ## Limitations
 
@@ -135,9 +170,6 @@ PYTHONPATH=. python3 -m unittest discover -s phase6_render_qc -p "test_*.py"    
 - **QC is sanity-check only** — it catches black frames, silence,
   and produces capped JPEGs. It is not broadcast-grade QC.
 - **No native dock** (Phase 8) — the chat UI is a separate web app.
-- **No D-Bus fork** (Phase 7) — Phase 5 uses upstream Kdenlive's
-  built-in D-Bus. The fork was deferred because upstream already has
-  the methods we need.
 
 ## Stretch (deferred)
 
