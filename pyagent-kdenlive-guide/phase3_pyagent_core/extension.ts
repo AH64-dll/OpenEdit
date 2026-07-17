@@ -11,7 +11,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
 
@@ -53,9 +53,15 @@ function loadSystemPrompt(catalogPath: string): string {
     resolvePath(join(dirname(new URL(import.meta.url).pathname), "system_prompt.md")),
     "utf8",
   );
-  // Inline the catalog slice.
-  // We import lazily because catalog_slice is Python.
-  return tmpl;  // placeholder; the catalog inlining is done by the test mode
+  // Build the slice by invoking catalog_slice via a small Python one-liner.
+  // This avoids re-implementing the slice in TypeScript.
+  const slice = execFileSync("python3", [
+    "-c",
+    "import json, sys; sys.path.insert(0, '.'); "
+    + "from phase3_pyagent_core.catalog_slice import build_catalog_slice; "
+    + "print(build_catalog_slice(" + JSON.stringify(catalogPath) + "))",
+  ], { encoding: "utf8" });
+  return tmpl.replace("{{CATALOG_SLICE}}", slice);
 }
 
 // ---- Human-readable summary for the confirm dialog ----
@@ -136,6 +142,18 @@ async function callRuntime(
 // ---- Extension entry ----
 
 export default function (pi: ExtensionAPI): void {
+  // Build the system-prompt append with the inlined catalog slice.
+  // pi's append-system-prompt flag accepts a string; we register it via
+  // a flag-like hook. pi 0.80+ exposes pi.appendSystemPrompt(snippet).
+  const snippet = loadSystemPrompt(resolveCatalogPath());
+  if (typeof (pi as any).appendSystemPrompt === "function") {
+    (pi as any).appendSystemPrompt(snippet);
+  } else {
+    // Fallback: set the env var so the user can pipe it via --append-system-prompt
+    // at startup. (Most users will not hit this; the function is in pi 0.80+.)
+    process.env.PYAGENT_SYSTEM_PROMPT_SNIPPET = snippet;
+  }
+
   // Tool 1: get_project_info (read-only, no confirm).
   pi.registerTool({
     name: "pyagent_get_project_info",
