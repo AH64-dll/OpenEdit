@@ -71,7 +71,7 @@ class KdenliveLaunch:
         env["XDG_CACHE_HOME"] = self._xdg_cache_home
         self._stderr_path = os.path.join(self._xdg_cache_home, "kdenlive.stderr")
         stderr_fp = open(self._stderr_path, "w")
-        argv = [self._binary, "--no-splash", self._project_path]
+        argv = [self._binary, "--no-welcome", self._project_path]
         self._proc = subprocess.Popen(
             argv,
             env=env,
