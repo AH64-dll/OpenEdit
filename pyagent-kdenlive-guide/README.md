@@ -136,9 +136,12 @@ A persistent end-to-end test in `phase7_real_session/` that drives
 a real `pi` against a real Kdenlive in a virtual display via the
 chat UI's WebSocket. It asserts:
 
-1. The LLM picks `pyagent_add_transition` from the 19-tool catalog.
+1. The LLM picks `pyagent_add_transition` from the 19-tool catalog
+   (with kind ∈ {dissolve, crossfade} and 0.5 ≤ duration ≤ 1.5s).
 2. The file-mode edit lands on disk.
-3. The same edit appears in the running Kdenlive via D-Bus.
+3. The same edit is applied to the running Kdenlive (write via
+   D-Bus; the project file is the verification source of truth,
+   since `KdenliveDBus` in phase 5 is write-only).
 4. The LLM describes the action in its final assistant message.
 
 Run it from the project root:
