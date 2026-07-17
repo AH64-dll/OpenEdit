@@ -515,6 +515,7 @@ def create_app(project_path: str | None = None) -> FastAPI:
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -1224,6 +1225,14 @@ Expected: 13 tests (4 app + 3 app REST + 6 session), all pass.
 cd /home/ah64/apps/mlt-pipeline/pyagent-kdenlive-guide
 git add phase4_chat_ui/session.py phase4_chat_ui/test_session.py
 git commit -m "[phase-4] tool events stored in session history"
+
+---
+
+**Note on cumulative test counts (for later tasks):** after Task 6 the
+suite has 13 tests. Task 7 adds 1 (`test_websocket.py`) → 14. Task 8 adds
+1 (`test_state.py`) → 15. Task 9 adds 2 (`test_watcher.py`) → 17. Task 10
+adds 1 assertion to `test_pi_client.py` (no new file) → still 17. Task 11
+and 12 add no new tests. Final suite: **17 tests, all green.**
 ```
 
 ---
@@ -1322,8 +1331,8 @@ Inside `create_app`, after the existing REST routes:
             # process exits when the FastAPI process exits.
 ```
 
-Add the missing `import os` at the top of `app.py` (you'll see the
-`os.environ` reference above).
+`import os` is already present at the top of `app.py` (added in Task 3), so
+the `os.environ` reference in the WebSocket handler below works as-is.
 
 - [ ] **Step 2: Update `static/app.js` to use the WebSocket**
 
@@ -1458,15 +1467,19 @@ class TestWebSocket(unittest.TestCase):
         self.fake_pi = Path(tmp) / "fake_pi"
         self.fake_pi.write_text(FAKE_PI)
         self.fake_pi.chmod(0o755)
-        # Point the app at the fake pi binary.
+        # Patch PiClient so that when the WebSocket handler constructs it
+        # WITHOUT a `binary` kwarg (which is exactly what app.py does in
+        # Task 7), it still uses our fake binary. We default `binary` to the
+        # fake path instead of None.
         import os
         os.environ["PI_BINARY_OVERRIDE"] = str(self.fake_pi)
-        # Patch PiClient to use the fake binary.
         from phase4_chat_ui import pi_client
         self._orig_init = pi_client.PiClient.__init__
         def _patched_init(self, provider, model, project, binary=None):
-            self._orig_init(provider, model, project,
-                            binary=os.environ["PI_BINARY_OVERRIDE"])
+            self._orig_init(
+                provider, model, project,
+                binary=binary or os.environ["PI_BINARY_OVERRIDE"],
+            )
         pi_client.PiClient.__init__ = _patched_init  # type: ignore
 
         self.app = create_app(project_path="/tmp/foo.kdenlive")
