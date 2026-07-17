@@ -11,6 +11,6 @@ dependencies = [
     "lxml>=6.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["phase3_pyagent_core*"]
+[tool.setuptools]
+packages = ["phase3_pyagent_core"]
+package-dir = {"phase3_pyagent_core" = "."}
