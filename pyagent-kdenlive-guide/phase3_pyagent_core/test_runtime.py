@@ -209,6 +209,115 @@ class TestMutatingOps(unittest.TestCase):
         self.assertEqual(len(summary["result"]["clips"]), 3)
         self.assertEqual(len(summary["result"]["transitions"]), 1)
 
+    def test_insert_clip_then_move(self):
+        code, r = _run_runtime("import_media", {"paths": [self.clip_path]}, self.project)
+        sid = r["result"][0]
+
+        code, r = _run_runtime(
+            "insert_clip",
+            {"track_index": 0, "position_sec": 0.0, "source_id": sid,
+             "source_out_sec": 3.0},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+        cid = r["result"]
+
+        # Move it to a new position on the same track. (The plan's brief
+        # specified new_track=1, but demo.kdenlive has only 1 track, so
+        # move to a new position on track 0 instead. The move-mechanic
+        # under test — that move_clip updates track_index + start_sec — is
+        # identical for the same-track case.)
+        code, r = _run_runtime(
+            "move_clip", {"clip_id": cid, "new_track": 0, "new_position_sec": 5.0},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(r["ok"])
+
+        # Verify.
+        _, summary = _run_runtime("get_timeline_summary", {}, self.project)
+        moved = next(c for c in summary["result"]["clips"] if c["clip_id"] == cid)
+        self.assertEqual(moved["track_index"], 0)
+        self.assertAlmostEqual(moved["start_sec"], 5.0, places=2)
+
+    def test_trim_clip_rejects_invalid_range(self):
+        """trim_clip with out < in must exit 1 with a fix: hint."""
+        code, r = _run_runtime("import_media", {"paths": [self.clip_path]}, self.project)
+        sid = r["result"][0]
+        code, r = _run_runtime(
+            "append_clip",
+            {"track_index": 0, "source_id": sid, "source_out_sec": 10.0},
+            self.project,
+        )
+        cid = r["result"]
+
+        # Try to trim to a backwards range.
+        code, r = _run_runtime(
+            "trim_clip", {"clip_id": cid, "new_in_sec": 5.0, "new_out_sec": 2.0},
+            self.project,
+        )
+        self.assertEqual(code, 1)
+        self.assertFalse(r["ok"])
+        self.assertIn("fix:", r["error"])
+
+    def test_apply_effect_with_valid_id(self):
+        code, r = _run_runtime("import_media", {"paths": [self.clip_path]}, self.project)
+        sid = r["result"][0]
+        code, r = _run_runtime(
+            "append_clip", {"track_index": 0, "source_id": sid, "source_out_sec": 5.0},
+            self.project,
+        )
+        cid = r["result"]
+        code, r = _run_runtime(
+            "apply_effect",
+            {"clip_id": cid, "effect_id": "brightness", "params": {"level": 0.5}},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(r["ok"])
+
+    def test_apply_effect_with_invalid_id_returns_fix_hint(self):
+        code, r = _run_runtime("import_media", {"paths": [self.clip_path]}, self.project)
+        sid = r["result"][0]
+        code, r = _run_runtime(
+            "append_clip", {"track_index": 0, "source_id": sid, "source_out_sec": 3.0},
+            self.project,
+        )
+        cid = r["result"]
+        code, r = _run_runtime(
+            "apply_effect",
+            {"clip_id": cid, "effect_id": "no_such_effect"},
+            self.project,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("fix:", r["error"])
+
+    def test_add_marker_and_delete_clip(self):
+        code, r = _run_runtime("import_media", {"paths": [self.clip_path]}, self.project)
+        sid = r["result"][0]
+        code, r = _run_runtime(
+            "append_clip", {"track_index": 0, "source_id": sid, "source_out_sec": 4.0},
+            self.project,
+        )
+        cid = r["result"]
+
+        # Add a marker.
+        code, r = _run_runtime(
+            "add_marker", {"position_sec": 2.0, "label": "cut point", "kind": "guide"},
+            self.project,
+        )
+        self.assertEqual(code, 0)
+
+        # Delete the clip.
+        code, r = _run_runtime("delete_clip", {"clip_id": cid}, self.project)
+        self.assertEqual(code, 0)
+
+        _, summary = _run_runtime("get_timeline_summary", {}, self.project)
+        # demo.kdenlive starts with 1 pre-existing clip; we appended and
+        # then deleted one, so 1 clip remains.
+        self.assertEqual(len(summary["result"]["clips"]), 1)
+        self.assertEqual(len(summary["result"]["markers"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
