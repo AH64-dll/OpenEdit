@@ -40,8 +40,11 @@ def build_catalog_slice(
             name = entry.get("name")
             if not name:
                 continue  # skip unnamed entries
-            tag = entry.get("tag", "")
-            entry_id = entry.get("id", "")
+            # The actual catalog schema uses `kdenlive_id` and `mlt_service`,
+            # not `id` and `tag` (see phase1_knowledge_base/catalog.json).
+            # Project both so the LLM can use either.
+            kid = entry.get("kdenlive_id", "")
+            mlt = entry.get("mlt_service", "")
             description = (entry.get("description", "") or "").strip()
-            lines.append(f"{tag} | {entry_id} | {name} | {description}")
+            lines.append(f"{mlt} | {kid} | {name} | {description}")
     return "\n".join(lines)

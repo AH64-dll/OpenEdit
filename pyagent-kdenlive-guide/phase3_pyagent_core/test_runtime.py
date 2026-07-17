@@ -328,10 +328,11 @@ class TestListCatalog(unittest.TestCase):
         self.assertTrue(resp["ok"])
         self.assertIsInstance(resp["result"], list)
         self.assertGreater(len(resp["result"]), 0)
-        # Every entry has at least id, name, tag.
+        # Every entry has the projected keys (kdenlive_id, name, mlt_service).
         entry = resp["result"][0]
-        self.assertIn("id", entry)
+        self.assertIn("kdenlive_id", entry)
         self.assertIn("name", entry)
+        self.assertIn("mlt_service", entry)
 
     def test_list_catalog_with_filter(self):
         """`filter` is a substring match on name."""
