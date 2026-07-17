@@ -83,6 +83,8 @@ class ChatUIServer:
             stderr=stderr_fp,
             preexec_fn=os.setsid,
         )
+        # The child has dup'd the fd; we can close our handle.
+        stderr_fp.close()
 
     def wait_ready(self) -> None:
         """Spawn the chat UI and block until /api/project returns 200."""

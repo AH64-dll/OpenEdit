@@ -32,7 +32,7 @@ class TestWebSocket(unittest.TestCase):
         orig_init = pi_client.PiClient.__init__
         self._orig_init = orig_init  # type: ignore
 
-        def _patched_init(self, provider, model, project, binary=None, pi_args=None):
+        def _patched_init(self, provider, model, project, binary=None, pi_args=None, session_id=None):
             orig_init(
                 self, provider, model, project,
                 binary=binary or FAKE_PI,

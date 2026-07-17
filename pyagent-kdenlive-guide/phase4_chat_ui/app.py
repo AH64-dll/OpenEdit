@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -69,6 +70,7 @@ def create_app(
         model=model,
         project=project,
         binary=pi_binary,
+        session_id=f"pyagent-chat-{uuid.uuid4().hex[:12]}",
         pi_args=["--extension", str(_REPO_ROOT / "phase3_pyagent_core" / "extension.ts")],
     )
 

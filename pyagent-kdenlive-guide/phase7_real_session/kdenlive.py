@@ -79,6 +79,8 @@ class KdenliveLaunch:
             stderr=stderr_fp,
             preexec_fn=os.setsid,
         )
+        # The child has dup'd the fd; we can close our handle.
+        stderr_fp.close()
 
     def wait_ready(self) -> None:
         """Launch Kdenlive and block until org.kde.kdenlive is on the bus.

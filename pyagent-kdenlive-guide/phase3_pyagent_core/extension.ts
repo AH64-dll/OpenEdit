@@ -109,7 +109,7 @@ function resolveRenderQcDir(): string {
 
 // Call into the Phase 6 Python module. Args become CLI flags; the module
 // writes JSON to stdout and exits 0 on success. Caller parses the result.
-function callPhase6(module: string, args: string[]): RuntimeResult {
+function callPhase6(module: string, args: string[]): any {
   const qcDir = resolveRenderQcDir();
   const r = spawnSync(
     "python3",
@@ -121,15 +121,15 @@ function callPhase6(module: string, args: string[]): RuntimeResult {
     },
   );
   if (r.status !== 0) {
-    return {
+    return toToolResult({
       ok: false,
       error: `phase6.${module} failed (status=${r.status}): ${(r.stderr || r.stdout || "").slice(0, 400)}`,
-    };
+    });
   }
   try {
-    return { ok: true, result: JSON.parse(r.stdout || "{}"), mode: "render-qc" as const };
+    return toToolResult({ ok: true, result: JSON.parse(r.stdout || "{}"), mode: "render-qc" as const });
   } catch (e: any) {
-    return { ok: false, error: `phase6.${module} returned non-JSON: ${(r.stdout || "").slice(0, 200)}` };
+    return toToolResult({ ok: false, error: `phase6.${module} returned non-JSON: ${(r.stdout || "").slice(0, 200)}` });
   }
 }
 
@@ -168,6 +168,27 @@ interface RuntimeResult {
   mode?: "live" | "file" | "render-qc";
 }
 
+// pi 0.80+ expects every tool's `execute` to return an `AgentToolResult`:
+//   { content: (TextContent | ImageContent)[], details: T, ... }
+// Our tools instead produce a plain `RuntimeResult` ({ ok, result, error }).
+// Convert one to the other so the model actually receives the tool output
+// (otherwise pi serializes the result as an empty `content: []` array and
+// the LLM sees nothing).
+function toToolResult(rr: RuntimeResult): any {
+  let text: string;
+  if (!rr.ok) {
+    text = `error: ${rr.error ?? "unknown failure"}`;
+  } else if (typeof rr.result === "string") {
+    text = rr.result;
+  } else {
+    text = JSON.stringify(rr.result ?? {});
+  }
+  return {
+    content: [{ type: "text", text }],
+    details: rr.result ?? { ok: rr.ok, error: rr.error },
+  };
+}
+
 function runRuntime(
   op: string,
   args: Record<string, unknown>,
@@ -182,16 +203,22 @@ function runRuntime(
       "--args-json", JSON.stringify(args),
     ]);
     let stdout = "";
+    let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
     proc.on("error", (e) => resolve({ ok: false, fatal: true, error: `spawn failed: ${e.message}` }));
-    proc.on("close", () => {
-      const last = stdout.trim().split("\n").pop() || "{}";
-      try {
-        resolve(JSON.parse(last));
-      } catch {
-        resolve({ ok: false, fatal: true, error: `malformed output: ${stdout}` });
-      }
-    });
+     proc.on("close", () => {
+       const last = stdout.trim().split("\n").pop() || "{}";
+       try {
+         const parsed = JSON.parse(last);
+         if (!parsed.ok) {
+           parsed.error = (parsed.error || "unknown failure") + ` | stderr: ${stderr.slice(0, 300)}`;
+         }
+         resolve(parsed);
+       } catch {
+         resolve({ ok: false, fatal: true, error: `malformed output: ${stdout} | stderr: ${stderr.slice(0, 300)}` });
+       }
+     });
   });
 }
 
@@ -199,15 +226,15 @@ async function callRuntime(
   op: string,
   args: Record<string, unknown>,
   ctx: any,
-): Promise<RuntimeResult> {
+): Promise<any> {
   const project = resolveProjectPath();
   if (!project) {
-    return {
+    return toToolResult({
       ok: false,
       error:
         "PYAGENT_PROJECT env var is not set.\n" +
         "fix: export PYAGENT_PROJECT=/path/to/your.kdenlive",
-    };
+    });
   }
   const catalog = resolveCatalogPath();
   const toolName = `pyagent_${op}`;
@@ -216,7 +243,7 @@ async function callRuntime(
   if (liveSyncEnabled() && LIVE_CAPABLE.has(toolName)) {
     const liveErr = liveApply(toolName, args);
     if (liveErr === null) {
-      return { ok: true, mode: "live" } as RuntimeResult;
+      return toToolResult({ ok: true, mode: "live" });
     }
     ctx?.ui?.notify?.(`Live sync unavailable (${liveErr}); using file-mode.`, "warn");
   }
@@ -227,10 +254,10 @@ async function callRuntime(
       "Approve this edit?",
     );
     if (!ok) {
-      return { ok: false, error: "user rejected the proposed edit" };
+      return toToolResult({ ok: false, error: "user rejected the proposed edit" });
     }
   }
-  return runRuntime(op, args, project, catalog);
+  return toToolResult(await runRuntime(op, args, project, catalog));
 }
 
 // ---- Extension entry ----
