@@ -220,3 +220,79 @@ class OpenCodeAdapter:
             return PiEvent(kind="message_delta", role="assistant", text=str(text))
 
         return None
+
+
+class AntiGravityAdapter:
+    app_id = "antigravity"
+
+    def __init__(self, model, project, session_id):
+        self.model = model
+        self.project = project
+        self.session_id = session_id
+        self._proc = None
+
+    def available(self) -> bool:
+        # No CLI/API on this machine; Electron-only. Never usable as a backend.
+        return False
+
+    def list_models(self) -> list[dict]:
+        return []
+
+    async def run_prompt(self, text, image_paths=None):
+        # pragma: no cover - adapter is unavailable by design
+        raise RuntimeError("Anti-gravity backend is not available on this machine")
+
+    def stop(self) -> None:
+        pass
+
+
+# Registry of app_id -> adapter class. Order defines default menu order.
+_APP_REGISTRY: dict[str, type] = {
+    "piagent": PiAgentAdapter,
+    "opencode": OpenCodeAdapter,
+    "antigravity": AntiGravityAdapter,
+}
+
+
+def build_adapter(app_id, model, project, session_id) -> AgentAdapter:
+    """Construct the adapter for `app_id`. Raises ValueError if unknown."""
+    if app_id not in _APP_REGISTRY:
+        raise ValueError(f"unknown agent app: {app_id!r}")
+    cls = _APP_REGISTRY[app_id]
+    if app_id == "antigravity":
+        return cls(model=model, project=project, session_id=session_id)
+    return cls(model=model, project=project, session_id=session_id)
+    # NOTE: PiAgentAdapter and OpenCodeAdapter both accept (model, project, session_id);
+    # AntiGravityAdapter also accepts them (ignores project/session_id harmlessly).
+
+
+def list_apps() -> list[dict]:
+    """Return menu entries with availability + models for each app.
+
+    Each entry: {"id": app_id, "name": <Human>, "available": bool, "models": [...]}.
+    """
+    def _name(app_id):
+        return {
+            "piagent": "PiAgent",
+            "opencode": "OpenCode",
+            "antigravity": "Anti-gravity (unavailable)",
+        }.get(app_id, app_id)
+    apps = []
+    for app_id, cls in _APP_REGISTRY.items():
+        # Build a throwaway instance to query availability + models without
+        # launching anything (models_cmd_fn stays None -> real shell ONLY if
+        # .list_models() is actually called; we guard by checking available first).
+        try:
+            inst = cls(model="", project="", session_id="")
+            avail = inst.available()
+            models = inst.list_models() if avail else []
+        except Exception:
+            avail = False
+            models = []
+        apps.append({
+            "id": app_id,
+            "name": _name(app_id),
+            "available": avail,
+            "models": models,
+        })
+    return apps

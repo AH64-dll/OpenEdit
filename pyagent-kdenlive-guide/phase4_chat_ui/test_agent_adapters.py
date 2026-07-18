@@ -101,3 +101,26 @@ def test_opencode_adapter_run_prompt_injectable():
         assert any(ev.kind == "done" for ev in events), events
 
     asyncio.run(_run())
+
+
+def test_build_adapter_and_list_apps():
+    # build_adapter dispatches by id
+    p = aa.build_adapter("piagent", "test-provider/test-model", "/x/y.kdenlive", "s9")
+    assert isinstance(p, aa.PiAgentAdapter)
+    o = aa.build_adapter("opencode", "opencode-go/minimax-m3", "/x/y.kdenlive", "s9")
+    assert isinstance(o, aa.OpenCodeAdapter)
+    # unknown id raises
+    import pytest
+    with pytest.raises(ValueError):
+        aa.build_adapter("nope", "m", "/x", "s")
+
+
+def test_list_apps_marks_antigravity_unavailable(monkeypatch):
+    apps = aa.list_apps()
+    by_id = {a["id"]: a for a in apps}
+    assert by_id["piagent"]["available"] is True
+    assert by_id["opencode"]["available"] is True
+    assert by_id["antigravity"]["available"] is False
+    assert by_id["antigravity"]["models"] == []
+    # list_apps must not shell anything -> no exception, returns 3 entries
+    assert len(apps) == 3
