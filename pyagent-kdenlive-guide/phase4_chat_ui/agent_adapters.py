@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
-from pi_client import PiClient, PiEvent
+from phase4_chat_ui.pi_client import PiClient, PiEvent
 
 
 MODELS_STORE_PATH = Path(os.path.expanduser("~/.pi/agent/models-store.json"))
