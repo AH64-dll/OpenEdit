@@ -259,11 +259,7 @@ def build_adapter(app_id, model, project, session_id) -> AgentAdapter:
     if app_id not in _APP_REGISTRY:
         raise ValueError(f"unknown agent app: {app_id!r}")
     cls = _APP_REGISTRY[app_id]
-    if app_id == "antigravity":
-        return cls(model=model, project=project, session_id=session_id)
     return cls(model=model, project=project, session_id=session_id)
-    # NOTE: PiAgentAdapter and OpenCodeAdapter both accept (model, project, session_id);
-    # AntiGravityAdapter also accepts them (ignores project/session_id harmlessly).
 
 
 def list_apps() -> list[dict]:
@@ -280,8 +276,9 @@ def list_apps() -> list[dict]:
     apps = []
     for app_id, cls in _APP_REGISTRY.items():
         # Build a throwaway instance to query availability + models without
-        # launching anything (models_cmd_fn stays None -> real shell ONLY if
-        # .list_models() is actually called; we guard by checking available first).
+        # launching anything: available() only uses shutil.which (no shell), and
+        # list_models() is only invoked when available() is True, so no subprocess
+        # is ever launched here.
         try:
             inst = cls(model="", project="", session_id="")
             avail = inst.available()
