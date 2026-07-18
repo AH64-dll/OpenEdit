@@ -19,8 +19,40 @@ DEMO="$REPO/phase3_pyagent_core/tests/fixtures/demo.kdenlive"
 LOG_DIR="$HOME/.local/share/pyagent"
 mkdir -p "$LOG_DIR"
 
-# Pick the project: dragged-in file, else demo.
-PROJECT="${1:-$DEMO}"
+# Resolve which .kdenlive the AI should edit.
+# Priority:
+#   1. A .kdenlive dragged onto the icon.
+#   2. The project Kdenlive ALREADY has open (so the AI edits the
+#      timeline the user is looking at — not a detached demo file).
+#   3. The bundled demo fixture.
+detect_open_project() {
+    # Kdenlive's D-Bus windowFilePath is empty in this version, so we
+    # detect the open project from the running process: either its command
+    # line (if launched with the .kdenlive path) or, failing that, the
+    # most-recently modified .kdenlive under the user's edits dir.
+    local pid p
+    pid=$(pgrep -x kdenlive 2>/dev/null | head -1)
+    [[ -z "$pid" ]] && return 1
+    # 1) command line
+    p=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null | grep -o '/[^ ]*\.kdenlive' | head -1)
+    [[ -n "$p" && -f "$p" ]] && { echo "$p"; return 0; }
+    # 2) most recently modified .kdenlive under common edit dirs
+    p=$(find "$HOME/Videos/edits" "$HOME" -maxdepth 4 -name '*.kdenlive' \
+            -newermt '-2 hours' 2>/dev/null | head -1)
+    [[ -n "$p" && -f "$p" ]] && { echo "$p"; return 0; }
+    return 1
+}
+
+if [[ -n "${1:-}" && -f "$1" ]]; then
+    PROJECT="$1"
+elif detect_open_project; then
+    PROJECT="$(detect_open_project)"
+    echo "Kdenlive is already open with: $PROJECT"
+    echo "PyAgent will edit THAT project (live)."
+else
+    PROJECT="$DEMO"
+fi
+
 if [[ ! -f "$PROJECT" ]]; then
     kdialog --error "PyAgent: project file not found:\n$PROJECT" 2>/dev/null || true
     exit 1
@@ -35,22 +67,30 @@ if curl -s -o /dev/null "http://127.0.0.1:$PORT/api/project"; then
     exit 0
 fi
 
-# --- Start Kdenlive with the project (live mode) -------------------
+# --- Live mode + Kdenlive lifecycle --------------------------------
 export PYAGENT_LIVE=1
 KDENLIVE_LOG="$LOG_DIR/kdenlive.log"
+kdenlive_running() {
+    pgrep -x kdenlive >/dev/null 2>&1
+}
 if command -v kdenlive >/dev/null 2>&1; then
-    echo "Starting Kdenlive with $PROJECT ..."
-    nohup kdenlive "$PROJECT" > "$KDENLIVE_LOG" 2>&1 &
-    # Give Kdenlive a few seconds to appear on the D-Bus.
-    for i in $(seq 1 20); do
-        if PYTHONPATH="$REPO" python3 -c \
-            "from phase5_dbus_sync.dbus_client import KdenliveDBus; import sys; sys.exit(0 if KdenliveDBus.available else 1)" \
-            2>/dev/null; then
-            echo "Kdenlive on D-Bus."
-            break
-        fi
-        sleep 1
-    done
+    if kdenlive_running; then
+        # A Kdenlive is ALREADY open (with the user's real project).
+        # Don't launch a second instance — just sync to it live.
+        echo "Kdenlive already running — syncing live to: $PROJECT"
+    else
+        echo "Starting Kdenlive with $PROJECT ..."
+        nohup kdenlive "$PROJECT" > "$KDENLIVE_LOG" 2>&1 &
+        for i in $(seq 1 20); do
+            if PYTHONPATH="$REPO" python3 -c \
+                "from phase5_dbus_sync.dbus_client import KdenliveDBus; import sys; sys.exit(0 if KdenliveDBus().available else 1)" \
+                2>/dev/null; then
+                echo "Kdenlive on D-Bus."
+                break
+            fi
+            sleep 1
+        done
+    fi
 else
     echo "kdenlive not found — falling back to file mode."
     unset PYAGENT_LIVE
