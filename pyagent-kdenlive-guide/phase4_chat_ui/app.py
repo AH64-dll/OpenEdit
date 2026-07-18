@@ -335,7 +335,9 @@ def create_app(
             if ws in active_tasks:
                 task = active_tasks.pop(ws)
                 task.cancel()
-                asyncio.create_task(client_for_ws.stop())
+                stopped = client_for_ws.stop()
+                if asyncio.iscoroutine(stopped):
+                    await stopped
 
     async def handle_ws_message(ws: WebSocket, data: dict) -> None:
         sess_id = ws_session_map.get(ws)

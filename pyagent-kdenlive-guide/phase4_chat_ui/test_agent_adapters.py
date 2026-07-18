@@ -79,8 +79,10 @@ def test_opencode_adapter_run_prompt_injectable():
             self.returncode = -9
 
     lines = [
-        b'{"type":"assistant","message":{"content":"hello"}}\n',
-        b'{"tool":"read","args":{"path":"/x"}}\n',
+        b'{"type":"step_start","sessionID":"s1"}\n',
+        b'{"type":"text","text":"hello","sessionID":"s1"}\n',
+        b'{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"path":"/x"},"output":"contents"}}}\n',
+        b'{"type":"step_finish","sessionID":"s1"}\n',
     ]
 
     async def fake_run_cmd(cmd):
@@ -97,7 +99,11 @@ def test_opencode_adapter_run_prompt_injectable():
             ev.kind == "message_delta" and ev.role == "assistant" and ev.text == "hello"
             for ev in events
         ), events
-        assert any(ev.kind == "tool" and ev.tool == "read" for ev in events), events
+        assert any(
+            ev.kind == "tool" and ev.tool == "read"
+            and ev.args == {"path": "/x"} and ev.result == "contents"
+            for ev in events
+        ), events
         assert any(ev.kind == "done" for ev in events), events
 
     asyncio.run(_run())

@@ -150,7 +150,7 @@ class OpenCodeAdapter:
 
     async def run_prompt(self, text: str, image_paths: list[str] | None = None) -> AsyncIterator[PiEvent]:
         cmd = [
-            "opencode", "run", "--format", "json",
+            "opencode", "run", "--format", "json", "--auto",
             "--model", self.model,
         ]
         if image_paths:
@@ -199,26 +199,52 @@ class OpenCodeAdapter:
 
     @staticmethod
     def _to_event(obj: dict) -> PiEvent | None:
-        if "error" in obj or obj.get("type") == "error":
-            return PiEvent(kind="error", text=str(obj.get("message") or obj.get("error") or "unknown error"))
+        """Map an `opencode run --format json` event to a normalized PiEvent.
 
-        tool = obj.get("tool") or obj.get("toolUse") or obj.get("name")
-        if tool:
-            return PiEvent(
-                kind="tool",
-                tool=tool,
-                args=obj.get("args") or obj.get("input") or {},
-                result=None,
-            )
+        Real opencode event schema (observed):
+          {"type":"step_start", ...}                       -> ignore
+          {"type":"text","text":"...", ...}                 -> assistant text delta
+          {"type":"tool_use","part":{                      -> tool call
+              "type":"tool","tool":"bash",
+              "state":{"status":"completed",
+                       "input":{"command":"ls"},
+                       "output":"..."}}}
+          {"type":"step_finish", ...}                      -> ignore (done emitted after stream)
+          {"type":"error","error":"..."}                   -> error
+        """
+        etype = obj.get("type")
 
-        role = obj.get("role")
-        content = obj.get("message") or obj.get("content") or obj.get("text")
-        text = content if isinstance(content, str) else None
-        if text is None and isinstance(content, dict):
-            text = content.get("content") or content.get("text")
-        if (role == "assistant" or obj.get("type") == "assistant") and text:
-            return PiEvent(kind="message_delta", role="assistant", text=str(text))
+        if etype == "error" or "error" in obj:
+            err = obj.get("error") or obj.get("message") or "unknown error"
+            return PiEvent(kind="error", text=str(err))
 
+        if etype == "text":
+            # The text string lives in different places depending on whether
+            # opencode is attached to a TTY: top-level "text", or nested
+            # under "part"."text" when run headless (subprocess, no TTY).
+            text = obj.get("text")
+            if not isinstance(text, str):
+                text = (obj.get("part") or {}).get("text")
+            if isinstance(text, str) and text:
+                return PiEvent(kind="message_delta", role="assistant", text=text)
+            return None
+
+        if etype == "tool_use":
+            part = obj.get("part") or {}
+            tool = part.get("tool")
+            state = part.get("state") or {}
+            args = state.get("input") or {}
+            result = state.get("output")
+            if tool:
+                return PiEvent(
+                    kind="tool",
+                    tool=str(tool),
+                    args=args if isinstance(args, dict) else {"input": args},
+                    result=result,
+                )
+            return None
+
+        # step_start / step_finish / unknown -> no UI event
         return None
 
 
