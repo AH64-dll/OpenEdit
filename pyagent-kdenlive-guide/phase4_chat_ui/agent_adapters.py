@@ -6,11 +6,13 @@ existing `PiClient` from `pi_client.py`.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Callable, Protocol, runtime_checkable
 
 from phase4_chat_ui.pi_client import PiClient, PiEvent
 
@@ -90,3 +92,126 @@ class PiAgentAdapter:
             for m in models
             if isinstance(m, dict) and "id" in m
         ]
+
+
+def _default_models() -> str:
+    """Shell `opencode models` and return its stdout as a string."""
+    result = subprocess.run(
+        ["opencode", "models"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    return result.stdout
+
+
+class OpenCodeAdapter:
+    """Adapter that shells the `opencode` CLI (`opencode run --format json`)."""
+
+    app_id = "opencode"
+
+    def __init__(
+        self,
+        model: str,
+        project: str,
+        session_id: str,
+        models_cmd_fn: Callable[[list[str]], str] | None = None,
+        run_cmd_fn: Callable[..., Any] | None = None,
+    ) -> None:
+        self.model = model
+        self.project = project
+        self.session_id = session_id
+        self._models_cmd_fn = models_cmd_fn if models_cmd_fn is not None else _default_models
+        self._run_cmd_fn = run_cmd_fn
+        self._proc = None
+
+    def available(self) -> bool:
+        return shutil.which("opencode") is not None
+
+    def list_models(self) -> list[dict]:
+        raw = self._models_cmd_fn(["opencode", "models"])
+        models: list[dict] = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            models.append({"id": line, "name": line})
+        return models
+
+    async def run_prompt(self, text: str, image_paths: list[str] | None = None) -> AsyncIterator[PiEvent]:
+        cmd = [
+            "opencode", "run", "--format", "json",
+            "--model", self.model,
+        ]
+        if image_paths:
+            for ip in image_paths:
+                cmd += ["--file", ip]
+        cmd += [text]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            yield PiEvent(kind="error", text="opencode binary not found")
+            return
+
+        self._proc = proc
+        try:
+            assert proc.stdout is not None
+            async for raw in proc.stdout:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event = self._to_event(obj)
+                if event is not None:
+                    yield event
+            yield PiEvent(kind="done")
+        except asyncio.CancelledError:
+            self.stop()
+            raise
+        finally:
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+
+    def stop(self) -> None:
+        if self._proc is not None and self._proc.returncode is None:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _to_event(obj: dict) -> PiEvent | None:
+        if "error" in obj or obj.get("type") == "error":
+            return PiEvent(kind="error", text=str(obj.get("message") or obj.get("error") or "unknown error"))
+
+        tool = obj.get("tool") or obj.get("toolUse") or obj.get("name")
+        if tool:
+            return PiEvent(
+                kind="tool",
+                tool=tool,
+                args=obj.get("args") or obj.get("input") or {},
+                result=None,
+            )
+
+        role = obj.get("role")
+        content = obj.get("message") or obj.get("content") or obj.get("text")
+        text = content if isinstance(content, str) else None
+        if text is None and isinstance(content, dict):
+            text = content.get("content") or content.get("text")
+        if (role == "assistant" or obj.get("type") == "assistant") and text:
+            return PiEvent(kind="message_delta", role="assistant", text=str(text))
+
+        return None
