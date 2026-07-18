@@ -177,6 +177,14 @@ function renderState(state) {
   statePanel.appendChild(table);
 }
 
+function toggleReloadBanner(show) {
+  const banner = document.getElementById("reload-banner");
+  if (banner) banner.style.display = show ? "flex" : "none";
+}
+
+// D6: user confirmed they reloaded Kdenlive — tell the server to clear the flag.
+document.getElementById("reload-done").onclick = () => send({ type: "refresh_state" });
+
 function status(text) {
   let s = document.getElementById("status-line");
   if (!s) {
@@ -287,6 +295,7 @@ function handle(msg) {
       break;
     case "state":
       renderState(msg);
+      toggleReloadBanner(msg.reload_needed === true);
       break;
     case "state_full":
       renderState(msg.info);

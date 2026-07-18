@@ -63,6 +63,40 @@ def parse_profile(kdenlive_path: str) -> dict:
     }
 
 
+def parse_project_duration_sec(kdenlive_path: str) -> float:
+    """Total timeline duration (seconds) from the project's <tractor out="...">.
+
+    Kdenlive stores ``out`` as a timecode (``HH:MM:SS.mmm``) or a frame
+    count; both are converted to seconds. Falls back to 0.0 if the file or
+    tractor cannot be read.
+    """
+    try:
+        text = Path(kdenlive_path).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return 0.0
+    m = re.search(r'<tractor\b([^>]*)>', text)
+    if not m:
+        return 0.0
+    attrs = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
+    out = attrs.get("out", "0")
+    # Timecode form: HH:MM:SS.mmm
+    tc = re.match(r"^(\d+):(\d+):(\d+)(?:\.(\d+))?$", out)
+    if tc:
+        h, mi, s = int(tc.group(1)), int(tc.group(2)), int(tc.group(3))
+        frac = int((tc.group(4) or "0").ljust(3, "0")[:3]) / 1000.0
+        return round(h * 3600 + mi * 60 + s + frac, 3)
+    # Frame-count form.
+    try:
+        frames = int(out)
+    except ValueError:
+        return 0.0
+    if frames <= 0:
+        return 0.0
+    profile = parse_profile(kdenlive_path)
+    fps = profile.get("frame_rate_num", 30) / max(profile.get("frame_rate_den", 1), 1)
+    return round(frames / fps, 3)
+
+
 def _profile_args(profile: dict) -> list[str]:
     """Render the project's <profile> as melt consumer args.
 
@@ -151,5 +185,9 @@ def render(
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or [""]
         return RenderResult(False, output_path, mode, profile, 0.0, elapsed, err[0] or f"melt exited {proc.returncode}")
-    duration = (out_sec - in_sec) if (in_sec is not None and out_sec is not None) else 0.0
+    if in_sec is not None and out_sec is not None:
+        duration = out_sec - in_sec
+    else:
+        # Full-project render: report the actual timeline length, not 0.0.
+        duration = parse_project_duration_sec(kdenlive_path)
     return RenderResult(True, output_path, mode, profile, duration, elapsed, None)

@@ -14,39 +14,57 @@
 
 set -euo pipefail
 
-REPO="/home/ah64/apps/mlt-pipeline/pyagent-kdenlive-guide"
+REPO="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
 DEMO="$REPO/phase3_pyagent_core/tests/fixtures/demo.kdenlive"
 LOG_DIR="$HOME/.local/share/pyagent"
 mkdir -p "$LOG_DIR"
 
+PID_FILE="$LOG_DIR/pyagent.pid"
+
+# Handle "stop" mode
+if [[ "${1:-}" == "stop" ]]; then
+    if [[ -f "$PID_FILE" ]]; then
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "Stopping PyAgent server (PID: $PID)..."
+            kill "$PID"
+            for i in $(seq 1 10); do
+                if ! kill -0 "$PID" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+        fi
+        rm -f "$PID_FILE"
+        echo "PyAgent stopped."
+    else
+        echo "No PyAgent server PID file found."
+    fi
+    exit 0
+fi
+
 # Resolve which .kdenlive the AI should edit.
-# Priority:
-#   1. A .kdenlive dragged onto the icon.
-#   2. The project Kdenlive ALREADY has open (so the AI edits the
-#      timeline the user is looking at — not a detached demo file).
-#   3. The bundled demo fixture.
 detect_open_project() {
-    # Kdenlive's D-Bus windowFilePath is empty in this version, so we
-    # detect the open project from the running process: either its command
-    # line (if launched with the .kdenlive path) or, failing that, the
-    # most-recently modified .kdenlive under the user's edits dir.
     local pid p
     pid=$(pgrep -x kdenlive 2>/dev/null | head -1)
     [[ -z "$pid" ]] && return 1
-    # 1) command line
     p=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null | grep -o '/[^ ]*\.kdenlive' | head -1)
     [[ -n "$p" && -f "$p" ]] && { echo "$p"; return 0; }
-    # 2) most recently modified .kdenlive under common edit dirs
     p=$(find "$HOME/Videos/edits" "$HOME" -maxdepth 4 -name '*.kdenlive' \
             -newermt '-2 hours' 2>/dev/null | head -1)
     [[ -n "$p" && -f "$p" ]] && { echo "$p"; return 0; }
     return 1
 }
 
+OPEN_PROJECT=""
+if detect_open_project; then
+    OPEN_PROJECT=$(detect_open_project)
+fi
+
 if [[ -n "${1:-}" && -f "$1" ]]; then
     PROJECT="$1"
-elif detect_open_project; then
-    PROJECT="$(detect_open_project)"
+elif [[ -n "$OPEN_PROJECT" ]]; then
+    PROJECT="$OPEN_PROJECT"
     echo "Kdenlive is already open with: $PROJECT"
     echo "PyAgent will edit THAT project (live)."
 else
@@ -75,8 +93,6 @@ kdenlive_running() {
 }
 if command -v kdenlive >/dev/null 2>&1; then
     if kdenlive_running; then
-        # A Kdenlive is ALREADY open (with the user's real project).
-        # Don't launch a second instance — just sync to it live.
         echo "Kdenlive already running — syncing live to: $PROJECT"
     else
         echo "Starting Kdenlive with $PROJECT ..."
@@ -104,6 +120,9 @@ PYTHONPATH=. nohup python3 -m phase4_chat_ui \
     --provider opencode-go \
     --model minimax-m3 \
     > "$LOG_DIR/pyagent_server.log" 2>&1 &
+
+SERVER_PID=$!
+echo "$SERVER_PID" > "$PID_FILE"
 
 # Wait for it to come up, then open the browser.
 for i in $(seq 1 30); do

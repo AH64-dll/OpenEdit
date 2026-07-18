@@ -31,5 +31,14 @@ async def watch_project(
     target_name = path.name
     async for _changes in awatch(watch_dir, step=int(poll_delay_ms), poll_delay_ms=poll_delay_ms):
         # Only react to changes touching the project file itself.
-        if any(target_name in (c[1] if isinstance(c, tuple) else str(c)) for c in _changes):
-            await on_change(project)
+        # `awatch` yields (Change, Path) tuples; the target may be matched
+        # by name (in-place edit) or by a sibling temp file that gets
+        # renamed onto the project path (os.replace), in which case only
+        # the directory-level change is observable — so any change to the
+        # watched dir is treated as a potential project change.
+        for c in _changes:
+            path = c[1] if isinstance(c, tuple) else c
+            path_str = str(path)
+            if target_name == path_str or target_name in path_str or path_str == watch_dir:
+                await on_change(project)
+                break

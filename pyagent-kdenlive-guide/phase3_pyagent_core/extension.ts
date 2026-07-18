@@ -266,7 +266,14 @@ async function callRuntime(
       return toToolResult({ ok: false, error: "user rejected the proposed edit" });
     }
   }
-  return toToolResult(await runRuntime(op, args, project, catalog));
+  const res = await runRuntime(op, args, project, catalog);
+  // Auto-save after every successful mutating op so the edit lands on
+  // disk (and the chat UI's "reload needed" banner fires) without the
+  // model having to remember to call pyagent_save_project.
+  if (res.ok && isMutating(toolName)) {
+    await runRuntime("save", {}, project, catalog);
+  }
+  return toToolResult(res);
 }
 
 // ---- Extension entry ----

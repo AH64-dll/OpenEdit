@@ -106,6 +106,9 @@ def create_app(
         "model": model,
         "pi_binary": pi_binary,
         "catalog": catalog or str(DEFAULT_CATALOG),
+        # D6: set True after an AI edit op mutates the project file; cleared
+        # when the user confirms they reloaded Kdenlive (Ctrl+Shift+R).
+        "reload_needed": False,
     }
 
     sessions_cache: dict[str, Session] = {}
@@ -145,10 +148,15 @@ def create_app(
         info = await get_project_info_async()
         for s in list(sessions_cache.values()):
             s.set_project_state(info)
-        await manager.broadcast({"type": "state", **(info or {})})
+        await manager.broadcast(
+            {"type": "state", "reload_needed": session_state["reload_needed"], **(info or {})}
+        )
 
     # ---- file watcher (Phase 5 handoff: refresh on any external write) --
     async def _on_project_changed(path: str) -> None:
+        # D6: any change to the project file means Kdenlive needs a manual
+        # reload (Ctrl+Shift+R) to reflect it — flag the banner.
+        session_state["reload_needed"] = True
         await broadcast_state()
 
     async def safe_watch_project() -> None:
@@ -295,6 +303,8 @@ def create_app(
 
         mtype = data.get("type")
         if mtype == "refresh_state":
+            # D6: user confirmed they reloaded Kdenlive — clear the banner.
+            session_state["reload_needed"] = False
             await broadcast_state()
             return
         if mtype == "approve":
@@ -455,6 +465,9 @@ def create_app(
             await ws.send_json({"type": "message", "role": "assistant", "text": ev.text})
         elif ev.kind == "tool":
             sess.add_tool_event(ev.tool or "tool", ev.args or {}, ev.result)
+            # D6: any AI tool call mutates the project file; Kdenlive needs a
+            # manual reload (Ctrl+Shift+R) to reflect it, so flag the banner.
+            session_state["reload_needed"] = True
             await ws.send_json({
                 "type": "tool",
                 "tool": ev.tool,

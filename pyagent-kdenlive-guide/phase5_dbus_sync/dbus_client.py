@@ -1,6 +1,7 @@
 """jeepney-based client for Kdenlive's org.kde.kdenlive.MainWindow D-Bus."""
 from __future__ import annotations
 
+from typing import Any
 from jeepney import new_method_call
 from jeepney.io.blocking import open_dbus_connection
 
@@ -34,17 +35,22 @@ class KdenliveDBus:
         self._conn = open_dbus_connection(bus="SESSION")
 
     def _call(self, method: str, signature: str, *args) -> bool:
-        if self._conn is None:
-            return False
+        success, _ = self._call_with_reply(self.path, self.interface, method, signature, *args)
+        return success
+
+    def _call_with_reply(self, path: str, interface: str, method: str, signature: str, *args) -> tuple[bool, Any]:
         try:
+            self._ensure_conn()
+            if self._conn is None:
+                return False, None
             msg = new_method_call(
-                (self.service, self.path, self.interface),
+                (self.service, path, interface),
                 method, signature, args,
             )
-            self._conn.send_and_get_reply(msg, timeout=2000)
-            return True
+            reply = self._conn.send_and_get_reply(msg, timeout=2000)
+            return True, reply
         except Exception:
-            return False
+            return False, None
 
     def add_project_clip(self, url: str, folder: str = "") -> bool:
         return self._call("addProjectClip", "ss", url, folder)
@@ -70,3 +76,39 @@ class KdenliveDBus:
 
     def exit_app(self) -> bool:
         return self._call("exitApp", "")
+
+    @property
+    def has_scripting_api(self) -> bool:
+        """Check if Kdenlive supports the advanced org.kde.kdenlive.scripting interface."""
+        success, _ = self._call_with_reply(
+            self.path,
+            "org.kde.kdenlive.scripting",
+            "getProjectName",
+            ""
+        )
+        return success
+
+    def insert_clip_to_track(self, track_index: int, clip_id: str, start_frame: int) -> bool:
+        """Insert clip at specific track index and frame (requires scripting build)."""
+        success, _ = self._call_with_reply(
+            self.path,
+            "org.kde.kdenlive.scripting",
+            "insertTimelineClip",
+            "isi",
+            track_index,
+            clip_id,
+            start_frame
+        )
+        return success
+
+    def get_timeline_duration(self) -> int | None:
+        """Get timeline duration in frames (requires scripting build)."""
+        success, reply = self._call_with_reply(
+            self.path,
+            "org.kde.kdenlive.scripting",
+            "getTimelineDuration",
+            ""
+        )
+        if success and reply and len(reply) > 0:
+            return reply[0]
+        return None

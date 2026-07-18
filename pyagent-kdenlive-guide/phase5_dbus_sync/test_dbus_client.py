@@ -58,3 +58,39 @@ class TestKdenliveDBus(unittest.TestCase):
         fake_call.return_value = True
         self.assertTrue(self.kd.exit_app())
         fake_call.assert_called_once_with("exitApp", "")
+
+    @mock.patch.object(KdenliveDBus, "_call_with_reply")
+    def test_has_scripting_api(self, fake_call_reply):
+        fake_call_reply.return_value = (True, ["my_project"])
+        self.assertTrue(self.kd.has_scripting_api)
+        fake_call_reply.assert_called_with(
+            self.kd.path, "org.kde.kdenlive.scripting", "getProjectName", ""
+        )
+
+        fake_call_reply.return_value = (False, None)
+        self.assertFalse(self.kd.has_scripting_api)
+
+    @mock.patch.object(KdenliveDBus, "_call_with_reply")
+    def test_insert_clip_to_track(self, fake_call_reply):
+        fake_call_reply.return_value = (True, [])
+        self.assertTrue(self.kd.insert_clip_to_track(1, "clip123", 100))
+        fake_call_reply.assert_called_once_with(
+            self.kd.path,
+            "org.kde.kdenlive.scripting",
+            "insertTimelineClip",
+            "isi",
+            1,
+            "clip123",
+            100,
+        )
+
+    @mock.patch.object(KdenliveDBus, "_call_with_reply")
+    def test_get_timeline_duration(self, fake_call_reply):
+        fake_call_reply.return_value = (True, [1200])
+        self.assertEqual(self.kd.get_timeline_duration(), 1200)
+        fake_call_reply.assert_called_once_with(
+            self.kd.path, "org.kde.kdenlive.scripting", "getTimelineDuration", ""
+        )
+
+        fake_call_reply.return_value = (False, None)
+        self.assertIsNone(self.kd.get_timeline_duration())

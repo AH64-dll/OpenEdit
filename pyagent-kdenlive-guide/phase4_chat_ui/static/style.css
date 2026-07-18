@@ -330,3 +330,27 @@ html, body {
   background: #ff5252;
 }
 
+
+/* D6: "reload needed" banner (AI edits saved, Kdenlive needs manual reload) */
+.reload-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, #fff3cd 0%, #ffe08a 100%);
+  color: #5a4500;
+  border-bottom: 1px solid #e6c200;
+  font-size: 14px;
+  font-weight: 600;
+}
+.reload-done-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-weight: 700;
+  background: #8BC34A;
+  color: #163006;
+  cursor: pointer;
+}
+.reload-done-btn:hover { background: #7cb342; }
