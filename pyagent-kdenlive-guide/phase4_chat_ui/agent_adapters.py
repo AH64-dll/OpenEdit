@@ -106,6 +106,18 @@ def _default_models(cmd: list[str]) -> str:
     return result.stdout
 
 
+def _default_providers(cmd: list[str]) -> str:
+    """Shell `opencode providers list` and return its stdout as a string."""
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    return result.stdout
+
+
 async def _default_run_cmd(cmd: list[str]):
     """Default subprocess launcher: shells the given command list."""
     return await asyncio.create_subprocess_exec(
@@ -127,12 +139,14 @@ class OpenCodeAdapter:
         session_id: str,
         models_cmd_fn: Callable[[list[str]], str] | None = None,
         run_cmd_fn: Callable[..., Any] | None = None,
+        providers_cmd_fn: Callable[[list[str]], str] | None = None,
     ) -> None:
         self.model = model
         self.project = project
         self.session_id = session_id
         self._models_cmd_fn = models_cmd_fn if models_cmd_fn is not None else _default_models
         self._run_cmd_fn = run_cmd_fn if run_cmd_fn is not None else _default_run_cmd
+        self._providers_cmd_fn = providers_cmd_fn if providers_cmd_fn is not None else _default_providers
         self._proc = None
 
     def available(self) -> bool:
@@ -140,13 +154,51 @@ class OpenCodeAdapter:
 
     def list_models(self) -> list[dict]:
         raw = self._models_cmd_fn(["opencode", "models"])
+        authed = self._authed_provider_prefixes()
         models: list[dict] = []
         for line in raw.splitlines():
             line = line.strip()
             if not line:
                 continue
+            # Only offer models whose provider has credentials configured.
+            # `opencode models` lists EVERY provider's models, including ones
+            # with no auth (e.g. the free `opencode/*` aliases). Picking an
+            # unauthenticated model makes opencode silently fall back to its
+            # default model, so we hide them from the UI.
+            prefix = line.split("/", 1)[0] if "/" in line else ""
+            if authed is not None and prefix and prefix not in authed:
+                continue
             models.append({"id": line, "name": line})
         return models
+
+    def _authed_provider_prefixes(self) -> set[str] | None:
+        """Return the set of model-prefixes that have a credential.
+
+        Parses `opencode providers list`. Each authenticated provider is shown
+        with a credential marker (api / oauth); we map the known display
+        names to their model prefixes. Returns None if parsing fails, so the
+        caller can fall back to showing everything.
+        """
+        try:
+            out = self._providers_cmd_fn(["opencode", "providers", "list"])
+        except Exception:
+            return None
+        # display-name -> model prefix(es)
+        known = {
+            "openai": {"openai"},
+            "opencode go": {"opencode-go"},
+            "github copilot": {"github-copilot", "copilot"},
+        }
+        authed: set[str] = set()
+        for line in out.splitlines():
+            low = line.lower()
+            marked = "api" in low or "oauth" in low or "●" in line
+            if not marked:
+                continue
+            for name, prefixes in known.items():
+                if name in low:
+                    authed.update(prefixes)
+        return authed or None
 
     async def run_prompt(self, text: str, image_paths: list[str] | None = None) -> AsyncIterator[PiEvent]:
         cmd = [
