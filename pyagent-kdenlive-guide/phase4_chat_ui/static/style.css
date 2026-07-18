@@ -60,7 +60,7 @@ html, body {
 
 .layout {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 240px 1fr 320px;
   gap: 14px;
   padding: 14px;
   height: calc(100% - 54px);
@@ -126,8 +126,14 @@ html, body {
 .btn.reject { background: #ff8a80; color: #5a0000; }
 
 .composer { display: flex; gap: 8px; margin-top: 10px; align-items: flex-end; }
-.composer textarea {
+.composer-container {
+  display: flex;
+  flex-direction: column;
   flex: 1;
+  gap: 8px;
+}
+.composer textarea {
+  width: 100%;
   resize: none;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -135,6 +141,12 @@ html, body {
   font-family: inherit;
   font-size: 14px;
   background: rgba(255, 255, 255, 0.8);
+}
+.composer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: flex-end;
 }
 #send-btn {
   border: none;
@@ -174,3 +186,147 @@ html, body {
 .kv td:first-child { color: var(--ink-soft); width: 42%; }
 .muted { color: var(--ink-soft); font-style: italic; }
 .status-line { font-size: 12px; color: var(--ink-soft); padding: 4px 2px; min-height: 16px; }
+
+/* Sessions Sidebar */
+.sessions-col {
+  background: var(--glass);
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.sidebar-header h2 {
+  font-size: 14px;
+  margin: 0;
+}
+.sessions-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.session-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.session-item:hover {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+.session-item.active {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: var(--sky);
+  box-shadow: 0 2px 6px rgba(124, 198, 242, 0.2);
+  font-weight: 600;
+}
+.session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-meta {
+  font-size: 10px;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Image Previews & Thumbnails */
+.image-previews {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.preview-thumb {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+.preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.preview-thumb .remove-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  line-height: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+.preview-thumb .remove-btn:hover {
+  background: rgba(255, 0, 0, 0.8);
+}
+.msg-image {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 8px;
+  margin-top: 4px;
+  display: block;
+}
+
+/* Thinking Indicator & Spinner */
+.thinking-msg {
+  border-left: 3px solid var(--sky);
+}
+.thinking-spinner {
+  display: inline-block;
+  font-weight: bold;
+  color: var(--sky);
+  animation: pulse 1s infinite alternate;
+}
+@keyframes pulse {
+  0% { opacity: 0.2; }
+  100% { opacity: 1; }
+}
+.text-thinking {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+/* Stop/Interrupt button */
+#stop-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-weight: 700;
+  background: #ff8a80;
+  color: #5a0000;
+  cursor: pointer;
+}
+#stop-btn:hover {
+  background: #ff5252;
+}
+

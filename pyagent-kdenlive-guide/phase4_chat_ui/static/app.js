@@ -1,38 +1,62 @@
-/* PyAgent chat UI — vanilla JS, WebSocket client.
- *
- * Protocol (server -> client, JSON):
- *   {type:"project", path:str}
- *   {type:"message_delta", role:"assistant", text:str}  # live partial, update in place
- *   {type:"message", role:"user"|"assistant", text:str}
- *   {type:"tool", tool:str, args:obj, result:obj|null, error:str|null}
- *   {type:"plan", plan_id:str, summary:str, diff:str}   # pending approval
- *   {type:"plan_resolved", plan_id:str, decision:"approved"|"rejected"}
- *   {type:"state", ...project_info_dict}                 # get_project_info
- *   {type:"state_full", info:dict, summary:dict|null}    # info + timeline
- *   {type:"status", text:str}
- *   {type:"error", text:str}
- * Client -> server:
- *   {type:"prompt", text:str}
- *   {type:"approve", plan_id:str}
- *   {type:"reject", plan_id:str}
- *   {type:"refresh_state"}
- */
+/* PyAgent chat UI — vanilla JS, WebSocket client. */
 
 const transcript = document.getElementById("transcript");
 const planSlot = document.getElementById("plan-slot");
 const composer = document.getElementById("composer");
 const input = document.getElementById("prompt-input");
 const sendBtn = document.getElementById("send-btn");
+const stopBtn = document.getElementById("stop-btn");
 const statePanel = document.getElementById("state-panel");
 const projectPathEl = document.getElementById("project-path");
 const stateRefreshBtn = document.getElementById("state-refresh");
 const quickActionsEl = document.getElementById("quick-actions");
+const imagePreviews = document.getElementById("image-previews");
+const newSessionBtn = document.getElementById("new-session-btn");
+const sessionsList = document.getElementById("sessions-list");
 
 let ws = null;
 let pendingPlanId = null;
 let _streamingBody = null;  // the in-progress assistant bubble during a turn
+let pendingImages = [];
+let activeSessionId = null;
+let _thinkingMsgRow = null;
+
+function setRunningState(running) {
+  if (running) {
+    sendBtn.style.display = "none";
+    stopBtn.style.display = "inline-block";
+    input.disabled = true;
+  } else {
+    sendBtn.style.display = "inline-block";
+    stopBtn.style.display = "none";
+    input.disabled = false;
+    input.focus();
+    clearThinking();
+  }
+}
+
+function showThinking(text) {
+  clearThinking();
+  const row = el("div", "msg msg-assistant thinking-msg");
+  row.appendChild(el("div", "who", "PyAgent (thinking)"));
+  const body = el("div", "body text-thinking", text || "Analyzing...");
+  const spinner = el("span", "thinking-spinner", "...");
+  row.appendChild(body);
+  row.appendChild(spinner);
+  transcript.appendChild(row);
+  transcript.scrollTop = transcript.scrollHeight;
+  _thinkingMsgRow = row;
+}
+
+function clearThinking() {
+  if (_thinkingMsgRow) {
+    _thinkingMsgRow.remove();
+    _thinkingMsgRow = null;
+  }
+}
 
 function appendAssistantDelta(text) {
+  clearThinking();
   if (!_streamingBody) {
     const row = el("div", "msg msg-assistant");
     row.appendChild(el("div", "who", "PyAgent"));
@@ -57,12 +81,19 @@ function el(tag, cls, text) {
   return e;
 }
 
-function addMessage(role, text) {
+function addMessage(role, text, images) {
   const row = el("div", "msg msg-" + role);
   const who = el("div", "who", role === "user" ? "You" : "PyAgent");
   const body = el("div", "body", text);
   row.appendChild(who);
   row.appendChild(body);
+  if (images && images.length > 0) {
+    for (const imgData of images) {
+      const img = el("img", "msg-image");
+      img.src = imgData;
+      row.appendChild(img);
+    }
+  }
   transcript.appendChild(row);
   transcript.scrollTop = transcript.scrollHeight;
   return body;
@@ -122,18 +153,28 @@ function clearPlan(decision) {
 }
 
 function renderState(state) {
+  statePanel.innerHTML = "";
   if (!state) {
-    statePanel.innerHTML = '<p class="muted">No project loaded.</p>';
+    const p = el("p", "muted", "No project loaded.");
+    statePanel.appendChild(p);
     return;
   }
-  const rows = [];
-  const push = (k, v) => rows.push(`<tr><td>${k}</td><td>${v}</td></tr>`);
+  const table = document.createElement("table");
+  table.className = "kv";
+  function push(k, v) {
+    const tr = document.createElement("tr");
+    const td1 = el("td", "", k);
+    const td2 = el("td", "", String(v));
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    table.appendChild(tr);
+  }
   push("name", state.name || "—");
   push("fps", state.fps ?? "—");
   push("resolution", `${state.width ?? "?"}×${state.height ?? "?"}`);
   push("tracks", state.track_count ?? "—");
   push("duration", state.duration_sec != null ? state.duration_sec + "s" : "—");
-  statePanel.innerHTML = `<table class="kv">${rows.join("")}</table>`;
+  statePanel.appendChild(table);
 }
 
 function status(text) {
@@ -147,13 +188,20 @@ function status(text) {
   s.textContent = text;
 }
 
+let _reconnectDelay = 1500;
+const MAX_RECONNECT_DELAY = 30000;
+
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => status("connected");
+  ws.onopen = () => {
+    status("connected");
+    _reconnectDelay = 1500;
+  };
   ws.onclose = () => {
     status("disconnected — retrying…");
-    setTimeout(connect, 1500);
+    setTimeout(connect, _reconnectDelay);
+    _reconnectDelay = Math.min(_reconnectDelay * 2, MAX_RECONNECT_DELAY);
   };
   ws.onmessage = (ev) => {
     let msg;
@@ -166,6 +214,52 @@ function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
+function renderSessions(sessions, activeId) {
+  sessionsList.innerHTML = "";
+  activeSessionId = activeId;
+  sessions.forEach((s) => {
+    const item = el("div", "session-item" + (s.session_id === activeId ? " active" : ""));
+    const name = el("div", "session-name", s.name || s.session_id);
+    
+    const meta = el("div", "session-meta");
+    const projName = s.project ? s.project.split("/").pop() : "no project";
+    const projSpan = el("span", "", projName);
+    const dateStr = s.last_modified ? new Date(s.last_modified * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "";
+    const dateSpan = el("span", "", dateStr);
+    
+    meta.appendChild(projSpan);
+    meta.appendChild(dateSpan);
+    
+    item.appendChild(name);
+    item.appendChild(meta);
+    
+    item.onclick = () => {
+      if (s.session_id !== activeSessionId) {
+        send({ type: "switch_session", session_id: s.session_id });
+      }
+    };
+    sessionsList.appendChild(item);
+  });
+}
+
+function renderHistory(messages) {
+  transcript.innerHTML = "";
+  clearThinking();
+  _streamingBody = null;
+  
+  messages.forEach((m) => {
+    if (m.role === "tool") {
+      const row = el("div", "msg msg-tool");
+      row.appendChild(el("div", "who", "tool · " + (m.tool_name || "info")));
+      row.appendChild(el("div", "body", m.content));
+      transcript.appendChild(row);
+    } else {
+      addMessage(m.role, m.content, m.images);
+    }
+  });
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
 function handle(msg) {
   switch (msg.type) {
     case "project":
@@ -174,11 +268,15 @@ function handle(msg) {
     case "message_delta":
       appendAssistantDelta(msg.text);
       break;
+    case "thinking":
+      showThinking(msg.text);
+      break;
     case "message":
       if (msg.role === "assistant") finishAssistantMessage();
-      addMessage(msg.role, msg.text);
+      addMessage(msg.role, msg.text, msg.images);
       break;
     case "tool":
+      clearThinking();
       addToolEvent(msg.tool, msg.args || {}, msg.result ?? null, msg.error ?? null);
       break;
     case "plan":
@@ -195,9 +293,21 @@ function handle(msg) {
       break;
     case "status":
       status(msg.text);
+      if (msg.text === "ready" || msg.text === "stopped") {
+        setRunningState(false);
+      } else if (msg.text === "thinking" || msg.text === "working" || msg.text === "running") {
+        setRunningState(true);
+      }
       break;
     case "error":
+      setRunningState(false);
       addMessage("assistant", "⚠ " + msg.text);
+      break;
+    case "session_list":
+      renderSessions(msg.sessions, msg.active_session_id);
+      break;
+    case "history":
+      renderHistory(msg.messages);
       break;
   }
 }
@@ -205,11 +315,14 @@ function handle(msg) {
 composer.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text) return;
+  if (!text && pendingImages.length === 0) return;
   _streamingBody = null;  // reset any stale in-progress bubble
-  addMessage("user", text);
-  send({ type: "prompt", text });
+  addMessage("user", text, pendingImages);
+  send({ type: "prompt", text, images: pendingImages });
   input.value = "";
+  pendingImages = [];
+  renderPreviews();
+  setRunningState(true);
 });
 
 input.addEventListener("keydown", (e) => {
@@ -218,6 +331,48 @@ input.addEventListener("keydown", (e) => {
     composer.requestSubmit();
   }
 });
+
+input.addEventListener("paste", (e) => {
+  const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  for (const item of items) {
+    if (item.type.indexOf("image") !== -1) {
+      const file = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target.result;
+        pendingImages.push(base64);
+        renderPreviews();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+});
+
+function renderPreviews() {
+  imagePreviews.innerHTML = "";
+  pendingImages.forEach((imgSrc, index) => {
+    const thumb = el("div", "preview-thumb");
+    const img = el("img");
+    img.src = imgSrc;
+    const removeBtn = el("button", "remove-btn", "×");
+    removeBtn.onclick = (e) => {
+      e.preventDefault();
+      pendingImages.splice(index, 1);
+      renderPreviews();
+    };
+    thumb.appendChild(img);
+    thumb.appendChild(removeBtn);
+    imagePreviews.appendChild(thumb);
+  });
+}
+
+stopBtn.onclick = () => {
+  send({ type: "stop" });
+};
+
+newSessionBtn.onclick = () => {
+  send({ type: "new_session" });
+};
 
 stateRefreshBtn.onclick = () => send({ type: "refresh_state" });
 
@@ -237,6 +392,7 @@ for (const qa of QUICK_ACTIONS) {
   b.onclick = () => {
     addMessage("user", qa.prompt);
     send({ type: "prompt", text: qa.prompt });
+    setRunningState(true);
   };
   quickActionsEl.appendChild(b);
 }

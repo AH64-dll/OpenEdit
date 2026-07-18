@@ -48,18 +48,19 @@ class PiClient:
         self.binary = binary or shutil.which("pi") or "pi"
         self.session_id = session_id
         self._pi_args = pi_args if pi_args is not None else []
+        self._current_proc: asyncio.subprocess.Process | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    async def run_prompt(self, text: str) -> AsyncIterator[PiEvent]:
+    async def run_prompt(self, text: str, image_paths: list[str] | None = None) -> AsyncIterator[PiEvent]:
         """Run one prompt and yield normalized events until the run ends."""
         # Collect pi's environment; expose the project path the same way the
         # Phase 3 extension expects it (PYAGENT_PROJECT).
         env = dict(os.environ)
         env["PYAGENT_PROJECT"] = self.project
-        env.setdefault("PYAGENT_AUTO_APPROVE", "true")
+        env.setdefault("PYAGENT_AUTO_APPROVE", "false")
 
         cmd = [
             self.binary,
@@ -68,6 +69,11 @@ class PiClient:
             "--mode", "json",
             "--no-extensions",   # we load the extension explicitly below
             "--session-id", self.session_id,
+        ]
+        if image_paths:
+            for ip in image_paths:
+                cmd.append(f"@{ip}")
+        cmd += [
             "--print", text,
         ]
         # Load the pyagent extension by path so the tools are registered.
@@ -77,44 +83,63 @@ class PiClient:
             *cmd,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             env=env,
         )
 
-        assert proc.stdout is not None
-        # Buffer for accumulating streamed assistant text across deltas.
-        assistant_text = ""
-        saw_tool = False
-        saw_error = False
+        try:
+            self._current_proc = proc
+            assert proc.stdout is not None
+            # Buffer for accumulating streamed assistant text across deltas.
+            assistant_text = ""
+            saw_tool = False
+            saw_error = False
 
-        async for raw in proc.stdout:
-            line = raw.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
             try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            events = self._normalize(obj, assistant_text)
-            for ev in events:
-                if ev.kind == "message" and ev.role == "assistant":
-                    assistant_text = ev.text or assistant_text
-                if ev.kind == "tool":
-                    saw_tool = True
-                if ev.kind == "error":
-                    saw_error = True
-                yield ev
+                async with asyncio.timeout(300.0):
+                    async for raw in proc.stdout:
+                        line = raw.decode("utf-8", errors="replace").strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        events = self._normalize(obj, assistant_text)
+                        for ev in events:
+                            if ev.kind == "message" and ev.role == "assistant":
+                                assistant_text = ev.text or assistant_text
+                            if ev.kind == "tool":
+                                saw_tool = True
+                            if ev.kind == "error":
+                                saw_error = True
+                            yield ev
+            except TimeoutError:
+                saw_error = True
+                yield PiEvent(kind="error", text="pi subprocess timed out after 300.0s")
 
-        await proc.wait()
-        if proc.returncode != 0 and not saw_error:
-            err = ""
-            if proc.stderr is not None:
-                err = (await proc.stderr.read()).decode("utf-8", "replace").strip()
-            yield PiEvent(kind="error", text=err or f"pi exited {proc.returncode}")
+            await proc.wait()
+            if proc.returncode != 0 and not saw_error:
+                err = ""
+                if proc.stderr is not None:
+                    err = (await proc.stderr.read()).decode("utf-8", "replace").strip()
+                yield PiEvent(kind="error", text=err or f"pi exited {proc.returncode}")
+        finally:
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            self._current_proc = None
 
     async def stop(self) -> None:
-        """No persistent process to stop (one-shot per prompt)."""
-        return
+        """Kill the currently running pi subprocess."""
+        proc = self._current_proc
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # JSON-mode parsing
@@ -122,6 +147,8 @@ class PiClient:
 
     def _normalize(self, obj: dict, current_text: str) -> list[PiEvent]:
         t = obj.get("type")
+        if t == "thinking":
+            return [PiEvent(kind="thinking", text=str(obj.get("thinking", "")))]
         if t in ("message_start", "message_end", "message_update"):
             return self._parse_message(obj)
         if t == "turn_end":

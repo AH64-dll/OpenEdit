@@ -59,6 +59,31 @@ class TestAppREST(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertFalse(r.json()["ok"])
 
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_save_base64_image_valid(self):
+        from phase4_chat_ui.app import save_base64_image
+        import os
+        base64_png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+        path = save_base64_image(base64_png)
+        self.assertTrue(os.path.exists(path))
+        self.assertTrue(path.endswith(".png"))
+        os.remove(path)
+
+    def test_save_base64_image_invalid_ext(self):
+        from phase4_chat_ui.app import save_base64_image
+        bad_url = "data:image/exe;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+        with self.assertRaises(ValueError):
+            save_base64_image(bad_url)
+
+    def test_save_base64_image_too_large(self):
+        from phase4_chat_ui.app import save_base64_image
+        huge_data = "data:image/png;base64," + ("A" * (15 * 1024 * 1024))
+        with self.assertRaises(ValueError):
+            save_base64_image(huge_data)
+
 
 if __name__ == "__main__":
     unittest.main()

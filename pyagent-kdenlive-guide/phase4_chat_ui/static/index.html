@@ -14,15 +14,31 @@
   </header>
 
   <main class="layout">
+    <aside class="sessions-col">
+      <div class="sidebar-header">
+        <h2>Sessions</h2>
+        <button id="new-session-btn" class="ghost-btn" title="New Session">+</button>
+      </div>
+      <div id="sessions-list" class="sessions-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </aside>
+
     <section class="chat-col">
       <div id="transcript" class="transcript" aria-live="polite"></div>
 
       <div id="plan-slot"></div>
 
       <form id="composer" class="composer">
-        <textarea id="prompt-input" rows="2"
-          placeholder="Tell PyAgent what to do… (Enter to send, Shift+Enter for newline)"></textarea>
-        <button type="submit" id="send-btn">Send</button>
+        <div class="composer-container">
+          <div id="image-previews" class="image-previews"></div>
+          <textarea id="prompt-input" rows="2"
+            placeholder="Tell PyAgent what to do… (Enter to send, Shift+Enter for newline)"></textarea>
+        </div>
+        <div class="composer-actions">
+          <button type="submit" id="send-btn">Send</button>
+          <button type="button" id="stop-btn" style="display: none;">Stop</button>
+        </div>
       </form>
       <div id="quick-actions" class="quick-actions"></div>
     </section>
