@@ -14,12 +14,91 @@ const imagePreviews = document.getElementById("image-previews");
 const newSessionBtn = document.getElementById("new-session-btn");
 const sessionsList = document.getElementById("sessions-list");
 
+const changeProjectBtn = document.getElementById("change-project-btn");
+
+const agentSelect = document.getElementById("agent-select");
+const modelSelect = document.getElementById("model-select");
+let _apps = [];           // raw /api/apps payload
+let _currentApp = "piagent";
+let _currentModel = "";
+
+async function loadApps() {
+  try {
+    const resp = await fetch("/api/apps");
+    const data = await resp.json();
+    _apps = data.apps || [];
+  } catch (e) {
+    _apps = [];
+  }
+  renderAgentSelect();
+}
+
+function _appById(id) {
+  return _apps.find(a => a.id === id) || null;
+}
+
+function renderAgentSelect() {
+  agentSelect.innerHTML = "";
+  _apps.forEach(a => {
+    const opt = document.createElement("option");
+    opt.value = a.id;
+    opt.textContent = a.name;
+    if (!a.available) { opt.disabled = true; opt.textContent += " (unavailable)"; }
+    if (a.id === _currentApp) opt.selected = true;
+    agentSelect.appendChild(opt);
+  });
+  renderModelSelect();
+}
+
+function renderModelSelect() {
+  modelSelect.innerHTML = "";
+  const app = _appById(_currentApp);
+  const models = (app && app.models) ? app.models : [];
+  if (models.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "(no models)";
+    opt.disabled = true;
+    modelSelect.appendChild(opt);
+    return;
+  }
+  models.forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    opt.textContent = m.name;
+    if (m.id === _currentModel) opt.selected = true;
+    modelSelect.appendChild(opt);
+  });
+  // If current model isn't in the new app's list, select the first.
+  if (!models.some(m => m.id === _currentModel) && models.length > 0) {
+    _currentModel = models[0].id;
+    modelSelect.value = _currentModel;
+  }
+}
+
+agentSelect.addEventListener("change", () => {
+  const newApp = agentSelect.value;
+  if (newApp === _currentApp) return;
+  _currentApp = newApp;
+  // Server will pick a valid model for the new app and echo app_changed.
+  send({ type: "set_app", app_id: newApp });
+  renderModelSelect();  // optimistic; corrected on app_changed
+});
+
+modelSelect.addEventListener("change", () => {
+  const newModel = modelSelect.value;
+  if (newModel === _currentModel) return;
+  _currentModel = newModel;
+  send({ type: "set_model", model: newModel });
+});
+
 let ws = null;
 let pendingPlanId = null;
 let _streamingBody = null;  // the in-progress assistant bubble during a turn
 let pendingImages = [];
 let activeSessionId = null;
 let _thinkingMsgRow = null;
+let activeProject = null;
 
 function setRunningState(running) {
   if (running) {
@@ -205,6 +284,7 @@ function connect() {
   ws.onopen = () => {
     status("connected");
     _reconnectDelay = 1500;
+    loadApps();
   };
   ws.onclose = () => {
     status("disconnected — retrying…");
@@ -227,7 +307,19 @@ function renderSessions(sessions, activeId) {
   activeSessionId = activeId;
   sessions.forEach((s) => {
     const item = el("div", "session-item" + (s.session_id === activeId ? " active" : ""));
+    
+    const nameRow = el("div", "session-name-row");
     const name = el("div", "session-name", s.name || s.session_id);
+    const deleteBtn = el("button", "delete-session-btn", "×");
+    deleteBtn.title = "Delete session";
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm(`Are you sure you want to delete session "${s.name || s.session_id}"?`)) {
+        send({ type: "delete_session", session_id: s.session_id });
+      }
+    };
+    nameRow.appendChild(name);
+    nameRow.appendChild(deleteBtn);
     
     const meta = el("div", "session-meta");
     const projName = s.project ? s.project.split("/").pop() : "no project";
@@ -238,7 +330,7 @@ function renderSessions(sessions, activeId) {
     meta.appendChild(projSpan);
     meta.appendChild(dateSpan);
     
-    item.appendChild(name);
+    item.appendChild(nameRow);
     item.appendChild(meta);
     
     item.onclick = () => {
@@ -272,6 +364,7 @@ function handle(msg) {
   switch (msg.type) {
     case "project":
       projectPathEl.textContent = msg.path || "—";
+      activeProject = msg.path;
       break;
     case "message_delta":
       appendAssistantDelta(msg.text);
@@ -294,6 +387,9 @@ function handle(msg) {
       clearPlan(msg.decision);
       break;
     case "state":
+      if (msg.project_path && msg.project_path !== activeProject) {
+        break;
+      }
       renderState(msg);
       toggleReloadBanner(msg.reload_needed === true);
       break;
@@ -317,6 +413,15 @@ function handle(msg) {
       break;
     case "history":
       renderHistory(msg.messages);
+      break;
+    case "app_changed":
+      _currentApp = msg.app_id;
+      _currentModel = msg.model || _currentModel;
+      renderAgentSelect();
+      break;
+    case "model_changed":
+      _currentModel = msg.model || _currentModel;
+      renderModelSelect();
       break;
   }
 }
@@ -405,5 +510,12 @@ for (const qa of QUICK_ACTIONS) {
   };
   quickActionsEl.appendChild(b);
 }
+
+changeProjectBtn.onclick = () => {
+  const newPath = prompt("Enter new absolute path for the Kdenlive project file (.kdenlive):", activeProject || "");
+  if (newPath) {
+    send({ type: "change_project", path: newPath.trim() });
+  }
+};
 
 connect();

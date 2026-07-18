@@ -9,7 +9,15 @@
 <body>
   <header class="topbar">
     <div class="brand">PyAgent</div>
-    <div class="project" id="project-path" title="project">—</div>
+    <div class="agent-picker">
+      <label class="picker-label" for="agent-select">Agent</label>
+      <select id="agent-select" class="agent-select" title="Choose agent backend"></select>
+      <select id="model-select" class="agent-select" title="Choose model"></select>
+    </div>
+    <div class="project-container">
+      <div class="project" id="project-path" title="Active project file">—</div>
+      <button id="change-project-btn" class="ghost-btn" title="Change active project file">✏️</button>
+    </div>
     <button id="state-refresh" class="ghost-btn" title="Refresh project state">↻</button>
   </header>
 
