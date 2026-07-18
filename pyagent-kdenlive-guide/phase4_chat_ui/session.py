@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 MAX_HISTORY = 500
 
+DEFAULT_APP = "piagent"
+DEFAULT_MODEL = ""
+
 def _validate_session_id(session_id: str) -> bool:
     return bool(re.match(r"^[a-zA-Z0-9_-]+$", session_id))
 
@@ -91,9 +94,18 @@ class Session:
     pending plan awaiting approval, and the most recent project-state snapshot.
     """
 
-    def __init__(self, session_id: str | None = None, name: str | None = None, project: str | None = None) -> None:
+    def __init__(
+        self,
+        session_id: str | None = None,
+        name: str | None = None,
+        app: str | None = None,
+        model: str | None = None,
+        project: str | None = None,
+    ) -> None:
         self.session_id = session_id or f"pyagent-chat-{uuid.uuid4().hex[:12]}"
         self.name = name or self.session_id
+        self.app: str = app or DEFAULT_APP
+        self.model: str = model or DEFAULT_MODEL
         self.project = project or ""
         self.history: list[ChatMessage] = []
         self.pending_plan: PlanCard | None = None
@@ -104,6 +116,8 @@ class Session:
         return {
             "session_id": self.session_id,
             "name": self.name,
+            "app": self.app,
+            "model": self.model,
             "project": self.project,
             "history": [m.to_dict() for m in self.history],
             "pending_plan": self.pending_plan.to_dict() if self.pending_plan else None,
@@ -115,6 +129,8 @@ class Session:
         s = cls(
             session_id=data["session_id"],
             name=data.get("name"),
+            app=data.get("app", DEFAULT_APP),
+            model=data.get("model", DEFAULT_MODEL),
             project=data.get("project"),
         )
         s.last_modified = data.get("last_modified", 0.0)

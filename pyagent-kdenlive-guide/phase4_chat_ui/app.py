@@ -14,8 +14,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
-from phase4_chat_ui.session import PlanCard, Session, list_sessions, _validate_session_id
+from phase4_chat_ui.session import PlanCard, Session, list_sessions, _validate_session_id, get_sessions_dir, DEFAULT_APP, DEFAULT_MODEL
 from phase4_chat_ui.pi_client import PiClient
+from phase4_chat_ui.agent_adapters import build_adapter, list_apps, AgentAdapter, PiAgentAdapter, OpenCodeAdapter
 from phase4_chat_ui import state as project_state
 from phase4_chat_ui import watcher as file_watcher
 
@@ -97,6 +98,7 @@ def create_app(
     model: str = "minimax-m3",
     pi_binary: str | None = None,
     catalog: str | None = None,
+    default_app: str = DEFAULT_APP,
 ) -> FastAPI:
     manager = ChatConnectionManager()
 
@@ -106,14 +108,15 @@ def create_app(
         "model": model,
         "pi_binary": pi_binary,
         "catalog": catalog or str(DEFAULT_CATALOG),
-        # D6: set True after an AI edit op mutates the project file; cleared
-        # when the user confirms they reloaded Kdenlive (Ctrl+Shift+R).
-        "reload_needed": False,
+        "reload_needed": {},
     }
 
     sessions_cache: dict[str, Session] = {}
     ws_session_map: dict[WebSocket, str] = {}
-    ws_client_map: dict[WebSocket, PiClient] = {}
+    ws_client_map: dict[WebSocket, AgentAdapter] = {}
+
+    default_app_id = default_app
+    default_model_id = model if default_app == "piagent" else model
 
     default_session = None
     all_saved = list_sessions()
@@ -138,33 +141,66 @@ def create_app(
 
     # ---- helpers ------------------------------------------------------
 
-    async def get_project_info_async() -> dict | None:
-        return await asyncio.to_thread(project_state.get_project_info, project, session_state["catalog"])
-
-    async def get_timeline_summary_async() -> dict | None:
-        return await asyncio.to_thread(project_state.get_timeline_summary, project, session_state["catalog"])
-
-    async def broadcast_state() -> None:
-        info = await get_project_info_async()
-        for s in list(sessions_cache.values()):
-            s.set_project_state(info)
-        await manager.broadcast(
-            {"type": "state", "reload_needed": session_state["reload_needed"], **(info or {})}
-        )
-
-    # ---- file watcher (Phase 5 handoff: refresh on any external write) --
-    async def _on_project_changed(path: str) -> None:
-        # D6: any change to the project file means Kdenlive needs a manual
-        # reload (Ctrl+Shift+R) to reflect it — flag the banner.
-        session_state["reload_needed"] = True
-        await broadcast_state()
-
-    async def safe_watch_project() -> None:
+    def _rebuild_adapter_for(ws: WebSocket, app_id: str, model_id: str, sess: Session) -> AgentAdapter | None:
+        """Build an adapter for (app_id, model_id); stop old one. Returns None on unavailable."""
+        old = ws_client_map.get(ws)
+        if old is not None:
+            try:
+                old.stop()
+            except Exception:
+                pass
         try:
-            await file_watcher.watch_project(project, _on_project_changed)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"File watcher failed: {e}")
+            adapter = build_adapter(app_id, model_id, sess.project, sess.session_id)
+        except ValueError:
+            return None
+        if not adapter.available():
+            return None
+        ws_client_map[ws] = adapter
+        return adapter
+
+    active_watchers: dict[str, asyncio.Task] = {}
+
+    async def get_project_info_async(proj_path: str) -> dict | None:
+        return await asyncio.to_thread(project_state.get_project_info, proj_path, session_state["catalog"])
+
+    async def get_timeline_summary_async(proj_path: str) -> dict | None:
+        return await asyncio.to_thread(project_state.get_timeline_summary, proj_path, session_state["catalog"])
+
+    async def broadcast_state(proj_path: str | None = None) -> None:
+        paths = [proj_path] if proj_path else list(active_watchers.keys())
+        for path in paths:
+            info = await get_project_info_async(path)
+            for s in list(sessions_cache.values()):
+                if s.project == path:
+                    s.set_project_state(info)
+            await manager.broadcast(
+                {
+                    "type": "state",
+                    "project_path": path,
+                    "reload_needed": session_state["reload_needed"].get(path, False),
+                    **(info or {})
+                }
+            )
+
+    def start_watching_project(proj_path: str) -> None:
+        if not proj_path or proj_path in active_watchers:
+            return
+
+        async def _on_project_changed(path: str) -> None:
+            session_state["reload_needed"][proj_path] = True
+            await broadcast_state(proj_path)
+
+        async def safe_watch_project() -> None:
+            try:
+                await file_watcher.watch_project(proj_path, _on_project_changed)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"File watcher failed for {proj_path}: {e}")
+            finally:
+                active_watchers.pop(proj_path, None)
+
+        task = asyncio.create_task(safe_watch_project())
+        active_watchers[proj_path] = task
 
     # ---- temp file cleanup --------------------------------------------
     def _cleanup_stale_uploads(max_age_hours: int = 1) -> None:
@@ -187,7 +223,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> typing.AsyncIterator[None]:
-        asyncio.create_task(safe_watch_project())
+        start_watching_project(project)
         _cleanup_stale_uploads()
         asyncio.create_task(_periodic_cleanup())
         yield
@@ -207,13 +243,17 @@ def create_app(
 
     @app.get("/api/project")
     async def api_project():
-        info = await get_project_info_async()
-        summary = (await get_timeline_summary_async()) if info else None
+        info = await get_project_info_async(project)
+        summary = (await get_timeline_summary_async(project)) if info else None
         return {
             "project": project,
             "info": info,
             "summary": summary,
         }
+
+    @app.get("/api/apps")
+    async def api_apps():
+        return {"apps": list_apps()}
 
     # ---- REST: plan approve / reject --------------------------------
 
@@ -244,18 +284,22 @@ def create_app(
         current_sess = default_session
         ws_session_map[ws] = current_sess.session_id
         
-        client_for_ws = PiClient(
-            provider=provider,
-            model=model,
-            project=project,
-            binary=pi_binary,
-            session_id=current_sess.session_id,
-            pi_args=["--extension", str(_REPO_ROOT / "phase3_pyagent_core" / "extension.ts")],
-        )
-        ws_client_map[ws] = client_for_ws
+        ws_app_id = default_app_id
+        ws_model_id = default_model_id
+        client_for_ws = _rebuild_adapter_for(ws, ws_app_id, ws_model_id, current_sess)
+        if client_for_ws is None:
+            client_for_ws = build_adapter("piagent", default_model_id, current_sess.project, current_sess.session_id)
+            ws_client_map[ws] = client_for_ws
 
-        await ws.send_json({"type": "project", "path": project})
-        await ws.send_json({"type": "state", **(await get_project_info_async() or {})})
+        start_watching_project(current_sess.project)
+
+        await ws.send_json({"type": "project", "path": current_sess.project})
+        await ws.send_json({
+            "type": "state",
+            "project_path": current_sess.project,
+            "reload_needed": session_state["reload_needed"].get(current_sess.project, False),
+            **(await get_project_info_async(current_sess.project) or {})
+        })
         # Send history
         await ws.send_json({
             "type": "history",
@@ -281,8 +325,9 @@ def create_app(
             while True:
                 data = await ws.receive_json()
                 await handle_ws_message(ws, data)
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
         finally:
             manager.disconnect(ws)
             ws_session_map.pop(ws, None)
@@ -303,9 +348,8 @@ def create_app(
 
         mtype = data.get("type")
         if mtype == "refresh_state":
-            # D6: user confirmed they reloaded Kdenlive — clear the banner.
-            session_state["reload_needed"] = False
-            await broadcast_state()
+            session_state["reload_needed"][sess.project] = False
+            await broadcast_state(sess.project)
             return
         if mtype == "approve":
             plan = sess.pending_plan
@@ -361,6 +405,129 @@ def create_app(
                 "session_id": new_id,
             })
             return
+        if mtype == "delete_session":
+            target_id = data.get("session_id")
+            if not target_id or not _validate_session_id(target_id):
+                await ws.send_json({"type": "error", "text": "Invalid session ID"})
+                return
+
+            sessions_cache.pop(target_id, None)
+
+            path = get_sessions_dir() / f"{target_id}.json"
+            try:
+                if path.exists():
+                    os.remove(path)
+            except Exception as e:
+                await ws.send_json({"type": "error", "text": f"Failed to delete session file: {e}"})
+                return
+
+            current_active_id = ws_session_map.get(ws)
+            if current_active_id == target_id:
+                remaining = list_sessions()
+                if remaining:
+                    next_id = remaining[0]["session_id"]
+                    loaded = Session.load(next_id)
+                    if loaded:
+                        sessions_cache[next_id] = loaded
+                        ws_session_map[ws] = next_id
+                        ws_client.session_id = next_id
+                        ws_client.project = loaded.project
+                        start_watching_project(loaded.project)
+
+                        await ws.send_json({"type": "project", "path": loaded.project})
+                        await ws.send_json({
+                            "type": "state",
+                            "project_path": loaded.project,
+                            "reload_needed": session_state["reload_needed"].get(loaded.project, False),
+                            **(await get_project_info_async(loaded.project) or {})
+                        })
+                        await manager.broadcast({
+                            "type": "session_list",
+                            "sessions": remaining,
+                            "active_session_id": next_id,
+                        })
+                        await ws.send_json({
+                            "type": "history",
+                            "messages": loaded.history_dicts(),
+                            "session_id": next_id,
+                        })
+                        if loaded.pending_plan:
+                            await ws.send_json({
+                                "type": "plan",
+                                "plan_id": loaded.pending_plan.plan_id,
+                                "summary": loaded.pending_plan.summary,
+                                "diff": loaded.pending_plan.diff,
+                            })
+                        else:
+                            await ws.send_json({"type": "plan_resolved", "plan_id": "", "decision": "rejected"})
+                else:
+                    import time
+                    new_id = f"pyagent-chat-{uuid.uuid4().hex[:12]}"
+                    proj_name = Path(project).stem
+                    nice_name = f"{proj_name} - {time.strftime('%Y-%m-%d %H:%M')}"
+                    new_session = Session(session_id=new_id, name=nice_name, project=project)
+                    new_session.save()
+                    sessions_cache[new_id] = new_session
+
+                    ws_session_map[ws] = new_id
+                    ws_client.session_id = new_id
+                    ws_client.project = project
+                    start_watching_project(project)
+
+                    await ws.send_json({"type": "project", "path": project})
+                    await ws.send_json({
+                        "type": "state",
+                        "project_path": project,
+                        "reload_needed": session_state["reload_needed"].get(project, False),
+                        **(await get_project_info_async(project) or {})
+                    })
+                    await manager.broadcast({
+                        "type": "session_list",
+                        "sessions": list_sessions(),
+                        "active_session_id": new_id,
+                    })
+                    await ws.send_json({
+                        "type": "history",
+                        "messages": [],
+                        "session_id": new_id,
+                    })
+            else:
+                await manager.broadcast({
+                    "type": "session_list",
+                    "sessions": list_sessions(),
+                    "active_session_id": current_active_id,
+                })
+            return
+
+        if mtype == "change_project":
+            new_path = data.get("path")
+            if not new_path:
+                return
+            new_path = new_path.strip()
+            if not new_path.endswith(".kdenlive"):
+                await ws.send_json({"type": "error", "text": "Project file must end with .kdenlive"})
+                return
+
+            p = Path(new_path)
+            if not p.exists():
+                await ws.send_json({"type": "error", "text": f"Project file does not exist: {new_path}"})
+                return
+
+            sess.project = new_path
+            sess.save()
+
+            ws_client.project = new_path
+            start_watching_project(new_path)
+
+            await ws.send_json({"type": "project", "path": new_path})
+            await manager.broadcast({
+                "type": "session_list",
+                "sessions": list_sessions(),
+                "active_session_id": sess.session_id,
+            })
+            await broadcast_state(new_path)
+            return
+
         if mtype == "switch_session":
             target_id = data.get("session_id")
             if not target_id or not _validate_session_id(target_id):
@@ -376,20 +543,29 @@ def create_app(
             if loaded:
                 ws_session_map[ws] = target_id
                 ws_client.session_id = target_id
+                ws_client.project = loaded.project
+                start_watching_project(loaded.project)
+                ws_client = _rebuild_adapter_for(ws, loaded.app or "piagent", loaded.model or "", loaded)
+                ws_client_map[ws] = ws_client
 
-                # Broadcast updated session list
+                await ws.send_json({"type": "project", "path": loaded.project})
+                await ws.send_json({
+                    "type": "state",
+                    "project_path": loaded.project,
+                    "reload_needed": session_state["reload_needed"].get(loaded.project, False),
+                    **(await get_project_info_async(loaded.project) or {})
+                })
+
                 await manager.broadcast({
                     "type": "session_list",
                     "sessions": list_sessions(),
                     "active_session_id": target_id,
                 })
-                # Send loaded history
                 await ws.send_json({
                     "type": "history",
                     "messages": loaded.history_dicts(),
                     "session_id": target_id,
                 })
-                # Send pending plan if exists
                 if loaded.pending_plan:
                     await ws.send_json({
                         "type": "plan",
@@ -399,6 +575,42 @@ def create_app(
                     })
                 else:
                     await ws.send_json({"type": "plan_resolved", "plan_id": "", "decision": "rejected"})
+            return
+
+        if mtype == "set_app":
+            app_id = data.get("app_id")
+            if not app_id:
+                await ws.send_json({"type": "error", "text": "set_app requires app_id"})
+                return
+            apps = {a["id"]: a for a in list_apps()}
+            if app_id not in apps or not apps[app_id]["available"]:
+                await ws.send_json({"type": "error", "text": f"Agent app not available: {app_id}"})
+                return
+            new_models = apps[app_id]["models"]
+            new_model = sess.model if any(m["id"] == sess.model for m in new_models) else (new_models[0]["id"] if new_models else "")
+            sess.app = app_id
+            sess.model = new_model
+            sess.save()
+            adapter = _rebuild_adapter_for(ws, app_id, new_model, sess)
+            if adapter is None:
+                await ws.send_json({"type": "error", "text": f"Failed to start agent: {app_id}"})
+                return
+            await ws.send_json({"type": "app_changed", "app_id": app_id, "model": new_model})
+            return
+
+        if mtype == "set_model":
+            model_id = data.get("model")
+            if not model_id:
+                await ws.send_json({"type": "error", "text": "set_model requires model"})
+                return
+            cur_app = sess.app
+            sess.model = model_id
+            sess.save()
+            adapter = _rebuild_adapter_for(ws, cur_app, model_id, sess)
+            if adapter is None:
+                await ws.send_json({"type": "error", "text": f"Failed to load model: {model_id}"})
+                return
+            await ws.send_json({"type": "model_changed", "model": model_id})
             return
         if mtype == "prompt":
             text = (data.get("text") or "").strip()
@@ -465,9 +677,7 @@ def create_app(
             await ws.send_json({"type": "message", "role": "assistant", "text": ev.text})
         elif ev.kind == "tool":
             sess.add_tool_event(ev.tool or "tool", ev.args or {}, ev.result)
-            # D6: any AI tool call mutates the project file; Kdenlive needs a
-            # manual reload (Ctrl+Shift+R) to reflect it, so flag the banner.
-            session_state["reload_needed"] = True
+            session_state["reload_needed"][sess.project] = True
             await ws.send_json({
                 "type": "tool",
                 "tool": ev.tool,
