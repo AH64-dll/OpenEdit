@@ -57,7 +57,6 @@ class LiveSync:
                  notifier: Callable[[str, str], None] = notify) -> None:
         self.project_path = project_path
         self._notifier = notifier
-        self._last_mode: str | None = None
         # Lazily resolve the running instance.
         service = detect_service_name()
         self._dbus = dbus or (KdenliveDBus(service) if service else None)
@@ -70,10 +69,37 @@ class LiveSync:
         if self.is_live(tool):
             ok = self._apply_live(tool, args)
             if ok:
-                self._last_mode = "live"
                 return {"ok": True, "result": {"mode": "live"}, "mode": "live"}
             # Fall through to file if D-Bus call failed.
-        return self._apply_file(tool, args)
+        result = self._apply_file(tool, args)
+        # Make every file-mode edit show up in the already-open Kdenlive
+        # window. Kdenlive's D-Bus only exposes add-clip/effect live methods,
+        # so for the remaining mutating ops we reload the current project
+        # in place (cleanRestart with clean=False) — the open window
+        # refreshes from disk and shows the edit with a brief flicker.
+        if result.get("ok") and tool in RELOAD_AFTER:
+            self._auto_reload()
+        return result
+
+    def _auto_reload(self) -> None:
+        """Reload the open Kdenlive project so file-mode edits are visible."""
+        if self._dbus is None or not self._dbus.available:
+            # No live instance — notify instead so the user knows to reopen.
+            self._notifier(
+                "PyAgent edit applied",
+                f"Edit written to {self.project_path}. Open it in Kdenlive to see it.",
+            )
+            return
+        if self._dbus.clean_restart(clean=False, force_quit=True):
+            self._notifier(
+                "PyAgent edit applied",
+                "Timeline updated live in Kdenlive.",
+            )
+        else:
+            self._notifier(
+                "PyAgent edit applied",
+                f"Edit written to {self.project_path}. Reload in Kdenlive to see it.",
+            )
 
     def _apply_live(self, tool: str, args: dict) -> bool:
         assert self._dbus is not None
@@ -109,18 +135,5 @@ class LiveSync:
     def _apply_file(self, tool: str, args: dict) -> dict:
         op = _OP_FOR_TOOL.get(tool, tool.replace("pyagent_", ""))
         code, resp = run_op(op, args, self.project_path, self._catalog)
-        self._last_mode = "file"
-        mode = "fallback" if tool in LIVE_CAPABLE else "file"
-        if tool in RELOAD_AFTER or tool in LIVE_CAPABLE:
-            self._notifier(
-                "PyAgent edit applied",
-                f"{tool} written to {self.project_path}. Reopen in Kdenlive to see it."
-                if mode == "file" else
-                f"{tool} applied via file (D-Bus unavailable). Reopen to see it.",
-            )
-        return {"ok": code == 0, "result": resp, "mode": self._last_mode,
+        return {"ok": code == 0, "result": resp, "mode": "file",
                 "fatal": code == 2}
-
-    def reload_if_needed(self) -> None:
-        if self._last_mode == "file" and self._dbus is not None:
-            self._dbus.clean_restart(clean=False, force_quit=True)

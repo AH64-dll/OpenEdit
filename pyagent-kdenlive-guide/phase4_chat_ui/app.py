@@ -171,10 +171,15 @@ def create_app(
             session.add_user_message(text)
             # NOTE: the client already renders the user's message on submit,
             # so we do NOT echo it back here — echoing would duplicate it.
-            async for ev in client.run_prompt(text):
-                await relay_event(ws, ev)
-            # After the agent finishes, refresh project state.
-            await broadcast_state()
+            try:
+                async for ev in client.run_prompt(text):
+                    await relay_event(ws, ev)
+                # After the agent finishes, refresh project state.
+                await broadcast_state()
+            except Exception:
+                # Client disconnected mid-turn, or a send failed. Swallow so
+                # the handler doesn't crash the server.
+                pass
 
     async def relay_event(ws: WebSocket, ev) -> None:
         if ev.kind == "message_delta" and ev.role == "assistant":

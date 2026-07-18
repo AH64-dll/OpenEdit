@@ -43,21 +43,33 @@ class TestLiveSync(unittest.TestCase):
 
     @mock.patch("phase5_dbus_sync.live_sync.detect_service_name")
     @mock.patch("phase5_dbus_sync.live_sync.run_op")
-    def test_reload_if_needed(self, fake_run_op, fake_detect):
-        fake_run_op.return_value = (0, {"ok": True})
+    @mock.patch("phase5_dbus_sync.live_sync.notify")
+    def test_apply_live_no_reload(self, fake_notify, fake_run_op, fake_detect):
+        # A live-capable op that succeeds live must NOT trigger a reload.
         fake_detect.return_value = "org.kde.kdenlive-1"
         fake_dbus = mock.Mock()
         fake_dbus.available = True
         fake_dbus.add_project_clip.return_value = True
         ls = LiveSync("/tmp/x.kdenlive", dbus=fake_dbus)
-        ls.apply("pyagent_import_media", {"path": "/clip.mp4"})  # live, no reload
-        ls.reload_if_needed()
+        r = ls.apply("pyagent_import_media", {"path": "/clip.mp4"})
+        self.assertEqual(r["mode"], "live")
         fake_dbus.clean_restart.assert_not_called()
-        # Now a file-mode op.
-        fake_detect.return_value = None
-        ls.apply("pyagent_add_transition", {"duration_sec": 1.0})
-        ls.reload_if_needed()
-        fake_dbus.clean_restart.assert_called_once()
+
+    @mock.patch("phase5_dbus_sync.live_sync.detect_service_name")
+    @mock.patch("phase5_dbus_sync.live_sync.run_op")
+    @mock.patch("phase5_dbus_sync.live_sync.notify")
+    def test_apply_file_mode_auto_reloads(self, fake_notify, fake_run_op, fake_detect):
+        # A file-mode op must reload the open Kdenlive so the edit shows live.
+        fake_run_op.return_value = (0, {"ok": True})
+        fake_detect.return_value = "org.kde.kdenlive-1"
+        fake_dbus = mock.Mock()
+        fake_dbus.available = True
+        ls = LiveSync("/tmp/x.kdenlive", dbus=fake_dbus, notifier=fake_notify)
+        r = ls.apply("pyagent_add_transition", {"duration_sec": 1.0})
+        self.assertEqual(r["mode"], "file")
+        fake_run_op.assert_called_once()
+        fake_dbus.clean_restart.assert_called_once_with(clean=False, force_quit=True)
+        fake_notify.assert_called_once()
 
 
 if __name__ == "__main__":
