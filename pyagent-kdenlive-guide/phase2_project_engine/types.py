@@ -67,7 +67,20 @@ class EffectSummary:
     params: dict[str, str]
 
 
+@dataclass(frozen=True)
+class TimelineSummary:
+    """Plain-data view of the timeline. Designed to render as a markdown
+    table in Phase 3 (token efficiency per the findings doc)."""
+
+    project: ProjectInfo
+    tracks: tuple["TrackSummary", ...]
+    clips: tuple[ClipSummary, ...]
+    transitions: tuple[TransitionSummary, ...]
+    markers: tuple[MarkerSummary, ...]
+
+
 __all__ = [
     "ProjectInfo", "ClipSummary", "TrackSummary",
     "TransitionSummary", "MarkerSummary", "EffectSummary",
+    "TimelineSummary",
 ]
