@@ -14,14 +14,11 @@ APPLY_EFFECT = ToolDef(
     op="apply_effect",
     is_mutating=True,
     parameters_schema={
-        "type": "object",
-        "properties": {
-            "clip_id": {"type": "string"},
-            "effect_id": {"type": "string", "description": "catalog effect id"},
-            "params": {"type": "object", "additionalProperties": True},
-        },
-        "required": ["clip_id", "effect_id"],
+        "clip_id": {"type": "string"},
+        "effect_id": {"type": "string", "description": "catalog effect id"},
+        "params": {"type": "object", "additionalProperties": True},
     },
+    required=("clip_id", "effect_id"),
 )
 
 

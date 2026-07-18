@@ -11,12 +11,9 @@ IMPORT_MEDIA = ToolDef(
     op="import_media",
     is_mutating=True,
     parameters_schema={
-        "type": "object",
-        "properties": {
-            "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-        },
-        "required": ["paths"],
+        "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     },
+    required=("paths",),
 )
 
 

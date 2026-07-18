@@ -32,7 +32,25 @@ interface ToolDef {
   description: string;
   op: string;             // backend op name, or "" for Phase 6 tools
   is_mutating: boolean;
-  parameters_schema: Record<string, unknown>;
+  parameters_schema: Record<string, unknown>;  // properties object only
+  required: string[];     // list of required parameter names; [] = all optional
+}
+
+// Build a TypeBox schema for a tool's parameters.
+//
+// `parameters_schema` from the Python side is the *properties* object
+// only (NOT a full JSON Schema document). The `required` list is
+// separate. We wire them together here.
+//
+// Why split: Type.Object() takes a property map, not a JSON Schema
+// document. If you hand it a full schema like
+//   {"type": "object", "properties": {...}, "required": [...]}
+// it treats "type", "properties", "required" as the parameter names
+// the LLM must send — which is wrong and silently breaks every tool.
+function buildTypeBoxSchema(def: ToolDef) {
+  return Type.Object(def.parameters_schema as any, {
+    additionalProperties: false,
+  });
 }
 
 // Spawn Python to import the tool defs from phase3_pyagent_core.tools
@@ -328,7 +346,7 @@ export default function (pi: ExtensionAPI): void {
         name: def.name,
         label: def.label,
         description: def.description,
-        parameters: Type.Object(def.parameters_schema as any),
+        parameters: buildTypeBoxSchema(def),
         execute: async (_id, params, _sig, _upd, ctx) =>
           callRuntime(def.op, params, ctx),
       });
@@ -341,7 +359,7 @@ export default function (pi: ExtensionAPI): void {
         name: def.name,
         label: def.label,
         description: def.description,
-        parameters: Type.Object(def.parameters_schema as any),
+        parameters: buildTypeBoxSchema(def),
         execute: async (_id, params) => handler(params),
       });
     }

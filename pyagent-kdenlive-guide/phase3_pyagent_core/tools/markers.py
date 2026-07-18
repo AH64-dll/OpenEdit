@@ -15,14 +15,11 @@ ADD_MARKER = ToolDef(
     op="add_marker",
     is_mutating=True,
     parameters_schema={
-        "type": "object",
-        "properties": {
-            "position_sec": {"type": "number", "minimum": 0},
-            "label": {"type": "string"},
-            "kind": {"type": "string", "enum": ["marker", "guide", "chapter"]},
-        },
-        "required": ["position_sec", "label"],
+        "position_sec": {"type": "number", "minimum": 0},
+        "label": {"type": "string"},
+        "kind": {"type": "string", "enum": ["marker", "guide", "chapter"]},
     },
+    required=("position_sec", "label"),
 )
 
 
@@ -32,10 +29,8 @@ SAVE_PROJECT = ToolDef(
     description="Write the .kdenlive file to disk. Use this when you are done editing.",
     op="save",
     is_mutating=True,
-    parameters_schema={
-        "type": "object",
-        "properties": {"path": {"type": "string"}},
-    },
+    parameters_schema={"path": {"type": "string"}},
+    required=(),
 )
 
 

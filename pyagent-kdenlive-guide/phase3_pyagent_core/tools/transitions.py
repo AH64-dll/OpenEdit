@@ -14,15 +14,12 @@ ADD_TRANSITION = ToolDef(
     op="add_transition",
     is_mutating=True,
     parameters_schema={
-        "type": "object",
-        "properties": {
-            "clip_a_id": {"type": "string", "description": "first clip's id"},
-            "clip_b_id": {"type": "string", "description": "second (adjacent) clip's id"},
-            "kind": {"type": "string", "description": "catalog transition id"},
-            "duration_sec": {"type": "number", "minimum": 0},
-        },
-        "required": ["clip_a_id", "clip_b_id"],
+        "clip_a_id": {"type": "string", "description": "first clip's id"},
+        "clip_b_id": {"type": "string", "description": "second (adjacent) clip's id"},
+        "kind": {"type": "string", "description": "catalog transition id"},
+        "duration_sec": {"type": "number", "minimum": 0},
     },
+    required=("clip_a_id", "clip_b_id"),
 )
 
 

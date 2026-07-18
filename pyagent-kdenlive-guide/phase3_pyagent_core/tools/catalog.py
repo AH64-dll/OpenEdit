@@ -14,13 +14,10 @@ LIST_CATALOG = ToolDef(
     op="list_catalog",
     is_mutating=False,
     parameters_schema={
-        "type": "object",
-        "properties": {
-            "kind": {"type": "string", "enum": ["effects", "transitions", "generators"]},
-            "filter": {"type": "string"},
-        },
-        "required": ["kind"],
+        "kind": {"type": "string", "enum": ["effects", "transitions", "generators"]},
+        "filter": {"type": "string"},
     },
+    required=("kind",),
 )
 
 

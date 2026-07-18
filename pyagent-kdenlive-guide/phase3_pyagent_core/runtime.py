@@ -38,9 +38,11 @@ def list_tools() -> list[dict]:
         op               backend op name, or "" for tools that call
                          Phase 6 directly (render_qc tools)
         is_mutating      True if the op edits the project on disk
-        parameters_schema  JSON Schema dict for the parameters, ready
-                           to be wrapped in Type.Object(...) by the TS
-                           extension
+        parameters_schema  properties object only (NOT a full JSON
+                           Schema document — that distinction is
+                           critical, see the comment in tools/project.py)
+        required         list of required parameter names; empty list
+                           means every parameter is optional
 
     Consumed by `extension.ts` via a one-liner that imports this
     function and JSON-dumps the result. The TS side never hard-codes
@@ -56,6 +58,7 @@ def list_tools() -> list[dict]:
             "op": t.op,
             "is_mutating": t.is_mutating,
             "parameters_schema": t.parameters_schema,
+            "required": list(t.required),
         }
         for t in all_tools()
     ]
