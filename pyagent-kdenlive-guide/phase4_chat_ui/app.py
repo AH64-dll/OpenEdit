@@ -14,7 +14,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
-from phase4_chat_ui.session import PlanCard, Session, list_sessions, _validate_session_id, get_sessions_dir, DEFAULT_APP, DEFAULT_MODEL
+from phase4_chat_ui.session import Session, list_sessions, _validate_session_id, get_sessions_dir, DEFAULT_APP, DEFAULT_MODEL
+from phase4_chat_ui.types import PlanCard
 from phase4_chat_ui.pi_client import PiClient
 from phase4_chat_ui.agent_adapters import build_adapter, list_apps, AgentAdapter, PiAgentAdapter, OpenCodeAdapter
 from phase4_chat_ui import state as project_state

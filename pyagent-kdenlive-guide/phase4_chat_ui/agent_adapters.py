@@ -14,7 +14,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Protocol, runtime_checkable
 
-from phase4_chat_ui.pi_client import PiClient, PiEvent
+from phase4_chat_ui.pi_client import PiClient
+from phase4_chat_ui.types import PiEvent
 
 
 # Repo root (parent of this package dir) — used to locate the pyagent extension.
