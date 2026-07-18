@@ -94,16 +94,25 @@ class PiAgentAdapter:
         ]
 
 
-def _default_models() -> str:
+def _default_models(cmd: list[str]) -> str:
     """Shell `opencode models` and return its stdout as a string."""
     result = subprocess.run(
-        ["opencode", "models"],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         check=False,
     )
     return result.stdout
+
+
+async def _default_run_cmd(cmd: list[str]):
+    """Default subprocess launcher: shells the given command list."""
+    return await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
 
 
 class OpenCodeAdapter:
@@ -123,7 +132,7 @@ class OpenCodeAdapter:
         self.project = project
         self.session_id = session_id
         self._models_cmd_fn = models_cmd_fn if models_cmd_fn is not None else _default_models
-        self._run_cmd_fn = run_cmd_fn
+        self._run_cmd_fn = run_cmd_fn if run_cmd_fn is not None else _default_run_cmd
         self._proc = None
 
     def available(self) -> bool:
@@ -150,11 +159,7 @@ class OpenCodeAdapter:
         cmd += [text]
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            proc = await self._run_cmd_fn(cmd)
         except FileNotFoundError:
             yield PiEvent(kind="error", text="opencode binary not found")
             return
