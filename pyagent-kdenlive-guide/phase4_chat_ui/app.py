@@ -169,14 +169,18 @@ def create_app(
             if not text:
                 return
             session.add_user_message(text)
-            await ws.send_json({"type": "message", "role": "user", "text": text})
+            # NOTE: the client already renders the user's message on submit,
+            # so we do NOT echo it back here — echoing would duplicate it.
             async for ev in client.run_prompt(text):
                 await relay_event(ws, ev)
             # After the agent finishes, refresh project state.
             await broadcast_state()
 
     async def relay_event(ws: WebSocket, ev) -> None:
-        if ev.kind == "message" and ev.role == "assistant":
+        if ev.kind == "message_delta" and ev.role == "assistant":
+            # Live partial; UI updates the in-progress bubble in place.
+            await ws.send_json({"type": "message_delta", "role": "assistant", "text": ev.text})
+        elif ev.kind == "message" and ev.role == "assistant":
             session.add_assistant_message(ev.text or "")
             await ws.send_json({"type": "message", "role": "assistant", "text": ev.text})
         elif ev.kind == "tool":

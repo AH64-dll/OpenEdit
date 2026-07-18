@@ -2,6 +2,7 @@
  *
  * Protocol (server -> client, JSON):
  *   {type:"project", path:str}
+ *   {type:"message_delta", role:"assistant", text:str}  # live partial, update in place
  *   {type:"message", role:"user"|"assistant", text:str}
  *   {type:"tool", tool:str, args:obj, result:obj|null, error:str|null}
  *   {type:"plan", plan_id:str, summary:str, diff:str}   # pending approval
@@ -29,6 +30,25 @@ const quickActionsEl = document.getElementById("quick-actions");
 
 let ws = null;
 let pendingPlanId = null;
+let _streamingBody = null;  // the in-progress assistant bubble during a turn
+
+function appendAssistantDelta(text) {
+  if (!_streamingBody) {
+    const row = el("div", "msg msg-assistant");
+    row.appendChild(el("div", "who", "PyAgent"));
+    _streamingBody = el("div", "body", text);
+    row.appendChild(_streamingBody);
+    transcript.appendChild(row);
+    transcript.scrollTop = transcript.scrollHeight;
+  } else {
+    _streamingBody.textContent = text;
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+}
+
+function finishAssistantMessage() {
+  _streamingBody = null;
+}
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -151,7 +171,11 @@ function handle(msg) {
     case "project":
       projectPathEl.textContent = msg.path || "—";
       break;
+    case "message_delta":
+      appendAssistantDelta(msg.text);
+      break;
     case "message":
+      if (msg.role === "assistant") finishAssistantMessage();
       addMessage(msg.role, msg.text);
       break;
     case "tool":
@@ -182,6 +206,7 @@ composer.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
+  _streamingBody = null;  // reset any stale in-progress bubble
   addMessage("user", text);
   send({ type: "prompt", text });
   input.value = "";

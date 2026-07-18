@@ -133,15 +133,20 @@ class PiClient:
         return []
 
     def _parse_message(self, obj: dict) -> list[PiEvent]:
-        # message_update carries the live partial; message_end carries the final.
+        # Live partial text comes through message_update / text_delta for a
+        # streaming feel; we emit it as kind="message_delta" so the UI can
+        # update the in-progress bubble in place instead of appending. The
+        # final text is delivered exactly once via message_end as kind=
+        # "message". We deliberately ignore the message_update "text_end"
+        # event, because it carries the same full text as message_end and
+        # would duplicate every assistant message in the UI.
         if obj.get("type") == "message_update":
             ev = obj.get("assistantMessageEvent") or {}
-            etype = ev.get("type")
-            if etype in ("text_delta", "text_end"):
+            if ev.get("type") == "text_delta":
                 partial = obj.get("message", {})
                 text = self._extract_text(partial)
                 if text:
-                    return [PiEvent(kind="message", role="assistant", text=text)]
+                    return [PiEvent(kind="message_delta", role="assistant", text=text)]
             return []
         if obj.get("type") == "message_end":
             msg = obj.get("message", {})
@@ -154,11 +159,11 @@ class PiClient:
 
     def _parse_turn_end(self, obj: dict) -> list[PiEvent]:
         events: list[PiEvent] = []
-        msg = obj.get("message", {})
-        # Assistant text (final).
-        text = self._extract_text(msg)
-        if text:
-            events.append(PiEvent(kind="message", role="assistant", text=text))
+        # NOTE: the assistant's final text is already delivered via
+        # message_update (text_end) / message_end for this turn. Re-emitting
+        # it here duplicates every assistant message in the UI, so we
+        # only surface the tool results from the turn_end event.
+        # Assistant text (final) — intentionally skipped (already sent).
         # Tool results from this turn.
         for tr in obj.get("toolResults", []) or []:
             tool = tr.get("toolName") or tr.get("tool")
