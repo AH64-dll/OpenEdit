@@ -333,7 +333,10 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "pyagent_insert_clip",
     label: "Insert clip",
-    description: "Insert a clip from the bin onto the timeline at the given position.",
+    description:
+      "Insert a clip from the bin onto the timeline at the given position. " +
+      "Pass `source_id` as the bin source id (see get_timeline_summary()'s " +
+      "source_id field, or a clip_id from that summary, or import_media()'s return).",
     parameters: Type.Object({
       track_index: Type.Integer({ minimum: 0 }),
       position_sec: Type.Number({ minimum: 0 }),
@@ -348,7 +351,11 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "pyagent_append_clip",
     label: "Append clip",
-    description: "Append a clip to the end of the given track.",
+    description:
+      "Append a clip from the bin to the end of the given track. " +
+      "Pass `source_id` as the bin source id: either the `source_id` " +
+      "field from get_timeline_summary(), or a `clip_id` from that same " +
+      "summary, or the id returned by import_media().",
     parameters: Type.Object({
       track_index: Type.Integer({ minimum: 0 }),
       source_id: Type.String(),

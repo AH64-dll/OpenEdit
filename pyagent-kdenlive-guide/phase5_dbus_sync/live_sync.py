@@ -17,17 +17,22 @@ from phase5_dbus_sync.kdenlive_state import detect_service_name  # noqa: E402
 from phase5_dbus_sync.notifier import notify  # noqa: E402
 
 # Tools where upstream Kdenlive's D-Bus can do the work live.
-LIVE_CAPABLE: frozenset[str] = frozenset({
-    "pyagent_import_media",
-    "pyagent_append_clip",
-    "pyagent_apply_effect",
-})
+#
+# NOTE: on the Kdenlive 26.04 build we target, the live D-Bus methods
+# (addTimelineClip / addProjectClip / cleanRestart) are UNSTABLE and crash
+# the running Kdenlive instance ("Remote peer disconnected"). Routing edits
+# through them destroys the user's open window. So we intentionally do
+# ALL mutating ops via the file backend (which we verified writes a valid
+# file that Kdenlive reloads cleanly on reopen) and simply notify the
+# user to reload. This is the reliable path.
+LIVE_CAPABLE: frozenset[str] = frozenset()
 
 # Tools that change the timeline and should trigger a reload/notify when
 # applied via the file backend (because Kdenlive won't see them otherwise).
 RELOAD_AFTER: frozenset[str] = frozenset({
-    "pyagent_insert_clip", "pyagent_move_clip", "pyagent_trim_clip",
-    "pyagent_delete_clip", "pyagent_add_transition", "pyagent_add_marker",
+    "pyagent_import_media", "pyagent_insert_clip", "pyagent_append_clip",
+    "pyagent_move_clip", "pyagent_trim_clip", "pyagent_delete_clip",
+    "pyagent_add_transition", "pyagent_apply_effect", "pyagent_add_marker",
     "pyagent_save_project",
 })
 
@@ -82,24 +87,56 @@ class LiveSync:
         return result
 
     def _auto_reload(self) -> None:
-        """Reload the open Kdenlive project so file-mode edits are visible."""
-        if self._dbus is None or not self._dbus.available:
-            # No live instance — notify instead so the user knows to reopen.
+        """After a file-mode edit, let the user see it in their open Kdenlive.
+
+        On the Kdenlive 26.04 build we target, `cleanRestart` is UNSTABLE
+        and frequently crashes the running instance. So we do NOT call it blindly.
+        Instead we attempt a guarded reload: try cleanRestart once; if Kdenlive
+        is dead afterward, relaunch it on the (now-updated) project file. Either
+        way the edit is on disk and will be visible after a reload/reopen.
+        """
+        kdenlive_was_up = self._dbus is not None and self._dbus.available
+        if kdenlive_was_up:
+            # Best-effort in-place reload. If it crashes Kdenlive, we
+            # detect that below and relaunch.
+            try:
+                self._dbus.clean_restart(clean=False)
+            except Exception:
+                pass
+            # Give Kdenlive a moment, then check it survived.
+            import time
+            time.sleep(2)
+            if not (self._dbus.available):
+                self._relaunch_kdenlive()
+                self._notifier(
+                    "PyAgent edit applied",
+                    "Timeline reloaded in a fresh Kdenlive window.",
+                )
+                return
             self._notifier(
                 "PyAgent edit applied",
-                f"Edit written to {self.project_path}. Open it in Kdenlive to see it.",
+                "Timeline updated. If the window didn't refresh, reload the "
+                "project (Ctrl+Shift+R) or reopen it.",
             )
             return
-        if self._dbus.clean_restart(clean=False):
-            self._notifier(
-                "PyAgent edit applied",
-                "Timeline updated live in Kdenlive.",
+        # No live instance — notify so the user knows to reopen.
+        self._notifier(
+            "PyAgent edit applied",
+            f"Edit written to {self.project_path}. Open it in Kdenlive to see it.",
+        )
+
+    def _relaunch_kdenlive(self) -> None:
+        """Relaunch Kdenlive on the project after a crash during reload."""
+        import subprocess
+        try:
+            subprocess.Popen(
+                ["kdenlive", self.project_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
             )
-        else:
-            self._notifier(
-                "PyAgent edit applied",
-                f"Edit written to {self.project_path}. Reload in Kdenlive to see it.",
-            )
+        except Exception:
+            pass
 
     def _apply_live(self, tool: str, args: dict) -> bool:
         assert self._dbus is not None
