@@ -25,7 +25,8 @@ LLM tool call (pi extension)
 When a file-mode edit lands, `LiveSync` records the tool call. If the
 cumulative count of file-mode edits since the last reload hits
 `RELOAD_AFTER`, the next `reload_if_needed()` triggers
-`KdenliveDBus.clean_restart(force_quit=True)` and a `notify-send` so the
+`KdenliveDBus.clean_restart(clean=False)` (the single-bool overload, which
+reloads the current open project in place) and a `notify-send` so the
 user sees the reload.
 
 ## CLI

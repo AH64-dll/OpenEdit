@@ -240,9 +240,18 @@ async function callRuntime(
   const toolName = `pyagent_${op}`;
   const autoApprove = process.env.PYAGENT_AUTO_APPROVE === "true";
 
-  if (liveSyncEnabled() && LIVE_CAPABLE.has(toolName)) {
+  // In live mode, route EVERY mutating tool through LiveSync. Live-capable
+  // tools (import/append/effect) push straight to the running Kdenlive via
+  // D-Bus; the rest edit the file and LiveSync auto-reloads the open
+  // project (cleanRestart) so the change shows in real time. Skipping this
+  // for non-live-capable tools meant their edits only appeared after a
+  // manual close/reopen.
+  if (liveSyncEnabled() && isMutating(toolName)) {
     const liveErr = liveApply(toolName, args);
     if (liveErr === null) {
+      // LiveSync.apply returns {mode:"live"} for D-Bus pushes and
+      // {mode:"file"} (with an auto-reload already triggered) for the
+      // file-mode path. Either way the edit is now visible in Kdenlive.
       return toToolResult({ ok: true, mode: "live" });
     }
     ctx?.ui?.notify?.(`Live sync unavailable (${liveErr}); using file-mode.`, "warn");

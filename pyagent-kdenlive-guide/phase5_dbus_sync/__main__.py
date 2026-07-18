@@ -42,7 +42,7 @@ def _cmd_notify(args: argparse.Namespace) -> int:
         notify("PyAgent", f"Project {args.file} updated. Reopen in Kdenlive.")
         return 0
     dbus = KdenliveDBus(svc)
-    if dbus.clean_restart(clean=False, force_quit=True):
+    if dbus.clean_restart(clean=False):
         notify("PyAgent", "Project reloaded in Kdenlive.")
         return 0
     notify("PyAgent", f"Project {args.file} updated. Reopen in Kdenlive.")

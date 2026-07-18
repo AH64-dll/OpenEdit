@@ -61,8 +61,12 @@ class KdenliveDBus:
     def update_project_path(self, path: str) -> bool:
         return self._call("updateProjectPath", "s", path)
 
-    def clean_restart(self, clean: bool = False, force_quit: bool = True) -> bool:
-        return self._call("cleanRestart", "bb", clean, force_quit)
+    def clean_restart(self, clean: bool = False) -> bool:
+        # Single-bool overload: cleanRestart(false) reloads the *current*
+        # open project from disk in place (window stays open). The (b,b)
+        # overload with forceQuit=True instead quits Kdenlive, which is
+        # why edits only appeared after a manual close/reopen.
+        return self._call("cleanRestart", "b", clean)
 
     def exit_app(self) -> bool:
         return self._call("exitApp", "")

@@ -90,7 +90,7 @@ class LiveSync:
                 f"Edit written to {self.project_path}. Open it in Kdenlive to see it.",
             )
             return
-        if self._dbus.clean_restart(clean=False, force_quit=True):
+        if self._dbus.clean_restart(clean=False):
             self._notifier(
                 "PyAgent edit applied",
                 "Timeline updated live in Kdenlive.",

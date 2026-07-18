@@ -10,7 +10,11 @@ class TestLiveSync(unittest.TestCase):
         self.assertIn("pyagent_apply_effect", LIVE_CAPABLE)
         self.assertNotIn("pyagent_add_transition", LIVE_CAPABLE)
 
-    def test_is_live_false_when_no_dbus(self):
+    @mock.patch("phase5_dbus_sync.live_sync.detect_service_name")
+    def test_is_live_false_when_no_dbus(self, fake_detect):
+        # Force "no running Kdenlive" so the test is deterministic even
+        # when a real instance happens to be open on the machine.
+        fake_detect.return_value = None
         ls = LiveSync("/tmp/x.kdenlive", dbus=None)
         self.assertFalse(ls.is_live("pyagent_import_media"))
 
@@ -68,7 +72,7 @@ class TestLiveSync(unittest.TestCase):
         r = ls.apply("pyagent_add_transition", {"duration_sec": 1.0})
         self.assertEqual(r["mode"], "file")
         fake_run_op.assert_called_once()
-        fake_dbus.clean_restart.assert_called_once_with(clean=False, force_quit=True)
+        fake_dbus.clean_restart.assert_called_once_with(clean=False)
         fake_notify.assert_called_once()
 
 

@@ -43,8 +43,8 @@ class TestKdenliveDBus(unittest.TestCase):
     @mock.patch.object(KdenliveDBus, "_call")
     def test_clean_restart(self, fake_call):
         fake_call.return_value = True
-        self.assertTrue(self.kd.clean_restart(clean=False, force_quit=True))
-        fake_call.assert_called_once_with("cleanRestart", "bb", False, True)
+        self.assertTrue(self.kd.clean_restart(clean=False))
+        fake_call.assert_called_once_with("cleanRestart", "b", False)
 
     @mock.patch.object(KdenliveDBus, "_call")
     def test_call_false_on_exception(self, fake_call):
