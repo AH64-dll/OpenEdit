@@ -335,9 +335,7 @@ def create_app(
             if ws in active_tasks:
                 task = active_tasks.pop(ws)
                 task.cancel()
-                stopped = client_for_ws.stop()
-                if asyncio.iscoroutine(stopped):
-                    await stopped
+                client_for_ws.stop()
 
     async def handle_ws_message(ws: WebSocket, data: dict) -> None:
         sess_id = ws_session_map.get(ws)
@@ -379,7 +377,7 @@ def create_app(
             if ws in active_tasks:
                 task = active_tasks.pop(ws)
                 task.cancel()
-                await ws_client.stop()
+                ws_client.stop()
                 await ws.send_json({"type": "status", "text": "stopped"})
             return
         if mtype == "new_session":
@@ -638,7 +636,7 @@ def create_app(
             if ws in active_tasks:
                 task = active_tasks.pop(ws)
                 task.cancel()
-                await ws_client.stop()
+                ws_client.stop()
 
             async def run_prompt_task():
                 try:

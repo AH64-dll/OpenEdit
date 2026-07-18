@@ -132,7 +132,7 @@ class PiClient:
                     pass
             self._current_proc = None
 
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Kill the currently running pi subprocess."""
         proc = self._current_proc
         if proc and proc.returncode is None:
