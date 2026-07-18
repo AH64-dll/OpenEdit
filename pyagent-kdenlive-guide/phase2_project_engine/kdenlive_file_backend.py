@@ -52,6 +52,7 @@ from .editor_backend import (
     TransitionSummary,
 )
 from .validation import ValidationError  # canonical
+from .tracks import get_video_playlist
 from .io import (
     ProjectTree,
     _sec_to_tc,
@@ -305,7 +306,7 @@ class KdenliveFileBackend(EditorBackend):
             # Each user-facing track is a <tractor> with child playlists
             # (video + audio). The video playlist is what holds the visible
             # entries on the timeline.
-            video_pl = tree.get_video_playlist(tr)
+            video_pl = get_video_playlist(tree, tr)
             entries = list(video_pl.findall("entry")) if video_pl is not None else []
             # Track kind/name from the tractor's properties if present.
             kind = "video"
@@ -423,7 +424,7 @@ class KdenliveFileBackend(EditorBackend):
         # Insert Video Part
         if not audio_only and target_video_track is not None:
             tractor = tracks[target_video_track]
-            pl = self.tree.get_video_playlist(tractor)
+            pl = get_video_playlist(self.tree, tractor)
             if pl is not None:
                 new_entry = etree.Element("entry")
                 new_entry.set("producer", producer.get("id"))
@@ -438,7 +439,7 @@ class KdenliveFileBackend(EditorBackend):
         # Insert Audio Part
         if not video_only and target_audio_track is not None and self._producer_has_audio(producer):
             tractor = tracks[target_audio_track]
-            pl = self.tree.get_video_playlist(tractor)
+            pl = get_video_playlist(self.tree, tractor)
             if pl is None:
                 playlists = self.tree.get_track_playlists(tractor)
                 pl = playlists[0] if playlists else None
@@ -472,7 +473,7 @@ class KdenliveFileBackend(EditorBackend):
         if source_out_sec is None:
             source_out_sec = self._resolve_source_duration(source_id)
         # Position at the end of the track.
-        video_pl = self.tree.get_video_playlist(tracks[track_index])
+        video_pl = get_video_playlist(self.tree, tracks[track_index])
         if video_pl is None:
             playlists = self.tree.get_track_playlists(tracks[track_index])
             video_pl = playlists[0] if playlists else None
@@ -513,7 +514,7 @@ class KdenliveFileBackend(EditorBackend):
                 target_track = new_track
             
             target_tractor = self.tree.get_tracks()[target_track]
-            pl = self.tree.get_video_playlist(target_tractor)
+            pl = get_video_playlist(self.tree, target_tractor)
             if pl is None:
                 playlists = self.tree.get_track_playlists(target_tractor)
                 pl = playlists[0] if playlists else None

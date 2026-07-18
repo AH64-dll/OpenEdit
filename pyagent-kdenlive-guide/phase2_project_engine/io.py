@@ -266,4 +266,5 @@ __all__ = [
     "save_project",
     "_sec_to_tc",
     "_tc_to_sec",
+    "_probe_duration_sec",
 ]

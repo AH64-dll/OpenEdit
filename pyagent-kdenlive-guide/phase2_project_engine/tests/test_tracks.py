@@ -2,6 +2,7 @@ import os
 import pytest
 from lxml import etree
 from phase2_project_engine.io import ProjectTree, load_project, save_project
+from phase2_project_engine.errors import BackendError
 from phase2_project_engine.tracks import (
     get_tracks, get_track_playlists, get_video_playlist, is_audio_track,
     find_clip_entry, find_all_entries, resolve_producer, resolve_source_duration,
@@ -11,7 +12,7 @@ from phase2_project_engine.tracks import (
 
 @pytest.fixture
 def demo_tree():
-    """A minimal .kdenlive tree: V1 with 2 entries, A1 audio."""
+    """A minimal .kdenlive tree: V1 with 1 entry, kdenlive:id 1 (producer) and 2 (entry)."""
     p = "phase3_pyagent_core/tests/fixtures/demo.kdenlive"
     if not os.path.exists(p):
         pytest.skip(f"fixture not found: {p}")
@@ -49,3 +50,53 @@ def test_bump_tractor_duration(demo_tree):
     if tr is not None:
         out = tr.get("out", "00:00:00.000")
         assert out != "00:00:00.000"
+
+
+def test_find_clip_entry_found(demo_tree):
+    """Happy path: entry with kdenlive:id=2 exists on the V1 track."""
+    entry, track_index = find_clip_entry(demo_tree, "2")
+    assert entry.tag == "entry"
+    assert track_index == 0
+    kid = ""
+    for p in entry.iter("property"):
+        if p.get("name") == "kdenlive:id":
+            kid = p.text or ""
+            break
+    assert kid == "2"
+
+
+def test_find_clip_entry_not_found(demo_tree):
+    """Unknown id should raise BackendError."""
+    with pytest.raises(BackendError, match="no clip with kdenlive:id='nonexistent'"):
+        find_clip_entry(demo_tree, "nonexistent")
+
+
+def test_find_all_entries_returns_all(demo_tree):
+    """The fixture has exactly one entry with kdenlive:id=2; find_all_entries returns 1."""
+    results = find_all_entries(demo_tree, "2")
+    assert len(results) == 1
+    entry, track_index = results[0]
+    assert entry.tag == "entry"
+    assert track_index == 0
+
+
+def test_resolve_source_duration_from_producer(demo_tree):
+    """Producer 1 has kdenlive:duration=00:00:10.000 -> 10.0 sec."""
+    assert resolve_source_duration(demo_tree, "1") == 10.0
+
+
+def test_resolve_source_duration_unknown_id_raises(demo_tree):
+    """resolve_source_duration on an unknown id should raise BackendError."""
+    with pytest.raises(BackendError, match="no bin entry with kdenlive:id='no_such_id'"):
+        resolve_source_duration(demo_tree, "no_such_id")
+
+
+def test_next_kdenlive_id_returns_unique(demo_tree):
+    """next_kdenlive_id should return an id not in use by the existing producers/entries."""
+    nxt = next_kdenlive_id(demo_tree)
+    assert nxt.isdigit()
+    used = {int(p.text) for p in demo_tree.root.iter("property")
+            if p.get("name") == "kdenlive:id" and (p.text or "").isdigit()}
+    assert int(nxt) not in used
+    # The fixture has ids 1 and 2; the next free one is 3.
+    assert nxt == "3"

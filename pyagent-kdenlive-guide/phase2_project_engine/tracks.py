@@ -15,7 +15,7 @@ from __future__ import annotations
 from lxml import etree
 
 from .errors import BackendError
-from .io import _sec_to_tc, _tc_to_sec
+from .io import _probe_duration_sec, _sec_to_tc, _tc_to_sec
 
 
 # --- Tracks -----------------------------------------------------------------
@@ -194,7 +194,6 @@ def resolve_source_duration(tree, source_id: str) -> float:
             return _tc_to_sec(p.text or "0")
     for p in prod.iter("property"):
         if p.get("name") == "resource":
-            from .io import _probe_duration_sec
             return _probe_duration_sec_path(p.text)
     return 0.0
 
@@ -205,7 +204,6 @@ def _probe_duration_sec_path(path_str: str | None) -> float:
     if not path_str:
         return 0.0
     from pathlib import Path
-    from .io import _probe_duration_sec
     return _probe_duration_sec(Path(path_str))
 
 
