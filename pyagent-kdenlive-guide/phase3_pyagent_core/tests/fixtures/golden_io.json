@@ -1,0 +1,90 @@
+{
+  "get_project_info": {
+    "name": "82690c1b-8dae-4625-a0f6-67c8cbb5439a",
+    "fps": 30.0,
+    "width": 1920,
+    "height": 1080,
+    "colorspace": "709",
+    "track_count": 1,
+    "duration_sec": 4.0,
+    "path": "phase3_pyagent_core/tests/fixtures/demo.kdenlive"
+  },
+  "get_timeline_summary": {
+    "project": {
+      "name": "82690c1b-8dae-4625-a0f6-67c8cbb5439a",
+      "fps": 30.0,
+      "width": 1920,
+      "height": 1080,
+      "colorspace": "709",
+      "track_count": 1,
+      "duration_sec": 4.0,
+      "path": "phase3_pyagent_core/tests/fixtures/demo.kdenlive"
+    },
+    "tracks": [
+      {
+        "index": 0,
+        "kind": "video",
+        "name": "main_tractor",
+        "clip_count": 1
+      }
+    ],
+    "clips": [
+      {
+        "clip_id": "2",
+        "track_index": 0,
+        "start_sec": 0.0,
+        "end_sec": 4.0,
+        "source_id": "1",
+        "source_path": "/home/ah64/apps/mlt-pipeline/testdata/clip_short.mp4",
+        "source_name": "clip_short.mp4",
+        "source_in_sec": 0.0,
+        "source_out_sec": 4.0,
+        "effects": []
+      }
+    ],
+    "transitions": [],
+    "markers": []
+  },
+  "list_catalog_effects": [
+    {
+      "kdenlive_id": "avfilter.acompressor",
+      "name": "Compressor (avfilter)",
+      "mlt_service": "avfilter.acompressor",
+      "description": "Audio Compressor"
+    },
+    {
+      "kdenlive_id": "avfilter.aecho",
+      "name": "Echo (avfilter)",
+      "mlt_service": "avfilter.aecho",
+      "description": "Add Echo"
+    }
+  ],
+  "list_catalog_transitions": [
+    {
+      "kdenlive_id": "affine",
+      "name": "Transform",
+      "mlt_service": "affine",
+      "description": "Perform an affine transform on for compositing."
+    },
+    {
+      "kdenlive_id": "composite",
+      "name": "Composite",
+      "mlt_service": "composite",
+      "description": "A key-framable alpha-channel compositor for two frames."
+    }
+  ],
+  "list_catalog_generators": [
+    {
+      "kdenlive_id": "count",
+      "name": "Counter",
+      "mlt_service": "count",
+      "description": "Generate frames with a counter and synchronized tone. The counter can go up or down."
+    },
+    {
+      "kdenlive_id": "frei0r.test_pat_B",
+      "name": "Color Bars",
+      "mlt_service": "frei0r.test_pat_B",
+      "description": "Generates test card lookalikes"
+    }
+  ]
+}

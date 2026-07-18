@@ -28,6 +28,39 @@ from phase2_project_engine import (
 )
 
 
+def list_tools() -> list[dict]:
+    """Return every tool's metadata as a JSON-serializable list of dicts.
+
+    Each entry:
+        name             "pyagent_xxx" (the pi-registered name)
+        label            short human label
+        description      full description (sent to the LLM)
+        op               backend op name, or "" for tools that call
+                         Phase 6 directly (render_qc tools)
+        is_mutating      True if the op edits the project on disk
+        parameters_schema  JSON Schema dict for the parameters, ready
+                           to be wrapped in Type.Object(...) by the TS
+                           extension
+
+    Consumed by `extension.ts` via a one-liner that imports this
+    function and JSON-dumps the result. The TS side never hard-codes
+    a tool's name, label, description, or schema; it iterates this
+    list. This is what keeps the 19-tool surface in one place.
+    """
+    from .tools import all_tools
+    return [
+        {
+            "name": t.name,
+            "label": t.label,
+            "description": t.description,
+            "op": t.op,
+            "is_mutating": t.is_mutating,
+            "parameters_schema": t.parameters_schema,
+        }
+        for t in all_tools()
+    ]
+
+
 # Op name (as called from TS) -> backend method name.
 # Filled in incrementally as each backend op is wired up.
 OP_TABLE: dict[str, str] = {
