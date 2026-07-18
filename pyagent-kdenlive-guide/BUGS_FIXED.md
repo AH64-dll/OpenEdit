@@ -32,3 +32,93 @@ with `file:line` of the fix. Append-only.
 - Branches/commits ahead of cleanup: 0
 - All 19 tool JSON I/O outputs are about to be locked by
   `phase3_pyagent_core/tests/test_golden_io.py` in Task 2.3.
+
+## 2026-07-19 — Phase 2 rewrite complete
+
+Phase 2 was decomposed from a single `KdenliveFileBackend` class
+(943 lines) into a 3-layer architecture:
+
+- `types.py` — frozen dataclasses (`ProjectInfo`, `ClipSummary`, ...,
+  `TimelineSummary`)
+- `errors.py` — single source of `BackendError` / `ValidationError` /
+  `NotFoundError` / `CatalogError`
+- `catalog.py` — `Catalog` dataclass + `from_json`
+- `io.py` — `ProjectTree` + `load_project` / `save_project` +
+  `ensure_docproperties`
+- `tracks.py` — pure track navigation (`get_tracks`,
+  `get_video_playlist`, `resolve_producer`, `next_kdenlive_id`,
+  `bump_tractor_duration`, ...)
+- `validators.py` — pure validation functions
+- `ops/*.py` — per-domain operations (bin, clips, transitions,
+  effects, markers)
+- `backend.py` — `EditorBackend` (ABC) + `KdenliveFileBackend`
+  (thin dispatch, one line per method)
+- `__init__.py` — re-exports the public surface for backward compat
+
+Legacy files deleted: `editor_backend.py`, `kdenlive_file_backend.py`,
+`kdenlive_xml.py`, `test_phase2.py`. `validation.py` was never
+created under the new name (the file is `validators.py`, plural).
+
+Bugs fixed (final list, in addition to the initial 10):
+
+- BUG 1: audio fallback no longer misroutes — `tracks.get_video_playlist`
+  returns `None` instead of guessing. File:
+  `phase2_project_engine/tracks.py:88-119`. Test:
+  `tests/test_ops_clips.py:test_insert_clip_into_audio_track_does_not_misroute_to_video`.
+- BUG 2: transition timing uses BOTH `a.out` and `b.in` (not just
+  `a.out`) for the cut point. File:
+  `phase2_project_engine/ops/transitions.py:61-65`. Test:
+  `tests/test_ops_transitions.py`.
+- BUG 3: cross-track transition error has a clearer `fix:` line
+  naming the source track. File:
+  `phase2_project_engine/ops/transitions.py:46-51`. Test:
+  `tests/test_ops_transitions.py`.
+- BUG 4: `bump_tractor_duration` includes `<blank>` children (it
+  walks every playlist and takes the max). File:
+  `phase2_project_engine/tracks.py:257-275`. Test:
+  `tests/test_tracks.py`.
+- BUG 5: `apply_effect` falls back to the catalog's parameter
+  defaults when `params` is None or empty. File:
+  `phase2_project_engine/ops/effects.py:60-63`. Test:
+  `tests/test_ops_effects.py`.
+- BUG 6: Three `_resolve_*` helpers consolidated into a single
+  `tracks.resolve_producer` (with `resolve_source_duration` as a
+  thin wrapper). File:
+  `phase2_project_engine/tracks.py:142-198`.
+- BUG 7: `get_video_tracks` removed (was unused and conflicted with
+  the structural `get_tracks`). No replacement needed.
+- BUG 8: `ValidationError` defined once in `errors.py`. The old
+  duplicate in `validation.py` is gone. File:
+  `phase2_project_engine/errors.py:20-21`.
+- BUG 9: `apply_effect` writes `kdenlive:id` (colon) for the effect
+  label, not `kdenlive_id` (snake). File:
+  `phase2_project_engine/ops/effects.py:54-56`. Test:
+  `tests/test_ops_effects.py`.
+- BUG 10: `add_transition` writes to `tracks[track_a]` (the tractor
+  that owns the playlist) instead of `get_tractor()` (the main
+  sequence tractor). File:
+  `phase2_project_engine/ops/transitions.py:52-56`. Test:
+  `tests/test_ops_transitions.py`.
+- BUG 11 (new): `kdenlive_file_backend.py` had a broken
+  `from .validation import ValidationError` import (singular).
+  The atomic swap (Task 1.8) removes the file, eliminating the
+  broken import entirely.
+- BUG 12 (new): `kdenlive_file_backend.py` still re-imported
+  `KdenliveFileBackend` from the legacy `editor_backend.py` ABC
+  even after Tasks 1.1-1.7 had moved the ABC. The thin
+  `KdenliveFileBackend` in `backend.py` re-derives the ABC from
+  its own definition; the old broken re-export is gone.
+- BUG 13 (new): `__init__.py` was missing — every
+  `from phase2_project_engine import X` call (in Phase 3, Phase 5,
+  and the legacy test file) raised `ImportError: cannot import
+  name 'X' from 'phase2_project_engine' (unknown location)`.
+  The new `__init__.py` re-exports the public surface.
+
+Test counts after Task 1.8:
+
+- Phase 2 tests (new): 85 passed
+- Total (across all phases): 216 passed, 15 pre-existing
+  infrastructure failures (missing `phase1_knowledge_base/catalog.json`
+  in the worktree; same failures exist on the prior commit, before
+  my changes — verified by `git stash`).
+- Baseline (before this task): 187 passed.
