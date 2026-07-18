@@ -28,6 +28,7 @@ class PiEvent:
     args: dict | None = None         # for tool
     result: Any | None = None        # for tool
     error: str | None = None         # for tool / error
+    cost: float | None = None         # USD spent this event (from pi usage.cost.total)
 
 
 class PiClient:
@@ -59,7 +60,25 @@ class PiClient:
         # Collect pi's environment; expose the project path the same way the
         # Phase 3 extension expects it (PYAGENT_PROJECT).
         env = dict(os.environ)
+        # The server process may inherit a broken PATH (e.g. a display-manager
+        # session sets PATH=/org/freedesktop/...), which breaks `pi`/node and
+        # silently prevents the pyagent extension from loading (no timeline tools).
+        # Force a known-good PATH for the child so the extension always loads.
+        _clean_path = (
+            "/home/ah64/.local/bin:"
+            "/home/ah64/.npm-global/bin:"
+            "/home/ah64/.opencode/bin:"
+            "/usr/local/sbin:/usr/local/bin:/usr/bin:/bin"
+        )
+        if not env.get("PATH") or "DisplayManager" in env.get("PATH", ""):
+            env["PATH"] = _clean_path
         env["PYAGENT_PROJECT"] = self.project
+        # Enable the Phase 3 extension's live-sync path. Without this the
+        # extension's liveSyncEnabled() is false, edits skip LiveSync.apply
+        # entirely, and no reload/notify is ever triggered (timeline appears
+        # unchanged in Kdenlive). The file backend + reload notify only run
+        # when PYAGENT_LIVE is set.
+        env["PYAGENT_LIVE"] = "1"
         env.setdefault("PYAGENT_AUTO_APPROVE", "false")
 
         cmd = [
@@ -96,7 +115,7 @@ class PiClient:
             saw_error = False
 
             try:
-                async with asyncio.timeout(300.0):
+                async with asyncio.timeout(1900.0):
                     async for raw in proc.stdout:
                         line = raw.decode("utf-8", errors="replace").strip()
                         if not line:
@@ -116,7 +135,7 @@ class PiClient:
                             yield ev
             except TimeoutError:
                 saw_error = True
-                yield PiEvent(kind="error", text="pi subprocess timed out after 300.0s")
+                yield PiEvent(kind="error", text="pi subprocess timed out after 1900.0s")
 
             await proc.wait()
             if proc.returncode != 0 and not saw_error:
@@ -181,8 +200,21 @@ class PiClient:
             if role == "assistant":
                 text = self._extract_text(msg)
                 if text:
-                    return [PiEvent(kind="message", role="assistant", text=text)]
+                    return [PiEvent(kind="message", role="assistant", text=text,
+                                cost=self._extract_cost(msg))]
         return []
+
+    @staticmethod
+    def _extract_cost(message: dict) -> float | None:
+        """Pull USD cost from a pi message's usage.cost.total, if present."""
+        usage = message.get("usage") if isinstance(message, dict) else None
+        if not isinstance(usage, dict):
+            return None
+        cost = (usage.get("cost") or {}).get("total")
+        if isinstance(cost, (int, float)) and cost > 0:
+            return float(cost)
+        return None
+
 
     def _parse_turn_end(self, obj: dict) -> list[PiEvent]:
         events: list[PiEvent] = []
@@ -191,6 +223,8 @@ class PiClient:
         # it here duplicates every assistant message in the UI, so we
         # only surface the tool results from the turn_end event.
         # Assistant text (final) — intentionally skipped (already sent).
+        # The turn's usage.cost.total (if any) is emitted as a cost event.
+        cost = self._extract_cost(obj.get("message", {}))
         # Tool results from this turn.
         for tr in obj.get("toolResults", []) or []:
             tool = tr.get("toolName") or tr.get("tool")
@@ -201,6 +235,8 @@ class PiClient:
                 kind="tool", tool=tool, args=args,
                 result=result, error=error,
             ))
+        if cost is not None:
+            events.append(PiEvent(kind="cost", cost=cost))
         return events
 
     @staticmethod

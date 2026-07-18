@@ -8,6 +8,14 @@ const sendBtn = document.getElementById("send-btn");
 const stopBtn = document.getElementById("stop-btn");
 const statePanel = document.getElementById("state-panel");
 const projectPathEl = document.getElementById("project-path");
+const costPillEl = document.getElementById("cost-pill");
+const costValueEl = document.getElementById("cost-value");
+let sessionCostUsd = 0.0;
+
+function setSessionCost(usd) {
+  sessionCostUsd = usd;
+  if (costValueEl) costValueEl.textContent = "$" + sessionCostUsd.toFixed(4);
+}
 const stateRefreshBtn = document.getElementById("state-refresh");
 const quickActionsEl = document.getElementById("quick-actions");
 const imagePreviews = document.getElementById("image-previews");
@@ -150,7 +158,13 @@ function appendAssistantDelta(text) {
 }
 
 function finishAssistantMessage() {
-  _streamingBody = null;
+  if (_streamingBody) {
+    const row = _streamingBody.parentNode;
+    if (row && row.parentNode === transcript) {
+      row.remove();
+    }
+    _streamingBody = null;
+  }
 }
 
 function el(tag, cls, text) {
@@ -262,7 +276,7 @@ function toggleReloadBanner(show) {
 }
 
 // D6: user confirmed they reloaded Kdenlive — tell the server to clear the flag.
-document.getElementById("reload-done").onclick = () => send({ type: "refresh_state" });
+document.getElementById("reload-done").onclick = () => send({ type: "reload_kdenlive" });
 
 function status(text) {
   let s = document.getElementById("status-line");
@@ -314,9 +328,7 @@ function renderSessions(sessions, activeId) {
     deleteBtn.title = "Delete session";
     deleteBtn.onclick = (e) => {
       e.stopPropagation();
-      if (confirm(`Are you sure you want to delete session "${s.name || s.session_id}"?`)) {
-        send({ type: "delete_session", session_id: s.session_id });
-      }
+      send({ type: "delete_session", session_id: s.session_id });
     };
     nameRow.appendChild(name);
     nameRow.appendChild(deleteBtn);
@@ -406,7 +418,11 @@ function handle(msg) {
       break;
     case "error":
       setRunningState(false);
-      addMessage("assistant", "⚠ " + msg.text);
+      addMessage("assitant", "⚠ " + msg.text);
+      break;
+    case "cost":
+      // msg.usd = cumulative session total; msg.delta = this event's spend.
+      setSessionCost(typeof msg.usd === "number" ? msg.usd : sessionCostUsd + (msg.delta || 0));
       break;
     case "session_list":
       renderSessions(msg.sessions, msg.active_session_id);
@@ -493,8 +509,6 @@ stateRefreshBtn.onclick = () => send({ type: "refresh_state" });
 const QUICK_ACTIONS = [
   { label: "Add crossfade between clips", prompt: "Add a crossfade transition between the last two clips on the timeline." },
   { label: "Append test clip", prompt: "Import the test clip and append it to the end of the first track." },
-  { label: "List effects", prompt: "List the available video effects from the catalog." },
-  { label: "Show timeline", prompt: "Show me the current timeline summary." },
   { label: "Render proxy", prompt: "Render a 640x360 proxy of the current project to /tmp/pyagent_proxy.mp4 and report the file size, duration, and elapsed render time." },
   { label: "Render final", prompt: "Render the project at full quality to /tmp/pyagent_final.mp4 using the project's own profile. This is slow — confirm the user is okay with it before proceeding." },
   { label: "Check QC", prompt: "Run the cheap deterministic QC checks (black frames, silence, audio levels) on /tmp/pyagent_proxy.mp4 over the full timeline and report any flags. If anything is flagged, pull a thumbnail for the affected timestamp and include it in the report." },
@@ -517,5 +531,12 @@ changeProjectBtn.onclick = () => {
     send({ type: "change_project", path: newPath.trim() });
   }
 };
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "R" && e.shiftKey && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    send({ type: "reload_kdenlive" });
+  }
+});
 
 connect();

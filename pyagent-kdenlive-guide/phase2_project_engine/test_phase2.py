@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from lxml import etree
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -164,6 +165,24 @@ class TestOperations(unittest.TestCase):
         self.assertEqual(len(set(ids)), 3)
         for i in ids:
             self.assertTrue(i.isdigit())
+
+    def test_import_media_creates_root_level_producers(self):
+        # Regression: bug where import_media SubElement'd the <producer>
+        # inside the <playlist id="main_bin">, which is the wrong location.
+        # MLT silently drops producers inside playlists, so the clips showed
+        # up as empty/black in Kdenlive's timeline. Producers must be direct
+        # children of the MLT root.
+        self.backend.import_media([str(self.source)])
+        # The in-memory backend exposes its tree via .tree.root
+        root = self.backend.tree.root
+        main_bin = root.find("playlist[@id='main_bin']")
+        # main_bin must NOT contain any <producer> children.
+        self.assertEqual(len(main_bin.findall("producer")), 0,
+                         "import_media put <producer> inside <playlist> "
+                         "main_bin instead of at MLT root — this breaks "
+                         "the Kdenlive timeline display")
+        # The new producer must be at root level.
+        self.assertGreaterEqual(len(root.findall("producer")), 1)
 
     def test_import_media_rejects_missing_path(self):
         with self.assertRaises(ValidationError) as cm:
@@ -306,10 +325,15 @@ class TestOperations(unittest.TestCase):
 
     def test_add_transition_rejects_cross_track(self):
         ids = self.backend.import_media([str(self.source)])
-        # Need a second track first; we'll add one manually.
+        # Need a second track first; build a synthetic track_2.
         backend = self.backend
         v2 = etree_SubElement(backend.tree.root, "playlist")
         v2.set("id", "video_track_2")
+        tr2 = etree_SubElement(backend.tree.root, "tractor")
+        tr2.set("id", "tractor_v2")
+        mt2 = etree_SubElement(tr2, "multitrack")
+        tref2 = etree.SubElement(mt2, "track")
+        tref2.set("producer", "video_track_2")
         a = backend.insert_clip(0, 0.0, ids[0], 0.0, 5.0)
         b = backend.insert_clip(1, 0.0, ids[0], 0.0, 5.0)
         with self.assertRaises(ValidationError) as cm:
@@ -388,6 +412,25 @@ class TestOperations(unittest.TestCase):
         with self.assertRaises(ValidationError) as cm:
             self.backend.add_marker(-1.0, "x")
         self.assertIn("fix:", str(cm.exception))
+
+    def test_producer_definition_order(self):
+        # Importing a new media file should insert it before any playlists or tractors
+        ids = self.backend.import_media([str(REPO / "testdata/clip_short.mp4")])
+        root = self.backend.tree.root
+        
+        # Verify the index of the newly added producer relative to playlists/tractors
+        first_container_idx = None
+        new_producer_idx = None
+        
+        for idx, child in enumerate(root):
+            if child.tag == "producer" and child.get("id") == f"producer_{len(root) - 1}":
+                new_producer_idx = idx
+            elif child.tag in ("playlist", "tractor") and first_container_idx is None:
+                first_container_idx = idx
+                
+        self.assertIsNotNone(new_producer_idx)
+        self.assertIsNotNone(first_container_idx)
+        self.assertTrue(new_producer_idx < first_container_idx, "new producer should be defined before playlists/tractors")
 
 
 def etree_SubElement(parent, tag, attrib={}):
@@ -525,6 +568,96 @@ class TestRoundTripWithOneOp(unittest.TestCase):
         finally:
             if out.exists():
                 out.unlink()
+
+
+class TestSyncedClips(unittest.TestCase):
+    def setUp(self):
+        self.backend = _make_backend()
+        self.source = REPO / "testdata/clip_short.mp4"
+        if not self.source.exists():
+            self.skipTest("missing testdata/clip_short.mp4")
+
+        from lxml import etree
+        root = self.backend.tree.root
+        
+        # Audio playlist
+        a1_pl = etree.SubElement(root, "playlist")
+        a1_pl.set("id", "audio_track_playlist")
+        
+        # Audio tractor
+        a1_tractor = etree.SubElement(root, "tractor")
+        a1_tractor.set("id", "audio_track_tractor")
+        aprop = etree.SubElement(a1_tractor, "property")
+        aprop.set("name", "kdenlive:audio_track")
+        aprop.text = "1"
+        atrack = etree.SubElement(a1_tractor, "track")
+        atrack.set("producer", "audio_track_playlist")
+
+    def test_insert_clip_dual_track(self):
+        ids = self.backend.import_media([str(self.source)])
+        # Track 0 is video_track, track 1 is audio_track_tractor.
+        kid = self.backend.insert_clip(0, 2.0, ids[0], 0.0, 5.0)
+        
+        # Verify video entry
+        video_entries = self.backend.tree.root.xpath(".//playlist[@id='video_track']/entry")
+        self.assertEqual(len(video_entries), 1)
+        self.assertEqual(video_entries[0].xpath("./property[@name='kdenlive:id']/text()")[0], kid)
+        
+        # Verify audio entry
+        audio_entries = self.backend.tree.root.xpath(".//playlist[@id='audio_track_playlist']/entry")
+        self.assertEqual(len(audio_entries), 1)
+        self.assertEqual(audio_entries[0].xpath("./property[@name='kdenlive:id']/text()")[0], kid)
+
+    def test_insert_clip_video_only(self):
+        ids = self.backend.import_media([str(self.source)])
+        kid = self.backend.insert_clip(0, 2.0, ids[0], 0.0, 5.0, video_only=True)
+        
+        video_entries = self.backend.tree.root.xpath(".//playlist[@id='video_track']/entry")
+        self.assertEqual(len(video_entries), 1)
+        
+        audio_entries = self.backend.tree.root.xpath(".//playlist[@id='audio_track_playlist']/entry")
+        self.assertEqual(len(audio_entries), 0)
+
+    def test_delete_clip_dual_track(self):
+        ids = self.backend.import_media([str(self.source)])
+        kid = self.backend.insert_clip(0, 2.0, ids[0], 0.0, 5.0)
+        
+        # Verify both inserted
+        self.assertEqual(len(self.backend.tree.root.xpath(".//entry")), 2)
+        
+        self.backend.delete_clip(kid)
+        self.assertEqual(len(self.backend.tree.root.xpath(".//entry")), 0)
+
+    def test_move_clip_dual_track(self):
+        ids = self.backend.import_media([str(self.source)])
+        kid = self.backend.insert_clip(0, 2.0, ids[0], 0.0, 5.0)
+        
+        # Verify starting times are 2.0
+        s0 = self.backend.get_timeline_summary()
+        self.assertEqual(len(s0.clips), 2)
+        self.assertEqual(s0.clips[0].start_sec, 2.0)
+        self.assertEqual(s0.clips[1].start_sec, 2.0)
+        
+        # Move video track (0) to position 5.0 (which moves audio track 1 as well)
+        self.backend.move_clip(kid, 0, 5.0)
+        s1 = self.backend.get_timeline_summary()
+        self.assertEqual(len(s1.clips), 2)
+        self.assertEqual(s1.clips[0].start_sec, 5.0)
+        self.assertEqual(s1.clips[1].start_sec, 5.0)
+
+    def test_trim_clip_dual_track(self):
+        ids = self.backend.import_media([str(self.source)])
+        kid = self.backend.insert_clip(0, 2.0, ids[0], 0.0, 5.0)
+        
+        self.backend.trim_clip(kid, 1.0, 4.0)
+        s = self.backend.get_timeline_summary()
+        
+        self.assertEqual(len(s.clips), 2)
+        # Trim from 1.0 to 4.0 (shift of 1s right)
+        self.assertEqual(s.clips[0].start_sec, 3.0)
+        self.assertEqual(s.clips[1].start_sec, 3.0)
+        self.assertEqual(s.clips[0].end_sec, 6.0)
+        self.assertEqual(s.clips[1].end_sec, 6.0)
 
 
 if __name__ == "__main__":

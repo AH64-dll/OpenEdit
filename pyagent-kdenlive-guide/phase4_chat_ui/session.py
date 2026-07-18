@@ -111,6 +111,7 @@ class Session:
         self.pending_plan: PlanCard | None = None
         self.last_project_state: dict | None = None
         self.last_modified: float = 0.0
+        self.cost_usd: float = 0.0  # cumulative USD spent by the AI this session
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +123,7 @@ class Session:
             "history": [m.to_dict() for m in self.history],
             "pending_plan": self.pending_plan.to_dict() if self.pending_plan else None,
             "last_modified": self.last_modified,
+            "cost_usd": self.cost_usd,
         }
 
     @classmethod
@@ -134,6 +136,7 @@ class Session:
             project=data.get("project"),
         )
         s.last_modified = data.get("last_modified", 0.0)
+        s.cost_usd = float(data.get("cost_usd", 0.0) or 0.0)
         s.history = []
         for m in data.get("history", []):
             s.history.append(ChatMessage(

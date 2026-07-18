@@ -29,6 +29,7 @@ def test_set_app_unavailable_rejected():
     client = TestClient(_make_app())
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()  # project
+        ws.receive_json()  # cost
         ws.receive_json()  # state
         ws.receive_json()  # history
         ws.receive_json()  # session_list

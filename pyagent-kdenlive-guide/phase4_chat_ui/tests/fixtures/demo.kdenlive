@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version='1.0' encoding='UTF-8'?>
 <mlt version="7.40.0" producer="main_bin" LC_NUMERIC="C" root="/home/ah64/apps/mlt-pipeline/pyagent-kdenlive-guide/phase3_pyagent_core/tests/fixtures">
   <profile width="1920" height="1080" progressive="1" sample_aspect_num="1" sample_aspect_den="1" frame_rate_num="30" frame_rate_den="1" colorspace="709" description="1920x1080 30.00fps" display_aspect_num="16" display_aspect_den="9"/>
   <playlist id="main_bin">
@@ -6,7 +6,18 @@
     <property name="kdenlive:docproperties.version">1.1</property>
     <property name="kdenlive:docproperties.created">2026-07-17T04:51:38</property>
     <property name="kdenlive:docproperties.modified">2026-07-17T04:51:38</property>
-    <producer id="producer_4">
+    </playlist>
+  <playlist id="video_track">
+    <entry producer="producer_4" in="00:00:00.000" out="00:00:04.000">
+      <property name="kdenlive:id">2</property>
+    </entry>
+  </playlist>
+  <tractor id="main_tractor" in="00:00:00.000" out="00:00:04.000">
+    <multitrack>
+      <track producer="video_track"/>
+    </multitrack>
+  </tractor>
+<producer id="producer_4">
       <property name="resource">/home/ah64/apps/mlt-pipeline/testdata/clip_short.mp4</property>
       <property name="kdenlive:file_size">70422</property>
       <property name="kdenlive:file_hash">bd582648c1c988273737b2ec1ed37c1e</property>
@@ -18,15 +29,4 @@
       <property name="kdenlive:id">1</property>
       <property name="kdenlive:control_uuid">{366f5080-ef35-4f7c-875e-662337f7b570}</property>
     </producer>
-  </playlist>
-  <playlist id="video_track">
-    <entry producer="producer_4" in="00:00:00.000" out="00:00:04.000">
-      <property name="kdenlive:id">2</property>
-    </entry>
-  </playlist>
-  <tractor id="main_tractor" in="00:00:00.000" out="00:00:04.000">
-    <multitrack>
-      <track producer="video_track"/>
-    </multitrack>
-  </tractor>
-</mlt>
+  </mlt>

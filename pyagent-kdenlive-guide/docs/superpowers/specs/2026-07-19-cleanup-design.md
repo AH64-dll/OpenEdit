@@ -18,7 +18,7 @@ without cleanup, it has accumulated:
 - **Bugs** in the file backend that cause AI edits to misroute or fail
   (audio fallback to `playlists[0]`; transition timing only uses
   `a.out`; tractor duration ignores `blank` children; effect
-  param defaults ignored).
+  param defaults ignored; many more to discover while cleaning).
 - **One file is 942 lines** (`kdenlive_file_backend.py`); another is
   716 lines (`app.py`); the extension.ts is 616 lines with 19 tool
   schemas hand-rolled.
@@ -312,6 +312,25 @@ These are correctness fixes — the 19 tools' JSON I/O stays identical
 (so the LLM doesn't need to relearn anything), but the underlying
 implementation is now correct.
 
+**The 10 bugs I found in the initial survey are listed below as a
+starting point. The cleanup is NOT constrained to this list — every
+additional bug discovered during the rewrite (in the file backend,
+the chat UI, the D-Bus sync, the render+QC, or the e2e harness) must
+also be fixed, with a regression test, before that phase's commit
+lands.**
+
+Bug-tracking workflow during cleanup:
+1. Find a bug while rewriting a module.
+2. Write a failing test that reproduces it.
+3. Fix the bug.
+4. Verify the test passes AND the existing 180+ tests still pass.
+5. Add a one-line entry to a running `BUGS_FIXED.md` log in the repo
+   root, with the file:line of the fix.
+6. Commit the test + fix together with the rewrite commit for that
+   phase.
+
+**Initial bug list (will grow during cleanup):**
+
 | # | Bug | Fix |
 |---|---|---|
 | 1 | `insert_clip` audio fallback used `playlists[0]` — would silently misroute audio into a video playlist | Use `tracks.get_video_playlist` which detects audio-tractor-with-video-content |
@@ -440,8 +459,9 @@ fix forward — never revert.
 - [ ] One single commit per phase (10 total).
 - [ ] `docs/superpowers/specs/2026-07-19-cleanup-design.md` (this file)
       + `docs/superpowers/plans/2026-07-19-cleanup.md` exist.
-- [ ] All 10 documented backend bugs are fixed and have a regression
-      test.
+- [ ] All bugs found during cleanup (initial 10 + any discovered) are
+      fixed and have a regression test; `BUGS_FIXED.md` is up to date
+      with one line per bug including file:line.
 
 ## Risks
 

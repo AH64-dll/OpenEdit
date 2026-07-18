@@ -87,36 +87,21 @@ class LiveSync:
         return result
 
     def _auto_reload(self) -> None:
-        """After a file-mode edit, let the user see it in their open Kdenlive.
+        """After a file-mode edit, tell the user to reload so they see it.
 
-        On the Kdenlive 26.04 build we target, `cleanRestart` is UNSTABLE
-        and frequently crashes the running instance. So we do NOT call it blindly.
-        Instead we attempt a guarded reload: try cleanRestart once; if Kdenlive
-        is dead afterward, relaunch it on the (now-updated) project file. Either
-        way the edit is on disk and will be visible after a reload/reopen.
+        The file-mode edit is already written to disk by `_apply_file`. On the
+        Kdenlive 26.04 build we target, the D-Bus `cleanRestart` reload is
+        UNSTABLE and crashes the running instance, so we deliberately do NOT
+        call it. Instead we notify the user (and the chat UI shows a "reload
+        needed" banner) so they reload/reopen the project to see the change.
+        This is the reliable path documented in LIVE_CAPABLE above.
         """
         kdenlive_was_up = self._dbus is not None and self._dbus.available
         if kdenlive_was_up:
-            # Best-effort in-place reload. If it crashes Kdenlive, we
-            # detect that below and relaunch.
-            try:
-                self._dbus.clean_restart(clean=False)
-            except Exception:
-                pass
-            # Give Kdenlive a moment, then check it survived.
-            import time
-            time.sleep(2)
-            if not (self._dbus.available):
-                self._relaunch_kdenlive()
-                self._notifier(
-                    "PyAgent edit applied",
-                    "Timeline reloaded in a fresh Kdenlive window.",
-                )
-                return
             self._notifier(
                 "PyAgent edit applied",
-                "Timeline updated. If the window didn't refresh, reload the "
-                "project (Ctrl+Shift+R) or reopen it.",
+                "Timeline updated on disk. Reload the project (Ctrl+Shift+R) "
+                "or reopen it to see the change.",
             )
             return
         # No live instance — notify so the user knows to reopen.
@@ -170,7 +155,45 @@ class LiveSync:
         return None
 
     def _apply_file(self, tool: str, args: dict) -> dict:
+        # ROOT-CAUSE FIX: Kdenlive keeps the project in memory and overwrites
+        # the file on save/close, clobbering our edits. If Kdenlive is running
+        # with our project open, quit it via D-Bus FIRST so our file write is
+        # authoritative. The user reopens Kdenlive to see the change.
+        self._quit_kdenlive_if_running()
         op = _OP_FOR_TOOL.get(tool, tool.replace("pyagent_", ""))
         code, resp = run_op(op, args, self.project_path, self._catalog)
         return {"ok": code == 0, "result": resp, "mode": "file",
                 "fatal": code == 2}
+
+    def _quit_kdenlive_if_running(self) -> None:
+        """If Kdenlive is running, quit it via D-Bus so it can't overwrite
+        the file we're about to write. The user will need to reopen it.
+        Falls back to SIGTERM/SIGKILL if D-Bus quit fails."""
+        if self._dbus is None or not self._dbus.available:
+            return
+        try:
+            if self._dbus.exit_app():
+                # Wait up to 5s for it to die
+                import time
+                for _ in range(50):
+                    time.sleep(0.1)
+                    if not self._dbus.available:
+                        return
+        except Exception:
+            pass
+        # D-Bus quit didn't work or Kdenlive still alive. Force-kill.
+        import subprocess
+        try:
+            subprocess.run(["pkill", "-TERM", "-x", "kdenlive"],
+                           timeout=5, check=False)
+            import time
+            for _ in range(30):
+                time.sleep(0.1)
+                r = subprocess.run(["pgrep", "-x", "kdenlive"],
+                                   capture_output=True, check=False)
+                if r.returncode != 0:
+                    return
+            subprocess.run(["pkill", "-KILL", "-x", "kdenlive"],
+                           timeout=5, check=False)
+        except Exception:
+            pass

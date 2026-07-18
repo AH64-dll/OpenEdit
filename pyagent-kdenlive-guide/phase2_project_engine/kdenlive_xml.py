@@ -111,13 +111,135 @@ class ProjectTree:
         return self.root.find("playlist[@id='main_bin']")
 
     def get_tracks(self) -> list[etree._Element]:
-        """Return the playlist elements that are timeline tracks
-        (i.e. NOT the main_bin). Order is top-to-bottom visually."""
-        return [
-            c
-            for c in self.root.iter("playlist")
-            if c.get("id") and c.get("id") != "main_bin"
-        ]
+        """Return the tractor elements that represent user-facing tracks
+        (V1, V2, V3, A1, ...). Order is visual: video tracks first
+        (top-to-bottom in Kdenlive's UI), then audio tracks.
+
+        Each Kdenlive track is a <tractor> with <track> children (either
+        directly under the tractor, or inside a <multitrack> wrapper).
+        We exclude:
+        - the project tractor (the one with kdenlive:projectTractor=1)
+        - the main sequence tractor (referenced from main_bin)
+        - any tractor that has no <track> children at all
+
+        A tractor with kdenlive:audio_track=1 is an audio track; it
+        goes at the END of the returned list regardless of XML order.
+        """
+        # Find the main sequence (referenced by main_bin) to skip it.
+        mb = self.root.find("playlist[@id='main_bin']")
+        main_seq_id = None
+        if mb is not None:
+            for e in mb.findall("entry"):
+                prod = e.get("producer")
+                if prod and prod.startswith("{"):
+                    main_seq_id = prod
+                    break
+        video_tracks = []
+        audio_tracks = []
+        for tr in self.root.findall("tractor"):
+            tid = tr.get("id") or ""
+            if tid == main_seq_id:
+                continue
+            if tr.find("property[@name='kdenlive:projectTractor']") is not None:
+                continue
+            if not tr.findall(".//track"):
+                continue
+            at = tr.find("property[@name='kdenlive:audio_track']")
+            if at is not None and at.text == "1":
+                audio_tracks.append(tr)
+            else:
+                video_tracks.append(tr)
+        result = video_tracks + audio_tracks
+        if not result:
+            # Degenerate: no user tracks. Build one from a non-main_bin
+            # playlist.
+            target = None
+            for c in self.root.findall("playlist"):
+                if c.get("id") and c.get("id") != "main_bin":
+                    if c.findall("entry"):
+                        target = c
+                        break
+            if target is None:
+                for c in self.root.findall("playlist"):
+                    if c.get("id") and c.get("id") != "main_bin":
+                        target = c
+                        break
+            if target is not None:
+                synth = etree.SubElement(self.root, "tractor")
+                synth.set("id", f"_synth_track_{target.get('id')}")
+                tref = etree.SubElement(synth, "track")
+                tref.set("producer", target.get("id"))
+                result.append(synth)
+        return result
+
+    def get_track_playlists(self, tractor: etree._Element) -> list[etree._Element]:
+        """Return the child playlists of a track tractor, resolved by
+        following each <track producer="..."> reference.
+
+        Kdenlive's track structure varies:
+        - Real Kdenlive files: <tractor><track producer="playlistN"/></tractor>
+        - Our generated files: <tractor><multitrack><track .../></multitrack></tractor>
+        We handle both via .//track which finds tracks at any depth.
+        """
+        result = []
+        for tref in tractor.findall(".//track"):
+            prod_id = tref.get("producer")
+            if not prod_id:
+                continue
+            pl = self.root.find(f"playlist[@id='{prod_id}']")
+            if pl is not None:
+                result.append(pl)
+        return result
+
+    def get_video_playlist(self, tractor: etree._Element) -> etree._Element | None:
+        """Return the playlist to write video entries to.
+
+        Kdenlive's track structure: a track tractor has 1-2 child
+        playlists (video + audio). The tractor has kdenlive:audio_track=1
+        only for the audio track. The video playlist is the OTHER one
+        (the tractor without that property).
+
+        In some files (like the demo edit.kdenlive), the structure is
+        inverted: a tractor with kdenlive:audio_track=1 has child
+        tracks that hold VIDEO content. We detect that case by checking
+        whether the tractor's first child playlist already has video
+        entries (entries whose producers have resource/avformat
+        service), and return it if so.
+        """
+        playlists = self.get_track_playlists(tractor)
+        if not playlists:
+            return None
+        at = tractor.find("property[@name='kdenlive:audio_track']")
+        is_audio_tractor = at is not None and at.text == "1"
+        if is_audio_tractor:
+            # Check if any child playlist actually holds video content.
+            for pl in playlists:
+                if self._playlist_has_video_entries(pl):
+                    return pl
+            return None  # this is a true audio-only track
+        # Video tractor — return the first non-audio child playlist.
+        for pl in playlists:
+            if pl.get("kdenlive:audio_track") == "1":
+                continue
+            return pl
+        return playlists[0]
+
+    def _playlist_has_video_entries(self, pl: etree._Element) -> bool:
+        """True if any entry in this playlist references a video producer
+        (one with a resource path / avformat service, NOT just an audio
+        waveform)."""
+        for e in pl.findall("entry"):
+            prod = self.root.find(f"producer[@id='{e.get('producer')}']")
+            if prod is None:
+                continue
+            svc = prod.find("property[@name='mlt_service']")
+            if svc is not None and svc.text and "audio" in (svc.text or "").lower():
+                continue
+            res = prod.find("property[@name='resource']")
+            if res is not None and res.text:
+                # Has a media file — assume video.
+                return True
+        return False
 
     def get_video_tracks(self) -> list[etree._Element]:
         # Kdenlive marks video tracks with a 'kdenlive:track_type' property

@@ -350,6 +350,8 @@ export default function (pi: ExtensionAPI): void {
       source_id: Type.String(),
       source_in_sec: Type.Optional(Type.Number({ minimum: 0 })),
       source_out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      video_only: Type.Optional(Type.Boolean()),
+      audio_only: Type.Optional(Type.Boolean()),
     }),
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("insert_clip", params, ctx),
   });
@@ -368,6 +370,8 @@ export default function (pi: ExtensionAPI): void {
       source_id: Type.String(),
       source_in_sec: Type.Optional(Type.Number({ minimum: 0 })),
       source_out_sec: Type.Optional(Type.Number({ minimum: 0 })),
+      video_only: Type.Optional(Type.Boolean()),
+      audio_only: Type.Optional(Type.Boolean()),
     }),
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => callRuntime("append_clip", params, ctx),
   });

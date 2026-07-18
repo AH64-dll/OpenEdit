@@ -18,12 +18,16 @@
       <div class="project" id="project-path" title="Active project file">—</div>
       <button id="change-project-btn" class="ghost-btn" title="Change active project file">✏️</button>
     </div>
+    <div class="cost-pill" id="cost-pill" title="Estimated AI spend this session">
+      <span class="cost-label">spent</span>
+      <span class="cost-value" id="cost-value">$0.0000</span>
+    </div>
     <button id="state-refresh" class="ghost-btn" title="Refresh project state">↻</button>
   </header>
 
   <div id="reload-banner" class="reload-banner" style="display: none;">
-    <span>⚠ Your edits are saved — reload Kdenlive (Ctrl+Shift+R) to see them.</span>
-    <button id="reload-done" class="reload-done-btn">I reloaded</button>
+    <span>⚠ Your edits are saved.</span>
+    <button id="reload-done" class="reload-done-btn">Reload Kdenlive</button>
   </div>
 
   <main class="layout">

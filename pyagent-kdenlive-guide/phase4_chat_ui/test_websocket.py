@@ -55,9 +55,11 @@ class TestWebSocket(unittest.TestCase):
 
     def test_prompt_yields_tool_and_state(self):
         with self.client.websocket_connect("/ws") as ws:
-            # First messages: project + state snapshot.
+            # First messages: project + cost + state snapshot.
             hello = ws.receive_json()
             self.assertEqual(hello["type"], "project")
+            cost0 = ws.receive_json()
+            self.assertEqual(cost0["type"], "cost")
             state0 = ws.receive_json()
             self.assertEqual(state0["type"], "state")
 
@@ -78,6 +80,72 @@ class TestWebSocket(unittest.TestCase):
 
             self.assertTrue(seen_tool, "expected a tool event in the stream")
             self.assertTrue(seen_state_after, "expected a state refresh after run")
+
+    def test_change_project(self):
+        with self.client.websocket_connect("/ws") as ws:
+            while True:
+                msg = ws.receive_json()
+                if msg["type"] == "session_list":
+                    break
+
+            ws.send_json({"type": "change_project", "path": self.project})
+
+            p_msg = ws.receive_json()
+            self.assertEqual(p_msg["type"], "project")
+            self.assertEqual(p_msg["path"], self.project)
+
+            seen_list = False
+            seen_state = False
+            for _ in range(5):
+                m = ws.receive_json()
+                if m["type"] == "session_list":
+                    seen_list = True
+                if m["type"] == "state":
+                    seen_state = True
+                if seen_list and seen_state:
+                    break
+
+            self.assertTrue(seen_list)
+            self.assertTrue(seen_state)
+
+    def test_delete_session(self):
+        with self.client.websocket_connect("/ws") as ws:
+            active_sess_id = None
+            while True:
+                msg = ws.receive_json()
+                if msg["type"] == "session_list":
+                    active_sess_id = msg["active_session_id"]
+                    break
+
+            self.assertIsNotNone(active_sess_id)
+            
+            from phase4_chat_ui.session import get_sessions_dir
+            sess_path = get_sessions_dir() / f"{active_sess_id}.json"
+            self.assertTrue(sess_path.exists())
+
+            ws.send_json({"type": "delete_session", "session_id": active_sess_id})
+
+            seen_new_list = False
+            for _ in range(10):
+                m = ws.receive_json()
+                if m["type"] == "session_list":
+                    seen_new_list = True
+                    self.assertNotEqual(m["active_session_id"], active_sess_id)
+                    break
+
+            self.assertTrue(seen_new_list)
+            self.assertFalse(sess_path.exists())
+
+    def test_reload_kdenlive(self):
+        with self.client.websocket_connect("/ws") as ws:
+            while True:
+                msg = ws.receive_json()
+                if msg["type"] == "session_list":
+                    break
+
+            ws.send_json({"type": "reload_kdenlive"})
+            resp = ws.receive_json()
+            self.assertEqual(resp["type"], "error")
 
 
 if __name__ == "__main__":

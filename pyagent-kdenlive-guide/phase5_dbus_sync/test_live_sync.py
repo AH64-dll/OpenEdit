@@ -44,40 +44,59 @@ class TestLiveSync(unittest.TestCase):
 
     @mock.patch("phase5_dbus_sync.live_sync.detect_service_name")
     @mock.patch("phase5_dbus_sync.live_sync.run_op")
-    def test_apply_file_mode_auto_reloads(self, fake_run_op, fake_detect):
-        # A file-mode op must attempt a guarded reload so the edit shows.
+    def test_apply_file_mode_notifies(self, fake_run_op, fake_detect):
+        # A file-mode op must run the backend and notify the user to reload
+        # (we deliberately do NOT call D-Bus cleanRestart on Kdenlive 26.04
+        # because it crashes the running instance).
         fake_run_op.return_value = (0, {"ok": True})
         fake_detect.return_value = "org.kde.kdenlive-1"
         fake_dbus = mock.Mock()
         fake_dbus.available = True
-        fake_dbus.clean_restart.return_value = True
-        ls = LiveSync("/tmp/x.kdenlive", dbus=fake_dbus, notifier=mock.Mock())
+        fake_notifier = mock.Mock()
+        ls = LiveSync("/tmp/x.kdenlive", dbus=fake_dbus, notifier=fake_notifier)
         r = ls.apply("pyagent_add_transition", {"duration_sec": 1.0})
         self.assertEqual(r["mode"], "file")
         fake_run_op.assert_called_once()
-        fake_dbus.clean_restart.assert_called_once_with(clean=False)
+        # No D-Bus reload call — it crashes 26.04.
+        fake_dbus.clean_restart.assert_not_called()
+        # User is told to reload instead.
+        fake_notifier.assert_called_once()
 
     @mock.patch("phase5_dbus_sync.live_sync.detect_service_name")
-    @mock.patch("phase5_dbus_sync.live_sync.run_op")
     @mock.patch("subprocess.Popen")
-    def test_apply_reloads_and_relaunch_on_crash(
-        self, fake_popen, fake_run_op, fake_detect
-    ):
-        # If cleanRestart crashes Kdenlive, we must relaunch it on the
-        # (now-updated) project so the user keeps a live window.
+    def test_relaunch_kdenlive_opens_project(self, fake_popen, fake_detect):
+        # The relaunch helper (used when no live instance is found) must open
+        # the project file in a fresh Kdenlive window.
+        fake_detect.return_value = None
+        ls = LiveSync("/tmp/x.kdenlive", dbus=None, notifier=mock.Mock())
+        ls._relaunch_kdenlive()
+        fake_popen.assert_called_once()
+        args, _kwargs = fake_popen.call_args
+        self.assertEqual(args[0][0], "kdenlive")
+        self.assertEqual(args[0][1], "/tmp/x.kdenlive")
+
+
+if __name__ == "__main__":
+    @mock.patch("phase5_dbus_sync.live_sync.detect_service_name")
+    @mock.patch("phase5_dbus_sync.live_sync.run_op")
+    def test_apply_file_quits_kdenlive_before_writing(self, fake_run_op, fake_detect):
+        # Root cause: Kdenlive overwrites the file on save/close, clobbering
+        # our edits. The fix: quit Kdenlive BEFORE writing the file.
         fake_run_op.return_value = (0, {"ok": True})
         fake_detect.return_value = "org.kde.kdenlive-1"
         fake_dbus = mock.Mock()
-        fake_dbus.available = True
-        fake_dbus.clean_restart.return_value = True
+        # `available` is checked twice: first to decide whether to quit,
+        # then in a loop to confirm Kdenlive died. Simulate: True initially,
+        # then False after exit_app is called.
+        avail_calls = [True, False]
+        fake_dbus.available = mock.PropertyMock(side_effect=lambda: avail_calls.pop(0) if avail_calls else False)
+        fake_dbus.exit_app.return_value = True
         ls = LiveSync("/tmp/x.kdenlive", dbus=fake_dbus, notifier=mock.Mock())
-        # Simulate: cleanRestart was attempted, then kdenlive is gone.
-        ls._dbus.available = False
-        ls._relaunch_kdenlive()
-        fake_popen.assert_called_once()
-        args, kwargs = fake_popen.call_args
-        self.assertEqual(args[0][0], "kdenlive")
-        self.assertEqual(args[0][1], "/tmp/x.kdenlive")
+        ls.apply("pyagent_add_transition", {"duration_sec": 1.0})
+        # exit_app must have been called (Kdenlive quit before file write)
+        fake_dbus.exit_app.assert_called()
+        # And the file backend was then called
+        fake_run_op.assert_called_once()
 
 
 if __name__ == "__main__":

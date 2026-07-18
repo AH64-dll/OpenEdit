@@ -92,6 +92,20 @@ class ChatConnectionManager:
                 self.disconnect(ws)
 
 
+def try_reload_kdenlive(project_path: str) -> bool:
+    try:
+        from phase5_dbus_sync.dbus_client import KdenliveDBus
+        from phase5_dbus_sync.kdenlive_state import detect_service_name, is_running
+        if is_running():
+            svc = detect_service_name()
+            if svc:
+                dbus = KdenliveDBus(svc)
+                return dbus.clean_restart(clean=False)
+    except Exception:
+        pass
+    return False
+
+
 def create_app(
     project: str,
     provider: str = "opencode-go",
@@ -187,7 +201,8 @@ def create_app(
             return
 
         async def _on_project_changed(path: str) -> None:
-            session_state["reload_needed"][proj_path] = True
+            success = try_reload_kdenlive(proj_path)
+            session_state["reload_needed"][proj_path] = not success
             await broadcast_state(proj_path)
 
         async def safe_watch_project() -> None:
@@ -294,6 +309,7 @@ def create_app(
         start_watching_project(current_sess.project)
 
         await ws.send_json({"type": "project", "path": current_sess.project})
+        await ws.send_json({"type": "cost", "usd": current_sess.cost_usd, "delta": 0.0})
         await ws.send_json({
             "type": "state",
             "project_path": current_sess.project,
@@ -350,6 +366,15 @@ def create_app(
         if mtype == "refresh_state":
             session_state["reload_needed"][sess.project] = False
             await broadcast_state(sess.project)
+            return
+        if mtype == "reload_kdenlive":
+            success = try_reload_kdenlive(sess.project)
+            if success:
+                session_state["reload_needed"][sess.project] = False
+                await ws.send_json({"type": "status", "text": "Reloaded project in Kdenlive"})
+                await broadcast_state(sess.project)
+            else:
+                await ws.send_json({"type": "error", "text": "Failed to reload Kdenlive over D-Bus. Is Kdenlive open?"})
             return
         if mtype == "approve":
             plan = sess.pending_plan
@@ -687,6 +712,9 @@ def create_app(
             })
         elif ev.kind == "error":
             await ws.send_json({"type": "error", "text": ev.text or "error"})
+        elif ev.kind == "cost" and ev.cost is not None:
+            sess.cost_usd = round((sess.cost_usd or 0.0) + ev.cost, 6)
+            await ws.send_json({"type": "cost", "usd": sess.cost_usd, "delta": ev.cost})
         elif ev.kind == "done":
             await ws.send_json({"type": "status", "text": "ready"})
 

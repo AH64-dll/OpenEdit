@@ -45,6 +45,31 @@ html, body {
   max-width: 60%;
 }
 
+.cost-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--glass-strong);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cost-label {
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+
+.cost-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .project {
   flex: 1;
   font-size: 12px;

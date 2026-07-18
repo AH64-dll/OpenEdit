@@ -71,6 +71,132 @@ from .validation import (
 )
 
 
+def _playlist_duration(pl: etree._Element | None) -> float:
+    if pl is None:
+        return 0.0
+    duration = 0.0
+    for child in pl:
+        if child.tag == "entry":
+            in_val = _tc_to_sec(child.get("in", "00:00:00.000"))
+            out_val = _tc_to_sec(child.get("out", "00:00:00.000"))
+            duration += max(0.0, out_val - in_val)
+        elif child.tag == "blank":
+            duration += _tc_to_sec(child.get("length", "00:00:00.000"))
+    return duration
+
+
+def _entry_start_sec(pl: etree._Element | None, entry: etree._Element) -> float:
+    if pl is None:
+        return 0.0
+    current_time = 0.0
+    for child in pl:
+        if child == entry:
+            return current_time
+        if child.tag == "entry":
+            in_val = _tc_to_sec(child.get("in", "00:00:00.000"))
+            out_val = _tc_to_sec(child.get("out", "00:00:00.000"))
+            current_time += max(0.0, out_val - in_val)
+        elif child.tag == "blank":
+            current_time += _tc_to_sec(child.get("length", "00:00:00.000"))
+    return current_time
+
+
+def _shift_entry_on_timeline(pl: etree._Element, entry: etree._Element, shift: float) -> None:
+    if shift == 0.0:
+        return
+    idx = list(pl).index(entry)
+    if idx > 0 and pl[idx - 1].tag == "blank":
+        blank = pl[idx - 1]
+        old_len = _tc_to_sec(blank.get("length", "00:00:00.000"))
+        new_len = max(0.0, old_len + shift)
+        if new_len > 0.0:
+            blank.set("length", _sec_to_tc(new_len))
+        else:
+            pl.remove(blank)
+    elif shift > 0.0:
+        blank = etree.Element("blank")
+        blank.set("length", _sec_to_tc(shift))
+        pl.insert(idx, blank)
+
+
+def _insert_entry_at_position(pl: etree._Element, entry: etree._Element, position_sec: float) -> None:
+    items = []
+    for child in pl:
+        if child == entry:
+            continue
+        if child.tag == "entry":
+            items.append((
+                child,
+                _tc_to_sec(child.get("in", "00:00:00.000")),
+                _tc_to_sec(child.get("out", "00:00:00.000"))
+            ))
+        elif child.tag == "blank":
+            items.append((
+                child,
+                _tc_to_sec(child.get("length", "00:00:00.000"))
+            ))
+
+    for child in list(pl):
+        pl.remove(child)
+
+    current_time = 0.0
+    inserted = False
+
+    entry_dur = _tc_to_sec(entry.get("out", "00:00:00.000")) - _tc_to_sec(entry.get("in", "00:00:00.000"))
+
+    def add_our_entry():
+        nonlocal inserted
+        pl.append(entry)
+        inserted = True
+
+    for item in items:
+        if not inserted:
+            item_dur = (item[2] - item[1] if len(item) == 3 else item[1])
+            if current_time <= position_sec < current_time + item_dur:
+                diff = position_sec - current_time
+                if diff > 0.0:
+                    if len(item) == 2:
+                        b = etree.Element("blank")
+                        b.set("length", _sec_to_tc(diff))
+                        pl.append(b)
+                    else:
+                        left = etree.Element("entry")
+                        left.set("producer", item[0].get("producer"))
+                        left.set("in", _sec_to_tc(item[1]))
+                        left.set("out", _sec_to_tc(item[1] + diff))
+                        for c in item[0]:
+                            left.append(c)
+                        pl.append(left)
+
+                add_our_entry()
+
+                right_dur = item_dur - diff
+                if right_dur > 0.0:
+                    if len(item) == 2:
+                        b = etree.Element("blank")
+                        b.set("length", _sec_to_tc(right_dur))
+                        pl.append(b)
+                    else:
+                        right = etree.Element("entry")
+                        right.set("producer", item[0].get("producer"))
+                        right.set("in", _sec_to_tc(item[1] + diff))
+                        right.set("out", _sec_to_tc(item[2]))
+                        for c in item[0]:
+                            right.append(c)
+                        pl.append(right)
+                continue
+
+        pl.append(item[0])
+        current_time += (item[2] - item[1] if len(item) == 3 else item[1])
+
+    if not inserted:
+        if position_sec > current_time:
+            blank = etree.Element("blank")
+            blank.set("length", _sec_to_tc(position_sec - current_time))
+            pl.append(blank)
+        add_our_entry()
+
+
 @dataclass
 class Catalog:
     """In-memory snapshot of Phase 1's catalog.json. Loaded once at
@@ -175,18 +301,30 @@ class KdenliveFileBackend(EditorBackend):
         track_summaries: list[TrackSummary] = []
         clip_summaries: list[ClipSummary] = []
         trans_summaries: list[TransitionSummary] = []
-        for i, pl in enumerate(tracks):
-            entries = [c for c in pl if c.tag == "entry"]
+        for i, tr in enumerate(tracks):
+            # Each user-facing track is a <tractor> with child playlists
+            # (video + audio). The video playlist is what holds the visible
+            # entries on the timeline.
+            video_pl = tree.get_video_playlist(tr)
+            entries = list(video_pl.findall("entry")) if video_pl is not None else []
+            # Track kind/name from the tractor's properties if present.
+            kind = "video"
+            at = tr.find("property[@name='kdenlive:audio_track']")
+            if at is not None and at.text == "1":
+                kind = "audio"
+            kt = tr.find("property[@name='kdenlive:track_type']")
+            if kt is not None and kt.text in ("audio", "video"):
+                kind = kt.text
             track_summaries.append(
                 TrackSummary(
                     index=i,
-                    kind="video",  # todo: detect audio
-                    name=pl.get("id", f"track_{i}"),
+                    kind=kind,
+                    name=tr.get("id", f"track_{i}"),
                     clip_count=len(entries),
                 )
             )
             for c in entries:
-                clip_summaries.append(_entry_to_clip_summary(c, i, pl, tree))
+                clip_summaries.append(_entry_to_clip_summary(c, i, video_pl, tree))
         # Transitions live inside the <tractor> in Kdenlive, not the
         # playlist. Walk every <transition> and figure out its track.
         for tr in tree.root.iter("transition"):
@@ -214,8 +352,22 @@ class KdenliveFileBackend(EditorBackend):
         new_ids: list[str] = []
         for p in paths:
             abs_path = validate_source_path(p)
-            producer = etree.SubElement(bin_el, "producer")
-            producer.set("id", f"producer_{len(bin_el) - 1}")
+            # CRITICAL: producers must be children of the MLT root, not the
+            # main_bin playlist. If they go inside main_bin, MLT silently
+            # drops them (Property without a parent warnings) and the
+            # timeline shows empty. Also, they must be defined BEFORE any
+            # playlist/tractor references them. So we insert them before the
+            # first playlist or tractor element.
+            insert_idx = 0
+            for idx, child in enumerate(self.tree.root):
+                if child.tag in ("playlist", "tractor", "transition", "filter"):
+                    insert_idx = idx
+                    break
+            else:
+                insert_idx = len(self.tree.root)
+            producer = etree.Element("producer")
+            self.tree.root.insert(insert_idx, producer)
+            producer.set("id", f"producer_{len(self.tree.root) - 1}")
             resource = etree.SubElement(producer, "property")
             resource.set("name", "resource")
             resource.text = str(abs_path)
@@ -247,6 +399,8 @@ class KdenliveFileBackend(EditorBackend):
         source_id: str,
         source_in_sec: float = 0.0,
         source_out_sec: float | None = None,
+        video_only: bool = False,
+        audio_only: bool = False,
     ) -> str:
         tracks = self.tree.get_tracks()
         validate_track_index(track_index, len(tracks))
@@ -254,23 +408,52 @@ class KdenliveFileBackend(EditorBackend):
         if source_out_sec is None:
             source_out_sec = self._resolve_source_duration(source_id)
         validate_clip_range(source_in_sec, source_out_sec, self._resolve_source_duration(source_id))
-        pl = tracks[track_index]
+
+        is_audio = self._is_audio_track(track_index)
+        if is_audio:
+            target_audio_track = track_index
+            target_video_track = self._get_paired_track_index(track_index)
+        else:
+            target_video_track = track_index
+            target_audio_track = self._get_paired_track_index(track_index)
+
         producer = self._resolve_producer_by_id(source_id)
-        new_entry = etree.Element("entry")
-        new_entry.set("producer", producer.get("id"))
-        # Kdenlive/MLT convention: an <entry>'s `in`/`out` are the
-        # TIMELINE positions, not source positions. The source media
-        # plays from `source_in_sec` for (out - in) seconds.
-        duration = source_out_sec - source_in_sec
-        new_entry.set("in", _sec_to_tc(position_sec))
-        new_entry.set("out", _sec_to_tc(position_sec + duration))
-        # For v1, append (MLT uses the `in`/`out` of the entry, not
-        # document order, to derive playback order).
-        pl.append(new_entry)
         kid = self._next_kdenlive_id()
-        new_id = etree.SubElement(new_entry, "property")
-        new_id.set("name", "kdenlive:id")
-        new_id.text = kid
+
+        # Insert Video Part
+        if not audio_only and target_video_track is not None:
+            tractor = tracks[target_video_track]
+            pl = self.tree.get_video_playlist(tractor)
+            if pl is not None:
+                new_entry = etree.Element("entry")
+                new_entry.set("producer", producer.get("id"))
+                new_entry.set("in", _sec_to_tc(source_in_sec))
+                new_entry.set("out", _sec_to_tc(source_out_sec))
+                _insert_entry_at_position(pl, new_entry, position_sec)
+                
+                new_id = etree.SubElement(new_entry, "property")
+                new_id.set("name", "kdenlive:id")
+                new_id.text = kid
+
+        # Insert Audio Part
+        if not video_only and target_audio_track is not None and self._producer_has_audio(producer):
+            tractor = tracks[target_audio_track]
+            pl = self.tree.get_video_playlist(tractor)
+            if pl is None:
+                playlists = self.tree.get_track_playlists(tractor)
+                pl = playlists[0] if playlists else None
+            
+            if pl is not None:
+                new_entry = etree.Element("entry")
+                new_entry.set("producer", producer.get("id"))
+                new_entry.set("in", _sec_to_tc(source_in_sec))
+                new_entry.set("out", _sec_to_tc(source_out_sec))
+                _insert_entry_at_position(pl, new_entry, position_sec)
+                
+                new_id = etree.SubElement(new_entry, "property")
+                new_id.set("name", "kdenlive:id")
+                new_id.text = kid
+
         self._bump_tractor_duration()
         self._touch_modified()
         return kid
@@ -281,60 +464,99 @@ class KdenliveFileBackend(EditorBackend):
         source_id: str,
         source_in_sec: float = 0.0,
         source_out_sec: float | None = None,
+        video_only: bool = False,
+        audio_only: bool = False,
     ) -> str:
         tracks = self.tree.get_tracks()
         validate_track_index(track_index, len(tracks))
         if source_out_sec is None:
             source_out_sec = self._resolve_source_duration(source_id)
         # Position at the end of the track.
-        last_end = 0.0
-        for e in tracks[track_index].iter("entry"):
-            last_end = max(
-                last_end, _tc_to_sec(e.get("out", "00:00:00.000"))
-            )
+        video_pl = self.tree.get_video_playlist(tracks[track_index])
+        if video_pl is None:
+            playlists = self.tree.get_track_playlists(tracks[track_index])
+            video_pl = playlists[0] if playlists else None
+        last_end = _playlist_duration(video_pl)
         return self.insert_clip(
             track_index=track_index,
             position_sec=last_end,
             source_id=source_id,
             source_in_sec=source_in_sec,
             source_out_sec=source_out_sec,
+            video_only=video_only,
+            audio_only=audio_only,
         )
 
     def move_clip(
         self, clip_id: str, new_track: int, new_position_sec: float
     ) -> None:
-        entry, current_track_idx = self._find_entry(clip_id)
+        entries = self._find_all_entries(clip_id)
+        if not entries:
+            raise BackendError(f"no clip with kdenlive:id='{clip_id}' on any track")
         validate_track_index(new_track, len(self.tree.get_tracks()))
         validate_position_sec(new_position_sec)
-        # Remove from current track
-        parent = entry.getparent()
-        parent.remove(entry)
-        # Insert in new track
-        new_parent = self.tree.get_tracks()[new_track]
-        new_parent.append(entry)
-        # Update in/out to reflect new position
-        duration = _tc_to_sec(entry.get("out", "00:00:00.000")) - _tc_to_sec(
-            entry.get("in", "00:00:00.000")
-        )
-        entry.set("in", _sec_to_tc(new_position_sec))
-        entry.set("out", _sec_to_tc(new_position_sec + duration))
+        
+        for entry, track_idx in entries:
+            # Remove from current track
+            parent = entry.getparent()
+            if parent is not None:
+                parent.remove(entry)
+            
+            # Determine target track
+            if self._is_audio_track(track_idx):
+                target_track = self._get_paired_track_index(new_track)
+                if target_track is None:
+                    tracks = self.tree.get_tracks()
+                    audio_indices = [i for i, tr in enumerate(tracks) if tr.find("property[@name='kdenlive:audio_track']") is not None and tr.find("property[@name='kdenlive:audio_track']").text == "1"]
+                    target_track = audio_indices[0] if audio_indices else new_track
+            else:
+                target_track = new_track
+            
+            target_tractor = self.tree.get_tracks()[target_track]
+            pl = self.tree.get_video_playlist(target_tractor)
+            if pl is None:
+                playlists = self.tree.get_track_playlists(target_tractor)
+                pl = playlists[0] if playlists else None
+            
+            if pl is None:
+                raise BackendError(f"track {target_track} has no writable playlist")
+            
+            _insert_entry_at_position(pl, entry, new_position_sec)
         self._touch_modified()
 
     def trim_clip(
         self, clip_id: str, new_in_sec: float, new_out_sec: float
     ) -> None:
-        entry, _ = self._find_entry(clip_id)
-        source_id = self._find_clip_source_kdenlive_id(entry)
+        entries = self._find_all_entries(clip_id)
+        if not entries:
+            raise BackendError(f"no clip with kdenlive:id='{clip_id}' on any track")
+        
+        first_entry = entries[0][0]
+        source_id = self._find_clip_source_kdenlive_id(first_entry)
         source_duration = self._resolve_source_duration(source_id)
         validate_clip_range(new_in_sec, new_out_sec, source_duration)
-        entry.set("in", _sec_to_tc(new_in_sec))
-        entry.set("out", _sec_to_tc(new_out_sec))
+        
+        for entry, _ in entries:
+            old_in_sec = _tc_to_sec(entry.get("in", "00:00:00.000"))
+            entry.set("in", _sec_to_tc(new_in_sec))
+            entry.set("out", _sec_to_tc(new_out_sec))
+            
+            parent = entry.getparent()
+            if parent is not None:
+                diff = new_in_sec - old_in_sec
+                _shift_entry_on_timeline(parent, entry, diff)
+                
         self._bump_tractor_duration()
         self._touch_modified()
 
     def delete_clip(self, clip_id: str) -> None:
-        entry, _ = self._find_entry(clip_id)
-        entry.getparent().remove(entry)
+        entries = self._find_all_entries(clip_id)
+        if not entries:
+            raise BackendError(f"no clip with kdenlive:id='{clip_id}' on any track")
+        for entry, _ in entries:
+            parent = entry.getparent()
+            if parent is not None:
+                parent.remove(entry)
         self._bump_tractor_duration()
         self._touch_modified()
 
@@ -506,11 +728,12 @@ class KdenliveFileBackend(EditorBackend):
     def _find_entry(
         self, clip_id: str
     ) -> tuple[etree._Element, int]:
-        for i, pl in enumerate(self.tree.get_tracks()):
-            for entry in pl.iter("entry"):
-                for p in entry.iter("property"):
-                    if p.get("name") == "kdenlive:id" and p.text == clip_id:
-                        return entry, i
+        for i, tr in enumerate(self.tree.get_tracks()):
+            for pl in self.tree.get_track_playlists(tr):
+                for entry in pl.iter("entry"):
+                    for p in entry.iter("property"):
+                        if p.get("name") == "kdenlive:id" and p.text == clip_id:
+                            return entry, i
         raise BackendError(
             f"no clip with kdenlive:id='{clip_id}' on any track",
             "fix: call get_timeline_summary() to see the current clip ids",
@@ -573,6 +796,61 @@ class KdenliveFileBackend(EditorBackend):
                 p.text = now
                 return
 
+    def _producer_has_audio(self, producer: etree._Element) -> bool:
+        clip_type = None
+        for p in producer.findall("property"):
+            if p.get("name") == "kdenlive:clip_type":
+                clip_type = p.text
+                break
+        if clip_type is not None:
+            if clip_type in ("2", "5", "6"):
+                return False
+        
+        svc = producer.find("property[@name='mlt_service']")
+        if svc is not None and svc.text in ("color", "qimage", "blip"):
+            return False
+        
+        return True
+
+    def _is_audio_track(self, track_index: int) -> bool:
+        tracks = self.tree.get_tracks()
+        if track_index < 0 or track_index >= len(tracks):
+            return False
+        tractor = tracks[track_index]
+        at = tractor.find("property[@name='kdenlive:audio_track']")
+        return at is not None and at.text == "1"
+
+    def _get_paired_track_index(self, track_index: int) -> int | None:
+        tracks = self.tree.get_tracks()
+        video_indices = []
+        audio_indices = []
+        for i, tr in enumerate(tracks):
+            at = tr.find("property[@name='kdenlive:audio_track']")
+            if at is not None and at.text == "1":
+                audio_indices.append(i)
+            else:
+                video_indices.append(i)
+        
+        if track_index in video_indices:
+            idx = video_indices.index(track_index)
+            if idx < len(audio_indices):
+                return audio_indices[idx]
+        elif track_index in audio_indices:
+            idx = audio_indices.index(track_index)
+            if idx < len(video_indices):
+                return video_indices[idx]
+        return None
+
+    def _find_all_entries(self, clip_id: str) -> list[tuple[etree._Element, int]]:
+        results = []
+        for i, tr in enumerate(self.tree.get_tracks()):
+            for pl in self.tree.get_track_playlists(tr):
+                for entry in pl.iter("entry"):
+                    for p in entry.iter("property"):
+                        if p.get("name") == "kdenlive:id" and p.text == clip_id:
+                            results.append((entry, i))
+        return results
+
 
 # --- Private helpers ---------------------------------------------------------
 
@@ -607,16 +885,20 @@ def _entry_to_clip_summary(
             if p.get("name") == "kdenlive_id":
                 effects.append(p.text or "")
                 break  # one label per filter
+    start = _entry_start_sec(playlist, entry)
+    in_val = _tc_to_sec(entry.get("in", "00:00:00.000"))
+    out_val = _tc_to_sec(entry.get("out", "00:00:00.000"))
+    duration = out_val - in_val
     return ClipSummary(
         clip_id=kid,
         track_index=track_index,
-        start_sec=_tc_to_sec(entry.get("in", "00:00:00.000")),
-        end_sec=_tc_to_sec(entry.get("out", "00:00:00.000")),
+        start_sec=start,
+        end_sec=start + duration,
         source_id=source_kid,
         source_path=source_path,
         source_name=source_name,
-        source_in_sec=0.0,  # v1: not exposed in summary
-        source_out_sec=0.0,
+        source_in_sec=in_val,
+        source_out_sec=out_val,
         effects=tuple(effects),
     )
 
