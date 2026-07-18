@@ -255,11 +255,22 @@ def next_kdenlive_id(tree) -> str:
 
 
 def bump_tractor_duration(tree) -> None:
-    """Set the main tractor's `out` attribute to the max out of any entry."""
+    """Set the main tractor's `out` attribute to the max playlist duration.
+
+    Walks every <playlist> in the project and computes its total
+    duration (sum of <entry> (out - in) plus <blank> length). The
+    max across all playlists is written as the tractor's `out`.
+
+    BUG 4 fix: the previous version iterated only <entry> elements,
+    so a project whose track contained only <blank> children got
+    `out="00:00:00.000"`, which truncated the timeline to zero
+    even though the project was non-empty.
+    """
+    from .ops._helpers import playlist_duration
     t = tree.get_tractor()
     if t is None:
         return
     max_out = 0.0
-    for e in tree.root.iter("entry"):
-        max_out = max(max_out, _tc_to_sec(e.get("out", "00:00:00.000")))
+    for pl in tree.root.iter("playlist"):
+        max_out = max(max_out, playlist_duration(pl))
     t.set("out", _sec_to_tc(max_out))

@@ -100,3 +100,30 @@ def test_next_kdenlive_id_returns_unique(demo_tree):
     assert int(nxt) not in used
     # The fixture has ids 1 and 2; the next free one is 3.
     assert nxt == "3"
+
+
+def test_bump_tractor_duration_includes_blanks(tmp_path):
+    """BUG 4 regression: bump_tractor_duration must include <blank> children.
+
+    A playlist containing only a <blank> of length 5s should drive
+    the tractor's `out` to 5.000s, not 0.000s.
+    """
+    xml = b'''<?xml version="1.0"?>
+<mlt version="7.40.0" producer="main_bin" LC_NUMERIC="C">
+  <profile width="1920" height="1080" frame_rate_num="30"/>
+  <playlist id="main_bin"/>
+  <playlist id="video_track">
+    <blank length="00:00:05.000"/>
+  </playlist>
+  <tractor id="tractor0">
+    <track producer="video_track"/>
+  </tractor>
+</mlt>
+'''
+    p = tmp_path / "blank_only.kdenlive"
+    p.write_bytes(xml)
+    tree = load_project(p)
+    bump_tractor_duration(tree)
+    tr = tree.get_tractor()
+    assert tr is not None
+    assert tr.get("out", "00:00:00.000") == "00:00:05.000"

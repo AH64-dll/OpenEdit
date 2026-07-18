@@ -19,7 +19,6 @@ from ..errors import BackendError, ValidationError, validation_error
 from ..io import ProjectTree, _sec_to_tc, _tc_to_sec
 from ..tracks import find_clip_entry, get_tracks, next_kdenlive_id
 from ..validators import validate_transition_kind
-from .clips import _is_audio_tractor
 
 
 def add_transition(
