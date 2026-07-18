@@ -52,7 +52,7 @@ from .editor_backend import (
     TransitionSummary,
 )
 from .validation import ValidationError  # canonical
-from .kdenlive_xml import (
+from .io import (
     ProjectTree,
     _sec_to_tc,
     _tc_to_sec,
@@ -786,7 +786,7 @@ class KdenliveFileBackend(EditorBackend):
 
     def _touch_modified(self) -> None:
         from datetime import datetime, timezone
-        from .kdenlive_xml import _sec_to_tc
+        from .io import _sec_to_tc
         bin_el = self.tree.get_main_bin()
         if bin_el is None:
             return

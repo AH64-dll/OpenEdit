@@ -42,6 +42,8 @@ from xml.sax.saxutils import escape
 
 from lxml import etree
 
+from .io import _sec_to_tc
+
 
 # --- Constants ---------------------------------------------------------------
 
@@ -50,30 +52,6 @@ from lxml import etree
 # the project file's <mlt> element is in MLT's own namespace).
 MLT_VERSION = "7.40.0"
 KdenliveDocVersion = "1.1"  # matches what 26.04 writes
-
-# Timecode format used everywhere.
-def _sec_to_tc(sec: float) -> str:
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = int(sec % 60)
-    ms = int(round((sec - int(sec)) * 1000))
-    if ms == 1000:
-        ms = 0
-        s += 1
-    if s == 60:
-        s = 0
-        m += 1
-    if m == 60:
-        m = 0
-        h += 1
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
-
-
-def _tc_to_sec(s: str) -> float:
-    h, m, rest = s.split(":")
-    sec, frac = rest.split(".")
-    return int(h) * 3600 + int(m) * 60 + int(sec) + int(frac) / 1000.0
-
 
 # --- ProjectTree -------------------------------------------------------------
 
@@ -440,6 +418,4 @@ __all__ = [
     "ProjectTree",
     "load_project",
     "save_project",
-    "_sec_to_tc",
-    "_tc_to_sec",
 ]
