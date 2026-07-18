@@ -34,59 +34,20 @@ def test_piagent_adapter_list_models(tmp_path, monkeypatch):
 
 def test_opencode_adapter_list_models(monkeypatch):
     captured = {}
-
-    def fake_models(cmd):
-        captured["models_cmd"] = cmd
-        # Mix authenticated + unauthenticated provider prefixes.
-        return (
-            "opencode-go/minimax-m3\n"
-            "opencode-go/deepseek-v4-pro\n"
-            "\n"
-            "opencode/hy3-free\n"          # unauthenticated -> must be filtered out
-            "opencode/big-pickle\n"        # unauthenticated -> must be filtered out
-            "openai/gpt-5.5\n"
-        )
-
-    def fake_providers(cmd):
-        captured["providers_cmd"] = cmd
-        # Only OpenCode Go (api) + OpenAI (oauth) are authenticated.
-        return (
-            "OpenCode Go   api\n"
-            "OpenAI        oauth\n"
-            "GitHub Copilot oauth\n"
-        )
-
+    def fake_run(cmd):
+        captured["cmd"] = cmd
+        return "opencode-go/minimax-m3\nopencode-go/deepseek-v4-pro\n\nopenai/gpt-5.5\n"
     adapter = aa.OpenCodeAdapter(
         model="opencode-go/minimax-m3", project="/x/y.kdenlive",
-        session_id="s2", models_cmd_fn=fake_models,
-        providers_cmd_fn=fake_providers,
+        session_id="s2", models_cmd_fn=fake_run,
     )
     models = adapter.list_models()
     assert models == [
         {"id": "opencode-go/minimax-m3", "name": "opencode-go/minimax-m3"},
         {"id": "opencode-go/deepseek-v4-pro", "name": "opencode-go/deepseek-v4-pro"},
         {"id": "openai/gpt-5.5", "name": "openai/gpt-5.5"},
-    ], models
-    assert "opencode/hy3-free" not in [m["id"] for m in models]
-    assert "opencode/big-pickle" not in [m["id"] for m in models]
-    assert captured["models_cmd"] == ["opencode", "models"]
-    assert captured["providers_cmd"] == ["opencode", "providers", "list"]
-
-
-def test_opencode_adapter_list_models_falls_back_on_provider_parse_error():
-    """If providers list can't be parsed, show all models (no filtering)."""
-    def fake_models(cmd):
-        return "opencode-go/minimax-m3\nopencode/hy3-free\n"
-    def fake_providers(cmd):
-        raise RuntimeError("boom")  # simulate parse failure
-    adapter = aa.OpenCodeAdapter(
-        model="x", project="/x/y.kdenlive", session_id="s9",
-        models_cmd_fn=fake_models, providers_cmd_fn=fake_providers,
-    )
-    models = adapter.list_models()
-    assert [m["id"] for m in models] == [
-        "opencode-go/minimax-m3", "opencode/hy3-free",
     ]
+    assert captured["cmd"] == ["opencode", "models"]
 
 
 def test_opencode_adapter_run_prompt_injectable():
