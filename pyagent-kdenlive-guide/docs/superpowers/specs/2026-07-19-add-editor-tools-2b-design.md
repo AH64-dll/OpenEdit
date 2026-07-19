@@ -46,13 +46,17 @@ clips, color scopes) are deferred to 2c — see "Non-goals" below.
   when Kdenlive harness is extended).
 - A small but necessary catalog update: every effect parameter
   in `phase1_knowledge_base/catalog.json` gains a `keyframes`
-  boolean, populated by reading `param type="keyframable"`
-  from the source XML. This is required so `set_effect_param`
-  can refuse to clobber keyframed data without warning, and so
-  `set_keyframe` can reject calls on non-keyframable params.
+  boolean, populated by reading `param type="keyframe"`,
+  `param type="animated"`, and 7 other animation-string
+  keyframable `type=` values from the source XML (plus
+  `param type="simplekeyframe"` for the 5 mlt_geometry
+  params). This is required so `set_effect_param` can
+  refuse to clobber keyframed data without warning, and
+  so `set_keyframe` can reject calls on non-keyframable
+  params.
 - All 9 tools' JSON I/O locked by golden-file tests.
 - All 9 tools' behavior verified by per-domain integration tests.
-- 13 new error codes, all with at least one test case.
+- 14 new error codes, all with at least one test case.
 - All prod files stay <300 lines; all test files stay <400 lines.
 
 ## Non-goals (this sub-project)
@@ -141,7 +145,10 @@ phase3_pyagent_core/
 
 phase1_knowledge_base/
   catalog.json              # REBUILD: add keyframes: bool per parameter
-  build_catalog.py          # EXTEND: read param type="keyframable" → keyframes: true
+  build_catalog.py          # EXTEND: read param type= in
+                           # ANIMATION_STRING_KEYFRAME_TYPES or
+                           # SIMPLEKEYFRAME_TYPES → keyframes: true or
+                           # keyframes: "simplekeyframe"
 
 phase7_real_session/
   tests/test_e2e.py         # EXTEND: +1 interop test (skipped in CI
@@ -290,6 +297,13 @@ def list_keyframes(
     `type` is one of: linear (`), discrete (|), smooth (~), hold (!),
     or the 8 ease-in/ease-out variants (a, b, c, d, A, B, C, D).
     Empty string if MLT didn't store a type (defaults to linear).
+
+    For `simplekeyframe` params (5 in the 26.04 catalog, all in
+    `rotation_keyframable.xml`), returns an empty list — the on-disk
+    format is mlt_geometry, not animation-string, and pyagent 2b
+    does not yet parse that format. The response includes a
+    `format: "simplekeyframe"` field in this case so the caller
+    can detect the situation.
     """
 ```
 
@@ -302,6 +316,7 @@ def list_keyframes(
   "clip_id": "clip_1",
   "effect_index": 0,
   "param_name": "opacity",
+  "format": "animated",
   "keyframes": [
     {"frame": 0, "value": "1.0", "type": ""},
     {"frame": 25, "value": "0.5", "type": "~"},
@@ -309,6 +324,14 @@ def list_keyframes(
   ]
 }
 ```
+
+`format` is one of: `"animated"`, `"keyframe"`,
+`"animatedrect"`, `"animatedfakerect"`, `"animatedfakepoint"`,
+`"curve"`, `"bezier_spline"`, `"geometry"`, `"roto-spline"`
+(all parsed as animation strings; `keyframes` is populated),
+or `"simplekeyframe"` (mlt_geometry format; `keyframes` is
+always `[]`). For non-keyframable params, `format` is `""`
+and `keyframes` is `[]`.
 
 **Errors:** `clip_not_found`, `effect_index_out_of_range`,
 `param_not_found`. (No error for "not keyframable" — returns
@@ -359,7 +382,10 @@ existed.)
 
 **Errors:** `clip_not_found`, `effect_index_out_of_range`,
 `param_not_found`, `param_not_keyframable`,
-`frame_out_of_range`, `invalid_type`.
+`simplekeyframe_format_unsupported` (the 5 simplekeyframe
+params cannot be written by 2b's keyframe tools; full
+mlt_geometry support is deferred to 2c), `frame_out_of_range`,
+`invalid_type`.
 
 ### 5. `pyagent_remove_keyframe` — remove one keyframe
 
@@ -397,7 +423,7 @@ error, just a no-op signal.)
 
 **Errors:** `clip_not_found`, `effect_index_out_of_range`,
 `param_not_found`, `param_not_keyframable`,
-`frame_out_of_range`.
+`simplekeyframe_format_unsupported`, `frame_out_of_range`.
 
 ### 6. `pyagent_set_transition_property` — edit any one transition prop
 
@@ -569,7 +595,32 @@ no trailing frame number, matching Kdenlive's own output.
 ### Keyframe animation strings (effect params)
 
 Stored as the **value** of a `<property name="param_name">`
-inside a `<filter>`. The format is:
+inside a `<filter>`. Kdenlive's effect XMLs declare keyframable
+parameters with one of **two** `type=` attribute values, and the
+two use **different on-disk serialization formats**:
+
+| Catalog `type=` | Count in 26.04 | On-disk format | pyagent 2b support |
+|---|---|---|---|
+| `keyframe` | 12 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `animated` | 685 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `animatedrect` | 15 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `animatedfakerect` | 2 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `animatedfakepoint` | 1 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `curve` | 2 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `bezier_spline` | 1 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `geometry` | 1 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `roto-spline` | 1 | Animation string (this section) | **Full**: read, write, keyframe ops |
+| `simplekeyframe` | 5 | mlt_geometry string (different format) | **Read-only**: tagged in catalog, listed, but `set_keyframe`/`remove_keyframe` raise `simplekeyframe_format_unsupported` |
+
+(The original 2a spec had `type="keyframable"` — that value does
+**not** appear in any of Kdenlive 26.04's 368 effect XMLs. The
+correct values are the ten listed above. The catalog rebuild in
+Task 0.3 checks for membership in the animation-string set; this
+captures 720 of 725 keyframable params. The remaining 5
+(simplekeyframe) are tagged in the catalog but route to the
+"read-only" branch.)
+
+The animation-string format:
 
 ```
 {first_frame_int}={value}[{type_char}]; {frame_int}={value}[{type_char}]; ...
@@ -665,21 +716,39 @@ of the 368 effects. `set_effect_param`, `set_keyframe`,
 and `remove_keyframe` all need to know if a param is
 keyframable. The `build_catalog.py` script already parses
 each effect's source XML (`/usr/share/kdenlive/effects/*.xml`);
-the only addition is to read the `type` attribute on each
-`<param>` element and write `"keyframes": true` to the JSON
-if the value is `"keyframable"`.
+the addition is to read the `type` attribute on each
+`<parameter>` element and write `"keyframes": true` to the
+JSON if the value is in the animation-string keyframable
+set, or `"keyframes": "simplekeyframe"` if it's the
+mlt_geometry-based one.
 
 **Concrete addition to `build_catalog.py`:**
 
 ```python
+ANIMATION_STRING_KEYFRAME_TYPES = frozenset({
+    "keyframe", "animated", "animatedrect", "animatedfakerect",
+    "animatedfakepoint", "curve", "bezier_spline", "geometry",
+    "roto-spline",
+})
+SIMPLEKEYFRAME_TYPES = frozenset({"simplekeyframe"})
+
 # In the parameter-parsing loop, after extracting `type`:
-if param.attrib.get("type") == "keyframable":
+t = param.attrib.get("type")
+if t in ANIMATION_STRING_KEYFRAME_TYPES:
     out_param["keyframes"] = True
+elif t in SIMPLEKEYFRAME_TYPES:
+    out_param["keyframes"] = "simplekeyframe"
 ```
 
-This is a 3-line change. The catalog is rebuilt once
+This is a ~10-line change. The catalog is rebuilt once
 before Task 2 (keyframes) starts; the test suite
 subsequently treats the `keyframes` field as required.
+
+**Sanity check (Task 0.5):** after the rebuild, the
+expected count is **720 params tagged `True` + 5 params
+tagged `"simplekeyframe"`** across 368 effects. If the
+count is wildly off (e.g. < 100 `True`), the catalog
+rebuild is broken and Task 0.3 must be re-done.
 
 ## Error model
 
@@ -692,12 +761,13 @@ subsequently treats the `keyframes` field as required.
 | `effect_index_out_of_range` | `NotFoundError` | tools 1, 2, 3, 4, 5 |
 | `rate_out_of_range` | `ValidationError` | `set_clip_speed_ramp` |
 
-### New codes for 2b (11 total)
+### New codes for 2b (14 total)
 
 | Code | Type | Source tool | When |
 |---|---|---|---|
 | `param_not_found` | `NotFoundError` | 1, 2, 3, 4, 5 | effect param name doesn't exist in the catalog entry for this effect |
-| `param_not_keyframable` | `ValidationError` | 4, 5 | `set_keyframe` / `remove_keyframe` called on a non-keyframable param |
+| `param_not_keyframable` | `ValidationError` | 4, 5 | `set_keyframe` / `remove_keyframe` called on a non-keyframable param (catalog says `keyframes: false`) |
+| `simplekeyframe_format_unsupported` | `ValidationError` | 4, 5 | `set_keyframe` / `remove_keyframe` called on a `simplekeyframe` param (catalog says `keyframes: "simplekeyframe"`); mlt_geometry support is deferred to 2c |
 | `frame_out_of_range` | `ValidationError` | 4, 5 | `frame < 0` or `frame >= clip_duration_frames` |
 | `invalid_type` | `ValidationError` | 4 | `type` arg to `set_keyframe` is not in the allowed subset (15 values) |
 | `value_type_mismatch` | `ValidationError` | 2, 6 | `set_effect_param` value can't be coerced to the catalog's `type`; or `set_transition_property` value can't be coerced to int for `in`/`out`/`a_track`/`b_track` |
@@ -710,7 +780,7 @@ subsequently treats the `keyframes` field as required.
 | `keyframes_empty` | `ValidationError` | 9 | `set_clip_speed_ramp` called with empty list |
 | `first_keyframe_must_be_zero` | `ValidationError` | 9 | first keyframe's `time_ms != 0` or `rate != 1.0` |
 
-(13 new codes total: 12 in the table above + `param_not_keyframable` which is in the row labeled #2 above; the count includes the "13 new" claim from the goals section.)
+(14 codes listed above; the goal section's "14 new error codes" is correct.)
 
 Re-use existing `BackendError`, `ValidationError`,
 `NotFoundError` classes per the 2a pattern. Every error
@@ -744,6 +814,7 @@ Additional edge-case tests (3-5 total):
 
 - `set_keyframe` with an invalid `type` arg → `invalid_type`
 - `set_keyframe` on a non-keyframable param → `param_not_keyframable`
+- `set_keyframe` on a `simplekeyframe` param → `simplekeyframe_format_unsupported`
 - `set_clip_speed_ramp` with non-monotonic keyframes → `time_monotonic_violation`
 - `add_effect_to_track` with an audio effect on a video track → `effect_id_must_be_audio`
 - `set_transition_property` with reserved name → `prop_not_allowed`
@@ -770,24 +841,60 @@ implemented (kdenlive 26.04 CLI has no headless open+save
 mode, and `melt` drops `kdenlive:*` properties). Code is
 in place; activation is gated.
 
-**Count:** +1 skipped test (260 + 1 = 261 skipped after
-2b; 260 + 3 = 263 total skipped after 2b's 2 new skips
-including the L1 "all 9 are skipped in CI" coverage
-expansion — see test count budget).
+**Count:** +1 new skipped test. Post-2a has 2 skipped
+(1 baseline e2e + 1 new interop skip from 2a). Post-2b
+will have 3 skipped (2 existing + 1 new).
 
 ## Test count budget
 
-| Source | Baseline (post-2a) | After 2b | Net |
-|---|---|---|---|
-| Per-tool golden cases (Layer 1) | 19 | 28 | +9 |
-| Per-domain integration (Layer 2) | 260 | 270-273 | +10 to +13 |
-| Interop tests (Layer 3, skipped) | 2 | 3 | +1 |
-| **Total passing** | 260 | **270-273** | +10 to +13 |
-| **Total skipped** | 2 | 3 | +1 |
+Verified baseline (re-ran `pytest -q` against
+`main@7f71457`): **260 passed + 2 skipped + 1 warning**.
+Breakdown (by file, not by layer — see "Why this is by
+file, not by layer" below):
 
-Target: **272 passed + 3 skipped** (conservative
+| Test file | Count | What it covers |
+|---|---|---|
+| `phase3_pyagent_core/tests/test_golden_io.py` | 16 (parametrized) | Layer 1: 19 existing tools × ~1 case each |
+| `phase2_project_engine/tests/test_ops_*.py` | 107 | Layer 2: behavior tests for all 19 existing tools |
+| `phase3_pyagent_core/test_*.py` (no `tests/`) | 27 | Layer 1+2 mixed (extension, runtime, integration) |
+| `phase4_chat_ui/test_*.py` | 51 | Phase 4 UI tests (unchanged by 2b) |
+| `phase5_dbus_sync/test_*.py` | 29 | Phase 5 dbus tests (unchanged by 2b) |
+| `phase6_render_qc/test_*.py` | 34 | Phase 6 render tests (unchanged by 2b) |
+| `phase7_real_session/tests/test_e2e.py` | 5 (2 skipped) | Layer 3: real-Kdenlive interop |
+| **Total collected** | **262** | 260 passed + 2 skipped |
+
+After 2b:
+
+| Source | Net | Rationale |
+|---|---|---|
+| Layer 1: `test_golden_io.py` | **+9** | 1 new parametrized case per new tool (9 tools, some shared test functions) |
+| Layer 2: per-domain integration | **+10 to +13** | 1 behavior test per new tool (9) + 2-4 edge-case tests (invalid_type, param_not_keyframable, simplekeyframe_format_unsupported, time_monotonic_violation, effect_id_must_be_audio, prop_not_allowed) |
+| Layer 3: real-Kdenlive interop | **+1 (skipped)** | 1 new test in `test_e2e.py` (always skipped until Kdenlive harness extended) |
+| **Total passing** | 260 + 9 + 10..13 = **279..282** | |
+| **Total skipped** | 2 + 1 = **3** | |
+
+Target: **280 passed + 3 skipped** (conservative
 midpoint). The 2 existing skips remain; the 1 new skip
 is the L3 interop test.
+
+**Why this is by file, not by layer:** the 2a spec's
+test-count table split by layer but conflated the
+"Layer 2: 260" baseline number with the actual total,
+masking a ~19-test gap. The breakdown above is the
+authoritative source for the 260 + 2 baseline; every
+test in the repo that does not change in 2b is
+accounted for.
+
+**2a spec discrepancy (corrected here):** the 2a spec
+predicted "252 passed + 1 skipped" but the actual
+post-2a count is 260 + 2. The 8-test positive gap
+and 1-skip positive gap are both real — the 2a
+implementation caught more latent bugs (each fixed
+with a regression test) and added 1 more L3 skip
+than the spec budgeted for. This is documented here
+so 2b's budget is grounded in the actual post-2a
+state, not the spec's (slightly optimistic)
+prediction.
 
 ## Commit plan
 
@@ -844,7 +951,7 @@ is the L3 interop test.
 - [ ] Catalog updated with `keyframes: bool` per
       parameter; `build_catalog.py` reads the field from
       `param type="keyframable"`.
-- [ ] All 13 new error codes have at least one test case.
+- [ ] All 14 new error codes have at least one test case.
 - [ ] All 9 new tools' return shapes match §"The 9 tool
       schemas" above.
 - [ ] All 9 new tools' error codes match §"Error model".
@@ -867,7 +974,7 @@ is the L3 interop test.
 - [ ] The plan doc
       (`docs/superpowers/plans/2026-07-19-add-editor-tools-2b.md`)
       exists.
-- [ ] All ~272 tests pass (270-273 pass + 3 skip in CI
+- [ ] All ~280 tests pass (279-282 pass + 3 skip in CI
       without Kdenlive).
 
 ## Risks
@@ -877,7 +984,7 @@ is the L3 interop test.
 | `mlt_service="timeremap"` link is order-sensitive inside the producer chain; wrong placement breaks the clip | Medium | High | The link goes as the LAST element in the producer's child chain, matching Kdenlive's own output (per `clipmodel.cpp:556-567`). A unit test reads back the `time_map` and asserts the structure. The L3 interop test (when activated) is the final check. |
 | Curve-type chars (`a..u`, `A..D`) are case-sensitive and many; easy to write a wrong char | Medium | Low | Whitelist exactly the 15 known values (linear, discrete, smooth, hold, 8 ease variants); reject unknown with `invalid_type`. The set is documented in the tool description and a code comment. |
 | `set_effect_param` clobbers a keyframed value with a static one — silent data loss | Medium | High | Response includes `is_keyframable` and `previous_value`; tool description explicitly warns the LLM. A `confirm: bool` arg is a candidate for 2c but rejected for 2b to keep the API minimal. |
-| Kdenlive's effect XMLs use `param type="keyframable"` inconsistently; some XMLs use `type="constant"` even for params that ARE keyframable in the UI | Low | Medium | After rebuilding the catalog, sanity-check the count of `keyframes: true` against Kdenlive's UI for at least 5 known effects (vignette opacity, fade level/alpha, blur radius, etc.). If the count is too low, flag and investigate. |
+| Kdenlive's effect XMLs use `type="keyframe"` and `type="simplekeyframe"` for keyframable params; the previous spec's `type="keyframable"` does not exist in any of the 368 effect XMLs. The new spec tags 10 distinct `type=` values as keyframable (see §"Keyframe animation strings" above). | Done | High | The catalog rebuild checks for membership in `ANIMATION_STRING_KEYFRAME_TYPES` (9 values) or `SIMPLEKEYFRAME_TYPES` (1 value), not an exact string match. Task 0.5 sanity check verifies the count matches expectations (~720 animation-string + 5 simplekeyframe). If the count is wildly off, the rebuild is broken. |
 | Track effects' filter order matters (Kdenlive processes top-to-bottom); adding to a track that's also a member of a multitrack might conflict | Low | Medium | Insert at end of track's existing filter list (matches Kdenlive's "newest at bottom" convention). Document the ordering invariant in the tool description. |
 | `set_transition_property` with `a_track` / `b_track` could orphan a transition if the new track index is invalid | Low | High | Validate the track index is in range; reject with `value_type_mismatch` if the value can't be coerced to int, or `track_index_out_of_range` (re-used) if the int is out of range. |
 | `set_clip_speed_ramp` time_map is timecode-based; ms→timecode conversion needs `io._sec_to_tc` which rounds to 3 decimals (ms-precise) but the timeremap uses frame-precise timecode | Low | Low | Use a new helper `_sec_to_tc_frames(sec, fps)` for the timeremap path. The existing `_sec_to_tc` stays for ms-precise contexts. |
