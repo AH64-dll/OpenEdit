@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 from lxml import etree
 
-from ..errors import BackendError
+from ..errors import BackendError, validation_error
 from ..io import ProjectTree
 from ..validators import validate_source_path
 
@@ -22,6 +22,12 @@ def import_media(tree: ProjectTree, paths: Sequence[str]) -> list[str]:
     Returns the kdenlive:id of each imported producer (the value
     callers will pass as `source_id` to insert_clip/append_clip).
     """
+    if not paths:
+        raise validation_error(
+            "import_media requires at least one path",
+            "pass paths as a non-empty list of absolute file paths, "
+            "e.g. pyagent_import_media(paths=['/home/user/vid.mp4'])",
+        )
     new_ids: list[str] = []
     for p in paths:
         abs_path = validate_source_path(p)

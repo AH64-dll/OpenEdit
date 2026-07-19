@@ -220,6 +220,34 @@ def _first_transition_with_kid(tree, kid):
     raise AssertionError(f"no transition with kdenlive:id={kid!r}")
 
 
+def test_add_transition_centers_on_cut_not_midpoint():
+    """BUG A regression: the transition must straddle the cut at the
+    END of clip A (== start of clip B on the timeline), not the
+    average of a.out and b's source in-point.
+
+    Two clips meeting at 5.0s with a 1.0s duration must produce
+    in=4.5s, out=5.5s — NOT 2.5s/3.5s (the old midpoint bug).
+    """
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.transitions import add_transition
+    from phase2_project_engine.io import _tc_to_sec
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    a, b = _two_clips_on_track_0(tree, src)
+    tid = add_transition(
+        tree, clip_a_id=a, clip_b_id=b, kind="dissolve", duration_sec=1.0,
+        catalog=[{"kdenlive_id": "dissolve", "mlt_service": "luma"}],
+    )
+    tr = _first_transition_with_kid(tree, tid)
+    tin = _tc_to_sec(tr.get("in"))
+    tout = _tc_to_sec(tr.get("out"))
+    # Clip B starts at 5.0s (clip A is 0-5s). Cut == 5.0s.
+    assert tin == 4.5, f"expected in=4.5, got {tin}"
+    assert tout == 5.5, f"expected out=5.5, got {tout}"
+    assert (tin + tout) / 2.0 == 5.0, "transition must center on the cut"
+
+
 def test_set_transition_property_reserved_name_rejected():
     """Reserved names like 'mlt_service' and 'id' are rejected."""
     if not CLIP_SHORT.exists():

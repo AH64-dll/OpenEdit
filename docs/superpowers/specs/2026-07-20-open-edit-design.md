@@ -3,15 +3,26 @@
 **Status:** Approved (brainstorming complete)
 **Date:** 2026-07-20
 **Stack:** Python 3.11+, Pydantic v2, SQLite, FastAPI, Rust (sandbox, seccomp+landlock), lxml, melt/ffmpeg/ffprobe, OpenCode Go binary
-**Outcome target:** an `Open Edit` project (importable from `.kdenlive`) that renders to MP4 via `melt`, with the AI as the primary editor
+**Outcome target:** an `Open Edit` project that ingests raw video files, lets the AI edit them via a structured IR, and renders to MP4 via `melt`. No Kdenlive is involved in the critical path.
 
 ## 1. Goal
 
-A local, AI-native video editing platform that replaces Kdenlive as the user-facing editor. The user chats with an AI agent (powered by OpenCode + any OpenCodeGo-subscription model), which edits a structured Intermediate Representation (IR) backed by SQLite. The user reviews the result in a chat + form-based UI, can undo/reorder/fine-tune any edit, and the system renders to MP4 via `melt`.
+A local, AI-native video editing platform that **replaces Kdenlive entirely**. The user works directly with raw video files (no `.kdenlive` project files, no editor application), chats with an AI agent (powered by OpenCode + any OpenCodeGo-subscription model), which edits a structured Intermediate Representation (IR) backed by SQLite. The user reviews the result in a chat + form-based UI, can undo/reorder/fine-tune any edit, and the system renders to MP4 via `melt`.
 
 This is an **evolution of `pyagent-kdenlive-guide/`** (the "PyAgent" system), not a rewrite. The new project lives at `/home/ah64/apps/mlt-pipeline/open_edit/` as a sibling to the existing `pyagent-kdenlive-guide/`. We reuse what works (tool dispatch, chat UI, catalog, render, QC), replace what doesn't (the Kdenlive XML backend), add what's missing (the new IR, free-form Python mode, the style memory system).
 
-The v1 demo: import the existing `/home/ah64/Videos/edit.kdenlive` (11 Arabic-named video clips, 10 luma transitions, 73,931 bytes) into the new IR, then have the agent add "fade the last 2 seconds to black" via a structured `AddEffectOp` + `SetKeyframeOp` (no free-form Python in the v1 demo).
+**The whole purpose of this redesign is edit freedom and high capability.** The IR must be expressive enough that the AI can do anything a human editor can do with Kdenlive — and more, via free-form Python in the sandbox. We are not building a constrained tool surface; we are building the freedom layer above the render pipeline.
+
+The v1 demo (no Kdenlive anywhere in the path):
+1. User runs `open_edit init` in a folder of raw video files (e.g. `~/Videos/myproject/*.mp4`).
+2. System ingests them as content-addressed assets (`ffprobe` for metadata, SHA-256 for identity).
+3. User runs `open_edit chat`; browser opens to a chat + form UI.
+4. User types: "arrange the clips in alphabetical order and fade out the last 2 seconds."
+5. Agent emits a JSON array of `AddClipOp` (one per video) + `AddEffectOp` + `SetKeyframeOp` (structured, Tier 1).
+6. System applies ops to the edit graph, derives the timeline, renders to MP4, runs QC.
+7. User reviews the preview, clicks "undo" if needed; the timeline re-derives.
+
+The 11 Arabic video files the user has on disk are still useful as test fixtures — **copied as raw files into `testdata/raw_videos/`**, with a hand-constructed edit graph `testdata/expected_edit_graph.json` defining the same 11-clip / 10-transition timeline. We do **not** import a `.kdenlive` file. The legacy `.kdenlive` importer is a **v2 compatibility shim** for users with existing Kdenlive projects; it is not in the v1 critical path.
 
 ## 2. Architecture (the 2-layer IR)
 
@@ -51,7 +62,8 @@ MLT XML is a *render target*, not the artifact. The user never edits MLT directl
 | Concurrency | In-flight job lock in `jobs` table | Single sandbox run at a time; second chat message queues or rejects |
 | Audio | First-class: `SetAudioGainOp`, `NormalizeAudioOp`; `track_kind: "audio"` enum | The source project is narrated; audio must not ride along inside video |
 | Style Memory | Bounded, tag-gated, rollup-and-prune (§14) | Tastes biased over time without unbounded growth |
-| v1 demo | Import existing `edit.kdenlive` + structured fade edit | Real-world test, exercises import + agent + IR + render + undo |
+| v1 demo | `open_edit init` on a folder of raw videos, then chat "arrange + fade out 2s" via structured ops | No Kdenlive in the critical path; raw video → IR → render end-to-end |
+| `.kdenlive` import | **v2 / optional** compatibility shim | Replaces the v1 demo; not load-bearing for the new system |
 
 ## 4. Reuse from `pyagent-kdenlive-guide/`
 
@@ -68,15 +80,15 @@ MLT XML is a *render target*, not the artifact. The user never edits MLT directl
 | `phase5_dbus_sync/` (live editor sync) | **Drop** | No editor to sync with |
 | `phase7_real_session/` (Xvfb e2e tests) | **Reshape** to scenario eval (no Xvfb) | Test against the IR directly |
 | `~/.opencode/bin/opencode` (Go binary) | **Keep** | The agent loop |
-| `/home/ah64/Videos/edit.kdenlive` (11 Arabic clips, 10 luma transitions) | **v1 demo input** | Real-world test case |
+| `/home/ah64/Videos/edit.kdenlive` (11 Arabic clips, 10 luma transitions) | **Test fixture source only** — copied as raw video files into `testdata/raw_videos/`. The `.kdenlive` file is not parsed; a hand-constructed edit graph defines the timeline. | Provides realistic test data without depending on Kdenlive |
 
 ## 5. Lessons from old code (load-bearing)
 
 Three concrete bugs from `pyagent-kdenlive-guide/` that the new design must get right:
 
-1. **Bug A: transition centering.** Old `phase2_project_engine/ops/transitions.py` centered a transition on the *midpoint* of the two clips instead of the *cut*. The user's `edit.kdenlive` golden file encoded the wrong position (00:00:01.500 instead of 00:00:03.500). **New `apply.py` places the transition at `cut = clip_a.out_point_sec` and back-solves `clip_a.out = cut - duration/2`, `clip_b.in = cut + duration/2`.** Unit test required. The Kdenlive importer rejects projects with transitions at wrong positions, with a `fix:` line.
+1. **Bug A: transition centering.** Old `phase2_project_engine/ops/transitions.py` centered a transition on the *midpoint* of the two clips instead of the *cut*. The user's `edit.kdenlive` golden file (kept as a reference, not as a v1 input) encoded the wrong position (00:00:01.500 instead of 00:00:03.500). **New `apply.py` places the transition at `cut = clip_a.out_point_sec` and back-solves `clip_a.out = cut - duration/2`, `clip_b.in = cut + duration/2`.** Unit test required. This is a property of the IR's `apply_operation` function — independent of any `.kdenlive` parsing.
 
-2. **Bug B: empty paths silently accepted.** Old `bin.py` accepted `paths=[]`. **New `AddAssetOp` (and `ImportAssetOp` in the migration layer) validates non-empty `paths` and raises a structured `ValidationError` with a `fix:` line.** Regression test required.
+2. **Bug B: empty paths silently accepted.** Old `bin.py` accepted `paths=[]`. **New `AssetStore.ingest()` (and any future `ImportAssetOp`) validates non-empty `paths` and raises a structured `ValidationError` with a `fix:` line.** Regression test required. This applies whether the assets come from `init` (folder scan) or from the v2 `.kdenlive` importer.
 
 3. **Bug C: chunk exceeds limit.** Old `system_prompt.md` already has the "keep each tool result small" rule. **New design keeps that rule and adds: any new tool that returns timeline state must return a compact `get_timeline_summary()` JSON, never raw XML.** New tools added in this redesign are audited against this rule at registration. Root cause is the compiled `~/.opencode/bin/opencode` binary's per-message cap — not patchable from this repo.
 
@@ -406,7 +418,9 @@ New tools added:
 - **Edit history list** — vertical list of operations (kind, label, author, timestamp, status badge). Right-click: undo, redo, fine-tune, supersede.
 - **HTML5 preview player** — shows the latest `renders/<hash>.mp4`. Black-frame and silence markers on the scrub bar.
 
-### 6.11 New: `open_edit/migration/kdenlive_to_ir.py` — importer
+### 6.11 v2: `open_edit/migration/kdenlive_to_ir.py` — legacy importer (NOT v1)
+
+> **v2 / optional compatibility shim.** Not in the v1 critical path. Listed here for completeness because some existing PyAgent users have `.kdenlive` projects they may want to bring over.
 
 Parse a `.kdenlive` file (XML), emit an equivalent edit graph. Steps:
 1. Parse the inner MLT XML.
@@ -694,17 +708,21 @@ Below `confidence < 0.2`, the category is omitted entirely from injection — av
 
 ```
 testdata/
-├── golden_11clip_kdenlive/   # the real /home/ah64/Videos/edit.kdenlive
-├── expected_edit_graph.json  # what the importer should produce
-├── expected_timeline.json    # what derive_timeline should produce
-├── expected_mlt.xml          # what emitter should produce (byte-diff)
-├── expected_qc_report.json   # what qc.gate should produce
+├── raw_videos/                # 11 Arabic video files copied from the user's
+│                             #   /home/ah64/Videos/edit.kdenlive/footage/ — raw, no .kdenlive
+├── expected_edit_graph.json   # hand-constructed 11-clip / 10-transition graph
+├── expected_timeline.json     # what derive_timeline should produce
+├── expected_mlt.xml           # what emitter should produce (byte-diff, Phase 2)
+├── expected_qc_report.json    # what qc.gate should produce (Phase 2)
 └── sandbox_observations/
-    ├── strace_melt.txt       # Phase 0 strace output (committed fixture)
-    └── strace_ffmpeg.txt
+    ├── strace_melt.txt        # Phase 0 strace output (committed fixture)
+    ├── strace_ffmpeg.txt
+    └── strace_ffprobe.txt
 ```
 
-The golden `.kdenlive` is the real user file. Treated as **read-only** in tests. The importer must round-trip it: `kdenlive_to_ir` → `ir_to_mlt` → `melt validate` → matches expected structure.
+The 11 video files in `testdata/raw_videos/` are copied from the user's actual footage (e.g. `/home/ah64/Videos/edit.kdenlive/footage/*.mp4`) and treated as **read-only** in tests. The `expected_edit_graph.json` is **hand-constructed** — it does not parse any `.kdenlive` file. This keeps the v1 critical path free of Kdenlive parsing while still exercising the IR against realistic 11-clip / 10-transition data.
+
+**For v1 Phase 1, the test contract is:** given the 11 raw videos and the hand-constructed `expected_edit_graph.json`, `derive_timeline()` produces a Timeline that, when serialized via `apply.py`, contains the same 11 clips and 10 transitions as the hand-constructed graph (within ±0.05s tolerance for durations, ±0.1s for transition cut positions).
 
 ### 9.3 Load-bearing tests
 
@@ -755,7 +773,7 @@ The golden `.kdenlive` is the real user file. Treated as **read-only** in tests.
 | Failure | How it surfaces | Recovery |
 |---|---|---|
 | Catalog missing an effect the user needs | "Unknown effect type" at apply time | Add the effect to the catalog, retry |
-| Imported .kdenlive has Bug A transition centering | Importer rejects with `fix:` | Re-import after the upstream tool produces correct XML, or use the importer's "fix on import" mode |
+| Imported `.kdenlive` (v2 only) has Bug A transition centering | Importer rejects with `fix:` | Re-import after the upstream tool produces correct XML, or use the importer's "fix on import" mode |
 | Style profile becomes misaligned with new project type | "Profile confidence low" indicator in panel | Reset profile; or per-project profile (v2) |
 | Sandbox allowlist missing a syscall a legitimate tool needs | Sandbox exits with `EPERM` | Add the syscall to the allowlist after strace verification |
 | OpenCode binary version drift | `extension.ts` fails to register | Pin OpenCode version in README; update extension.ts |
@@ -772,6 +790,7 @@ The golden `.kdenlive` is the real user file. Treated as **read-only** in tests.
 - **Multi-user / collaboration.**
 - **Style profile `notes` field via M3 call** (dropped for v1; revisit in v2 if `notes` becomes load-bearing).
 - **`rejected` event action** (dropped for v1; the form-based UI doesn't have a clean reject-before-apply path).
+- **`.kdenlive` importer** (`open_edit/migration/kdenlive_to_ir.py`) — listed in §6.11 but **not in v1**; this is a v2 compatibility shim for users with existing Kdenlive projects.
 
 ## 12. Build order / Phase plan
 
@@ -844,36 +863,40 @@ Each phase leaves the system in a stable, working state.
 
 **Done when:** the agent receives a tag-gated slice of the style profile; the form's Apply writes a `taste_event`; the rollup runs on schedule; `chmod 600` on the profile.
 
-### Phase 5 — Migration + v1 demo (1 week)
+### Phase 5 — v1 demo (1 week)
 
-- `open_edit/migration/kdenlive_to_ir.py` — parses `.kdenlive`, emits edit graph. **Applies Bug A fix at import time** (rejects projects with wrong-centered transitions, with a `fix:` line and an auto-correct option).
+> **No `.kdenlive` in the v1 critical path.** The 9-step v1 demo runs end-to-end on raw video files.
+
 - `scripts/v1_demo.sh` — end-to-end script:
-  1. `python -m open_edit.cli import /home/ah64/Videos/edit.kdenlive --name demo`
-  2. Start the FastAPI chat UI.
-  3. Open browser to `http://localhost:<port>`.
-  4. User types "fade the last 2 seconds to black".
-  5. Agent emits `AddEffectOp` + `SetKeyframeOp` (structured).
-  6. Sandbox not invoked (this is Tier 1).
-  7. Render → preview.
-  8. User reviews, clicks undo, timeline re-derives.
+  1. User runs `open_edit init` in a folder of raw video files (e.g. `~/Videos/myproject/*.mp4`).
+  2. System scans the folder, ingests each file via `AssetStore.ingest()` (SHA-256, ffprobe).
+  3. User runs `open_edit chat`; browser opens to the chat + form UI.
+  4. User types "arrange the clips in alphabetical order and fade out the last 2 seconds".
+  5. Agent emits `AddClipOp` (one per video, in alphabetical order) + `AddEffectOp` (volume) + `SetKeyframeOp` (linear fade from 1.0 to 0.0). All structured (Tier 1). No sandbox invoked.
+  6. IR applies ops to `edit_graph.db`, derives Timeline.
+  7. Render orchestrator emits MLT XML, calls `melt`, produces `preview.mp4`. QC gate runs 5 checks.
+  8. User reviews the preview, clicks "undo" if needed. Timeline re-derives, re-renders.
   9. All 5 QC checks pass.
 - Agent canary test: `bash scripts/v1_demo.sh` is the manual acceptance test.
 
-**Done when:** the 9-step v1 demo passes end-to-end. **"Round-trip without loss" means specifically:**
+**Done when:** the 9-step v1 demo passes end-to-end on a folder of raw video files. **"Round-trip without loss" means specifically:**
 
-- All 11 video clips present in the imported edit graph with identical `asset_hash`, `in_point_sec`, `out_point_sec`, `position_sec` (within ±0.05s of the source).
-- All 10 transitions present with `transition_type="luma"`, `duration_sec` within ±0.05s, and `cut` position within ±0.1s of the source.
-- Audio narration imported as a first-class audio track (not lost, not duplicated).
-- After `ir_to_mlt` and `melt -consumer xml:`, the resulting XML loads without error and produces a `preview.mp4` whose duration matches the source project to within ±0.5s.
-- The user's fade edit applied via the chat produces a preview where the last 2 seconds go from full brightness to black, verifiable in extracted frames.
+- The 11 test videos are ingested as 11 distinct assets (each with a unique SHA-256, ffprobe metadata).
+- The hand-constructed `expected_edit_graph.json` (11 clips, 10 transitions) is applied to the IR, and `derive_timeline()` produces a Timeline with the same 11 clips and 10 transitions (positions within ±0.05s of expected).
+- Bug A regression: every transition is centered on the cut, not the midpoint.
+- After `ir_to_mlt` and `melt -consumer xml:` (Phase 2), the resulting XML loads without error.
+- The chat-triggered fade edit produces a preview where the last 2 seconds go from full volume to silence (audio) or full brightness to black (video), verifiable in extracted frames.
+
+**Out of Phase 5 (deferred to v2):** the `.kdenlive` importer (`open_edit/migration/kdenlive_to_ir.py`) is listed in §6.11 but is a v2 compatibility shim. It is not part of the v1 acceptance test.
 
 ## 13. Open items
 
 1. **Per-project vs. global style profile.** v1 is global with `project_id` in the schema. If you want separate profiles per project type (e.g. educational vs. creative) from day one, say so — it changes §8.6 and §8.9.
 2. **`chromatic_aberration_subtle` and other "subtle" taste descriptors** — these are imprecise. The taste profile should bias toward concrete parameter ranges (e.g. "aberration_strength ∈ [0.02, 0.05]") not aesthetic labels. May need a Phase 4.5 polish to formalize.
 3. **Sandbox allowlist coverage** — Phase 0 strace will reveal what's needed. If `melt` calls `io_uring` or `bpf` syscalls (increasingly common in modern Linux), the allowlist and isolation story need more thought.
-4. **M3 video input length limits** — for v1 demo (5-second fade on an 80s project), this is fine. For longer projects, the "extract preview frames" step in §7.3 may need to subsample.
+4. **M3 video input length limits** — for v1 demo (5-second fade on a small project), this is fine. For longer projects, the "extract preview frames" step in §7.3 may need to subsample.
 5. **OpenCode binary version pin** — `~/.opencode/bin/opencode` should be pinned to a known version in the README. Drift in the binary's tool-calling protocol would break `extension.ts`.
+6. **`.kdenlive` importer (v2)** — §6.11 documents it as a future compatibility shim. The implementation effort is roughly 1 week; defer until there's a user with an existing project to migrate.
 
 ## 14. Repo layout (target)
 
@@ -923,7 +946,7 @@ Each phase leaves the system in a stable, working state.
 │   │   │   ├── taste_events.py
 │   │   │   ├── aggregate.py
 │   │   │   └── retrieve.py
-│   │   ├── migration/                  # Phase 5
+│   │   ├── migration/                  # v2 only (legacy .kdenlive import)
 │   │   │   └── kdenlive_to_ir.py
 │   │   └── cli.py
 │   ├── tests/                          # see §9

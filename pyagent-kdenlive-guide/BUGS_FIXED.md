@@ -501,3 +501,48 @@ skipped pending a headless kdenlive open+save path). Output pristine.
   by the Task 5.1 `list_tools()==38` check on the merged main.
   Fix: register `track_effects` in `tools/__init__.py`.
   File: `phase3_pyagent_core/tools/__init__.py`.
+
+## 2026-07-19 — post-2b session: add_transition + import_media + transport
+
+### Bug A — `add_transition` placed transitions at the clip midpoint, not the cut
+- Symptom: calling `add_transition(clip_a, clip_b)` with default
+  `duration_sec=1.0` produced a transition centered at
+  `(a.out + b.in)/2` = 4.0s for two clips meeting at 8.0s, i.e.
+  3.5–4.5s instead of 7.5–8.5s. The LLM had to do 10×
+  add + 20× `set_transition_property` to fix it manually.
+- Root cause: `b_in` was the clip's *source* in-point (0 for a clip
+  starting at its own head), so averaging it with `a.out` gave a wrong
+  cut. The real cut is `a.out` (end of clip A == start of clip B on
+  the timeline).
+- Fix: `cut = a_out`; center `duration_sec` on it.
+- File: `phase2_project_engine/ops/transitions.py:52-65`.
+- Test: `test_ops_transitions.py::test_add_transition_centers_on_cut_not_midpoint`.
+- Golden: `golden_io.json` `set_transition_property.previous_value`
+  updated 00:00:01.500 -> 00:00:03.500 to match the corrected
+  transition position.
+
+### Bug B — `import_media([])` silently returned `[]` rendered as `{}`
+- Symptom: calling `pyagent_import_media` with no/empty `paths`
+  returned `[]` -> the session rendered it as `{}`, so the LLM
+  thought the import failed and fabricated a `source_id`, aliasing
+  the wrong clip.
+- Fix: raise `ValidationError` with a `fix:` line when `paths` is
+  empty/missing (consistent with every other op's error style).
+- Files: `phase2_project_engine/ops/bin.py:25-29` (guard),
+  `:8` (import `validation_error`).
+- Test: `test_ops_bin.py::test_import_media_rejects_empty_paths_list`.
+
+### Bug C — "Separator is not found, chunk exceeds the limit"
+- NOT a pyagent backend defect. The error comes from the **opencode
+  transport** (compiled Go binary at `~/.opencode/bin/opencode`):
+  it streams one message per tool call and has a hard per-message
+  size cap. The overflow in the session was caused by the LLM
+  shelling out (`bash` grep/cat) to dump the entire 71KB `.kdenlive`
+  XML and pasting a giant multi-clip history into one turn.
+  `get_timeline_summary` itself is compact (<5KB) and does NOT
+  overflow.
+- Fix (in-repo mitigation, since the binary can't be patched):
+  added a "Transport limit — keep each tool result small" rule to
+  `phase3_pyagent_core/system_prompt.md` forbidding raw XML dumps
+  and giant single-turn histories, directing the LLM to use
+  `pyagent_get_timeline_summary()` instead of shelling out.

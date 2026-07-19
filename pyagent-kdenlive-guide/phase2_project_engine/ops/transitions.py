@@ -55,12 +55,14 @@ def add_transition(
     # NOT into get_tractor() (the main sequence tractor).
     tractor = tracks[track_a]
     tr = etree.Element("transition")
-    # BUG 2 fix: use BOTH a.out and b.in for the boundary
-    # so the transition covers the cut symmetrically even when
-    # a and b are not exactly adjacent.
+    # BUG 2 fix: the cut point is the END of clip A on the timeline
+    # (== the start of clip B on the timeline), i.e. a_out. Do NOT
+    # average a_out with b's *source* in-point (which is 0 for a clip
+    # that starts at its own head) — that produced a midpoint like 4.0
+    # for two clips meeting at 8.0. Center the transition of
+    # `duration_sec` on a_out so it straddles the real cut.
     a_out = _tc_to_sec(a.get("out", "00:00:00.000"))
-    b_in = _tc_to_sec(b.get("in", "00:00:00.000"))
-    cut = (a_out + b_in) / 2.0
+    cut = a_out
     tr.set("in", _sec_to_tc(cut - duration_sec / 2.0))
     tr.set("out", _sec_to_tc(cut + duration_sec / 2.0))
     # Same-track transition: a_track == b_track == track_a.

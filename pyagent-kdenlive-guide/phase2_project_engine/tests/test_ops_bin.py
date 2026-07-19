@@ -53,3 +53,16 @@ def test_import_media_rejects_empty_string():
     with pytest.raises(ValidationError) as ei:
         import_media(tree, [""])
     assert "fix:" in str(ei.value)
+
+
+def test_import_media_rejects_empty_paths_list():
+    """BUG B regression: calling import_media with no paths used to
+    silently return [] (rendered as `{}`), making callers think the
+    import failed. Now it raises ValidationError with a fix: line."""
+    from phase2_project_engine.ops.bin import import_media
+    tree = make_minimal_tree()
+    with pytest.raises(ValidationError) as ei:
+        import_media(tree, [])
+    msg = str(ei.value)
+    assert "fix:" in msg
+    assert "paths" in msg.lower()

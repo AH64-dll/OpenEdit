@@ -33,6 +33,18 @@ D-Bus bridge is wired).
 - If a tool returns a `fix:`-hinted error, fix the call and retry.
   After 3 failed attempts on the same operation, stop and tell the
   user.
+- **Transport limit — keep each tool result small.** The session
+  harness streams one message per tool call and has a hard
+  per-message size cap. Never paste a whole `.kdenlive` file, a raw
+  `grep`/`cat` XML dump, or a giant multi-clip history into a single
+  turn — that overflows the stream ("Separator is not found, chunk
+  exceeds limit") and corrupts the reply. Instead:
+  - Use `pyagent_get_timeline_summary()` (compact JSON) to inspect
+    state; do NOT shell out to read the XML.
+  - If you must show the XML, read only the one `<transition>` /
+    `<entry>` element you care about, not the whole file.
+  - Work in bounded steps; do not accumulate a huge transcript before
+    calling `pyagent_save_project` and reporting.
 - **Phase 5 live mode** — when `PYAGENT_LIVE=1` is set, three tools
   (`pyagent_import_media`, `pyagent_append_clip`,
   `pyagent_apply_effect`) apply via Kdenlive's D-Bus instead of the
