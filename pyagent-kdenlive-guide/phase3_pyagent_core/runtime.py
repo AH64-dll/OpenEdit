@@ -85,6 +85,9 @@ OP_TABLE: dict[str, str] = {
     "change_clip_speed": "change_clip_speed",
     "split_clip": "split_clip",
     "replace_clip_source": "replace_clip_source",
+    "group_clips": "group_clips",
+    "ungroup_clips": "ungroup_clips",
+    "list_groups": "list_groups",
     "save": "save",
     # "list_catalog" handled specially (not a backend op).
 }
@@ -95,7 +98,7 @@ MUTATING_OPS: frozenset[str] = frozenset({
     "import_media", "insert_clip", "append_clip", "move_clip", "trim_clip",
     "delete_clip", "add_transition", "remove_transition", "apply_effect", "remove_effect", "add_marker",
     "slip_clip", "ripple_delete_clip", "change_clip_speed", "split_clip",
-    "replace_clip_source", "save",
+    "replace_clip_source", "group_clips", "ungroup_clips", "save",
 })
 
 _ALLOWED_CATALOG_KINDS = ("effects", "transitions", "generators")

@@ -8,9 +8,9 @@ breaks the LLM-facing tool surface.
 from phase3_pyagent_core.tools import all_tools
 
 
-def test_all_tools_count_is_26():
+def test_all_tools_count_is_29():
     tools = all_tools()
-    assert len(tools) == 26
+    assert len(tools) == 29
 
 
 def test_all_tools_have_unique_names():

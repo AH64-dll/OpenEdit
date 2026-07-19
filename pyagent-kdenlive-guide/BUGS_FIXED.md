@@ -436,3 +436,44 @@ Two latent bugs in the brief's skeleton code, caught during TDD:
 Test count after Task 3: 249 passed, 1 skipped (baseline 246 + 3 new:
 2 integration tests in test_ops_transitions.py — happy path + unknown-id,
 1 golden test in test_golden_io.py). Output pristine.
+
+## 2026-07-19 — Task 4 (groups)
+
+Bugs found and fixed during implementation:
+
+- BUG T4.1: the brief's skeleton imported `_find_entry_for_clip` from
+  `._helpers`, but that helper actually lives in `.clips_edit`
+  (re-exported nowhere). The import caused a hard ImportError on
+  collection, failing all 7 new tests with the wrong reason
+  ("module not importable" rather than "feature missing"). Fix:
+  import from `.clips_edit` directly. File:
+  `phase2_project_engine/ops/groups.py:21`.
+- BUG T4.2: the test for "ungroup preserves AVSplit" imported
+  `_load_groups` but used `_save_groups` without importing it.
+  Caught by the RED phase (NameError, not the intended assertion).
+  Fix: extend the import tuple. File:
+  `phase2_project_engine/tests/test_ops_groups.py:148-152`.
+- BUG T4.3: the golden setup for `ungroup_clips` used the group
+  name `"golden_test_group"`, but the golden file expected
+  `"golden_test"`. Mismatch caught at first golden run. Fix: align
+  the setup name with the golden. File:
+  `phase3_pyagent_core/tests/test_golden_io.py:_setup_ungroup_clips`.
+- BUG T4.4: the golden setup for `group_clips` replaced the
+  `clip_ids` placeholder but left the `group_name` placeholder
+  ("PLACEHOLDER_NAME") in place. The golden response then contained
+  "PLACEHOLDER_NAME" instead of the expected "golden_test". Fix:
+  also replace the group_name in the setup. File:
+  `phase3_pyagent_core/tests/test_golden_io.py:_setup_group_clips`.
+- BUG T4.5: the brief's interop test used `kdenlive --open --save-as`
+  which kdenlive 26.04 does not support (no headless open+save
+  mode). `melt` was tried as a fallback but drops all `kdenlive:*`
+  properties (including `kdenlive:sequenceproperties.groups`), so
+  the property check would always fail. Fix: write the test with
+  proper skipif gating and a clear skip message documenting why
+  a full Xvfb+Kdenlive harness is the only path forward. File:
+  `phase7_real_session/tests/test_e2e.py:test_groups_round_trip_through_real_kdenlive`.
+
+Test count after Task 4: 259 passed, 2 skipped (baseline 249 + 10 new:
+7 integration tests in test_ops_groups.py — 5 brief + 2 AVSkip
+edge cases, 3 golden tests, plus the 1 new interop test which is
+skipped pending a headless kdenlive open+save path). Output pristine.

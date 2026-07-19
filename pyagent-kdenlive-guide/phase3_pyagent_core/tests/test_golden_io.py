@@ -91,6 +91,26 @@ def _setup_remove_transition(proj_path: str, catalog_path: str, _args: dict) -> 
     return {"transition_id": new_tid}
 
 
+def _setup_group_clips(_proj_path: str, _catalog_path: str, args: dict) -> dict:
+    """Replace the PLACEHOLDER_KID and PLACEHOLDER_NAME in the golden args
+    with the demo's existing clip "2" and a fixed name. No mutation needed
+    — the golden op itself writes the group."""
+    resolved = dict(args)
+    resolved["clip_ids"] = ["2"]
+    resolved["group_name"] = "golden_test"
+    return resolved
+
+
+def _setup_ungroup_clips(proj_path: str, catalog_path: str, _args: dict) -> dict:
+    """Create a group first (using the demo's clip "2"), then return the
+    group_name for the golden ungroup_clips op."""
+    name = "golden_test"
+    code, _ = run_op("group_clips", {"clip_ids": ["2"], "group_name": name},
+                     proj_path, catalog_path)
+    assert code == 0, f"setup group_clips failed"
+    return {"group_name": name}
+
+
 # One entry per (op, args) that has a meaningful JSON response worth
 # locking. Read-only tools are listed first; mutating tools are also
 # covered because they are the high-risk surface (the ones the LLM
@@ -117,6 +137,11 @@ _CASES: list[tuple[str, dict, str]] = [
     ("remove_effect", {"clip_id": "2", "effect_index": 0}, "remove_effect"),
     # --- transitions (remove is exercised; add_transition supplies the id via setup) ---
     ("remove_transition", {}, "remove_transition"),
+    # --- groups (list_groups is read-only; group/ungroup use a placeholder
+    #     setup that captures a real clip_id from the demo) ---
+    ("list_groups", {}, "list_groups"),
+    ("group_clips", {"clip_ids": ["PLACEHOLDER_KID"], "group_name": "PLACEHOLDER_NAME"}, "group_clips"),
+    ("ungroup_clips", {"group_name": "PLACEHOLDER_NAME"}, "ungroup_clips"),
 ]
 
 # Some golden cases need setup: the op alone would error because the
@@ -136,6 +161,8 @@ _SETUP: dict = {
         "apply_effect", {"clip_id": "2", "effect_id": "sepia"},
     ),
     "remove_transition": _setup_remove_transition,
+    "group_clips": _setup_group_clips,
+    "ungroup_clips": _setup_ungroup_clips,
 }
 
 # Read-only ops do not mutate, so we can run them directly against the
@@ -143,7 +170,7 @@ _SETUP: dict = {
 # `path` field stable between golden generation and test runs. (This
 # is a hardcoded set; do NOT derive from _CASES — that would include
 # mutating ops and corrupt the demo fixture.)
-_READ_ONLY_OPS = {"get_project_info", "get_timeline_summary", "list_catalog"}
+_READ_ONLY_OPS = {"get_project_info", "get_timeline_summary", "list_catalog", "list_groups"}
 
 
 def _skip_if_fixture_missing() -> None:

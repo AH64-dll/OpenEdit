@@ -83,6 +83,12 @@ class EditorBackend(ABC):
     @abstractmethod
     def replace_clip_source(self, clip_id: str, new_source_id: str) -> dict: ...
     @abstractmethod
+    def group_clips(self, clip_ids: list[str], group_name: str) -> dict: ...
+    @abstractmethod
+    def ungroup_clips(self, group_name: str) -> dict: ...
+    @abstractmethod
+    def list_groups(self) -> dict: ...
+    @abstractmethod
     def save(self, path: str | None = None) -> None: ...
 
 
@@ -223,6 +229,15 @@ class KdenliveFileBackend(EditorBackend):
 
     def replace_clip_source(self, clip_id, new_source_id):
         return ops.replace_clip_source(self.tree, clip_id, new_source_id=new_source_id)
+
+    def group_clips(self, clip_ids, group_name):
+        return ops.group_clips(self.tree, clip_ids, group_name)
+
+    def ungroup_clips(self, group_name):
+        return ops.ungroup_clips(self.tree, group_name)
+
+    def list_groups(self):
+        return ops.list_groups(self.tree)
 
     def save(self, path=None):
         save_project(self.tree, path)

@@ -133,5 +133,16 @@
   "remove_transition": {
     "transition_id": "PLACEHOLDER",
     "affected_clip_ids": []
+  },
+  "list_groups": {
+    "groups": []
+  },
+  "group_clips": {
+    "group_name": "golden_test",
+    "clip_ids": ["2"]
+  },
+  "ungroup_clips": {
+    "dissolved_group_name": "golden_test",
+    "affected_clip_ids": ["2"]
   }
 }
