@@ -129,6 +129,49 @@ def test_add_transition_appends_effect_to_clip_a() -> None:
     assert clip_a.effects[0].params["clip_b_id"] == op_b.clip_id
 
 
+def test_add_transition_with_clip_a_already_trimmed() -> None:
+    """Bug-hunt finding: transitions on a clip that was already trimmed by a
+    previous transition must still center on the cut (timeline coords), not
+    on a stale asset-local coordinate.
+
+    Setup:
+      clip_a: position=0, in=0.5, out=2.0 -> asset plays [0.5, 2.0] -> timeline [0, 1.5]
+      clip_b: position=2.0, in=0, out=2.0 -> asset plays [0, 2.0] -> timeline [2, 4]
+      cut in timeline coords = 1.5 (NOT clip_a.out_point_sec=2.0)
+      transition duration 1.0s centered on cut=1.5 -> overlap [1.0, 2.0]
+    Expected:
+      clip_a.out_point_sec (asset-local) = (1.5 - 0.5) - 0 = 1.0
+      clip_b.in_point_sec (asset-local) = (1.5 + 0.5) - 2.0 = 0.0
+    """
+    timeline = Timeline()
+    op_a = AddClipOp(
+        author="user", asset_hash="a", track_id="v1",
+        position_sec=0.0, in_point_sec=0.5, out_point_sec=2.0,
+    )
+    op_b = AddClipOp(
+        author="user", asset_hash="b", track_id="v1",
+        position_sec=2.0, in_point_sec=0.0, out_point_sec=2.0,
+    )
+    timeline = apply_operation(timeline, op_a)
+    timeline = apply_operation(timeline, op_b)
+    op_t = AddTransitionOp(
+        author="user", clip_a_id=op_a.clip_id, clip_b_id=op_b.clip_id,
+        transition_type="luma", duration_sec=1.0,
+    )
+    out = apply_operation(timeline, op_t)
+    clip_a = out.tracks[0].clips[0]
+    clip_b = out.tracks[0].clips[1]
+    assert clip_a.out_point_sec > clip_a.in_point_sec, (
+        f"clip_a shrunk past in_point_sec: in={clip_a.in_point_sec}, "
+        f"out={clip_a.out_point_sec}"
+    )
+    assert clip_b.in_point_sec >= 0.0, (
+        f"clip_b has negative in_point_sec: {clip_b.in_point_sec}"
+    )
+    assert clip_a.out_point_sec == pytest.approx(1.0, abs=0.001)
+    assert clip_b.in_point_sec == pytest.approx(0.0, abs=0.001)
+
+
 # ===== Remove / Move / Trim =====
 
 def test_remove_clip_removes_from_track() -> None:

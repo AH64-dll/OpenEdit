@@ -114,7 +114,19 @@ def apply_operation(timeline: Timeline, op: OperationUnion) -> Timeline:
 def _apply_add_transition(timeline: Timeline, op: AddTransitionOp) -> Timeline:
     """Apply an AddTransitionOp.
 
-    Bug A fix: transition is centered on the cut (= clip_a.out_point_sec).
+    The transition is centered on the cut in TIMELINE coordinates. The cut
+    is the timeline position where clip_a's playback ends and clip_b's
+    playback begins:
+
+        cut_timeline = clip_a.position_sec + (clip_a.out_point_sec - clip_a.in_point_sec)
+
+    This is the only correct formulation when clip_a has been previously
+    trimmed (in_point_sec > 0): the asset-local out_point_sec is not
+    the cut position.
+
+    After computing cut_timeline we back-solve each clip's new asset-local
+    in/out points so the transition spans [cut - duration/2, cut + duration/2]
+    on the timeline.
     """
     track_a, clip_a, _ = _find_clip(timeline, op.clip_a_id)
     if clip_a is None:
@@ -123,24 +135,38 @@ def _apply_add_transition(timeline: Timeline, op: AddTransitionOp) -> Timeline:
     if clip_b is None:
         return timeline
 
-    cut = clip_a.out_point_sec
+    cut_timeline = clip_a.position_sec + (clip_a.out_point_sec - clip_a.in_point_sec)
     half = op.duration_sec / 2.0
     clip_b_duration = clip_b.out_point_sec - clip_b.in_point_sec
-    clip_b_end = clip_b.position_sec + clip_b_duration
+    clip_b_end_timeline = clip_b.position_sec + clip_b_duration
 
-    if cut - half < clip_a.in_point_sec:
+    if cut_timeline - half < clip_a.position_sec:
         raise ValueError(
             f"AddTransitionOp: duration_sec {op.duration_sec} too large "
-            f"for clip_a (cut={cut}, in={clip_a.in_point_sec})"
+            f"for clip_a (cut_timeline={cut_timeline}, "
+            f"position={clip_a.position_sec})"
         )
-    if cut + half > clip_b_end:
+    if cut_timeline + half > clip_b_end_timeline:
         raise ValueError(
             f"AddTransitionOp: duration_sec {op.duration_sec} too large "
-            f"for clip_b (end={clip_b_end})"
+            f"for clip_b (end_timeline={clip_b_end_timeline})"
         )
 
-    new_a_out = cut - half
-    new_b_in = (cut + half) - clip_b.position_sec
+    new_a_out = (cut_timeline - half) - clip_a.position_sec
+    new_b_in = (cut_timeline + half) - clip_b.position_sec
+
+    if new_a_out < clip_a.in_point_sec:
+        raise ValueError(
+            f"AddTransitionOp: clip_a asset range would invert "
+            f"(in={clip_a.in_point_sec}, new_out={new_a_out}). "
+            f"fix: shorten duration_sec or trim clip_a less."
+        )
+    if new_b_in > clip_b.out_point_sec:
+        raise ValueError(
+            f"AddTransitionOp: clip_b asset range would invert "
+            f"(out={clip_b.out_point_sec}, new_in={new_b_in}). "
+            f"fix: shorten duration_sec or trim clip_b less."
+        )
 
     new_clip_a = clip_a.model_copy(update={"out_point_sec": new_a_out})
     new_clip_b = clip_b.model_copy(update={"in_point_sec": new_b_in})
