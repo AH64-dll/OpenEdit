@@ -39,6 +39,16 @@ BRIGHTNESS_CATALOG = [
 ]
 
 
+SEPIA_CATALOG = [
+    {
+        "kdenlive_id": "sepia",
+        "mlt_service": "sepia",
+        "name": "Sepia",
+        "parameters": [],
+    }
+]
+
+
 def test_apply_effect_with_explicit_params():
     if not CLIP_SHORT.exists():
         pytest.skip(f"missing testdata: {CLIP_SHORT}")
@@ -143,3 +153,56 @@ def test_apply_effect_rejects_bad_param_name():
             params={"totally_made_up": 0.5}, catalog=BRIGHTNESS_CATALOG,
         )
     assert "fix:" in str(ei.value)
+
+
+def test_remove_effect_by_index():
+    """remove_effect drops the entry at effect_index from the clip's
+    filter list. Out-of-range index raises effect_index_out_of_range
+    NotFoundError."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.effects import apply_effect, remove_effect
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = insert_clip(
+        tree, track_index=0, position_sec=0.0, source_id=src,
+        source_in_sec=0.0, source_out_sec=5.0,
+    )
+    apply_effect(tree, clip_id=kid, effect_id="sepia", catalog=SEPIA_CATALOG)
+    pre_count = len([f for f in tree.root.iter("filter")])
+    result = remove_effect(tree, clip_id=kid, effect_index=0)
+    post_count = len([f for f in tree.root.iter("filter")])
+    assert post_count == pre_count - 1
+    assert result["removed_effect_index"] == 0
+    assert result["remaining_effect_count"] == 0
+    assert result["clip_id"] == kid
+    assert result["removed_effect_id"] == "sepia"
+
+
+def test_remove_effect_rejects_unknown_clip():
+    """remove_effect with an unknown clip_id raises clip_not_found NotFoundError."""
+    from phase2_project_engine.ops.effects import remove_effect
+    from phase2_project_engine.errors import NotFoundError
+    tree = make_minimal_tree()
+    with pytest.raises(NotFoundError) as exc:
+        remove_effect(tree, clip_id="does_not_exist", effect_index=0)
+    assert "clip_not_found" in str(exc.value)
+
+
+def test_remove_effect_rejects_out_of_range_index():
+    """remove_effect with effect_index >= effect count raises NotFoundError."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.effects import remove_effect
+    from phase2_project_engine.errors import NotFoundError
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = insert_clip(
+        tree, track_index=0, position_sec=0.0, source_id=src,
+        source_in_sec=0.0, source_out_sec=5.0,
+    )
+    with pytest.raises(NotFoundError) as exc:
+        remove_effect(tree, clip_id=kid, effect_index=5)
+    assert "effect_index_out_of_range" in str(exc.value)

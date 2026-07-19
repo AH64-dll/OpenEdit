@@ -67,6 +67,8 @@ class EditorBackend(ABC):
     def apply_effect(self, clip_id: str, effect_id: str,
                      params: dict | None = None) -> str: ...
     @abstractmethod
+    def remove_effect(self, clip_id: str, effect_index: int) -> dict: ...
+    @abstractmethod
     def add_marker(self, position_sec: float, label: str, kind: str = "marker") -> None: ...
     @abstractmethod
     def slip_clip(self, clip_id: str, delta_sec: float) -> dict: ...
@@ -195,6 +197,9 @@ class KdenliveFileBackend(EditorBackend):
     def apply_effect(self, clip_id, effect_id, params=None):
         return ops.apply_effect(self.tree, clip_id, effect_id, params,
                                 catalog=self.catalog.effects)
+
+    def remove_effect(self, clip_id, effect_index):
+        return ops.remove_effect(self.tree, clip_id, effect_index)
 
     def add_marker(self, position_sec, label, kind="marker"):
         ops.add_marker(self.tree, position_sec, label, kind)

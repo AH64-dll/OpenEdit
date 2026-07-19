@@ -75,7 +75,20 @@ _CASES: list[tuple[str, dict, str]] = [
     ("change_clip_speed", {"clip_id": "2", "rate": 1.0}, "change_clip_speed"),
     ("split_clip", {"clip_id": "2", "at_sec": 2.0}, "split_clip"),
     ("replace_clip_source", {"clip_id": "2", "new_source_id": "1"}, "replace_clip_source"),
+    # --- effects (apply is exercised by remove's setup; remove is locked here) ---
+    ("remove_effect", {"clip_id": "2", "effect_index": 0}, "remove_effect"),
 ]
+
+# Some golden cases need setup: the op alone would error because the
+# demo fixture's clip "2" has no effects yet. `_SETUP` runs an op first
+# against the same tmp project (auto-saves), then the golden op runs.
+# Keep this minimal — only add a setup when the op's precondition
+# isn't already true in the demo fixture.
+_SETUP: dict[str, tuple[str, dict]] = {
+    "remove_effect": (
+        "apply_effect", {"clip_id": "2", "effect_id": "sepia"},
+    ),
+}
 
 # Read-only ops do not mutate, so we can run them directly against the
 # demo fixture (no tmp copy needed) — and that keeps the response's
@@ -137,6 +150,10 @@ def test_op_output_matches_golden(op, args, key, tmp_path):
         test_proj = tmp_path / "test.kdenlive"
         shutil.copy(DEMO_PROJECT, test_proj)
         proj_path = str(test_proj)
+    if op in _SETUP:
+        setup_op, setup_args = _SETUP[op]
+        setup_code, setup_resp = run_op(setup_op, setup_args, proj_path, CATALOG)
+        assert setup_code == 0, f"setup {setup_op} failed: {setup_resp}"
     code, resp = run_op(op, args, proj_path, CATALOG)
     assert code == 0, f"{op} failed: {resp}"
     assert resp.get("ok") is True, f"{op} not ok: {resp}"

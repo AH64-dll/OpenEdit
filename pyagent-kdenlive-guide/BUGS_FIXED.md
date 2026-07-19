@@ -376,3 +376,37 @@ Five latent bugs in the brief's skeleton code, caught and fixed during TDD:
 Test count after Task 1: 242 passed, 1 skipped (baseline 230 + 12 new:
 7 integration tests in test_ops_clips.py, 5 golden tests in
 test_golden_io.py). Output pristine.
+
+## 2026-07-19 — Task 2 (sub-project 2a): remove_effect
+
+Three latent bugs in the brief's skeleton code, caught during TDD:
+
+- BUG T2.1: the brief's `remove_effect` looked for filters inside the
+  clip's `<producer>` element. `apply_effect` writes them as direct
+  `<filter>` children of the clip's `<entry>` element, so the brief's
+  `remove_effect` would always see `effect_count=0` and reject every
+  index with `effect_index_out_of_range`. Fix: read filters from
+  `entry.findall("filter")` (the same place `apply_effect` writes).
+  Files: `phase2_project_engine/ops/effects.py:79-104`;
+  `phase2_project_engine/tests/test_ops_effects.py:148-189`
+  (regression: the test applies an effect, then calls remove_effect,
+  then asserts `tree.root.iter("filter")` count decreased).
+- BUG T2.2: the brief's `test_remove_effect_by_index` called
+  `apply_effect(tree, clip_id=kid, effect_id="sepia")` with no
+  catalog. `apply_effect` validates `effect_id` against the catalog
+  (or raises `CatalogError` with empty catalog). Fix: added a
+  `SEPIA_CATALOG` fixture mirroring the existing `BRIGHTNESS_CATALOG`
+  pattern and pass it explicitly. File:
+  `phase2_project_engine/tests/test_ops_effects.py:40-49, 157`.
+- BUG T2.3: the brief's `_CASES` entry for `remove_effect` used
+  `"clip_id": "PLACEHOLDER_KID"` — a placeholder that would never
+  match a real clip. The demo fixture has clip_id `"2"`. Fix: use
+  clip_id `"2"` and add a `_SETUP` mechanism in `test_golden_io.py`
+  that runs `apply_effect` against the tmp project before the
+  golden op, so the test has something to remove. Files:
+  `phase3_pyagent_core/tests/test_golden_io.py:78-90, 144-152`;
+  `phase3_pyagent_core/tests/fixtures/golden_io.json:127-132`.
+
+Test count after Task 2: 245 passed, 1 skipped (baseline 242 + 3 new:
+2 integration tests in test_ops_effects.py — happy path + out-of-range,
+1 golden test in test_golden_io.py). Output pristine.

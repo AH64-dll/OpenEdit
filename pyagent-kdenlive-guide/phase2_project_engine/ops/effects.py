@@ -1,4 +1,4 @@
-"""Effect operations: apply_effect.
+"""Effect operations: apply_effect, remove_effect.
 
 BUG 5 fix: when `params` is None or empty, the catalog's
 parameter `default` values are read and used as the params.
@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 
 from lxml import etree
 
-from ..errors import CatalogError
+from ..errors import CatalogError, NotFoundError
 from ..io import ProjectTree
 from ..tracks import find_clip_entry
 from ..validators import validate_effect_id, validate_effect_params
@@ -69,4 +69,39 @@ def apply_effect(
     return kid
 
 
-__all__ = ["apply_effect"]
+def remove_effect(tree: ProjectTree, clip_id: str, effect_index: int) -> dict:
+    """Remove the effect at `effect_index` from the clip's filter list.
+
+    The clip's filter list is the chain of `<filter>` children of the
+    clip's `<entry>` element (the same place `apply_effect` writes).
+    Order is preserved; the entry at `effect_index` (0-based) is
+    dropped. `effect_index` out of range raises NotFoundError with
+    `effect_index_out_of_range` in the message.
+    """
+    from .clips_edit import _find_entry_for_clip
+    track, entry, ti = _find_entry_for_clip(tree, clip_id)
+    filters = list(entry.findall("filter"))
+    if effect_index < 0 or effect_index >= len(filters):
+        raise NotFoundError(
+            f"effect_index_out_of_range: effect_index={effect_index}, "
+            f"effect_count={len(filters)}\n"
+            f"fix: call get_timeline_summary to see valid indices"
+        )
+    removed = filters[effect_index]
+    removed_id = removed.get("id") or ""
+    # Read the kdenlive:id from inside the filter (it's a child property,
+    # not an attribute) so the caller can see what was removed.
+    for prop in removed.findall("property"):
+        if prop.get("name") == "kdenlive:id" and prop.text:
+            removed_id = prop.text
+            break
+    entry.remove(removed)
+    return {
+        "clip_id": clip_id,
+        "removed_effect_index": effect_index,
+        "removed_effect_id": removed_id,
+        "remaining_effect_count": len(filters) - 1,
+    }
+
+
+__all__ = ["apply_effect", "remove_effect"]
