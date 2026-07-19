@@ -1,26 +1,13 @@
-"""Adapter abstraction for switching the chat UI's backend agentic app.
-
-This module defines the `AgentAdapter` protocol that later tasks depend on,
-and ships the first concrete implementation `PiAgentAdapter`, which wraps the
-existing `PiClient` from `pi_client.py`.
-"""
+"""OpenCodeAdapter — shells the `opencode` CLI and parses its JSON event stream."""
 from __future__ import annotations
 
 import asyncio
 import json
-import os
 import shutil
 import subprocess
-from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Callable
 
-from phase4_chat_ui.pi_client import PiClient
 from phase4_chat_ui.types import PiEvent
-
-
-# Repo root (parent of this package dir) — used to locate the pyagent extension.
-# __file__ = <repo>/phase4_chat_ui/agent_adapters.py  -> parents[1] = <repo>
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _extract_cost(obj: dict) -> float | None:
@@ -32,97 +19,6 @@ def _extract_cost(obj: dict) -> float | None:
     if isinstance(cost, (int, float)) and cost > 0:
         return float(cost)
     return None
-
-MODELS_STORE_PATH = Path(os.path.expanduser("~/.pi/agent/models-store.json"))
-_PI_AGENT_PROVIDER = "opencode-go"
-
-
-@runtime_checkable
-class AgentAdapter(Protocol):
-    """Protocol every backend agent adapter must satisfy."""
-
-    app_id: str
-    session_id: str
-
-    async def run_prompt(self, text: str, image_paths: list[str] | None = None) -> AsyncIterator[PiEvent]:
-        ...
-
-    def list_models(self) -> list[dict]:
-        ...
-
-    def stop(self) -> None:
-        ...
-
-    def available(self) -> bool:
-        ...
-
-
-class PiAgentAdapter:
-    """Adapter that talks to the PiAgent backend via a wrapped `PiClient`."""
-
-    app_id = "piagent"
-
-    def __init__(
-        self,
-        model: str,
-        project: str,
-        session_id: str,
-        pi_args: list[str] | None = None,
-        binary: str | None = None,
-        provider: str = _PI_AGENT_PROVIDER,
-    ) -> None:
-        self.session_id = session_id
-        # Always load the pyagent extension so the `pyagent_*` timeline-editing
-        # tools are exposed to the model. Without it the AI has no way to mutate
-        # the .kdenlive project (timeline appears immutable in Kdenlive).
-        resolved_args = list(pi_args) if pi_args is not None else []
-        ext = _REPO_ROOT / "phase3_pyagent_core" / "extension.ts"
-        if ext.exists() and "-e" not in resolved_args and "--extension" not in resolved_args:
-            resolved_args += ["-e", str(ext)]
-        self._client = PiClient(
-            provider=provider,
-            model=model,
-            project=project,
-            binary=binary,
-            session_id=session_id,
-            pi_args=resolved_args,
-        )
-
-    async def run_prompt(self, text: str, image_paths: list[str] | None = None) -> AsyncIterator[PiEvent]:
-        async for event in self._client.run_prompt(text, image_paths):
-            yield event
-
-    @property
-    def project(self) -> str:
-        return self._client.project
-
-    @project.setter
-    def project(self, value: str) -> None:
-        self._client.project = value
-
-    def stop(self) -> None:
-        self._client.stop()
-
-    def available(self) -> bool:
-        return shutil.which("pi") is not None
-
-    def list_models(self) -> list[dict]:
-        try:
-            with open(MODELS_STORE_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return []
-        provider_entry = data.get(_PI_AGENT_PROVIDER)
-        if not isinstance(provider_entry, dict):
-            return []
-        models = provider_entry.get("models")
-        if not isinstance(models, list):
-            return []
-        return [
-            {"id": m["id"], "name": m.get("name", m["id"])}
-            for m in models
-            if isinstance(m, dict) and "id" in m
-        ]
 
 
 def _default_models(cmd: list[str]) -> str:
@@ -283,76 +179,3 @@ class OpenCodeAdapter:
 
         # step_start / step_finish / unknown -> no UI event
         return None
-
-
-class AntiGravityAdapter:
-    app_id = "antigravity"
-
-    def __init__(self, model, project, session_id):
-        self.model = model
-        self.project = project
-        self.session_id = session_id
-        self._proc = None
-
-    def available(self) -> bool:
-        # No CLI/API on this machine; Electron-only. Never usable as a backend.
-        return False
-
-    def list_models(self) -> list[dict]:
-        return []
-
-    async def run_prompt(self, text, image_paths=None):
-        # pragma: no cover - adapter is unavailable by design
-        raise RuntimeError("Anti-gravity backend is not available on this machine")
-
-    def stop(self) -> None:
-        pass
-
-
-# Registry of app_id -> adapter class. Order defines default menu order.
-_APP_REGISTRY: dict[str, type] = {
-    "piagent": PiAgentAdapter,
-    "opencode": OpenCodeAdapter,
-    "antigravity": AntiGravityAdapter,
-}
-
-
-def build_adapter(app_id, model, project, session_id) -> AgentAdapter:
-    """Construct the adapter for `app_id`. Raises ValueError if unknown."""
-    if app_id not in _APP_REGISTRY:
-        raise ValueError(f"unknown agent app: {app_id!r}")
-    cls = _APP_REGISTRY[app_id]
-    return cls(model=model, project=project, session_id=session_id)
-
-
-def list_apps() -> list[dict]:
-    """Return menu entries with availability + models for each app.
-
-    Each entry: {"id": app_id, "name": <Human>, "available": bool, "models": [...]}.
-    """
-    def _name(app_id):
-        return {
-            "piagent": "PiAgent",
-            "opencode": "OpenCode",
-            "antigravity": "Anti-gravity (unavailable)",
-        }.get(app_id, app_id)
-    apps = []
-    for app_id, cls in _APP_REGISTRY.items():
-        # Build a throwaway instance to query availability + models without
-        # launching anything: available() only uses shutil.which (no shell), and
-        # list_models() is only invoked when available() is True, so no subprocess
-        # is ever launched here.
-        try:
-            inst = cls(model="", project="", session_id="")
-            avail = inst.available()
-            models = inst.list_models() if avail else []
-        except Exception:
-            avail = False
-            models = []
-        apps.append({
-            "id": app_id,
-            "name": _name(app_id),
-            "available": avail,
-            "models": models,
-        })
-    return apps

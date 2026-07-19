@@ -7,8 +7,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[0]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import agent_adapters as aa
-from agent_adapters import OpenCodeAdapter, PiAgentAdapter
+from phase4_chat_ui import adapters as aa
+from phase4_chat_ui.adapters import OpenCodeAdapter, PiAgentAdapter
+from phase4_chat_ui.adapters import piagent as piagent_mod
 
 
 def test_piagent_adapter_list_models(tmp_path, monkeypatch):
@@ -18,7 +19,7 @@ def test_piagent_adapter_list_models(tmp_path, monkeypatch):
         '{"id":"minimax-m3","name":"MiniMax M3"},'
         '{"id":"deepseek-v4-pro","name":"DeepSeek V4 Pro"}]}}'
     )
-    monkeypatch.setattr(aa, "MODELS_STORE_PATH", models_file)
+    monkeypatch.setattr(piagent_mod, "MODELS_STORE_PATH", models_file)
 
     adapter = PiAgentAdapter(
         model="minimax-m3",
@@ -121,12 +122,11 @@ def test_build_adapter_and_list_apps():
         aa.build_adapter("nope", "m", "/x", "s")
 
 
-def test_list_apps_marks_antigravity_unavailable(monkeypatch):
+def test_list_apps_returns_two_adapters():
     apps = aa.list_apps()
     by_id = {a["id"]: a for a in apps}
     assert by_id["piagent"]["available"] is True
     assert by_id["opencode"]["available"] is True
-    assert by_id["antigravity"]["available"] is False
-    assert by_id["antigravity"]["models"] == []
-    # list_apps must not shell anything -> no exception, returns 3 entries
-    assert len(apps) == 3
+    # list_apps must not shell anything -> no exception, returns 2 entries
+    # (AntiGravityAdapter was removed in Task 3.2: it was always unavailable.)
+    assert len(apps) == 2

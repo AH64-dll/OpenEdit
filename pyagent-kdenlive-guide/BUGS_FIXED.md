@@ -122,3 +122,25 @@ Test counts after Task 1.8:
   in the worktree; same failures exist on the prior commit, before
   my changes — verified by `git stash`).
 - Baseline (before this task): 187 passed.
+
+## 2026-07-19 — Task 3.2: drop AntiGravityAdapter (dead code)
+
+`AntiGravityAdapter` (357-line `agent_adapters.py:288-309`) hard-coded
+`available() -> False` and was never wired into the menu. The
+spec put it in place as a "menu + factory stub for a 3rd app" but the
+backing integration never landed, so the entry was always
+unreachable from the running game (the WebSocket
+`set_app` handler rejected it on availability).
+
+- Removed: `phase4_chat_ui/agent_adapters.py` (whole file, 358 lines)
+- Added: `phase4_chat_ui/adapters/{__init__,piagent,opencode,_registry}.py`
+- Updated: `phase4_chat_ui/app.py` to import from `adapters/`
+- Updated: 3 tests that asserted on the now-removed `antigravity`
+  entry (`test_agent_adapters.py:test_list_apps_*`,
+  `test_task4_apps.py:test_api_apps_*` + `test_set_app_*`,
+  `test_task5_ui.py:test_api_apps_contract`).
+  The replacement `test_set_app_unknown_rejected` now uses an
+  unknown id to exercise the same error path.
+
+Test count after Task 3.2: 245 passed, 1 skipped (no regression
+vs. the pre-Task-3.2 baseline of 245 passed, 1 skipped).

@@ -35,7 +35,9 @@ def test_api_apps_contract():
 
     ids = {a["id"] for a in apps}
     assert "piagent" in ids
-    assert "antigravity" in ids
+    assert "opencode" in ids
+    # AntiGravityAdapter was removed in Task 3.2 (it was always unavailable).
+    assert "antigravity" not in ids
 
     for a in apps:
         assert "id" in a
@@ -50,10 +52,6 @@ def test_api_apps_contract():
             assert len(a["models"]) > 0, f"available app {a['id']} has no models"
             for m in a["models"]:
                 assert "id" in m and "name" in m
-
-    # Anti-gravity is shown but disabled.
-    anti = next(a for a in apps if a["id"] == "antigravity")
-    assert anti["available"] is False
 
 
 def test_app_js_references_expected_ids_and_types():

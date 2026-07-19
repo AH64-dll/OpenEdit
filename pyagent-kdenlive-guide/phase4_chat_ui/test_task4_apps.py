@@ -10,16 +10,17 @@ def _make_app():
         default_app="piagent",
     )
 
-def test_api_apps_lists_three_with_antigravity_unavailable():
+def test_api_apps_lists_two_adapters():
     client = TestClient(_make_app())
     resp = client.get("/api/apps")
     assert resp.status_code == 200
     apps = {a["id"]: a for a in resp.json()["apps"]}
     assert apps["piagent"]["available"] is True
     assert apps["opencode"]["available"] is True
-    assert apps["antigravity"]["available"] is False
+    # AntiGravityAdapter was removed in Task 3.2 (it was always unavailable).
+    assert "antigravity" not in apps
 
-def test_set_app_unavailable_rejected():
+def test_set_app_unknown_rejected():
     # Use the websocket test client if available; otherwise mark skipped.
     import pytest
     try:
@@ -33,7 +34,7 @@ def test_set_app_unavailable_rejected():
         ws.receive_json()  # state
         ws.receive_json()  # history
         ws.receive_json()  # session_list
-        ws.send_json({"type": "set_app", "app_id": "antigravity"})
+        ws.send_json({"type": "set_app", "app_id": "nope"})
         msg = ws.receive_json()
         assert msg["type"] == "error"
-        assert "antigravity" in msg["text"].lower() or "not available" in msg["text"].lower()
+        assert "nope" in msg["text"].lower() or "not available" in msg["text"].lower()
