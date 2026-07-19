@@ -89,6 +89,10 @@ class AssetStore:
     def _cas_path(self, asset_hash: str) -> Path:
         return self.assets_dir / asset_hash[:2] / asset_hash
 
+    def _sidecar_path(self, asset_hash: str) -> Path:
+        """Path to the metadata sidecar JSON next to the CAS file."""
+        return self.assets_dir / asset_hash[:2] / f"{asset_hash}.meta.json"
+
     def ingest(self, source_path: str) -> Asset:
         return self.ingest_paths([source_path])[0]
 
@@ -96,6 +100,9 @@ class AssetStore:
         """Ingest one or more files. Returns one Asset per input path.
 
         Bug B regression: empty paths list is rejected with a `fix:` line.
+        Bug-hunt #6: each ingested asset is persisted to a sidecar JSON
+        so that subsequent ``get()`` calls return full metadata, not
+        placeholder values.
         """
         if not paths:
             raise ValueError(
@@ -126,6 +133,8 @@ class AssetStore:
                 codec=media_info["codec"],
                 has_audio=media_info["has_audio"],
             )
+            sidecar = self._sidecar_path(asset_hash)
+            sidecar.write_text(asset.model_dump_json(indent=2))
             assets.append(asset)
         return assets
 
@@ -133,12 +142,21 @@ class AssetStore:
         path = self._cas_path(asset_hash)
         if not path.exists():
             return None
+        sidecar = self._sidecar_path(asset_hash)
+        if sidecar.exists():
+            return Asset.model_validate_json(sidecar.read_text())
+        media_info = _probe_media(str(path))
         return Asset(
             asset_hash=asset_hash,
             original_path="",
             stored_path=str(path),
-            type="video",
-            duration_sec=0.0,
+            type=media_info["type"],
+            duration_sec=media_info["duration_sec"],
+            fps=media_info["fps"],
+            width=media_info["width"],
+            height=media_info["height"],
+            codec=media_info["codec"],
+            has_audio=media_info["has_audio"],
         )
 
     def path(self, asset_hash: str) -> Optional[Path]:

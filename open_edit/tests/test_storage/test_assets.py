@@ -69,6 +69,41 @@ def test_get_returns_ingested_asset(tmp_path: Path) -> None:
     assert retrieved.asset_hash == asset.asset_hash
 
 
+def test_get_returns_full_metadata_via_sidecar(tmp_path: Path) -> None:
+    """Bug-hunt finding: get() must return the full Asset metadata that was
+    captured at ingest time, not the placeholder empty/default values
+    that the old code returned. The sidecar JSON persists the asset."""
+    store = AssetStore(tmp_path / "assets")
+    asset = store.ingest(str(TESTDATA / "clip_a.mp4"))
+    retrieved = store.get(asset.asset_hash)
+    assert retrieved is not None
+    # All fields must round-trip through the sidecar.
+    assert retrieved.original_path == asset.original_path
+    assert retrieved.stored_path == asset.stored_path
+    assert retrieved.type == asset.type
+    assert retrieved.duration_sec == pytest.approx(asset.duration_sec, abs=0.1)
+    assert retrieved.fps == asset.fps
+    assert retrieved.width == asset.width
+    assert retrieved.height == asset.height
+    assert retrieved.codec == asset.codec
+    assert retrieved.has_audio == asset.has_audio
+
+
+def test_get_falls_back_to_reprobe_when_sidecar_missing(tmp_path: Path) -> None:
+    """If the sidecar has been deleted but the CAS file remains, get() must
+    re-probe the file to recover the metadata instead of returning
+    placeholder values."""
+    store = AssetStore(tmp_path / "assets")
+    asset = store.ingest(str(TESTDATA / "clip_a.mp4"))
+    sidecar = store._sidecar_path(asset.asset_hash)
+    sidecar.unlink()
+    retrieved = store.get(asset.asset_hash)
+    assert retrieved is not None
+    assert retrieved.type == asset.type
+    assert retrieved.width == asset.width
+    assert retrieved.height == asset.height
+
+
 def test_get_returns_none_for_unknown_hash(tmp_path: Path) -> None:
     store = AssetStore(tmp_path / "assets")
     assert store.get("0" * 64) is None
