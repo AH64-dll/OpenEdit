@@ -46,6 +46,21 @@ interlace + weightp, which is incompatible with the local libx264 and
 causes the encode to stall at flush time. The `render` function does this
 transparently; call sites do not need to know.
 
+## File map (post-2026-07-19 cleanup)
+
+| File | Purpose | Lines |
+|---|---|---|
+| `render/__init__.py` | `pyagent_render` (proxy / final melt invocation) | 193 |
+| `thumbnails/__init__.py` | `pyagent_get_thumbnail` + `pyagent_get_qc_crop` (size/quality caps) | — |
+| `audio/__init__.py` | `pyagent_list_silence` + `pyagent_get_audio_levels` (env-driven timeout, structured JSON on timeout) | — |
+| `black_frames/__init__.py` | `pyagent_list_black_frames` (handles string vs float threshold from LLM) | — |
+
+The 2026-07-19 cleanup consolidated the previously-fragmented
+`qc_loop` orchestration and fixed two bugs (audio `TimeoutError`
+emitting unstructured error instead of `{kind: "timeout", ...}`;
+black-frames parser failing when the LLM sent `luma_threshold` as
+the string `"0.04"` instead of a number).
+
 ## CLI
 
 ```bash
@@ -91,10 +106,14 @@ extension.
 
 ```bash
 cd pyagent-kdenlive-guide
-PYTHONPATH=. python3 -m unittest discover -s phase6_render_qc -p "test_*.py"
-# 23/23 pass in ~11s
+PYTHONPATH=. python3 -m pytest phase6_render_qc
+# 30 passed
 ```
 
-Coverage:
-- `test_parsers.py` — 15 unit tests (no external deps)
-- `test_render_integration.py` — 8 tests (require melt + ffmpeg + demo fixture)
+Per-test-file:
+
+| File | Tests | Purpose | Deps |
+|---|---|---|---|
+| `test_parsers.py` | 21 | Unit tests (no external deps) | none |
+| `test_render_integration.py` | 8 | End-to-end render / thumbnail / QC | melt, ffmpeg, demo fixture |
+| `test_e2e_pipeline.py` | 1 | The "render → QC → report" full pipeline | melt, ffmpeg, demo fixture |

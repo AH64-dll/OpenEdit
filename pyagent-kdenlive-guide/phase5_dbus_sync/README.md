@@ -29,6 +29,19 @@ cumulative count of file-mode edits since the last reload hits
 reloads the current open project in place) and a `notify-send` so the
 user sees the reload.
 
+## File map (post-2026-07-19 cleanup)
+
+| File | Purpose | Lines |
+|---|---|---|
+| `dbus_client.py` | The D-Bus client (`KdenliveDBus` wrapper, `LiveSync.apply`) | — |
+| `live_sync.py` | Routing logic: live vs file-mode, reload trigger | — |
+| `__main__.py` | `python3 -m phase5_dbus_sync {apply,notify}` CLI | — |
+
+Legacy `kdenlive_state.py` (unused wrapper) and `notifier.py`
+(`notify-send` subprocess wrapper) were deleted during the
+2026-07-19 cleanup — `live_sync.py` calls `notify-send` directly
+now (saves a process spawn per reload).
+
 ## CLI
 
 ```bash
@@ -54,11 +67,14 @@ behavior — live sync is opt-in.
 
 ```bash
 cd pyagent-kdenlive-guide
-PYTHONPATH=. python3 -m unittest discover -s phase5_dbus_sync -p "test_*.py"
-# 24/24 pass
+PYTHONPATH=. python3 -m pytest phase5_dbus_sync
+# 29 passed
 ```
 
-Coverage:
-- `dbus_client.py` — 15 tests (D-Bus method routing, return value handling, exception path, process discovery)
-- `live_sync.py` — 11 tests (live routing, file fallback, reload trigger, notify, module entry)
-- `test_apply_cli.py` — 3 tests (CLI plumbing end-to-end)
+Per-test-file:
+
+| File | Tests | Purpose |
+|---|---|---|
+| `test_dbus_client.py` | 15 | D-Bus method routing, return values, exception path, process discovery |
+| `test_live_sync.py` | 11 | Live routing, file fallback, reload trigger, module entry |
+| `test_apply_cli.py` | 3 | CLI plumbing end-to-end |

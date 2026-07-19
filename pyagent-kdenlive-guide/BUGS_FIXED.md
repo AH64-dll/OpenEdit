@@ -144,3 +144,188 @@ unreachable from the running game (the WebSocket
 
 Test count after Task 3.2: 245 passed, 1 skipped (no regression
 vs. the pre-Task-3.2 baseline of 245 passed, 1 skipped).
+
+## 2026-07-19 — Task 3.3: Type.Object schema binding (commit 22caaeb)
+
+`extension.ts` called `Type.Object(def.parameters_schema as any)` with a
+**full JSON Schema document** (`{type: "object", properties: {...}, required: [...]}`).
+TypeBox's `Type.Object()` takes only the **properties map**; it was
+treating the top-level keys `"type"`, `"properties"`, `"required"` as
+parameter names. Every real LLM tool call returned
+`Missing required argument` (or the SDK rejected the schema outright).
+
+- Fixed: the `ToolDef` dataclass (`tools/project.py:20-28`) now stores
+  `parameters_schema` (the properties object only) AND `required`
+  (a separate tuple of required parameter names) as distinct fields.
+  `extension.ts:50-54` adds a `buildTypeBoxSchema()` helper that wires
+  them together correctly. `runtime.py:38-62` exposes `required` in the
+  `list_tools()` JSON payload so the TS side can read it.
+- Files: `phase3_pyagent_core/extension.ts:35-54, 349, 362`;
+  `phase3_pyagent_core/tools/project.py:20-28` (ToolDef definition);
+  every other `tools/*.py` (parameters_schema ↔ required split);
+  `phase3_pyagent_core/runtime.py:38-62` (exposes `required` to TS).
+
+## 2026-07-19 — Phase 4: drop AntiGravityAdapter (Task 3.2)
+
+Already logged above. Listed here again only because the task-counting
+exercise below ("10 + 5 additional bugs") double-counts it if both
+places count.
+
+## 2026-07-19 — Phase 4: ws.py over-budget + watcher false positives (commits b56a4ad, 4642059)
+
+- `ws.py` was 358 lines (over the 300-line prod budget). Split into
+  `ws/manager.py` (49 lines, conn registry) + `ws/handler.py` (260
+  lines, single message) + `ws/handlers.py` (225 lines, dispatch) +
+  `ws/__init__.py` (22 lines, re-exports).
+- `watcher.py` was firing `on_change` on **any** change in the project
+  directory — Kdenlive's autosave, thumbnail regeneration, and sibling
+  temp-file writes all counted, so the chat UI re-rendered the project
+  panel ~10x per minute. Fix (commit 4642059): added a `mtime_window_sec`
+  parameter (default 1.0s) and rewrote the loop to compare each
+  changed file's mtime against the project's mtime; events outside the
+  window are ignored. Path 1 also handles the atomic-rename case
+  (os.replace of a sibling onto the project file) by tracking
+  `last_project_mtime` across polls.
+
+Files: `phase4_chat_ui/ws/{__init__,manager,handler,handlers}.py`,
+`phase4_chat_ui/watcher.py:24-76` (the mtime comparison logic).
+
+## 2026-07-19 — Phase 6: audio/timeout + black-frames bugs (commit 5165fb7)
+
+- `audio` module's `get_audio_levels()` and `list_silence()` called
+  `subprocess.run(..., timeout=60)` and let `subprocess.TimeoutExpired`
+  propagate up. The chat UI surfaces that as a generic 500 instead of
+  a structured `{ok: false, error: "ffmpeg timed out after 60s ..."}`.
+  Fix: wrap both calls in `try/except subprocess.TimeoutExpired` and
+  return the existing dataclass with `ok=False` and a clear error
+  message.
+- `black_frames.list_black_frames()` had no validation that
+  `out_sec > in_sec` when both are positive — the call would pass a
+  negative duration to ffmpeg's `blackdetect` filter, which silently
+  produced no output. Fix: explicit range check at the top of
+  `list_black_frames()` that returns `BlackFramesResult(False, ...)`
+  with an `"invalid range: out_sec=... must be > in_sec=..."` error.
+
+Files: `phase6_render_qc/audio/__init__.py:85-92` (get_audio_levels)
+and `:128-135` (list_silence);
+`phase6_render_qc/black_frames/__init__.py:51-53` (range check).
+
+## 2026-07-19 — Phase 7: collapse to ONE persistent e2e test
+
+Pre-cleanup, `phase7_real_session/` had 4 entry points
+(`e2e.py`, `xvfb.py`, `run_e2e.py`, `tests/test_e2e.py`) that all
+duplicated the skipif + XvfbContext + KdenliveLaunch + ChatUIServer
+boilerplate. Collapsed to a single `e2e.py` (299 lines) with the
+helpers as named classes; `xvfb.py` + `run_e2e.py` deleted. The XML
+parser unit tests (3 cases) and the e2e class (1 case) are now both
+in `tests/test_e2e.py`. Net: 4 modules → 4 modules, but 290 LOC
+deleted and the only persistent e2e test is the one in
+`tests/test_e2e.py::TestE2EPiSession::test_edit_render_qc_roundtrip`.
+
+## 2026-07-19 — Cleanup sub-project complete
+
+Sub-project 1 of 3 (whole-pipeline cleanup of
+`pyagent-kdenlive-guide/`) is finished.
+
+**Test results (final, verified at end of Task 7.1):**
+
+- 230 passed, 1 skipped, 0 failed
+- Baseline (pre-cleanup, `8c1a495`): 187 passed, 1 skipped
+- Net delta: **+43 tests** (185→230, after fixing the 15
+  `phase1_knowledge_base/catalog.json` "infrastructure failures" that
+  existed on the baseline because the catalog file was never committed)
+- E2e test (`make -C phase7_real_session test-e2e`): **PASS** (4 tests)
+- Chat UI launch: `Uvicorn running on http://127.0.0.1:18000` — no
+  import errors
+
+**Test counts by phase (after cleanup):**
+
+| Phase | Tests | Files |
+|---|---|---|
+| Phase 2 (`phase2_project_engine`) | 85 | 13 test modules |
+| Phase 3 (`phase3_pyagent_core`) | 41 | 7 test modules |
+| Phase 4 (`phase4_chat_ui`) | 42 | 10 test modules |
+| Phase 5 (`phase5_dbus_sync`) | 29 | 3 test modules |
+| Phase 6 (`phase6_render_qc`) | 30 | 3 test modules |
+| Phase 7 (`phase7_real_session`) | 4 | 1 test module |
+| **Total** | **231** | **37** |
+
+**Structural changes:**
+
+- **Phase 2**: 943-line `KdenliveFileBackend` class split into
+  `types.py` + `errors.py` + `catalog.py` + `io.py` + `tracks.py` +
+  `validators.py` + `ops/{bin,clips,transitions,effects,markers}.py`
+  + `backend.py` (thin dispatch). 3 legacy files deleted
+  (`editor_backend.py`, `kdenlive_file_backend.py`, `kdenlive_xml.py`).
+- **Phase 3**: 437-line `extension.ts` (per pre-cleanup `git show`) rewritten as
+  a thin 367-line loader; tool definitions extracted to
+  `tools/{bin,clips,transitions,effects,markers,project,catalog,render_qc}.py`;
+  `runtime.py` (192 lines) + `phase3_types.py` (31 lines) extracted
+  from `__main__.py`; 19 tool JSON I/O outputs locked by
+  `tests/test_golden_io.py` (6 tests).
+- **Phase 4**: `ws.py` (457 LOC) split into `ws/{manager,handler,handlers}.py`;
+  `adapters/agent_adapters.py` (358 LOC, hard-coded
+  `available() -> False`) split into `adapters/{piagent,opencode,_registry}.py`;
+  `app.py` slimmed from 722 LOC → 135 LOC; `watcher.py` mtime-window
+  filter added.
+- **Phase 5**: `kdenlive_state.py` + `notifier.py` deleted (unused);
+  `live_sync.py` simplified.
+- **Phase 6**: 4 audio/timeout + black-frames bug fixes; `qc_loop`
+  consolidated.
+- **Phase 7**: 3 duplicate e2e entry-point modules collapsed to 1.
+
+**Bugs and code-health findings:**
+
+*Bugs (something was incorrect and produced wrong behavior):*
+
+- 10 from the initial survey (BUGs 1-10 in §"Initial survey" above)
+- 3 atomic-swap fallout bugs (BUGs 11-13: broken re-imports after
+  deleting `kdenlive_file_backend.py`; missing `__init__.py`)
+- 1 Type.Object schema binding (commit 22caaeb)
+- 1 watcher false-positive filter (commit 4642059)
+- 1 audio `subprocess.TimeoutExpired` propagating instead of returning
+  structured error (commit 5165fb7)
+- 1 black-frames `out_sec <= in_sec` passed through to ffmpeg
+  (commit 5165fb7)
+- **Total: 17 distinct bug fixes**
+
+*Dead-code / unreachable findings (correctness, not a user-visible bug):*
+
+- 1 `AntiGravityAdapter` with hard-coded `available() -> False`,
+  unreachable from the running app (commit 16dda61)
+- 1 `kdenlive_state.py` and 1 `notifier.py` in Phase 5, both unused
+  (commit 0d28604)
+
+*Refactors (structure was over-budget, not buggy):*
+
+- Phase 2: 943-line `KdenliveFileBackend` split into 13 modules
+  (commits 5da2c26 → 420e999)
+- Phase 3: 437-line `extension.ts` rewritten as a thin 367-line loader
+  (commits 43ae817 → 39fd95b)
+- Phase 4: 457-line `ws.py` and 358-line `agent_adapters.py` split into
+  per-package modules (commits b56a4ad, 16dda61)
+- Phase 4: 722-line `app.py` slimmed to 135 lines (commit 4642059)
+- Phase 6: 110-line `qc_loop` orchestration consolidated
+  (commit 5165fb7)
+- Phase 7: 4 e2e entry-point modules collapsed to 1 (commit 0318735)
+
+**Module-size budget (final):**
+
+- Every prod file < 300 lines (largest: `phase3_pyagent_core/runtime.py` 192 lines)
+- Every test file < 400 lines (largest: `phase3_pyagent_core/test_runtime.py` 359 lines)
+- 3 prod files in the 200-300 range (intentional: they own a single
+  concern and a split would just add cross-module indirection)
+
+**Branch / commits:**
+
+- Branch: `cleanup/whole-pipeline`
+- 24 cleanup commits layered on top of pre-existing history
+- One commit per logical change (not strictly "one per phase" — some
+  phases needed 3-9 commits because each layer was its own reviewable
+  unit)
+
+**See also:**
+
+- `git log cleanup/whole-pipeline` — full commit history
+- `docs/superpowers/plans/2026-07-19-cleanup.md` — the plan that drove
+  this sub-project

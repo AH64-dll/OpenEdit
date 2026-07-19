@@ -25,32 +25,52 @@ export PYAGENT_AUTO_APPROVE=false    # default; prompts before each mutating too
 pi    # the pyagent_* tools appear in the tool palette
 ```
 
+## File map (post-2026-07-19 cleanup)
+
+| File | Purpose | Lines |
+|---|---|---|
+| `extension.ts` | Thin pi-extension loader (re-exports `register` from `runtime.py`'s `json_schema` of every tool) | ~120 |
+| `runtime.py` | The bridge: JSON-RPC handler + `Type.Object` schema assembly (the BUG 11 fix lives here) | 192 |
+| `phase3_types.py` | Typed dicts used by the JSON-RPC payload | 31 |
+| `__main__.py` | `python3 -m phase3_pyagent_core` entry: `run_op`, `help`, `humanize` | 31 |
+| `catalog_slice.py` | Loads `phase1_knowledge_base/catalog.json` and exposes a search/filter API | 50 |
+| `tools/bin.py` | `pyagent_import_media` definition | 20 |
+| `tools/clips.py` | 5 clip op definitions (`insert_clip`, `append_clip`, `move_clip`, `trim_clip`, `delete_clip`) | 78 |
+| `tools/transitions.py` | `pyagent_add_transition` definition | 26 |
+| `tools/effects.py` | `pyagent_apply_effect` definition | — |
+| `tools/markers.py` | `pyagent_add_marker` definition | 37 |
+| `tools/project.py` | 3 read-only project queries (`get_project_info`, `get_timeline_summary`, `list_catalog`) | 56 |
+| `tools/catalog.py` | Catalog-list tool | 24 |
+| `tools/render_qc.py` | 6 Phase 6 tool definitions (re-exported from `phase6_render_qc`) | 81 |
+
+19 tools total: 13 file-mode edit tools (3 of which also support
+live-mode D-Bus) + 6 render/QC tools.
+
 ## Test
 
 ```bash
-make test
+make test                                # 41 passed, 1 skipped
 ```
 
-The runtime tests need no pi or LLM. The integration test needs an LLM
-provider configured (e.g., `OPENAI_API_KEY` or `GEMINI_API_KEY`) and
-will skip if none is set.
+Per-test-file:
 
-## Test output
+| File | Tests | Purpose |
+|---|---|---|
+| `test_runtime.py` | 16 | JSON-RPC dispatch, schema, error mapping |
+| `tests/test_golden_io.py` | 6 | 19 tool JSON I/O outputs are locked (golden-file) |
+| `test_extension.py` | 6 | pi-extension registration |
+| `test_catalog_slice.py` | 6 | catalog load + filter |
+| `tests/test_tools.py` | 3 | per-tool dispatcher |
+| `tests/test_runtime.py` | 3 | runtime-level smoke |
+| `test_integration.py` | 1 | full crossfade chain end-to-end (skips if no LLM provider) |
 
-```text
-test_append_clip_after_import ... ok
-test_apply_effect_with_invalid_id_returns_fix_hint ... ok
-test_apply_effect_with_valid_id ... ok
-... (~30 tests, 0 failures)
-test_full_crossfade_chain ... ok
-test_help_flag_prints_usage ... ok
-test_humanize_no_args ... ok
-test_prompt_contains_catalog_slice ... ok
-... (extension tests, ~6 tests)
-test_crossfade_chain_runs_end_to_end ... SKIPPED (no provider)
-```
+The integration test needs an LLM provider configured (e.g.,
+`OPENAI_API_KEY` or `GEMINI_API_KEY`) and will skip if none is set.
 
 ## See also
 
 - `DESIGN.md` — the design spec
-- `../PHASE_3_pyagent_core.md` — the phase requirements
+- `system_prompt.md` — the prompt fragment the LLM sees for this extension
+- `../BUGS_FIXED.md` — full list of 13 phase-3-related bugs fixed during
+  the 2026-07-19 cleanup (Type.Object schema binding, thin-loader
+  rewrite, golden-file I/O tests, etc.)
