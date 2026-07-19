@@ -15,8 +15,9 @@ from fastapi import WebSocket
 def try_reload_kdenlive() -> bool:
     """Trigger a clean-restart in a running Kdenlive instance, if any."""
     try:
-        from phase5_dbus_sync.dbus_client import KdenliveDBus
-        from phase5_dbus_sync.kdenlive_state import detect_service_name, is_running
+        from phase5_dbus_sync.dbus_client import (
+            KdenliveDBus, detect_service_name, is_running,
+        )
         if is_running():
             svc = detect_service_name()
             if svc:

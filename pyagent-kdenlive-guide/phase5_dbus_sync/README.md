@@ -59,8 +59,6 @@ PYTHONPATH=. python3 -m unittest discover -s phase5_dbus_sync -p "test_*.py"
 ```
 
 Coverage:
-- `kdenlive_state.py` — 4 tests (running, service detection, edge cases)
-- `dbus_client.py` — 7 tests (method routing, return value handling, exception path)
-- `notifier.py` — 3 tests (notify-send wiring, failure tolerance)
-- `live_sync.py` — 6 tests (live routing, file fallback, reload trigger, source-id parsing)
+- `dbus_client.py` — 15 tests (D-Bus method routing, return value handling, exception path, process discovery)
+- `live_sync.py` — 11 tests (live routing, file fallback, reload trigger, notify, module entry)
 - `test_apply_cli.py` — 3 tests (CLI plumbing end-to-end)
