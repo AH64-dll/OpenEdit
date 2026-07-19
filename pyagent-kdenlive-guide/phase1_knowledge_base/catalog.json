@@ -262,7 +262,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Balance"
+          "display_name": "Balance",
+          "keyframes": true
         }
       ],
       "category": "Channels",
@@ -320,7 +321,8 @@
           "min": "0",
           "max": "20",
           "default": "0",
-          "display_name": "Line Thickness"
+          "display_name": "Line Thickness",
+          "keyframes": true
         },
         {
           "name": "angle",
@@ -328,13 +330,15 @@
           "min": "0",
           "max": "360",
           "default": "0",
-          "display_name": "Angle"
+          "display_name": "Angle",
+          "keyframes": true
         },
         {
           "name": "rect",
           "type": "animatedrect",
           "default": "0 0 100% 100%",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "mirror",
@@ -361,7 +365,8 @@
           "min": "0",
           "max": "500",
           "default": "2",
-          "display_name": "Channels"
+          "display_name": "Channels",
+          "keyframes": true
         },
         {
           "name": "segment_gap",
@@ -369,7 +374,8 @@
           "min": "0",
           "max": "100",
           "default": "10",
-          "display_name": "Segment Gap"
+          "display_name": "Segment Gap",
+          "keyframes": true
         }
       ],
       "category": "On Master",
@@ -465,7 +471,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Pan"
+          "display_name": "Pan",
+          "keyframes": true
         }
       ],
       "category": "Channels",
@@ -519,7 +526,8 @@
           "min": "0",
           "max": "20",
           "default": "0",
-          "display_name": "Line Thickness"
+          "display_name": "Line Thickness",
+          "keyframes": true
         },
         {
           "name": "angle",
@@ -527,13 +535,15 @@
           "min": "0",
           "max": "360",
           "default": "0",
-          "display_name": "Angle"
+          "display_name": "Angle",
+          "keyframes": true
         },
         {
           "name": "rect",
           "type": "animatedrect",
           "default": "0 0 100% 100%",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "fill",
@@ -1076,7 +1086,8 @@
           "max": "500",
           "default": "1",
           "factor": "1",
-          "display_name": "X size"
+          "display_name": "X size",
+          "keyframes": true
         },
         {
           "name": "av.sizeY",
@@ -1085,7 +1096,8 @@
           "max": "500",
           "default": "0",
           "factor": "1",
-          "display_name": "Y size"
+          "display_name": "Y size",
+          "keyframes": true
         },
         {
           "name": "av.planes",
@@ -1113,7 +1125,8 @@
           "min": "0",
           "max": "1",
           "default": "0.08",
-          "display_name": "Threshold"
+          "display_name": "Threshold",
+          "keyframes": true
         },
         {
           "name": "av.similarity",
@@ -1123,7 +1136,8 @@
           "default": "0.1",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Similarity"
+          "display_name": "Similarity",
+          "keyframes": true
         },
         {
           "name": "av.blend",
@@ -1133,7 +1147,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Blend"
+          "display_name": "Blend",
+          "keyframes": true
         }
       ]
     },
@@ -1369,7 +1384,8 @@
           "min": "0",
           "max": "512",
           "default": "0.1",
-          "display_name": "Spatial sigma"
+          "display_name": "Spatial sigma",
+          "keyframes": true
         },
         {
           "name": "av.sigmaR",
@@ -1377,7 +1393,8 @@
           "min": "0",
           "max": "1",
           "default": "0.1",
-          "display_name": "Range sigma"
+          "display_name": "Range sigma",
+          "keyframes": true
         },
         {
           "name": "av.planes",
@@ -1535,7 +1552,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Strength"
+          "display_name": "Strength",
+          "keyframes": true
         },
         {
           "name": "av.planes",
@@ -1567,7 +1585,8 @@
           "min": "0.01",
           "max": "1.00",
           "default": "0.01",
-          "display_name": "Similarity"
+          "display_name": "Similarity",
+          "keyframes": true
         },
         {
           "name": "av.blend",
@@ -1575,7 +1594,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Blend"
+          "display_name": "Blend",
+          "keyframes": true
         },
         {
           "name": "av.yuv",
@@ -1677,7 +1697,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Blue horizontal shift"
+          "display_name": "Blue horizontal shift",
+          "keyframes": true
         },
         {
           "name": "av.cbv",
@@ -1686,7 +1707,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Blue vertical shift"
+          "display_name": "Blue vertical shift",
+          "keyframes": true
         },
         {
           "name": "av.crh",
@@ -1695,7 +1717,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Red horizontal shift"
+          "display_name": "Red horizontal shift",
+          "keyframes": true
         },
         {
           "name": "av.crv",
@@ -1704,7 +1727,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Red vertical shift"
+          "display_name": "Red vertical shift",
+          "keyframes": true
         },
         {
           "name": "av.edge",
@@ -1996,7 +2020,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Red-Cyan contrast"
+          "display_name": "Red-Cyan contrast",
+          "keyframes": true
         },
         {
           "name": "av.gm",
@@ -2004,7 +2029,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Green-Magenta contrast"
+          "display_name": "Green-Magenta contrast",
+          "keyframes": true
         },
         {
           "name": "av.by",
@@ -2012,7 +2038,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Blue-Yellow contrast"
+          "display_name": "Blue-Yellow contrast",
+          "keyframes": true
         },
         {
           "name": "av.rcw",
@@ -2020,7 +2047,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Red-Cyan weight"
+          "display_name": "Red-Cyan weight",
+          "keyframes": true
         },
         {
           "name": "av.gmw",
@@ -2028,7 +2056,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Green-Magenta weight"
+          "display_name": "Green-Magenta weight",
+          "keyframes": true
         },
         {
           "name": "av.byw",
@@ -2036,7 +2065,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Blue-Yellow weight"
+          "display_name": "Blue-Yellow weight",
+          "keyframes": true
         },
         {
           "name": "av.pl",
@@ -2044,7 +2074,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Preserving lightness"
+          "display_name": "Preserving lightness",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -2064,7 +2095,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Red shadow spot"
+          "display_name": "Red shadow spot",
+          "keyframes": true
         },
         {
           "name": "av.bl",
@@ -2072,7 +2104,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Blue shadow spot"
+          "display_name": "Blue shadow spot",
+          "keyframes": true
         },
         {
           "name": "av.rh",
@@ -2080,7 +2113,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Red highlight spot"
+          "display_name": "Red highlight spot",
+          "keyframes": true
         },
         {
           "name": "av.bh",
@@ -2088,7 +2122,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Blue highlight spot"
+          "display_name": "Blue highlight spot",
+          "keyframes": true
         },
         {
           "name": "av.saturation",
@@ -2096,7 +2131,8 @@
           "min": "-3",
           "max": "3",
           "default": "1",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         },
         {
           "name": "av.analyze",
@@ -2157,7 +2193,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Hue"
+          "display_name": "Hue",
+          "keyframes": true
         },
         {
           "name": "av.saturation",
@@ -2167,7 +2204,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         },
         {
           "name": "av.lightness",
@@ -2175,7 +2213,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5",
-          "display_name": "Lightness"
+          "display_name": "Lightness",
+          "keyframes": true
         },
         {
           "name": "av.mix",
@@ -2185,7 +2224,8 @@
           "default": "1",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Mix"
+          "display_name": "Mix",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -2449,7 +2489,8 @@
           "max": "40000",
           "default": "6500",
           "suffix": "\u00b0K",
-          "display_name": "Temperature"
+          "display_name": "Temperature",
+          "keyframes": true
         },
         {
           "name": "av.mix",
@@ -2457,7 +2498,8 @@
           "min": "0",
           "max": "1",
           "default": "1",
-          "display_name": "Mix"
+          "display_name": "Mix",
+          "keyframes": true
         },
         {
           "name": "av.saturation",
@@ -2465,7 +2507,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         },
         {
           "name": "av.pl",
@@ -2473,7 +2516,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Preserve lightness"
+          "display_name": "Preserve lightness",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -2763,7 +2807,8 @@
           "max": "360",
           "default": "45",
           "suffix": "\u00b0",
-          "display_name": "Angle"
+          "display_name": "Angle",
+          "keyframes": true
         },
         {
           "name": "av.radius",
@@ -2771,7 +2816,8 @@
           "min": "0",
           "max": "8192",
           "default": "5",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         },
         {
           "name": "av.planes",
@@ -3375,7 +3421,8 @@
           "max": "%width",
           "default": "100",
           "factor": "1",
-          "display_name": "Top-left X"
+          "display_name": "Top-left X",
+          "keyframes": true
         },
         {
           "name": "av.y",
@@ -3384,7 +3431,8 @@
           "max": "%height",
           "default": "100",
           "factor": "1",
-          "display_name": "Top-left Y"
+          "display_name": "Top-left Y",
+          "keyframes": true
         },
         {
           "name": "av.w",
@@ -3393,7 +3441,8 @@
           "max": "%width",
           "default": "100",
           "factor": "1",
-          "display_name": "Width (px)"
+          "display_name": "Width (px)",
+          "keyframes": true
         },
         {
           "name": "av.h",
@@ -3402,7 +3451,8 @@
           "max": "%height",
           "default": "100",
           "factor": "1",
-          "display_name": "Height (px)"
+          "display_name": "Height (px)",
+          "keyframes": true
         },
         {
           "name": "av.color",
@@ -3417,7 +3467,8 @@
           "max": "%height",
           "default": "3",
           "factor": "1",
-          "display_name": "Thickness (px)"
+          "display_name": "Thickness (px)",
+          "keyframes": true
         },
         {
           "name": "av.replace",
@@ -3446,7 +3497,8 @@
           "max": "%width",
           "default": "0",
           "factor": "1",
-          "display_name": "X Offset"
+          "display_name": "X Offset",
+          "keyframes": true
         },
         {
           "name": "av.y",
@@ -3455,7 +3507,8 @@
           "max": "%height",
           "default": "0",
           "factor": "1",
-          "display_name": "Y Offset"
+          "display_name": "Y Offset",
+          "keyframes": true
         },
         {
           "name": "av.w",
@@ -3464,7 +3517,8 @@
           "max": "%width",
           "default": "0",
           "factor": "1",
-          "display_name": "Width"
+          "display_name": "Width",
+          "keyframes": true
         },
         {
           "name": "av.h",
@@ -3473,7 +3527,8 @@
           "max": "%height",
           "default": "0",
           "factor": "1",
-          "display_name": "Height"
+          "display_name": "Height",
+          "keyframes": true
         },
         {
           "name": "av.color",
@@ -3488,7 +3543,8 @@
           "max": "%height",
           "default": "3",
           "factor": "1",
-          "display_name": "Thickness (px)"
+          "display_name": "Thickness (px)",
+          "keyframes": true
         },
         {
           "name": "av.replace",
@@ -3827,7 +3883,8 @@
           "min": "-3",
           "max": "3",
           "default": "0",
-          "display_name": "Exposure"
+          "display_name": "Exposure",
+          "keyframes": true
         },
         {
           "name": "av.black",
@@ -3835,7 +3892,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -4072,7 +4130,8 @@
           "name": "kdenlive:fakerect",
           "type": "animatedfakerect",
           "default": "0 0 100% 100%",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -4248,7 +4307,8 @@
           "max": "600",
           "default": "10",
           "factor": "1",
-          "display_name": "Sigma"
+          "display_name": "Sigma",
+          "keyframes": true
         },
         {
           "name": "av.sigmaV",
@@ -4257,7 +4317,8 @@
           "max": "600",
           "default": "10",
           "factor": "1",
-          "display_name": "Vertical Sigma"
+          "display_name": "Vertical Sigma",
+          "keyframes": true
         }
       ],
       "category": "Blur and Sharpen"
@@ -4811,7 +4872,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Hue"
+          "display_name": "Hue",
+          "keyframes": true
         },
         {
           "name": "av.sat",
@@ -4819,7 +4881,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         },
         {
           "name": "av.val",
@@ -4827,7 +4890,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Value"
+          "display_name": "Value",
+          "keyframes": true
         },
         {
           "name": "av.similarity",
@@ -4837,7 +4901,8 @@
           "default": "0.001",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Similarity"
+          "display_name": "Similarity",
+          "keyframes": true
         },
         {
           "name": "av.blend",
@@ -4847,7 +4912,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Blend"
+          "display_name": "Blend",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -4868,7 +4934,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Hue"
+          "display_name": "Hue",
+          "keyframes": true
         },
         {
           "name": "av.sat",
@@ -4876,7 +4943,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         },
         {
           "name": "av.val",
@@ -4884,7 +4952,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Value"
+          "display_name": "Value",
+          "keyframes": true
         },
         {
           "name": "av.similarity",
@@ -4894,7 +4963,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Similarity"
+          "display_name": "Similarity",
+          "keyframes": true
         },
         {
           "name": "av.blend",
@@ -4904,7 +4974,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Blend"
+          "display_name": "Blend",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying"
@@ -4932,7 +5003,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Hue Shift"
+          "display_name": "Hue Shift",
+          "keyframes": true
         },
         {
           "name": "av.sat",
@@ -4940,7 +5012,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Saturation Shift"
+          "display_name": "Saturation Shift",
+          "keyframes": true
         },
         {
           "name": "av.intensity",
@@ -4948,7 +5021,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Intensity Shift"
+          "display_name": "Intensity Shift",
+          "keyframes": true
         },
         {
           "name": "av.strength",
@@ -4957,7 +5031,8 @@
           "max": "100",
           "default": "0",
           "factor": "100",
-          "display_name": "Strength"
+          "display_name": "Strength",
+          "keyframes": true
         },
         {
           "name": "av.lightness",
@@ -4975,7 +5050,8 @@
           "default": "0.333",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Red Strength"
+          "display_name": "Red Strength",
+          "keyframes": true
         },
         {
           "name": "av.gw",
@@ -4985,7 +5061,8 @@
           "default": "0.334",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Green Strength"
+          "display_name": "Green Strength",
+          "keyframes": true
         },
         {
           "name": "av.bw",
@@ -4995,7 +5072,8 @@
           "default": "0.333",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Blue Strength"
+          "display_name": "Blue Strength",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -5159,7 +5237,8 @@
           "min": "0",
           "max": "65535",
           "default": "1",
-          "display_name": "Scale"
+          "display_name": "Scale",
+          "keyframes": true
         },
         {
           "name": "av.delta",
@@ -5167,7 +5246,8 @@
           "min": "-65535",
           "max": "65535",
           "default": "0",
-          "display_name": "Delta"
+          "display_name": "Delta",
+          "keyframes": true
         },
         {
           "name": "av.planes",
@@ -5236,7 +5316,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Focal Point Relative<br>\n        X-Coordinate"
+          "display_name": "Focal Point Relative<br>\n        X-Coordinate",
+          "keyframes": true
         },
         {
           "name": "av.cy",
@@ -5245,7 +5326,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Focal Point Relative<br>\n        Y-Coordinate"
+          "display_name": "Focal Point Relative<br>\n        Y-Coordinate",
+          "keyframes": true
         },
         {
           "name": "av.k1",
@@ -5254,7 +5336,8 @@
           "max": "100",
           "default": "0",
           "factor": "100",
-          "display_name": "Quadratic<br>\n        Correction Coefficient"
+          "display_name": "Quadratic<br>\n        Correction Coefficient",
+          "keyframes": true
         },
         {
           "name": "av.k2",
@@ -5263,7 +5346,8 @@
           "max": "100",
           "default": "0",
           "factor": "100",
-          "display_name": "Double Quadratic<br>\n        Correction Coefficient"
+          "display_name": "Double Quadratic<br>\n        Correction Coefficient",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -5410,7 +5494,8 @@
           "max": "20000",
           "default": "500",
           "suffix": "Hz",
-          "display_name": "Central Frequency"
+          "display_name": "Central Frequency",
+          "keyframes": true
         },
         {
           "name": "av.t",
@@ -5425,7 +5510,8 @@
           "min": "0.001",
           "max": "9999",
           "default": "0.707",
-          "display_name": "Filter-width"
+          "display_name": "Filter-width",
+          "keyframes": true
         },
         {
           "name": "av.p",
@@ -5440,7 +5526,8 @@
           "min": "0",
           "max": "1",
           "default": "1",
-          "display_name": "Mix"
+          "display_name": "Mix",
+          "keyframes": true
         },
         {
           "name": "av.n",
@@ -5623,7 +5710,8 @@
           "min": "1",
           "max": "127",
           "default": "1",
-          "display_name": "Horizontal radius"
+          "display_name": "Horizontal radius",
+          "keyframes": true
         },
         {
           "name": "av.radiusV",
@@ -5631,7 +5719,8 @@
           "min": "0",
           "max": "127",
           "default": "0",
-          "display_name": "Vertical radius"
+          "display_name": "Vertical radius",
+          "keyframes": true
         },
         {
           "name": "av.percentile",
@@ -5640,7 +5729,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Median percentile"
+          "display_name": "Median percentile",
+          "keyframes": true
         },
         {
           "name": "av.planes",
@@ -5667,7 +5757,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Chroma blue spot"
+          "display_name": "Chroma blue spot",
+          "keyframes": true
         },
         {
           "name": "av.cr",
@@ -5675,7 +5766,8 @@
           "min": "-1",
           "max": "1",
           "default": "0",
-          "display_name": "Chroma red spot"
+          "display_name": "Chroma red spot",
+          "keyframes": true
         },
         {
           "name": "av.size",
@@ -5683,7 +5775,8 @@
           "min": "0.1",
           "max": "10",
           "default": "1",
-          "display_name": "Color filter size"
+          "display_name": "Color filter size",
+          "keyframes": true
         },
         {
           "name": "av.high",
@@ -5691,7 +5784,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Highlights strength"
+          "display_name": "Highlights strength",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -5870,7 +5964,8 @@
           "max": "268435455",
           "default": "0",
           "factor": "100000",
-          "display_name": "Smoothing"
+          "display_name": "Smoothing",
+          "keyframes": true
         },
         {
           "name": "av.independence",
@@ -5878,7 +5973,8 @@
           "min": "0",
           "max": "1",
           "default": "1",
-          "display_name": "Independence"
+          "display_name": "Independence",
+          "keyframes": true
         },
         {
           "name": "av.strength",
@@ -5886,7 +5982,8 @@
           "min": "0",
           "max": "1",
           "default": "1",
-          "display_name": "Strength"
+          "display_name": "Strength",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -5907,7 +6004,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Trace X Position"
+          "display_name": "Trace X Position",
+          "keyframes": true
         },
         {
           "name": "av.y",
@@ -5916,7 +6014,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Trace Y Position"
+          "display_name": "Trace Y Position",
+          "keyframes": true
         },
         {
           "name": "av.s",
@@ -5925,7 +6024,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Size"
+          "display_name": "Size",
+          "keyframes": true
         },
         {
           "name": "av.t",
@@ -5934,7 +6034,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Tilt"
+          "display_name": "Tilt",
+          "keyframes": true
         },
         {
           "name": "av.o",
@@ -5943,7 +6044,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Opacity"
+          "display_name": "Opacity",
+          "keyframes": true
         },
         {
           "name": "av.tx",
@@ -5952,7 +6054,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Scope X Position"
+          "display_name": "Scope X Position",
+          "keyframes": true
         },
         {
           "name": "av.ty",
@@ -5961,7 +6064,8 @@
           "max": "%height",
           "default": "0.9",
           "factor": "%height",
-          "display_name": "Scope Y Position"
+          "display_name": "Scope Y Position",
+          "keyframes": true
         },
         {
           "name": "av.tw",
@@ -5970,7 +6074,8 @@
           "max": "%height",
           "default": "0.8",
           "factor": "%height",
-          "display_name": "Scope Width"
+          "display_name": "Scope Width",
+          "keyframes": true
         },
         {
           "name": "av.th",
@@ -5979,7 +6084,8 @@
           "max": "%height",
           "default": "0.3",
           "factor": "%height",
-          "display_name": "Scope Height"
+          "display_name": "Scope Height",
+          "keyframes": true
         },
         {
           "name": "av.c",
@@ -6049,7 +6155,8 @@
           "min": "2",
           "max": "240",
           "default": "30",
-          "display_name": "Frames to use"
+          "display_name": "Frames to use",
+          "keyframes": true
         },
         {
           "name": "av.t",
@@ -6057,7 +6164,8 @@
           "min": "0.1",
           "max": "10",
           "default": "1",
-          "display_name": "Threshold"
+          "display_name": "Threshold",
+          "keyframes": true
         },
         {
           "name": "av.skip",
@@ -6065,7 +6173,8 @@
           "min": "1",
           "max": "1024",
           "default": "1",
-          "display_name": "Skip"
+          "display_name": "Skip",
+          "keyframes": true
         },
         {
           "name": "av.bypass",
@@ -6091,7 +6200,8 @@
           "min": "1",
           "max": "1024",
           "default": "16",
-          "display_name": "Block Width"
+          "display_name": "Block Width",
+          "keyframes": true
         },
         {
           "name": "av.height",
@@ -6099,7 +6209,8 @@
           "min": "1",
           "max": "1024",
           "default": "16",
-          "display_name": "Block Height"
+          "display_name": "Block Height",
+          "keyframes": true
         },
         {
           "name": "av.mode",
@@ -6141,7 +6252,8 @@
           "max": "250",
           "default": "5",
           "factor": "1",
-          "display_name": "Scale"
+          "display_name": "Scale",
+          "keyframes": true
         },
         {
           "name": "av.delta",
@@ -6150,7 +6262,8 @@
           "max": "255",
           "default": "25",
           "factor": "1",
-          "display_name": "Delta"
+          "display_name": "Delta",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -6246,7 +6359,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Red Horizontal Shift"
+          "display_name": "Red Horizontal Shift",
+          "keyframes": true
         },
         {
           "name": "av.rv",
@@ -6255,7 +6369,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Red Vertical Shift"
+          "display_name": "Red Vertical Shift",
+          "keyframes": true
         },
         {
           "name": "av.gh",
@@ -6264,7 +6379,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Green Horizontal Shift"
+          "display_name": "Green Horizontal Shift",
+          "keyframes": true
         },
         {
           "name": "av.gv",
@@ -6273,7 +6389,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Green Vertical Shift"
+          "display_name": "Green Vertical Shift",
+          "keyframes": true
         },
         {
           "name": "av.bh",
@@ -6282,7 +6399,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Blue Horizontal Shift"
+          "display_name": "Blue Horizontal Shift",
+          "keyframes": true
         },
         {
           "name": "av.bv",
@@ -6291,7 +6409,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Blue Vertical Shift"
+          "display_name": "Blue Vertical Shift",
+          "keyframes": true
         },
         {
           "name": "av.ah",
@@ -6300,7 +6419,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Alpha Horizontal Shift"
+          "display_name": "Alpha Horizontal Shift",
+          "keyframes": true
         },
         {
           "name": "av.av",
@@ -6309,7 +6429,8 @@
           "max": "255",
           "default": "0",
           "factor": "1",
-          "display_name": "Alpha Vertical Shift"
+          "display_name": "Alpha Vertical Shift",
+          "keyframes": true
         },
         {
           "name": "av.edge",
@@ -6344,7 +6465,8 @@
           "max": "250",
           "default": "10",
           "factor": "1",
-          "display_name": "Scale"
+          "display_name": "Scale",
+          "keyframes": true
         },
         {
           "name": "av.delta",
@@ -6353,7 +6475,8 @@
           "max": "300",
           "default": "100",
           "factor": "1",
-          "display_name": "Delta"
+          "display_name": "Delta",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -6440,7 +6563,8 @@
           "min": "0",
           "max": "65535",
           "default": "1",
-          "display_name": "Scale"
+          "display_name": "Scale",
+          "keyframes": true
         },
         {
           "name": "av.radius",
@@ -6448,7 +6572,8 @@
           "min": "-65535",
           "max": "65535",
           "default": "0",
-          "display_name": "Delta"
+          "display_name": "Delta",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -6469,7 +6594,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Horizontal Scrolling Speed"
+          "display_name": "Horizontal Scrolling Speed",
+          "keyframes": true
         },
         {
           "name": "av.v",
@@ -6478,7 +6604,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Vertical Scrolling Speed"
+          "display_name": "Vertical Scrolling Speed",
+          "keyframes": true
         },
         {
           "name": "av.hpos",
@@ -6635,7 +6762,8 @@
           "min": "-2",
           "max": "2",
           "default": "0",
-          "display_name": "X-axis Shear Factor"
+          "display_name": "X-axis Shear Factor",
+          "keyframes": true
         },
         {
           "name": "av.shy",
@@ -6643,7 +6771,8 @@
           "min": "-2",
           "max": "2",
           "default": "0",
-          "display_name": "Y-axis Shear Factor"
+          "display_name": "Y-axis Shear Factor",
+          "keyframes": true
         },
         {
           "name": "av.c",
@@ -6818,7 +6947,8 @@
           "max": "250",
           "default": "25",
           "factor": "1",
-          "display_name": "Scale"
+          "display_name": "Scale",
+          "keyframes": true
         },
         {
           "name": "av.delta",
@@ -6826,7 +6956,8 @@
           "min": "-300",
           "max": "300",
           "default": "-255",
-          "display_name": "Delta"
+          "display_name": "Delta",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -7936,7 +8067,8 @@
           "min": "1",
           "max": "50",
           "default": "1",
-          "display_name": "Horizontal multiplicator"
+          "display_name": "Horizontal multiplicator",
+          "keyframes": true
         },
         {
           "name": "vert",
@@ -7944,7 +8076,8 @@
           "min": "1",
           "max": "50",
           "default": "1",
-          "display_name": "Vertical multiplicator"
+          "display_name": "Vertical multiplicator",
+          "keyframes": true
         },
         {
           "name": "blur",
@@ -7952,7 +8085,8 @@
           "min": "0",
           "max": "100",
           "default": "5",
-          "display_name": "Blur factor"
+          "display_name": "Blur factor",
+          "keyframes": true
         }
       ],
       "category": "Deprecated",
@@ -7979,7 +8113,8 @@
           "max": "400",
           "default": "1",
           "factor": "100",
-          "display_name": "Intensity"
+          "display_name": "Intensity",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -8013,7 +8148,8 @@
           "min": "0",
           "max": "255",
           "default": "0",
-          "display_name": "Movement Threshold"
+          "display_name": "Movement Threshold",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -8072,7 +8208,8 @@
           "min": "0",
           "max": "10",
           "default": "2",
-          "display_name": "Horizontal scatter"
+          "display_name": "Horizontal scatter",
+          "keyframes": true
         },
         {
           "name": "y_scatter",
@@ -8080,7 +8217,8 @@
           "min": "0",
           "max": "10",
           "default": "2",
-          "display_name": "Vertical scatter"
+          "display_name": "Vertical scatter",
+          "keyframes": true
         },
         {
           "name": "scale",
@@ -8088,7 +8226,8 @@
           "min": "0",
           "max": "10",
           "default": "1",
-          "display_name": "Scale"
+          "display_name": "Scale",
+          "keyframes": true
         },
         {
           "name": "mix",
@@ -8096,7 +8235,8 @@
           "min": "0",
           "max": "10",
           "default": "0",
-          "display_name": "Mix"
+          "display_name": "Mix",
+          "keyframes": true
         },
         {
           "name": "invert",
@@ -8135,7 +8275,8 @@
           "max": "1000",
           "default": "0.15",
           "factor": "1000",
-          "display_name": "Variance"
+          "display_name": "Variance",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying",
@@ -8167,7 +8308,8 @@
           "min": "0.01",
           "max": "1.00",
           "default": "0.01",
-          "display_name": "Variance"
+          "display_name": "Variance",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -8448,7 +8590,8 @@
           "min": "0",
           "max": "100",
           "default": "1",
-          "display_name": "Blur Radius"
+          "display_name": "Blur Radius",
+          "keyframes": true
         },
         {
           "name": "x",
@@ -8456,7 +8599,8 @@
           "min": "-100",
           "max": "100",
           "default": "8",
-          "display_name": "X Offset"
+          "display_name": "X Offset",
+          "keyframes": true
         },
         {
           "name": "y",
@@ -8464,7 +8608,8 @@
           "min": "-100",
           "max": "100",
           "default": "8",
-          "display_name": "Y Offset"
+          "display_name": "Y Offset",
+          "keyframes": true
         },
         {
           "name": "color",
@@ -8498,7 +8643,8 @@
           "max": "100",
           "default": "2",
           "suffix": "%",
-          "display_name": "Maximum diameter"
+          "display_name": "Maximum diameter",
+          "keyframes": true
         },
         {
           "name": "maxcount",
@@ -8506,7 +8652,8 @@
           "min": "0",
           "max": "400",
           "default": "10",
-          "display_name": "Maximum number of particles"
+          "display_name": "Maximum number of particles",
+          "keyframes": true
         }
       ],
       "category": "Grain and Noise",
@@ -8594,7 +8741,8 @@
           "name": "geometry",
           "type": "animatedrect",
           "default": "0 0 100% 100%",
-          "display_name": "Geometry"
+          "display_name": "Geometry",
+          "keyframes": true
         },
         {
           "name": "family",
@@ -8992,7 +9140,8 @@
           "max": "8",
           "default": "0",
           "factor": "8",
-          "display_name": "Strobe period"
+          "display_name": "Strobe period",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -9033,7 +9182,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Threshold"
+          "display_name": "Threshold",
+          "keyframes": true
         },
         {
           "name": "Shrink/Grow/Blur amount",
@@ -9042,7 +9192,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Shrink/Grow/Blur Amount"
+          "display_name": "Shrink/Grow/Blur Amount",
+          "keyframes": true
         },
         {
           "name": "Invert",
@@ -9069,7 +9220,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Position"
+          "display_name": "Position",
+          "keyframes": true
         },
         {
           "name": "Transition width",
@@ -9079,7 +9231,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Transition Width"
+          "display_name": "Transition Width",
+          "keyframes": true
         },
         {
           "name": "Tilt",
@@ -9089,7 +9242,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Tilt"
+          "display_name": "Tilt",
+          "keyframes": true
         },
         {
           "name": "Min",
@@ -9099,7 +9253,8 @@
           "default": "1",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Transparency Top"
+          "display_name": "Transparency Top",
+          "keyframes": true
         },
         {
           "name": "Max",
@@ -9109,7 +9264,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Transparency Bottom"
+          "display_name": "Transparency Bottom",
+          "keyframes": true
         },
         {
           "name": "Operation",
@@ -9144,7 +9300,8 @@
           "max": "1500",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Position X"
+          "display_name": "Position X",
+          "keyframes": true
         },
         {
           "name": "Position Y",
@@ -9153,7 +9310,8 @@
           "max": "1500",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Position Y"
+          "display_name": "Position Y",
+          "keyframes": true
         },
         {
           "name": "Size X",
@@ -9162,7 +9320,8 @@
           "max": "1000",
           "default": "0.1",
           "factor": "1000",
-          "display_name": "Size X"
+          "display_name": "Size X",
+          "keyframes": true
         },
         {
           "name": "Size Y",
@@ -9171,7 +9330,8 @@
           "max": "1000",
           "default": "0.1",
           "factor": "1000",
-          "display_name": "Size Y"
+          "display_name": "Size Y",
+          "keyframes": true
         },
         {
           "name": "Tilt",
@@ -9180,7 +9340,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Tilt"
+          "display_name": "Tilt",
+          "keyframes": true
         },
         {
           "name": "Transition width",
@@ -9189,7 +9350,8 @@
           "max": "1000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "Transition width"
+          "display_name": "Transition width",
+          "keyframes": true
         },
         {
           "name": "Min",
@@ -9198,7 +9360,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Min"
+          "display_name": "Min",
+          "keyframes": true
         },
         {
           "name": "Max",
@@ -9207,7 +9370,8 @@
           "max": "1000",
           "default": "1",
           "factor": "1000",
-          "display_name": "Max"
+          "display_name": "Max",
+          "keyframes": true
         },
         {
           "name": "Operation",
@@ -9235,7 +9399,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Position"
+          "display_name": "Position",
+          "keyframes": true
         },
         {
           "name": "Transition width",
@@ -9245,7 +9410,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Transition Width"
+          "display_name": "Transition Width",
+          "keyframes": true
         },
         {
           "name": "Tilt",
@@ -9255,7 +9421,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Tilt"
+          "display_name": "Tilt",
+          "keyframes": true
         },
         {
           "name": "Min",
@@ -9265,7 +9432,8 @@
           "default": "1",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Transparency Top"
+          "display_name": "Transparency Top",
+          "keyframes": true
         },
         {
           "name": "Max",
@@ -9275,7 +9443,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Transparency Bottom"
+          "display_name": "Transparency Bottom",
+          "keyframes": true
         },
         {
           "name": "Operation",
@@ -9310,7 +9479,8 @@
           "max": "1500",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Position X"
+          "display_name": "Position X",
+          "keyframes": true
         },
         {
           "name": "Position Y",
@@ -9319,7 +9489,8 @@
           "max": "1500",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Position Y"
+          "display_name": "Position Y",
+          "keyframes": true
         },
         {
           "name": "Size X",
@@ -9328,7 +9499,8 @@
           "max": "1000",
           "default": "0.1",
           "factor": "1000",
-          "display_name": "Size X"
+          "display_name": "Size X",
+          "keyframes": true
         },
         {
           "name": "Size Y",
@@ -9337,7 +9509,8 @@
           "max": "1000",
           "default": "0.1",
           "factor": "1000",
-          "display_name": "Size Y"
+          "display_name": "Size Y",
+          "keyframes": true
         },
         {
           "name": "Tilt",
@@ -9346,7 +9519,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Tilt"
+          "display_name": "Tilt",
+          "keyframes": true
         },
         {
           "name": "Transition width",
@@ -9355,7 +9529,8 @@
           "max": "1000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "Transition width"
+          "display_name": "Transition width",
+          "keyframes": true
         },
         {
           "name": "Min",
@@ -9364,7 +9539,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Min"
+          "display_name": "Min",
+          "keyframes": true
         },
         {
           "name": "Max",
@@ -9373,7 +9549,8 @@
           "max": "1000",
           "default": "1",
           "factor": "1000",
-          "display_name": "Max"
+          "display_name": "Max",
+          "keyframes": true
         },
         {
           "name": "Operation",
@@ -9421,7 +9598,8 @@
         {
           "name": "5",
           "type": "bezier_spline",
-          "default": "-1;-1#0;0#0.1;0.1|0.9;0.9#1;1#2;2"
+          "default": "-1;-1#0;0#0.1;0.1|0.9;0.9#1;1#2;2",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -9491,7 +9669,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "<b>--Top--</b> Start"
+          "display_name": "<b>--Top--</b> Start",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -9501,7 +9680,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "End"
+          "display_name": "End",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -9511,7 +9691,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blend In"
+          "display_name": "Blend In",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -9521,7 +9702,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blend Out"
+          "display_name": "Blend Out",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -9531,7 +9713,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Fade In"
+          "display_name": "Fade In",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -9541,7 +9724,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur width at start"
+          "display_name": "Blur width at start",
+          "keyframes": true
         },
         {
           "name": "7",
@@ -9551,7 +9735,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur width at end"
+          "display_name": "Blur width at end",
+          "keyframes": true
         },
         {
           "name": "8",
@@ -9561,7 +9746,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur height at start"
+          "display_name": "Blur height at start",
+          "keyframes": true
         },
         {
           "name": "9",
@@ -9571,7 +9757,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur height at end"
+          "display_name": "Blur height at end",
+          "keyframes": true
         },
         {
           "name": "10",
@@ -9589,7 +9776,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "<b>--Bottom--</b> Start"
+          "display_name": "<b>--Bottom--</b> Start",
+          "keyframes": true
         },
         {
           "name": "12",
@@ -9599,7 +9787,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "End"
+          "display_name": "End",
+          "keyframes": true
         },
         {
           "name": "13",
@@ -9609,7 +9798,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blend In"
+          "display_name": "Blend In",
+          "keyframes": true
         },
         {
           "name": "14",
@@ -9619,7 +9809,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blend Out"
+          "display_name": "Blend Out",
+          "keyframes": true
         },
         {
           "name": "15",
@@ -9629,7 +9820,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Fade In"
+          "display_name": "Fade In",
+          "keyframes": true
         },
         {
           "name": "16",
@@ -9639,7 +9831,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur width at start"
+          "display_name": "Blur width at start",
+          "keyframes": true
         },
         {
           "name": "17",
@@ -9649,7 +9842,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur width at end"
+          "display_name": "Blur width at end",
+          "keyframes": true
         },
         {
           "name": "18",
@@ -9659,7 +9853,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur height at start"
+          "display_name": "Blur height at start",
+          "keyframes": true
         },
         {
           "name": "19",
@@ -9669,7 +9864,8 @@
           "default": "0",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Blur height at end"
+          "display_name": "Blur height at end",
+          "keyframes": true
         }
       ],
       "category": "VR360 and 3D"
@@ -9691,7 +9887,8 @@
           "default": "180",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Vertical start"
+          "display_name": "Vertical start",
+          "keyframes": true
         },
         {
           "name": "vfov1",
@@ -9701,7 +9898,8 @@
           "default": "200",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Vertical end"
+          "display_name": "Vertical end",
+          "keyframes": true
         },
         {
           "name": "hfov0",
@@ -9711,7 +9909,8 @@
           "default": "140",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Horizontal start"
+          "display_name": "Horizontal start",
+          "keyframes": true
         },
         {
           "name": "hfov1",
@@ -9721,7 +9920,8 @@
           "default": "160",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Horizontal end"
+          "display_name": "Horizontal end",
+          "keyframes": true
         },
         {
           "name": "interpolation",
@@ -9750,7 +9950,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Yaw"
+          "display_name": "Yaw",
+          "keyframes": true
         },
         {
           "name": "pitch",
@@ -9760,7 +9961,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Pitch"
+          "display_name": "Pitch",
+          "keyframes": true
         },
         {
           "name": "roll",
@@ -9770,7 +9972,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Roll"
+          "display_name": "Roll",
+          "keyframes": true
         },
         {
           "name": "fov",
@@ -9780,7 +9983,8 @@
           "default": "100",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "FOV"
+          "display_name": "FOV",
+          "keyframes": true
         },
         {
           "name": "fisheye",
@@ -9790,7 +9994,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "%",
-          "display_name": "Fisheye"
+          "display_name": "Fisheye",
+          "keyframes": true
         },
         {
           "name": "interpolation",
@@ -9818,7 +10023,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Yaw"
+          "display_name": "Yaw",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -9827,7 +10033,8 @@
           "max": "180",
           "default": "-90",
           "suffix": "\u00b0",
-          "display_name": "Pitch"
+          "display_name": "Pitch",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -9836,7 +10043,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Roll"
+          "display_name": "Roll",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -9845,7 +10053,8 @@
           "max": "180",
           "default": "160",
           "suffix": "\u00b0",
-          "display_name": "FOV"
+          "display_name": "FOV",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -9854,7 +10063,8 @@
           "max": "100",
           "default": "100",
           "suffix": "%",
-          "display_name": "Amount"
+          "display_name": "Amount",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -9890,7 +10100,8 @@
           "default": "0",
           "factor": "90",
           "suffix": "\u00b0",
-          "display_name": "Top"
+          "display_name": "Top",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -9900,7 +10111,8 @@
           "default": "0",
           "factor": "90",
           "suffix": "\u00b0",
-          "display_name": "Bottom"
+          "display_name": "Bottom",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -9910,7 +10122,8 @@
           "default": "0",
           "factor": "90",
           "suffix": "\u00b0",
-          "display_name": "Left"
+          "display_name": "Left",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -9920,7 +10133,8 @@
           "default": "0",
           "factor": "90",
           "suffix": "\u00b0",
-          "display_name": "Right"
+          "display_name": "Right",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -9930,7 +10144,8 @@
           "default": "0",
           "factor": "90",
           "suffix": "\u00b0",
-          "display_name": "Blur start"
+          "display_name": "Blur start",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -9940,7 +10155,8 @@
           "default": "0",
           "factor": "90",
           "suffix": "\u00b0",
-          "display_name": "Blur end"
+          "display_name": "Blur end",
+          "keyframes": true
         }
       ],
       "category": "VR360 and 3D"
@@ -9962,7 +10178,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Alignment yaw"
+          "display_name": "Alignment yaw",
+          "keyframes": true
         },
         {
           "name": "pitch",
@@ -9972,7 +10189,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Alignment pitch"
+          "display_name": "Alignment pitch",
+          "keyframes": true
         },
         {
           "name": "roll",
@@ -9982,7 +10200,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Alignment roll"
+          "display_name": "Alignment roll",
+          "keyframes": true
         },
         {
           "name": "projection",
@@ -9999,7 +10218,8 @@
           "default": "180",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Lens FOV"
+          "display_name": "Lens FOV",
+          "keyframes": true
         },
         {
           "name": "radius",
@@ -10007,7 +10227,8 @@
           "min": "0",
           "max": "1",
           "default": "0.25",
-          "display_name": "Lens radius"
+          "display_name": "Lens radius",
+          "keyframes": true
         },
         {
           "name": "frontX",
@@ -10015,7 +10236,8 @@
           "min": "0",
           "max": "1",
           "default": "0.7500",
-          "display_name": "Front X"
+          "display_name": "Front X",
+          "keyframes": true
         },
         {
           "name": "frontY",
@@ -10023,7 +10245,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5000",
-          "display_name": "Front Y"
+          "display_name": "Front Y",
+          "keyframes": true
         },
         {
           "name": "frontUp",
@@ -10033,7 +10256,8 @@
           "default": "90",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Front Up"
+          "display_name": "Front Up",
+          "keyframes": true
         },
         {
           "name": "backX",
@@ -10041,7 +10265,8 @@
           "min": "0",
           "max": "1",
           "default": "0.2500",
-          "display_name": "Back X"
+          "display_name": "Back X",
+          "keyframes": true
         },
         {
           "name": "backY",
@@ -10049,7 +10274,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5000",
-          "display_name": "Back Y"
+          "display_name": "Back Y",
+          "keyframes": true
         },
         {
           "name": "backUp",
@@ -10059,7 +10285,8 @@
           "default": "90",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Back Up"
+          "display_name": "Back Up",
+          "keyframes": true
         },
         {
           "name": "nadirRadius",
@@ -10067,7 +10294,8 @@
           "min": "0",
           "max": "1",
           "default": "0.2229",
-          "display_name": "Nadir radius"
+          "display_name": "Nadir radius",
+          "keyframes": true
         },
         {
           "name": "nadirCorrectionStart",
@@ -10075,7 +10303,8 @@
           "min": "0",
           "max": "1",
           "default": "0.8",
-          "display_name": "Nadir start"
+          "display_name": "Nadir start",
+          "keyframes": true
         },
         {
           "name": "distortionA",
@@ -10083,7 +10312,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens distortion A"
+          "display_name": "Lens distortion A",
+          "keyframes": true
         },
         {
           "name": "distortionB",
@@ -10091,7 +10321,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens distortion B"
+          "display_name": "Lens distortion B",
+          "keyframes": true
         },
         {
           "name": "distortionC",
@@ -10099,7 +10330,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens distortion C"
+          "display_name": "Lens distortion C",
+          "keyframes": true
         },
         {
           "name": "distortionRadius",
@@ -10107,7 +10339,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens distortion radius"
+          "display_name": "Lens distortion radius",
+          "keyframes": true
         },
         {
           "name": "vignettingA",
@@ -10115,7 +10348,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens vignetting A"
+          "display_name": "Lens vignetting A",
+          "keyframes": true
         },
         {
           "name": "vignettingB",
@@ -10123,7 +10357,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens vignetting B"
+          "display_name": "Lens vignetting B",
+          "keyframes": true
         },
         {
           "name": "vignettingC",
@@ -10131,7 +10366,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens vignetting C"
+          "display_name": "Lens vignetting C",
+          "keyframes": true
         },
         {
           "name": "vignettingD",
@@ -10139,7 +10375,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens vignetting D"
+          "display_name": "Lens vignetting D",
+          "keyframes": true
         },
         {
           "name": "vignettingRadius",
@@ -10147,7 +10384,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Lens vignetting radius"
+          "display_name": "Lens vignetting radius",
+          "keyframes": true
         },
         {
           "name": "emorEnabled",
@@ -10163,7 +10401,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "EMoR h(1)"
+          "display_name": "EMoR h(1)",
+          "keyframes": true
         },
         {
           "name": "emorH2",
@@ -10171,7 +10410,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "EMoR h(2)"
+          "display_name": "EMoR h(2)",
+          "keyframes": true
         },
         {
           "name": "emorH3",
@@ -10179,7 +10419,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "EMoR h(3)"
+          "display_name": "EMoR h(3)",
+          "keyframes": true
         },
         {
           "name": "emorH4",
@@ -10187,7 +10428,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "EMoR h(4)"
+          "display_name": "EMoR h(4)",
+          "keyframes": true
         },
         {
           "name": "emorH5",
@@ -10195,7 +10437,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "EMoR h(5)"
+          "display_name": "EMoR h(5)",
+          "keyframes": true
         },
         {
           "name": "interpolation",
@@ -10223,7 +10466,8 @@
           "max": "180",
           "default": "90",
           "suffix": "\u00b0",
-          "display_name": "Width"
+          "display_name": "Width",
+          "keyframes": true
         },
         {
           "name": "vfov",
@@ -10232,7 +10476,8 @@
           "max": "180",
           "default": "60",
           "suffix": "\u00b0",
-          "display_name": "Height"
+          "display_name": "Height",
+          "keyframes": true
         },
         {
           "name": "interpolation",
@@ -10424,7 +10669,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Yaw"
+          "display_name": "Yaw",
+          "keyframes": true
         },
         {
           "name": "pitch",
@@ -10434,7 +10680,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Pitch"
+          "display_name": "Pitch",
+          "keyframes": true
         },
         {
           "name": "roll",
@@ -10444,7 +10691,8 @@
           "default": "0",
           "factor": "1",
           "suffix": "\u00b0",
-          "display_name": "Roll"
+          "display_name": "Roll",
+          "keyframes": true
         },
         {
           "name": "interpolation",
@@ -10485,7 +10733,8 @@
           "min": "0",
           "max": "1",
           "default": "0.288",
-          "display_name": "Distance to Color"
+          "display_name": "Distance to Color",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying"
@@ -10506,7 +10755,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Brightness"
+          "display_name": "Brightness",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -10538,7 +10788,8 @@
           "max": "6000",
           "default": "0.3335",
           "factor": "6000",
-          "display_name": "Top-left X"
+          "display_name": "Top-left X",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -10547,7 +10798,8 @@
           "max": "6000",
           "default": "0.334",
           "factor": "6000",
-          "display_name": "Top-left Y"
+          "display_name": "Top-left Y",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -10556,7 +10808,8 @@
           "max": "6000",
           "default": "0.667",
           "factor": "6000",
-          "display_name": "Top-right X"
+          "display_name": "Top-right X",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -10565,7 +10818,8 @@
           "max": "6000",
           "default": "0.334",
           "factor": "6000",
-          "display_name": "Top-right Y"
+          "display_name": "Top-right Y",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -10574,7 +10828,8 @@
           "max": "6000",
           "default": "0.667",
           "factor": "6000",
-          "display_name": "Bottom-right X"
+          "display_name": "Bottom-right X",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -10583,7 +10838,8 @@
           "max": "6000",
           "default": "0.667",
           "factor": "6000",
-          "display_name": "Bottom-right Y"
+          "display_name": "Bottom-right Y",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -10592,7 +10848,8 @@
           "max": "6000",
           "default": "0.334",
           "factor": "6000",
-          "display_name": "Bottom-left X"
+          "display_name": "Bottom-left X",
+          "keyframes": true
         },
         {
           "name": "7",
@@ -10601,7 +10858,8 @@
           "max": "6000",
           "default": "0.667",
           "factor": "6000",
-          "display_name": "Bottom-left Y"
+          "display_name": "Bottom-left Y",
+          "keyframes": true
         },
         {
           "name": "9",
@@ -10610,7 +10868,8 @@
           "max": "2000",
           "default": "0.5",
           "factor": "2000",
-          "display_name": "Stretch X"
+          "display_name": "Stretch X",
+          "keyframes": true
         },
         {
           "name": "10",
@@ -10619,7 +10878,8 @@
           "max": "2000",
           "default": "0.5",
           "factor": "2000",
-          "display_name": "Stretch Y"
+          "display_name": "Stretch Y",
+          "keyframes": true
         },
         {
           "name": "13",
@@ -10629,7 +10889,8 @@
           "default": "0.05",
           "factor": "100",
           "suffix": "px",
-          "display_name": "Feather Alpha"
+          "display_name": "Feather Alpha",
+          "keyframes": true
         },
         {
           "name": "8",
@@ -10691,7 +10952,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Start Opacity"
+          "display_name": "Start Opacity",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -10707,7 +10969,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "End Opacity"
+          "display_name": "End Opacity",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -10717,7 +10980,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Start X"
+          "display_name": "Start X",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -10727,7 +10991,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Start Y"
+          "display_name": "Start Y",
+          "keyframes": true
         },
         {
           "name": "7",
@@ -10737,7 +11002,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "End X"
+          "display_name": "End X",
+          "keyframes": true
         },
         {
           "name": "8",
@@ -10747,7 +11013,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "End Y"
+          "display_name": "End Y",
+          "keyframes": true
         },
         {
           "name": "9",
@@ -10757,7 +11024,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Offset"
+          "display_name": "Offset",
+          "keyframes": true
         },
         {
           "name": "10",
@@ -10786,7 +11054,8 @@
           "max": "20",
           "default": "0",
           "factor": "19.00057002",
-          "display_name": "Rows"
+          "display_name": "Rows",
+          "keyframes": true
         },
         {
           "name": "columns",
@@ -10795,7 +11064,8 @@
           "max": "20",
           "default": "0",
           "factor": "19.00057002",
-          "display_name": "Columns"
+          "display_name": "Columns",
+          "keyframes": true
         }
       ],
       "category": "Generate"
@@ -10816,7 +11086,8 @@
           "min": "0.95",
           "max": "1",
           "default": "0.99",
-          "display_name": "Level of trip"
+          "display_name": "Level of trip",
+          "keyframes": true
         },
         {
           "name": "diffspace",
@@ -10824,7 +11095,8 @@
           "min": "0.00372",
           "max": "0.064",
           "default": "0.006",
-          "display_name": "Difference space"
+          "display_name": "Difference space",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -10845,7 +11117,8 @@
           "min": "0",
           "max": "40",
           "default": "20",
-          "display_name": "Amount of clusters"
+          "display_name": "Amount of clusters",
+          "keyframes": true
         },
         {
           "name": "Dist weight",
@@ -10854,7 +11127,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Weight on distance"
+          "display_name": "Weight on distance",
+          "keyframes": true
         }
       ],
       "category": "Deprecated"
@@ -10881,7 +11155,8 @@
           "max": "15000",
           "default": "0.433333334",
           "factor": "15000",
-          "display_name": "Color Temperature"
+          "display_name": "Color Temperature",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -10902,7 +11177,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Red"
+          "display_name": "Red",
+          "keyframes": true
         },
         {
           "name": "G",
@@ -10911,7 +11187,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Green"
+          "display_name": "Green",
+          "keyframes": true
         },
         {
           "name": "B",
@@ -10920,7 +11197,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Blue"
+          "display_name": "Blue",
+          "keyframes": true
         },
         {
           "name": "Action",
@@ -10986,7 +11264,8 @@
           "default": "0.5",
           "factor": "360",
           "suffix": "\u00b0",
-          "display_name": "Hue"
+          "display_name": "Hue",
+          "keyframes": true
         },
         {
           "name": "saturation",
@@ -10996,7 +11275,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         },
         {
           "name": "lightness",
@@ -11004,7 +11284,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5",
-          "display_name": "Lightness"
+          "display_name": "Lightness",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -11044,7 +11325,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "500",
-          "display_name": "Contrast"
+          "display_name": "Contrast",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -11075,7 +11357,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Amount"
+          "display_name": "Amount",
+          "keyframes": true
         },
         {
           "name": "DeFish",
@@ -11110,7 +11393,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Fix Camera Scaling<br>\n        Between 4:3 and 16:9"
+          "display_name": "Fix Camera Scaling<br>\n        Between 4:3 and 16:9",
+          "keyframes": true
         },
         {
           "name": "Y Scale",
@@ -11119,7 +11403,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Scale Y to Affect<br>\n        Aspect Ratio"
+          "display_name": "Scale Y to Affect<br>\n        Aspect Ratio",
+          "keyframes": true
         },
         {
           "name": "Manual Scale",
@@ -11128,7 +11413,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Manual Scale"
+          "display_name": "Manual Scale",
+          "keyframes": true
         },
         {
           "name": "Interpolator",
@@ -11151,7 +11437,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Manual Aspect"
+          "display_name": "Manual Aspect",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -11173,7 +11460,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Delay time"
+          "display_name": "Delay time",
+          "keyframes": true
         }
       ]
     },
@@ -11203,7 +11491,8 @@
           "max": "1000",
           "default": "0.004",
           "factor": "1000",
-          "display_name": "Spatial"
+          "display_name": "Spatial",
+          "keyframes": true
         },
         {
           "name": "Temporal",
@@ -11212,7 +11501,8 @@
           "max": "1000",
           "default": "0.006",
           "factor": "1000",
-          "display_name": "Temporal"
+          "display_name": "Temporal",
+          "keyframes": true
         }
       ],
       "category": "Grain and Noise"
@@ -11234,7 +11524,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Amplitude"
+          "display_name": "Amplitude",
+          "keyframes": true
         },
         {
           "name": "Frequency",
@@ -11244,7 +11535,8 @@
           "default": "0.005",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Frequency"
+          "display_name": "Frequency",
+          "keyframes": true
         },
         {
           "name": "Use Velocity",
@@ -11262,7 +11554,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Velocity"
+          "display_name": "Velocity",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -11284,7 +11577,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Edge lightening threshold"
+          "display_name": "Edge lightening threshold",
+          "keyframes": true
         },
         {
           "name": "lupscale",
@@ -11293,7 +11587,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Edge brightness<br>\n        upscaling multiplier"
+          "display_name": "Edge brightness<br>\n        upscaling multiplier",
+          "keyframes": true
         },
         {
           "name": "lredscale",
@@ -11302,7 +11597,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Non-edge brightness<br>\n        downscaling multiplier"
+          "display_name": "Non-edge brightness<br>\n        downscaling multiplier",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -11324,7 +11620,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Center"
+          "display_name": "Center",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -11334,7 +11631,8 @@
           "default": "0.005",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Linear Width"
+          "display_name": "Linear Width",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -11344,7 +11642,8 @@
           "default": "0.005",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Linear Scale Factor"
+          "display_name": "Linear Scale Factor",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -11354,7 +11653,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Non-Linear Scale Factor"
+          "display_name": "Non-Linear Scale Factor",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -11386,7 +11686,8 @@
           "max": "200",
           "default": "1.2",
           "factor": "100",
-          "display_name": "Search scale"
+          "display_name": "Search scale",
+          "keyframes": true
         },
         {
           "name": "Neighbors",
@@ -11394,7 +11695,8 @@
           "min": "1",
           "max": "10",
           "default": "2",
-          "display_name": "Neighbors"
+          "display_name": "Neighbors",
+          "keyframes": true
         },
         {
           "name": "Smallest",
@@ -11402,7 +11704,8 @@
           "min": "0",
           "max": "100",
           "default": "2",
-          "display_name": "Smallest"
+          "display_name": "Smallest",
+          "keyframes": true
         },
         {
           "name": "Largest",
@@ -11411,7 +11714,8 @@
           "max": "10000",
           "default": "500",
           "suffix": "pixels",
-          "display_name": "Largest"
+          "display_name": "Largest",
+          "keyframes": true
         },
         {
           "name": "Recheck",
@@ -11421,7 +11725,8 @@
           "default": "0.05",
           "factor": "1000",
           "suffix": "frames",
-          "display_name": "Recheck"
+          "display_name": "Recheck",
+          "keyframes": true
         },
         {
           "name": "Ellipse",
@@ -11447,7 +11752,8 @@
           "max": "1000",
           "default": "1.2",
           "factor": "1000",
-          "display_name": "Search scale"
+          "display_name": "Search scale",
+          "keyframes": true
         },
         {
           "name": "Neighbors",
@@ -11456,7 +11762,8 @@
           "max": "10",
           "default": "2",
           "factor": "100",
-          "display_name": "Neighbors"
+          "display_name": "Neighbors",
+          "keyframes": true
         },
         {
           "name": "Smallest",
@@ -11465,7 +11772,8 @@
           "max": "1000",
           "default": "2",
           "factor": "1000",
-          "display_name": "Smallest"
+          "display_name": "Smallest",
+          "keyframes": true
         },
         {
           "name": "Recheck",
@@ -11475,7 +11783,8 @@
           "default": "0.05",
           "factor": "1000",
           "suffix": "frames",
-          "display_name": "Recheck"
+          "display_name": "Recheck",
+          "keyframes": true
         },
         {
           "name": "Shape",
@@ -11492,7 +11801,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "pixels",
-          "display_name": "Stroke width"
+          "display_name": "Stroke width",
+          "keyframes": true
         },
         {
           "name": "Alpha",
@@ -11502,7 +11812,8 @@
           "default": "1",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Alpha"
+          "display_name": "Alpha",
+          "keyframes": true
         },
         {
           "name": "Antialias",
@@ -11529,7 +11840,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Grain Amount"
+          "display_name": "Grain Amount",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -11539,7 +11851,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Red Grain"
+          "display_name": "Red Grain",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -11549,7 +11862,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Green Grain"
+          "display_name": "Green Grain",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -11559,7 +11873,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Blue Grain"
+          "display_name": "Blue Grain",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -11569,7 +11884,8 @@
           "default": "0.5",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Blur Amount"
+          "display_name": "Blur Amount",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -11579,7 +11895,8 @@
           "default": "0.3",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Dust Amount"
+          "display_name": "Dust Amount",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -11589,7 +11906,8 @@
           "default": "0.1",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Flicker Amount"
+          "display_name": "Flicker Amount",
+          "keyframes": true
         }
       ],
       "category": "Grain and Noise"
@@ -11636,7 +11954,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Glitch Frequency"
+          "display_name": "Glitch Frequency",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -11646,7 +11965,8 @@
           "default": "0.1",
           "factor": "%height",
           "suffix": "px",
-          "display_name": "Block Height"
+          "display_name": "Block Height",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -11655,7 +11975,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Shift Intensity"
+          "display_name": "Shift Intensity",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -11664,7 +11985,8 @@
           "max": "5",
           "default": "0",
           "factor": "5",
-          "display_name": "Color Glitching Intensity"
+          "display_name": "Color Glitching Intensity",
+          "keyframes": true
         }
       ],
       "category": "Motion"
@@ -11685,7 +12007,8 @@
           "max": "1000",
           "default": "0.01",
           "factor": "1000",
-          "display_name": "Blur"
+          "display_name": "Blur",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -11745,7 +12068,8 @@
           "max": "1000",
           "default": "0.004",
           "factor": "1000",
-          "display_name": "Spatial"
+          "display_name": "Spatial",
+          "keyframes": true
         },
         {
           "name": "Temporal",
@@ -11754,7 +12078,8 @@
           "max": "1000",
           "default": "0.006",
           "factor": "1000",
-          "display_name": "Temporal"
+          "display_name": "Temporal",
+          "keyframes": true
         }
       ],
       "category": "Deprecated"
@@ -11775,7 +12100,8 @@
           "max": "360",
           "default": "0",
           "factor": "360",
-          "display_name": "Hue"
+          "display_name": "Hue",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -11796,7 +12122,8 @@
           "max": "1000",
           "default": "0.04",
           "factor": "1000",
-          "display_name": "Amount"
+          "display_name": "Amount",
+          "keyframes": true
         },
         {
           "name": "Type",
@@ -11841,7 +12168,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Origin X"
+          "display_name": "Origin X",
+          "keyframes": true
         },
         {
           "name": "origin_y",
@@ -11850,7 +12178,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Origin Y"
+          "display_name": "Origin Y",
+          "keyframes": true
         },
         {
           "name": "segmentation",
@@ -11859,7 +12188,8 @@
           "max": "128",
           "default": "0.125",
           "factor": "128",
-          "display_name": "Segmentation"
+          "display_name": "Segmentation",
+          "keyframes": true
         },
         {
           "name": "specify_source",
@@ -11877,7 +12207,8 @@
           "max": "128",
           "default": "0",
           "factor": "128",
-          "display_name": "Source Segment"
+          "display_name": "Source Segment",
+          "keyframes": true
         },
         {
           "name": "segmentation_direction",
@@ -11900,7 +12231,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Edge Threshold"
+          "display_name": "Edge Threshold",
+          "keyframes": true
         },
         {
           "name": "preferred_corner",
@@ -11969,7 +12301,8 @@
           "max": "1000",
           "default": "0.24",
           "factor": "1000",
-          "display_name": "Tolerance"
+          "display_name": "Tolerance",
+          "keyframes": true
         },
         {
           "name": "Slope",
@@ -11978,7 +12311,8 @@
           "max": "1000",
           "default": "0.4",
           "factor": "1000",
-          "display_name": "Slope"
+          "display_name": "Slope",
+          "keyframes": true
         },
         {
           "name": "Hue gate",
@@ -11987,7 +12321,8 @@
           "max": "1000",
           "default": "0.25",
           "factor": "1000",
-          "display_name": "Hue Gate"
+          "display_name": "Hue Gate",
+          "keyframes": true
         },
         {
           "name": "Saturation threshold",
@@ -11996,7 +12331,8 @@
           "max": "1000",
           "default": "0.15",
           "factor": "1000",
-          "display_name": "Saturation Threshold"
+          "display_name": "Saturation Threshold",
+          "keyframes": true
         },
         {
           "name": "Operation 1",
@@ -12012,7 +12348,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Amount 1"
+          "display_name": "Amount 1",
+          "keyframes": true
         },
         {
           "name": "Operation 2",
@@ -12028,7 +12365,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Amount 2"
+          "display_name": "Amount 2",
+          "keyframes": true
         },
         {
           "name": "Show mask",
@@ -12061,7 +12399,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Horizontal Center"
+          "display_name": "Horizontal Center",
+          "keyframes": true
         },
         {
           "name": "ycenter",
@@ -12070,7 +12409,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Vertical Center"
+          "display_name": "Vertical Center",
+          "keyframes": true
         },
         {
           "name": "correctionnearcenter",
@@ -12079,7 +12419,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Center Correction"
+          "display_name": "Center Correction",
+          "keyframes": true
         },
         {
           "name": "correctionnearedges",
@@ -12088,7 +12429,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Edges Correction"
+          "display_name": "Edges Correction",
+          "keyframes": true
         },
         {
           "name": "brightness",
@@ -12097,7 +12439,8 @@
           "max": "100",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Brightness"
+          "display_name": "Brightness",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -12120,7 +12463,8 @@
           "default": "0.4",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Border Width"
+          "display_name": "Border Width",
+          "keyframes": true
         },
         {
           "name": "Transparency",
@@ -12156,7 +12500,8 @@
           "name": "kdenlive:fakerect",
           "type": "animatedfakerect",
           "default": "0 0 100% 100%",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "Invert",
@@ -12171,7 +12516,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Blur"
+          "display_name": "Blur",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying"
@@ -12199,7 +12545,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "X Position"
+          "display_name": "X Position",
+          "keyframes": true
         },
         {
           "name": "Y",
@@ -12208,7 +12555,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Y Position"
+          "display_name": "Y Position",
+          "keyframes": true
         },
         {
           "name": "X size",
@@ -12217,7 +12565,8 @@
           "max": "25",
           "default": "0.28",
           "factor": "25",
-          "display_name": "X Size"
+          "display_name": "X Size",
+          "keyframes": true
         },
         {
           "name": "Y size",
@@ -12226,7 +12575,8 @@
           "max": "25",
           "default": "0.28",
           "factor": "25",
-          "display_name": "Y Size"
+          "display_name": "Y Size",
+          "keyframes": true
         },
         {
           "name": "256 scale",
@@ -12265,7 +12615,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Profile X Position"
+          "display_name": "Profile X Position",
+          "keyframes": true
         },
         {
           "name": "Y",
@@ -12274,7 +12625,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Profile Y Position"
+          "display_name": "Profile Y Position",
+          "keyframes": true
         },
         {
           "name": "Tilt",
@@ -12283,7 +12635,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Profile Tilt"
+          "display_name": "Profile Tilt",
+          "keyframes": true
         },
         {
           "name": "Length",
@@ -12292,7 +12645,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Profile Length"
+          "display_name": "Profile Length",
+          "keyframes": true
         },
         {
           "name": "Channel",
@@ -12308,7 +12662,8 @@
           "max": "%width",
           "default": "0",
           "factor": "%width",
-          "display_name": "Marker 1"
+          "display_name": "Marker 1",
+          "keyframes": true
         },
         {
           "name": "Marker 2",
@@ -12317,7 +12672,8 @@
           "max": "%width",
           "default": "0",
           "factor": "%width",
-          "display_name": "Marker 2"
+          "display_name": "Marker 2",
+          "keyframes": true
         },
         {
           "name": "R trace",
@@ -12405,7 +12761,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Crosshair Color"
+          "display_name": "Crosshair Color",
+          "keyframes": true
         }
       ],
       "category": "Utilities"
@@ -12433,7 +12790,8 @@
           "max": "50",
           "default": "0.1",
           "factor": "50",
-          "display_name": "Size"
+          "display_name": "Size",
+          "keyframes": true
         }
       ],
       "category": "Deprecated"
@@ -12455,7 +12813,8 @@
           "max": "%width",
           "default": "0",
           "suffix": "px",
-          "display_name": "X Offset"
+          "display_name": "X Offset",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -12464,7 +12823,8 @@
           "max": "%height",
           "default": "0",
           "suffix": "px",
-          "display_name": "Y Offset"
+          "display_name": "Y Offset",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -12472,7 +12832,8 @@
           "min": "0",
           "max": "1.0",
           "default": "0",
-          "display_name": "Zoom"
+          "display_name": "Zoom",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -12480,7 +12841,8 @@
           "min": "0",
           "max": "360",
           "default": "0",
-          "display_name": "Rotation"
+          "display_name": "Rotation",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -12507,7 +12869,8 @@
           "min": "0.01",
           "max": "1",
           "default": "0.256",
-          "display_name": "Levels"
+          "display_name": "Levels",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -12515,7 +12878,8 @@
           "min": "0",
           "max": "1",
           "default": "0.1",
-          "display_name": "VIS Scale"
+          "display_name": "VIS Scale",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -12523,7 +12887,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5",
-          "display_name": "VIS Offset"
+          "display_name": "VIS Offset",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -12531,7 +12896,8 @@
           "min": "0",
           "max": "1",
           "default": "0.1",
-          "display_name": "NIR Scale"
+          "display_name": "NIR Scale",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -12539,7 +12905,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5",
-          "display_name": "NIR Offset"
+          "display_name": "NIR Offset",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -12610,7 +12977,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Smoothing"
+          "display_name": "Smoothing",
+          "keyframes": true
         },
         {
           "name": "Independence",
@@ -12619,7 +12987,8 @@
           "max": "1000",
           "default": "1",
           "factor": "1000",
-          "display_name": "Independence"
+          "display_name": "Independence",
+          "keyframes": true
         },
         {
           "name": "Strength",
@@ -12628,7 +12997,8 @@
           "max": "1000",
           "default": "1",
           "factor": "1000",
-          "display_name": "Strength"
+          "display_name": "Strength",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -12650,7 +13020,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "HSync"
+          "display_name": "HSync",
+          "keyframes": true
         },
         {
           "name": "VSync",
@@ -12659,7 +13030,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "VSync"
+          "display_name": "VSync",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -12681,7 +13053,8 @@
           "default": "0.05",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Signal Noise"
+          "display_name": "Signal Noise",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -12715,7 +13088,8 @@
           "default": "0.07",
           "factor": "%width",
           "suffix": "px",
-          "display_name": "Block Width"
+          "display_name": "Block Width",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -12725,7 +13099,8 @@
           "default": "0.1",
           "factor": "%height",
           "suffix": "px",
-          "display_name": "Block Height"
+          "display_name": "Block Height",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -12755,7 +13130,8 @@
           "default": "0.010",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Shift Intensity"
+          "display_name": "Shift Intensity",
+          "keyframes": true
         },
         {
           "name": "block_height",
@@ -12765,7 +13141,8 @@
           "default": "0",
           "factor": "%height",
           "suffix": "px",
-          "display_name": "Block Height"
+          "display_name": "Block Height",
+          "keyframes": true
         },
         {
           "name": "block_height_min",
@@ -12775,7 +13152,8 @@
           "default": "0.009",
           "factor": "%height",
           "suffix": "px",
-          "display_name": "Minimum Block Height"
+          "display_name": "Minimum Block Height",
+          "keyframes": true
         },
         {
           "name": "block_height_max",
@@ -12785,7 +13163,8 @@
           "default": "0.099",
           "factor": "%height",
           "suffix": "px",
-          "display_name": "Maximum Block Height"
+          "display_name": "Maximum Block Height",
+          "keyframes": true
         }
       ],
       "category": "Motion"
@@ -12806,7 +13185,8 @@
           "max": "1000",
           "default": "0.104167",
           "factor": "1000",
-          "display_name": "Levels"
+          "display_name": "Levels",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -12834,7 +13214,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "X Position"
+          "display_name": "X Position",
+          "keyframes": true
         },
         {
           "name": "Y",
@@ -12843,7 +13224,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Y Position"
+          "display_name": "Y Position",
+          "keyframes": true
         },
         {
           "name": "X size",
@@ -12852,7 +13234,8 @@
           "max": "25",
           "default": "0.28",
           "factor": "25",
-          "display_name": "X Size"
+          "display_name": "X Size",
+          "keyframes": true
         },
         {
           "name": "Y size",
@@ -12861,7 +13244,8 @@
           "max": "25",
           "default": "0.28",
           "factor": "25",
-          "display_name": "Y Size"
+          "display_name": "Y Size",
+          "keyframes": true
         },
         {
           "name": "256 scale",
@@ -12900,7 +13284,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Profile X Position"
+          "display_name": "Profile X Position",
+          "keyframes": true
         },
         {
           "name": "Y",
@@ -12909,7 +13294,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Profile Y Position"
+          "display_name": "Profile Y Position",
+          "keyframes": true
         },
         {
           "name": "Tilt",
@@ -12918,7 +13304,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Profile Tilt"
+          "display_name": "Profile Tilt",
+          "keyframes": true
         },
         {
           "name": "Length",
@@ -12927,7 +13314,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Profile Length"
+          "display_name": "Profile Length",
+          "keyframes": true
         },
         {
           "name": "Channel",
@@ -12943,7 +13331,8 @@
           "max": "%width",
           "default": "0",
           "factor": "%width",
-          "display_name": "Marker 1"
+          "display_name": "Marker 1",
+          "keyframes": true
         },
         {
           "name": "Marker 2",
@@ -12952,7 +13341,8 @@
           "max": "%width",
           "default": "0",
           "factor": "%width",
-          "display_name": "Marker 2"
+          "display_name": "Marker 2",
+          "keyframes": true
         },
         {
           "name": "R trace",
@@ -13040,7 +13430,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Crosshair Color"
+          "display_name": "Crosshair Color",
+          "keyframes": true
         }
       ],
       "category": "Deprecated"
@@ -13081,7 +13472,8 @@
           "min": "0",
           "max": "32",
           "default": "9",
-          "display_name": "Factor"
+          "display_name": "Factor",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -13111,7 +13503,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5",
-          "display_name": "Horizontal Split Distance"
+          "display_name": "Horizontal Split Distance",
+          "keyframes": true
         },
         {
           "name": "0",
@@ -13119,7 +13512,8 @@
           "min": "0",
           "max": "1",
           "default": "0.5",
-          "display_name": "Vertical Split Distance."
+          "display_name": "Vertical Split Distance.",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -13140,7 +13534,8 @@
           "max": "1000",
           "default": "0.125",
           "factor": "1000",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -13161,7 +13556,8 @@
           "max": "%width",
           "default": "0",
           "factor": "%width",
-          "display_name": "Crop Left"
+          "display_name": "Crop Left",
+          "keyframes": true
         },
         {
           "name": "Clip right",
@@ -13170,7 +13566,8 @@
           "max": "%width",
           "default": "0",
           "factor": "%width",
-          "display_name": "Crop Right"
+          "display_name": "Crop Right",
+          "keyframes": true
         },
         {
           "name": "Clip top",
@@ -13179,7 +13576,8 @@
           "max": "%height",
           "default": "0",
           "factor": "%height",
-          "display_name": "Crop Top"
+          "display_name": "Crop Top",
+          "keyframes": true
         },
         {
           "name": "Clip bottom",
@@ -13188,7 +13586,8 @@
           "max": "%height",
           "default": "0",
           "factor": "%height",
-          "display_name": "Crop Bottom"
+          "display_name": "Crop Bottom",
+          "keyframes": true
         },
         {
           "name": "Scale X",
@@ -13197,7 +13596,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "200",
-          "display_name": "Scale X"
+          "display_name": "Scale X",
+          "keyframes": true
         },
         {
           "name": "Scale Y",
@@ -13206,7 +13606,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "200",
-          "display_name": "Scale Y"
+          "display_name": "Scale Y",
+          "keyframes": true
         },
         {
           "name": "Tilt X",
@@ -13215,7 +13616,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Tilt X"
+          "display_name": "Tilt X",
+          "keyframes": true
         },
         {
           "name": "Tilt Y",
@@ -13224,7 +13626,8 @@
           "max": "%height",
           "default": "0.5",
           "factor": "%height",
-          "display_name": "Tilt Y"
+          "display_name": "Tilt Y",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective"
@@ -13256,7 +13659,8 @@
           "max": "1000",
           "default": "0.3",
           "factor": "1000",
-          "display_name": "Amount"
+          "display_name": "Amount",
+          "keyframes": true
         },
         {
           "name": "Size",
@@ -13265,7 +13669,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Size"
+          "display_name": "Size",
+          "keyframes": true
         }
       ],
       "category": "Deprecated"
@@ -13317,7 +13722,8 @@
           "max": "500",
           "default": "0.05",
           "factor": "1000",
-          "display_name": "Kernel size"
+          "display_name": "Kernel size",
+          "keyframes": true
         }
       ],
       "category": "Blur and Sharpen"
@@ -13338,7 +13744,8 @@
           "min": "0",
           "max": "1",
           "default": "0.01",
-          "display_name": "Interval"
+          "display_name": "Interval",
+          "keyframes": true
         }
       ]
     },
@@ -13410,7 +13817,8 @@
           "max": "255",
           "default": "0.2",
           "factor": "255",
-          "display_name": "Threshold"
+          "display_name": "Threshold",
+          "keyframes": true
         }
       ],
       "category": "Stylize"
@@ -13443,7 +13851,8 @@
           "max": "1000",
           "default": "0.25",
           "factor": "1000",
-          "display_name": "Tint amount"
+          "display_name": "Tint amount",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -13464,7 +13873,8 @@
           "min": "0",
           "max": "1",
           "default": "1",
-          "display_name": "Transparency"
+          "display_name": "Transparency",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying"
@@ -13505,7 +13915,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Aspect ratio"
+          "display_name": "Aspect ratio",
+          "keyframes": true
         },
         {
           "name": "clearCenter",
@@ -13514,7 +13925,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Clear center size"
+          "display_name": "Clear center size",
+          "keyframes": true
         },
         {
           "name": "soft",
@@ -13523,7 +13935,8 @@
           "max": "1000",
           "default": "0.6",
           "factor": "1000",
-          "display_name": "Softness"
+          "display_name": "Softness",
+          "keyframes": true
         }
       ],
       "category": "Generate"
@@ -13573,7 +13986,8 @@
           "max": "300",
           "default": "1",
           "factor": "100",
-          "display_name": "Gamma"
+          "display_name": "Gamma",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -13800,7 +14214,8 @@
           "name": "rect",
           "type": "animatedrect",
           "default": "0 0 %width %height",
-          "display_name": "Graph rectangle"
+          "display_name": "Graph rectangle",
+          "keyframes": true
         },
         {
           "name": "bg_img_path",
@@ -14012,7 +14427,8 @@
           "default": "1",
           "factor": "1",
           "suffix": "",
-          "display_name": "Differentiation Order"
+          "display_name": "Differentiation Order",
+          "keyframes": true
         },
         {
           "name": "av.minknorm",
@@ -14022,7 +14438,8 @@
           "default": "1",
           "factor": "1",
           "suffix": "",
-          "display_name": "Minkowski Norm"
+          "display_name": "Minkowski Norm",
+          "keyframes": true
         },
         {
           "name": "av.sigma",
@@ -14032,7 +14449,8 @@
           "default": "1",
           "factor": "1",
           "suffix": "",
-          "display_name": "Sigma"
+          "display_name": "Sigma",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction"
@@ -14069,7 +14487,8 @@
           "max": "100",
           "default": "100",
           "suffix": "%",
-          "display_name": "Overlap"
+          "display_name": "Overlap",
+          "keyframes": true
         },
         {
           "name": "h_shift_red",
@@ -14078,7 +14497,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "<b><u>Hue Shift</u></b> Red"
+          "display_name": "<b><u>Hue Shift</u></b> Red",
+          "keyframes": true
         },
         {
           "name": "h_shift_yellow",
@@ -14087,7 +14507,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Yellow"
+          "display_name": "Yellow",
+          "keyframes": true
         },
         {
           "name": "h_shift_green",
@@ -14096,7 +14517,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Green"
+          "display_name": "Green",
+          "keyframes": true
         },
         {
           "name": "h_shift_cyan",
@@ -14105,7 +14527,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Cyan"
+          "display_name": "Cyan",
+          "keyframes": true
         },
         {
           "name": "h_shift_blue",
@@ -14114,7 +14537,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Blue"
+          "display_name": "Blue",
+          "keyframes": true
         },
         {
           "name": "h_shift_magenta",
@@ -14123,7 +14547,8 @@
           "max": "180",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Magenta"
+          "display_name": "Magenta",
+          "keyframes": true
         },
         {
           "name": "s_scale_red",
@@ -14132,7 +14557,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "<b><u>Saturation</u></b> Red"
+          "display_name": "<b><u>Saturation</u></b> Red",
+          "keyframes": true
         },
         {
           "name": "s_scale_yellow",
@@ -14141,7 +14567,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Yellow"
+          "display_name": "Yellow",
+          "keyframes": true
         },
         {
           "name": "s_scale_green",
@@ -14150,7 +14577,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Green"
+          "display_name": "Green",
+          "keyframes": true
         },
         {
           "name": "s_scale_cyan",
@@ -14159,7 +14587,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Cyan"
+          "display_name": "Cyan",
+          "keyframes": true
         },
         {
           "name": "s_scale_blue",
@@ -14168,7 +14597,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Blue"
+          "display_name": "Blue",
+          "keyframes": true
         },
         {
           "name": "s_scale_magenta",
@@ -14177,7 +14607,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Magenta"
+          "display_name": "Magenta",
+          "keyframes": true
         },
         {
           "name": "l_scale_red",
@@ -14186,7 +14617,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "<b><u>Lightness</u></b> Red"
+          "display_name": "<b><u>Lightness</u></b> Red",
+          "keyframes": true
         },
         {
           "name": "l_scale_yellow",
@@ -14195,7 +14627,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Yellow"
+          "display_name": "Yellow",
+          "keyframes": true
         },
         {
           "name": "l_scale_green",
@@ -14204,7 +14637,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Green"
+          "display_name": "Green",
+          "keyframes": true
         },
         {
           "name": "l_scale_cyan",
@@ -14213,7 +14647,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Cyan"
+          "display_name": "Cyan",
+          "keyframes": true
         },
         {
           "name": "l_scale_blue",
@@ -14222,7 +14657,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Blue"
+          "display_name": "Blue",
+          "keyframes": true
         },
         {
           "name": "l_scale_magenta",
@@ -14231,7 +14667,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Magenta"
+          "display_name": "Magenta",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -14258,7 +14695,8 @@
           "max": "360",
           "default": "180",
           "suffix": "\u00b0",
-          "display_name": "Hue Center"
+          "display_name": "Hue Center",
+          "keyframes": true
         },
         {
           "name": "hue_range",
@@ -14267,7 +14705,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Hue Range"
+          "display_name": "Hue Range",
+          "keyframes": true
         },
         {
           "name": "blend",
@@ -14276,7 +14715,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Blend"
+          "display_name": "Blend",
+          "keyframes": true
         },
         {
           "name": "h_shift",
@@ -14285,7 +14725,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Hue Shift"
+          "display_name": "Hue Shift",
+          "keyframes": true
         },
         {
           "name": "s_scale",
@@ -14294,7 +14735,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Saturation Scale"
+          "display_name": "Saturation Scale",
+          "keyframes": true
         },
         {
           "name": "l_scale",
@@ -14303,7 +14745,8 @@
           "max": "500",
           "default": "100",
           "suffix": "%",
-          "display_name": "Lightness Scale"
+          "display_name": "Lightness Scale",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -14611,7 +15054,8 @@
           "max": "2000",
           "default": "100",
           "suffix": "ms",
-          "display_name": "L Delay"
+          "display_name": "L Delay",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -14620,7 +15064,8 @@
           "max": "100.0",
           "default": "0.0",
           "suffix": "%",
-          "display_name": "L Feedback"
+          "display_name": "L Feedback",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -14629,7 +15074,8 @@
           "max": "2000",
           "default": "100",
           "suffix": "ms",
-          "display_name": "R/Haas Delay"
+          "display_name": "R/Haas Delay",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -14638,7 +15084,8 @@
           "max": "100.0",
           "default": "0.0",
           "suffix": "%",
-          "display_name": "R/Haas Feedback"
+          "display_name": "R/Haas Feedback",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -14647,7 +15094,8 @@
           "max": "10.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "L Echo Level"
+          "display_name": "L Echo Level",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -14656,7 +15104,8 @@
           "max": "10.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "R Echo Level"
+          "display_name": "R Echo Level",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -14665,7 +15114,8 @@
           "max": "10.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Dry Level"
+          "display_name": "Dry Level",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -14674,7 +15124,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -14696,7 +15147,8 @@
           "max": "20.000",
           "default": "0.000",
           "suffix": "Hz",
-          "display_name": "Frequency"
+          "display_name": "Frequency",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -14705,7 +15157,8 @@
           "max": "100.0",
           "default": "0.0",
           "suffix": "%",
-          "display_name": "Depth"
+          "display_name": "Depth",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -14714,7 +15167,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Gain"
+          "display_name": "Gain",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -14723,7 +15177,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -14745,7 +15200,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Limit Level"
+          "display_name": "Limit Level",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -14754,7 +15210,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Output Volume"
+          "display_name": "Output Volume",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -14763,7 +15220,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -14785,7 +15243,8 @@
           "max": "20.000",
           "default": "0.000",
           "suffix": "Hz",
-          "display_name": "Frequency"
+          "display_name": "Frequency",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -14794,7 +15253,8 @@
           "max": "100.0",
           "default": "0.0",
           "suffix": "%",
-          "display_name": "Depth"
+          "display_name": "Depth",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -14803,7 +15263,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Gain"
+          "display_name": "Gain",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -14812,7 +15273,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -14867,7 +15329,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -14889,7 +15352,8 @@
           "max": "30.000",
           "default": "0.000",
           "suffix": "Hz",
-          "display_name": "Frequency"
+          "display_name": "Frequency",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -14898,7 +15362,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "%",
-          "display_name": "Depth"
+          "display_name": "Depth",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -14907,7 +15372,8 @@
           "max": "20.0",
           "default": "-90.0",
           "suffix": "dB",
-          "display_name": "Dry Level"
+          "display_name": "Dry Level",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -14916,7 +15382,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Wet Level"
+          "display_name": "Wet Level",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -14925,7 +15392,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -14947,7 +15415,8 @@
           "max": "30.0",
           "default": "5.0",
           "suffix": "Hz",
-          "display_name": "Rotor Frequency"
+          "display_name": "Rotor Frequency",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -14956,7 +15425,8 @@
           "max": "30.0",
           "default": "5.0",
           "suffix": "Hz",
-          "display_name": "Horn Frequency"
+          "display_name": "Horn Frequency",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -14965,7 +15435,8 @@
           "max": "100.0",
           "default": "25.0",
           "suffix": "%",
-          "display_name": "Mic Distance"
+          "display_name": "Mic Distance",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -14973,7 +15444,8 @@
           "min": "0.0",
           "max": "1.0",
           "default": "0.5",
-          "display_name": "Rotor/Horn Mix"
+          "display_name": "Rotor/Horn Mix",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -14982,7 +15454,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15003,7 +15476,8 @@
           "min": "-12.0",
           "max": "12.0",
           "default": "0.00",
-          "display_name": "Semitone Shift"
+          "display_name": "Semitone Shift",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15012,7 +15486,8 @@
           "max": "100.0",
           "default": "0.0",
           "suffix": "%",
-          "display_name": "Rate Shift"
+          "display_name": "Rate Shift",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -15021,7 +15496,8 @@
           "max": "20.0",
           "default": "-90.0",
           "suffix": "dB",
-          "display_name": "Dry Level"
+          "display_name": "Dry Level",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -15030,7 +15506,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Wet Level"
+          "display_name": "Wet Level",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15039,7 +15516,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15277,7 +15755,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15299,7 +15778,8 @@
           "max": "500",
           "default": "128",
           "suffix": "ms",
-          "display_name": "Attack"
+          "display_name": "Attack",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15308,7 +15788,8 @@
           "max": "1000",
           "default": "502",
           "suffix": "ms",
-          "display_name": "Release"
+          "display_name": "Release",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -15317,7 +15798,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Offset Gain"
+          "display_name": "Offset Gain",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -15326,14 +15808,16 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Makeup Gain"
+          "display_name": "Makeup Gain",
+          "keyframes": true
         },
         {
           "name": "6",
           "type": "animated",
           "default": "0",
           "paramlist": "0;1;2;3;4;5;6;7;8;9;10;11;12;13;14",
-          "display_name": "Dynamics Transfer Function"
+          "display_name": "Dynamics Transfer Function",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15342,7 +15826,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15364,7 +15849,8 @@
           "max": "500",
           "default": "128",
           "suffix": "ms",
-          "display_name": "Attack"
+          "display_name": "Attack",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15373,7 +15859,8 @@
           "max": "1000",
           "default": "502",
           "suffix": "ms",
-          "display_name": "Release"
+          "display_name": "Release",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -15382,7 +15869,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Offset Gain"
+          "display_name": "Offset Gain",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -15391,7 +15879,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Makeup Gain"
+          "display_name": "Makeup Gain",
+          "keyframes": true
         },
         {
           "name": "8",
@@ -15405,7 +15894,8 @@
           "type": "animated",
           "default": "0",
           "paramlist": "0;1;2;3;4;5;6;7;8;9;10;11;12;13;14",
-          "display_name": "Dynamics Transfer Function"
+          "display_name": "Dynamics Transfer Function",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15414,7 +15904,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15436,7 +15927,8 @@
           "max": "1600",
           "default": "415",
           "suffix": "ms",
-          "display_name": "Fragment Length"
+          "display_name": "Fragment Length",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15445,7 +15937,8 @@
           "max": "20.0",
           "default": "-90.0",
           "suffix": "dB",
-          "display_name": "Dry Level"
+          "display_name": "Dry Level",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -15454,7 +15947,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Wet Level"
+          "display_name": "Wet Level",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15463,7 +15957,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15484,7 +15979,8 @@
           "min": "0.000",
           "max": "1.000",
           "default": "0.500",
-          "display_name": "Fractal Dimension"
+          "display_name": "Fractal Dimension",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15493,7 +15989,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Signal Level"
+          "display_name": "Signal Level",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -15502,7 +15999,8 @@
           "max": "20.0",
           "default": "-90.0",
           "suffix": "dB",
-          "display_name": "Noise Level"
+          "display_name": "Noise Level",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15511,7 +16009,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15532,7 +16031,8 @@
           "min": "0.0",
           "max": "1.0",
           "default": "0.5",
-          "display_name": "Time Tracking"
+          "display_name": "Time Tracking",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15540,7 +16040,8 @@
           "min": "0.0",
           "max": "1.0",
           "default": "0.5",
-          "display_name": "Pitch Tracking"
+          "display_name": "Pitch Tracking",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -15549,7 +16050,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Dry Level"
+          "display_name": "Dry Level",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -15557,7 +16059,8 @@
           "min": "0.0",
           "max": "1.0",
           "default": "0.0",
-          "display_name": "Dry Left Position"
+          "display_name": "Dry Left Position",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -15565,7 +16068,8 @@
           "min": "0.0",
           "max": "1.0",
           "default": "1.0",
-          "display_name": "Dry Right Position"
+          "display_name": "Dry Right Position",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -15574,7 +16078,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Wet Level"
+          "display_name": "Wet Level",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -15582,7 +16087,8 @@
           "min": "0.0",
           "max": "1.0",
           "default": "0.0",
-          "display_name": "Wet Left Position"
+          "display_name": "Wet Left Position",
+          "keyframes": true
         },
         {
           "name": "7",
@@ -15590,7 +16096,8 @@
           "min": "0.0",
           "max": "1.0",
           "default": "1.0",
-          "display_name": "Wet Right Position"
+          "display_name": "Wet Right Position",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15599,7 +16106,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15621,7 +16129,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Pre Gain"
+          "display_name": "Pre Gain",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15630,7 +16139,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Post Gain"
+          "display_name": "Post Gain",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15639,7 +16149,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15660,7 +16171,8 @@
           "min": "0.100",
           "max": "10.000",
           "default": "2.575",
-          "display_name": "Drive"
+          "display_name": "Drive",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15668,7 +16180,8 @@
           "min": "-10.0",
           "max": "10.0",
           "default": "10.0",
-          "display_name": "Tape--Tube Blend"
+          "display_name": "Tape--Tube Blend",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15677,7 +16190,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -15699,7 +16213,8 @@
           "max": "5.000",
           "default": "1.250",
           "suffix": "Hz",
-          "display_name": "Frequency"
+          "display_name": "Frequency",
+          "keyframes": true
         },
         {
           "name": "1",
@@ -15708,7 +16223,8 @@
           "max": "180.0",
           "default": "90.0",
           "suffix": "\u00b0",
-          "display_name": "L/R Phase Shift"
+          "display_name": "L/R Phase Shift",
+          "keyframes": true
         },
         {
           "name": "2",
@@ -15717,7 +16233,8 @@
           "max": "100.0",
           "default": "75.0",
           "suffix": "%",
-          "display_name": "Depth"
+          "display_name": "Depth",
+          "keyframes": true
         },
         {
           "name": "3",
@@ -15726,7 +16243,8 @@
           "max": "100",
           "default": "25",
           "suffix": "ms",
-          "display_name": "Delay"
+          "display_name": "Delay",
+          "keyframes": true
         },
         {
           "name": "4",
@@ -15735,7 +16253,8 @@
           "max": "20000.000",
           "default": "100.000",
           "suffix": "Hz",
-          "display_name": "Contour"
+          "display_name": "Contour",
+          "keyframes": true
         },
         {
           "name": "5",
@@ -15744,7 +16263,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Dry Level"
+          "display_name": "Dry Level",
+          "keyframes": true
         },
         {
           "name": "6",
@@ -15753,7 +16273,8 @@
           "max": "20.0",
           "default": "0.0",
           "suffix": "dB",
-          "display_name": "Wet Level"
+          "display_name": "Wet Level",
+          "keyframes": true
         },
         {
           "name": "wetness",
@@ -15762,7 +16283,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Dry/Wet"
+          "display_name": "Dry/Wet",
+          "keyframes": true
         }
       ],
       "category": "TAP Plugins"
@@ -16622,7 +17144,8 @@
           "max": "500",
           "default": "0",
           "factor": "1000",
-          "display_name": "Lift"
+          "display_name": "Lift",
+          "keyframes": true
         },
         {
           "name": "gain",
@@ -16631,7 +17154,8 @@
           "max": "500",
           "default": "0",
           "factor": "1000",
-          "display_name": "Gain"
+          "display_name": "Gain",
+          "keyframes": true
         },
         {
           "name": "gamma",
@@ -16640,7 +17164,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Gamma"
+          "display_name": "Gamma",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -16714,7 +17239,8 @@
           "max": "1500",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Position X"
+          "display_name": "Position X",
+          "keyframes": true
         },
         {
           "name": "filter.Position Y",
@@ -16723,7 +17249,8 @@
           "max": "1500",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Position Y"
+          "display_name": "Position Y",
+          "keyframes": true
         },
         {
           "name": "filter.Size X",
@@ -16732,7 +17259,8 @@
           "max": "1000",
           "default": "0.1",
           "factor": "1000",
-          "display_name": "Size X"
+          "display_name": "Size X",
+          "keyframes": true
         },
         {
           "name": "filter.Size Y",
@@ -16741,7 +17269,8 @@
           "max": "1000",
           "default": "0.1",
           "factor": "1000",
-          "display_name": "Size Y"
+          "display_name": "Size Y",
+          "keyframes": true
         },
         {
           "name": "filter.Tilt",
@@ -16750,7 +17279,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "1000",
-          "display_name": "Tilt"
+          "display_name": "Tilt",
+          "keyframes": true
         },
         {
           "name": "filter.Transition width",
@@ -16759,7 +17289,8 @@
           "max": "1000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "Transition width"
+          "display_name": "Transition width",
+          "keyframes": true
         },
         {
           "name": "filter.Min",
@@ -16768,7 +17299,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Min"
+          "display_name": "Min",
+          "keyframes": true
         },
         {
           "name": "filter.Max",
@@ -16777,7 +17309,8 @@
           "max": "1000",
           "default": "1",
           "factor": "1000",
-          "display_name": "Max"
+          "display_name": "Max",
+          "keyframes": true
         },
         {
           "name": "filter.Operation",
@@ -16849,7 +17382,8 @@
           "max": "1000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "Red / Hue Delta"
+          "display_name": "Red / Hue Delta",
+          "keyframes": true
         },
         {
           "name": "filter.Delta G / B / Chroma",
@@ -16858,7 +17392,8 @@
           "max": "1000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "Green / Chroma Delta"
+          "display_name": "Green / Chroma Delta",
+          "keyframes": true
         },
         {
           "name": "filter.Delta B / I / I",
@@ -16867,7 +17402,8 @@
           "max": "1000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "Blue / Intensity Delta"
+          "display_name": "Blue / Intensity Delta",
+          "keyframes": true
         },
         {
           "name": "filter.Slope",
@@ -16876,7 +17412,8 @@
           "max": "1000",
           "default": "0",
           "factor": "1000",
-          "display_name": "Soften"
+          "display_name": "Soften",
+          "keyframes": true
         },
         {
           "name": "filter.Operation",
@@ -16912,7 +17449,8 @@
         {
           "name": "filter.spline",
           "type": "roto-spline",
-          "default": ""
+          "default": "",
+          "keyframes": true
         },
         {
           "name": "filter.mode",
@@ -16988,7 +17526,8 @@
           "max": "100",
           "default": "70",
           "suffix": "%",
-          "display_name": "Threshold"
+          "display_name": "Threshold",
+          "keyframes": true
         },
         {
           "name": "filter.softness",
@@ -17124,7 +17663,8 @@
           "max": "1000",
           "default": "3",
           "factor": "10",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17149,7 +17689,8 @@
           "min": "1",
           "max": "10",
           "default": "5",
-          "display_name": "Matrix size"
+          "display_name": "Matrix size",
+          "keyframes": true
         },
         {
           "name": "circle_radius",
@@ -17158,7 +17699,8 @@
           "max": "1000",
           "default": "2",
           "factor": "100",
-          "display_name": "Circle radius"
+          "display_name": "Circle radius",
+          "keyframes": true
         },
         {
           "name": "gaussian_radius",
@@ -17167,7 +17709,8 @@
           "max": "1000",
           "default": "0",
           "factor": "100",
-          "display_name": "Gaussian radius"
+          "display_name": "Gaussian radius",
+          "keyframes": true
         },
         {
           "name": "correlation",
@@ -17176,7 +17719,8 @@
           "max": "1000",
           "default": "0.95",
           "factor": "1000",
-          "display_name": "Correlation"
+          "display_name": "Correlation",
+          "keyframes": true
         },
         {
           "name": "noise",
@@ -17185,7 +17729,8 @@
           "max": "1000",
           "default": "0.01",
           "factor": "1000",
-          "display_name": "Noise"
+          "display_name": "Noise",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17211,7 +17756,8 @@
           "max": "1000",
           "default": "3",
           "factor": "10",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         },
         {
           "name": "mix",
@@ -17220,7 +17766,8 @@
           "max": "1000",
           "default": "0.3",
           "factor": "100",
-          "display_name": "Mix amount"
+          "display_name": "Mix amount",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17262,7 +17809,8 @@
           "max": "1000",
           "default": "20",
           "factor": "10",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         },
         {
           "name": "blur_mix",
@@ -17271,7 +17819,8 @@
           "max": "1000",
           "default": "1",
           "factor": "100",
-          "display_name": "Glow strength"
+          "display_name": "Glow strength",
+          "keyframes": true
         },
         {
           "name": "highlight_cutoff",
@@ -17280,7 +17829,8 @@
           "max": "100",
           "default": "0.2",
           "factor": "100",
-          "display_name": "Highlight cutoff threshold"
+          "display_name": "Highlight cutoff threshold",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17419,7 +17969,8 @@
           "max": "200",
           "default": "1",
           "factor": "100",
-          "display_name": "Opacity"
+          "display_name": "Opacity",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17442,7 +17993,8 @@
           "name": "rect",
           "type": "animatedrect",
           "default": "0 0 %width %height",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "fill",
@@ -17476,7 +18028,8 @@
           "max": "1000",
           "default": "1",
           "factor": "100",
-          "display_name": "Saturation"
+          "display_name": "Saturation",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17502,7 +18055,8 @@
           "max": "1000",
           "default": "15",
           "factor": "10",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         },
         {
           "name": "radius",
@@ -17511,7 +18065,8 @@
           "max": "1000",
           "default": "0.5",
           "factor": "100",
-          "display_name": "Amount"
+          "display_name": "Amount",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects"
@@ -17531,7 +18086,8 @@
           "max": "1000",
           "default": "0.3",
           "factor": "1000",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         },
         {
           "name": "inner_radius",
@@ -17540,7 +18096,8 @@
           "max": "1000",
           "default": "0.3",
           "factor": "1000",
-          "display_name": "Inner radius"
+          "display_name": "Inner radius",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17571,7 +18128,8 @@
           "min": "1000",
           "max": "15000",
           "default": "6500",
-          "display_name": "Color Temperature"
+          "display_name": "Color Temperature",
+          "keyframes": true
         }
       ],
       "category": "GPU Effects",
@@ -17670,7 +18228,8 @@
           "name": "start",
           "type": "geometry",
           "default": "40% 40% 20% 20%",
-          "display_name": "Region"
+          "display_name": "Region",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying",
@@ -17698,7 +18257,8 @@
           "max": "400",
           "default": "14",
           "suffix": "px",
-          "display_name": "Maximum Up/Down Move"
+          "display_name": "Maximum Up/Down Move",
+          "keyframes": true
         },
         {
           "name": "every",
@@ -17707,7 +18267,8 @@
           "max": "100",
           "default": "20",
           "suffix": "%",
-          "display_name": "Frames With Movement"
+          "display_name": "Frames With Movement",
+          "keyframes": true
         },
         {
           "name": "brightnessdelta_up",
@@ -17715,7 +18276,8 @@
           "min": "0",
           "max": "100",
           "default": "20",
-          "display_name": "Brightness Up"
+          "display_name": "Brightness Up",
+          "keyframes": true
         },
         {
           "name": "brightnessdelta_down",
@@ -17723,7 +18285,8 @@
           "min": "0",
           "max": "100",
           "default": "30",
-          "display_name": "Brightness Down"
+          "display_name": "Brightness Down",
+          "keyframes": true
         },
         {
           "name": "brightnessdelta_every",
@@ -17732,7 +18295,8 @@
           "max": "100",
           "default": "70",
           "suffix": "%",
-          "display_name": "Brightness Every"
+          "display_name": "Brightness Every",
+          "keyframes": true
         },
         {
           "name": "unevendevelop_up",
@@ -17740,7 +18304,8 @@
           "min": "0",
           "max": "100",
           "default": "60",
-          "display_name": "Uneven Develop Up"
+          "display_name": "Uneven Develop Up",
+          "keyframes": true
         },
         {
           "name": "unevendevelop_down",
@@ -17748,7 +18313,8 @@
           "min": "0",
           "max": "100",
           "default": "20",
-          "display_name": "Uneven Develop Down"
+          "display_name": "Uneven Develop Down",
+          "keyframes": true
         },
         {
           "name": "unevendevelop_duration",
@@ -17756,7 +18322,8 @@
           "min": "0",
           "max": "10000",
           "default": "70",
-          "display_name": "Uneven Develop Duration"
+          "display_name": "Uneven Develop Duration",
+          "keyframes": true
         }
       ],
       "category": "Stylize",
@@ -17781,7 +18348,8 @@
           "name": "transition.rect",
           "type": "animatedrect",
           "default": "0 0 %width %height",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "transition.distort",
@@ -17835,7 +18403,8 @@
           "name": "rect",
           "type": "animatedrect",
           "default": "adjustcenter",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "blur",
@@ -17844,7 +18413,8 @@
           "max": "50",
           "default": "4",
           "suffix": "%",
-          "display_name": "Blur"
+          "display_name": "Blur",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective",
@@ -17869,7 +18439,8 @@
           "name": "rect",
           "type": "animatedrect",
           "default": "0 0 %width %height",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "radius",
@@ -17877,7 +18448,8 @@
           "min": "0",
           "max": "1",
           "default": "0",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         },
         {
           "name": "circle",
@@ -18031,7 +18603,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Rotate X"
+          "display_name": "Rotate X",
+          "keyframes": true
         },
         {
           "name": "transition.rotate_y",
@@ -18040,7 +18613,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Rotate Y"
+          "display_name": "Rotate Y",
+          "keyframes": true
         },
         {
           "name": "transition.rotate_z",
@@ -18049,7 +18623,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Rotate Z"
+          "display_name": "Rotate Z",
+          "keyframes": true
         },
         {
           "name": "transition.ox",
@@ -18057,7 +18632,8 @@
           "min": "-%width",
           "max": "%width",
           "default": "0",
-          "display_name": "Offset X"
+          "display_name": "Offset X",
+          "keyframes": true
         },
         {
           "name": "transition.oy",
@@ -18065,7 +18641,8 @@
           "min": "-%height",
           "max": "%height",
           "default": "0",
-          "display_name": "Offset Y"
+          "display_name": "Offset Y",
+          "keyframes": true
         },
         {
           "name": "transition.scale_x",
@@ -18073,7 +18650,8 @@
           "min": "0",
           "max": "10",
           "default": "1",
-          "display_name": "Scale X"
+          "display_name": "Scale X",
+          "keyframes": true
         },
         {
           "name": "transition.scale_y",
@@ -18081,7 +18659,8 @@
           "min": "0",
           "max": "10",
           "default": "1",
-          "display_name": "Scale Y"
+          "display_name": "Scale Y",
+          "keyframes": true
         }
       ],
       "category": "Transform, Distort, and Perspective",
@@ -18108,7 +18687,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate X"
+          "display_name": "Rotate X",
+          "keyframes": true
         },
         {
           "name": "transition.fix_rotate_y",
@@ -18117,7 +18697,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate Y"
+          "display_name": "Rotate Y",
+          "keyframes": true
         },
         {
           "name": "transition.fix_rotate_z",
@@ -18126,7 +18707,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate Z"
+          "display_name": "Rotate Z",
+          "keyframes": true
         },
         {
           "name": "transition.rotate_x",
@@ -18162,7 +18744,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Shear X"
+          "display_name": "Shear X",
+          "keyframes": true
         },
         {
           "name": "transition.fix_shear_y",
@@ -18171,7 +18754,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Shear Y"
+          "display_name": "Shear Y",
+          "keyframes": true
         },
         {
           "name": "transition.shear_x",
@@ -18195,7 +18779,8 @@
           "name": "transition.rect",
           "type": "animatedrect",
           "default": "0 0 100% 100%",
-          "display_name": "Pan and Zoom"
+          "display_name": "Pan and Zoom",
+          "keyframes": true
         },
         {
           "name": "producer.resource",
@@ -18240,7 +18825,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate X"
+          "display_name": "Rotate X",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "transition.rotate_y",
@@ -18249,7 +18835,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate Y"
+          "display_name": "Rotate Y",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "transition.rotate_z",
@@ -18258,7 +18845,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate Z"
+          "display_name": "Rotate Z",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "transition.ox",
@@ -18266,7 +18854,8 @@
           "min": "-32000",
           "max": "32000",
           "default": "0",
-          "display_name": "Offset X"
+          "display_name": "Offset X",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "transition.oy",
@@ -18274,7 +18863,8 @@
           "min": "-32000",
           "max": "32000",
           "default": "0",
-          "display_name": "Offset Y"
+          "display_name": "Offset Y",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "producer.resource",
@@ -18322,7 +18912,8 @@
         {
           "name": "spline",
           "type": "roto-spline",
-          "default": ""
+          "default": "",
+          "keyframes": true
         },
         {
           "name": "mode",
@@ -18386,7 +18977,8 @@
           "max": "100",
           "default": "2",
           "suffix": "px",
-          "display_name": "Width of Line"
+          "display_name": "Width of Line",
+          "keyframes": true
         },
         {
           "name": "num",
@@ -18394,7 +18986,8 @@
           "min": "0",
           "max": "100",
           "default": "5",
-          "display_name": "Max Number of Lines"
+          "display_name": "Max Number of Lines",
+          "keyframes": true
         },
         {
           "name": "darker",
@@ -18402,7 +18995,8 @@
           "min": "0",
           "max": "100",
           "default": "40",
-          "display_name": "Max Darker"
+          "display_name": "Max Darker",
+          "keyframes": true
         },
         {
           "name": "lighter",
@@ -18410,7 +19004,8 @@
           "min": "0",
           "max": "100",
           "default": "40",
-          "display_name": "Max Lighter"
+          "display_name": "Max Lighter",
+          "keyframes": true
         }
       ],
       "category": "Grain and Noise",
@@ -18436,7 +19031,8 @@
           "min": "0",
           "max": "255",
           "default": "75",
-          "display_name": "Chrominance U"
+          "display_name": "Chrominance U",
+          "keyframes": true
         },
         {
           "name": "v",
@@ -18444,7 +19040,8 @@
           "min": "0",
           "max": "255",
           "default": "150",
-          "display_name": "Chrominance V"
+          "display_name": "Chrominance V",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -18478,7 +19075,8 @@
           "max": "100",
           "default": "100",
           "suffix": "%",
-          "display_name": "Threshold"
+          "display_name": "Threshold",
+          "keyframes": true
         },
         {
           "name": "softness",
@@ -18581,7 +19179,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Shear X"
+          "display_name": "Shear X",
+          "keyframes": true
         },
         {
           "name": "transition.fix_shear_y",
@@ -18590,7 +19189,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Shear Y"
+          "display_name": "Shear Y",
+          "keyframes": true
         },
         {
           "name": "transition.fix_shear_z",
@@ -18599,7 +19199,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Shear Z"
+          "display_name": "Shear Z",
+          "keyframes": true
         },
         {
           "name": "transition.ox",
@@ -18608,7 +19209,8 @@
           "max": "%width",
           "default": "0",
           "factor": "-1",
-          "display_name": "Offset X"
+          "display_name": "Offset X",
+          "keyframes": true
         },
         {
           "name": "transition.oy",
@@ -18616,7 +19218,8 @@
           "min": "-%height",
           "max": "%height",
           "default": "0",
-          "display_name": "Offset Y"
+          "display_name": "Offset Y",
+          "keyframes": true
         },
         {
           "name": "transition.scale_x",
@@ -18624,7 +19227,8 @@
           "min": "0",
           "max": "10",
           "default": "1",
-          "display_name": "Scale X"
+          "display_name": "Scale X",
+          "keyframes": true
         },
         {
           "name": "transition.scale_y",
@@ -18632,7 +19236,8 @@
           "min": "0",
           "max": "10",
           "default": "1",
-          "display_name": "Scale Y"
+          "display_name": "Scale Y",
+          "keyframes": true
         }
       ],
       "category": "Deprecated",
@@ -19027,7 +19632,8 @@
           "name": "rect",
           "type": "animatedrect",
           "default": "42% 42% 16% 16%",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying",
@@ -19061,7 +19667,8 @@
           "min": "1",
           "max": "100",
           "default": "1",
-          "display_name": "Interval"
+          "display_name": "Interval",
+          "keyframes": true
         }
       ],
       "category": "Alpha, Mask, and Keying",
@@ -19117,7 +19724,8 @@
           "min": "-400",
           "max": "400",
           "default": "190",
-          "display_name": "Blue/Yellow axis"
+          "display_name": "Blue/Yellow axis",
+          "keyframes": true
         },
         {
           "name": "oversaturate_cb",
@@ -19125,7 +19733,8 @@
           "min": "-400",
           "max": "400",
           "default": "190",
-          "display_name": "Red/Green axis"
+          "display_name": "Red/Green axis",
+          "keyframes": true
         }
       ],
       "category": "Color and Image Correction",
@@ -19151,7 +19760,8 @@
           "min": "0",
           "max": "255",
           "default": "128",
-          "display_name": "Threshold value"
+          "display_name": "Threshold value",
+          "keyframes": true
         },
         {
           "name": "use_alpha",
@@ -19181,7 +19791,8 @@
           "name": "geometry",
           "type": "animatedrect",
           "default": "0 0 100% 100%",
-          "display_name": "Geometry"
+          "display_name": "Geometry",
+          "keyframes": true
         },
         {
           "name": "family",
@@ -19320,7 +19931,8 @@
           "name": "results",
           "type": "animatedrect",
           "default": "50% 50% 25% 25%",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "algo",
@@ -19610,7 +20222,8 @@
         {
           "name": "kdenlive:point",
           "type": "animatedfakepoint",
-          "display_name": "Center"
+          "display_name": "Center",
+          "keyframes": true
         },
         {
           "name": "radius",
@@ -19619,7 +20232,8 @@
           "max": "%width",
           "default": "0.5",
           "factor": "%width",
-          "display_name": "Radius"
+          "display_name": "Radius",
+          "keyframes": true
         },
         {
           "name": "smooth",
@@ -19629,7 +20243,8 @@
           "default": "0.8",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Smooth"
+          "display_name": "Smooth",
+          "keyframes": true
         },
         {
           "name": "opacity",
@@ -19639,7 +20254,8 @@
           "default": "0",
           "factor": "100",
           "suffix": "%",
-          "display_name": "Transparency"
+          "display_name": "Transparency",
+          "keyframes": true
         }
       ],
       "category": "Generate",
@@ -19667,7 +20283,8 @@
           "max": "50",
           "default": "0",
           "suffix": "dB",
-          "display_name": "Gain"
+          "display_name": "Gain",
+          "keyframes": true
         }
       ],
       "category": "Volume and Dynamics",
@@ -19693,7 +20310,8 @@
           "min": "1",
           "max": "1000",
           "default": "10",
-          "display_name": "Wave Amplitude"
+          "display_name": "Wave Amplitude",
+          "keyframes": true
         },
         {
           "name": "speed",
@@ -19701,7 +20319,8 @@
           "min": "0",
           "max": "1000",
           "default": "5",
-          "display_name": "Speed"
+          "display_name": "Speed",
+          "keyframes": true
         },
         {
           "name": "deformX",
@@ -19739,7 +20358,8 @@
           "name": "rect",
           "type": "animatedrect",
           "default": "0 0 %width %height 1",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "rotate_x",
@@ -19748,7 +20368,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate X"
+          "display_name": "Rotate X",
+          "keyframes": true
         },
         {
           "name": "rotate_y",
@@ -19757,7 +20378,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate Y"
+          "display_name": "Rotate Y",
+          "keyframes": true
         },
         {
           "name": "rotate_z",
@@ -19766,7 +20388,8 @@
           "max": "1800",
           "default": "0",
           "factor": "10",
-          "display_name": "Rotate Z"
+          "display_name": "Rotate Z",
+          "keyframes": true
         },
         {
           "name": "distort",
@@ -19816,7 +20439,8 @@
           "name": "geometry",
           "type": "animatedrect",
           "default": "0 0 %width %height 100",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "distort",
@@ -20036,7 +20660,8 @@
           "max": "1000",
           "default": "0.4",
           "factor": "1000",
-          "display_name": "X position"
+          "display_name": "X position",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "1",
@@ -20045,7 +20670,8 @@
           "max": "1000",
           "default": "0.4",
           "factor": "1000",
-          "display_name": "Y position"
+          "display_name": "Y position",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "2",
@@ -20054,7 +20680,8 @@
           "max": "5000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "X scale"
+          "display_name": "X scale",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "3",
@@ -20063,7 +20690,8 @@
           "max": "5000",
           "default": "0.2",
           "factor": "1000",
-          "display_name": "Y scale"
+          "display_name": "Y scale",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "4",
@@ -20072,7 +20700,8 @@
           "max": "360",
           "default": "0",
           "factor": "360",
-          "display_name": "Rotation"
+          "display_name": "Rotation",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "5",
@@ -20081,7 +20710,8 @@
           "max": "100",
           "default": "100",
           "factor": "100",
-          "display_name": "Opacity"
+          "display_name": "Opacity",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "6",
@@ -20126,7 +20756,8 @@
           "max": "100",
           "default": "1",
           "factor": "100",
-          "display_name": "Opacity"
+          "display_name": "Opacity",
+          "keyframes": "simplekeyframe"
         },
         {
           "name": "1",
@@ -20281,7 +20912,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Push position"
+          "display_name": "Push position",
+          "keyframes": true
         }
       ]
     },
@@ -20302,7 +20934,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Push position"
+          "display_name": "Push position",
+          "keyframes": true
         }
       ]
     },
@@ -20323,7 +20956,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Push position"
+          "display_name": "Push position",
+          "keyframes": true
         }
       ]
     },
@@ -20344,7 +20978,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Push position"
+          "display_name": "Push position",
+          "keyframes": true
         }
       ]
     },
@@ -20383,7 +21018,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Slide position"
+          "display_name": "Slide position",
+          "keyframes": true
         }
       ]
     },
@@ -20404,7 +21040,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Slide position"
+          "display_name": "Slide position",
+          "keyframes": true
         }
       ]
     },
@@ -20425,7 +21062,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Slide position"
+          "display_name": "Slide position",
+          "keyframes": true
         }
       ]
     },
@@ -20446,7 +21084,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Slide position"
+          "display_name": "Slide position",
+          "keyframes": true
         }
       ]
     },
@@ -20503,7 +21142,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Edges position"
+          "display_name": "Edges position",
+          "keyframes": true
         }
       ]
     },
@@ -20524,7 +21164,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Edges position"
+          "display_name": "Edges position",
+          "keyframes": true
         }
       ]
     },
@@ -20545,7 +21186,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Circle size"
+          "display_name": "Circle size",
+          "keyframes": true
         }
       ]
     },
@@ -20566,7 +21208,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Edge position"
+          "display_name": "Edge position",
+          "keyframes": true
         }
       ]
     },
@@ -20587,7 +21230,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Edge position"
+          "display_name": "Edge position",
+          "keyframes": true
         }
       ]
     },
@@ -20608,7 +21252,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Rectangle size"
+          "display_name": "Rectangle size",
+          "keyframes": true
         }
       ]
     },
@@ -20629,7 +21274,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Edge position"
+          "display_name": "Edge position",
+          "keyframes": true
         }
       ]
     },
@@ -20650,7 +21296,8 @@
           "max": "1000",
           "default": "0=0;%out=1",
           "factor": "1000",
-          "display_name": "Edge position"
+          "display_name": "Edge position",
+          "keyframes": true
         }
       ]
     },
@@ -20775,7 +21422,8 @@
           "name": "rect",
           "type": "animatedrect",
           "default": "0 0 %width %height 1",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "rotation",
@@ -20784,7 +21432,8 @@
           "max": "360",
           "default": "0",
           "suffix": "\u00b0",
-          "display_name": "Rotation"
+          "display_name": "Rotation",
+          "keyframes": true
         },
         {
           "name": "compositing",
@@ -20836,7 +21485,8 @@
           "name": "composite.geometry",
           "type": "animatedrect",
           "default": "0 0 %width %height 100",
-          "display_name": "Rectangle"
+          "display_name": "Rectangle",
+          "keyframes": true
         },
         {
           "name": "composite.operator",

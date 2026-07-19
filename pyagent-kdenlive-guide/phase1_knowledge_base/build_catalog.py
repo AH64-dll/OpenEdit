@@ -33,6 +33,14 @@ from xml.etree import ElementTree as ET
 KDE_NS = "https://www.kdenlive.org"
 KDE = f"{{{KDE_NS}}}"
 
+# Keyframe type classification. Kdenlive 26.04 effect XMLs.
+# NOTE: type="keyframable" does NOT exist; the real values are below.
+ANIMATION_STRING_KEYFRAME_TYPES = frozenset({
+    "keyframe", "animated", "animatedrect", "animatedfakerect",
+    "animatedfakepoint", "curve", "bezier_spline", "geometry", "roto-spline",
+})
+SIMPLEKEYFRAME_TYPES = frozenset({"simplekeyframe"})
+
 
 def _ns(root: ET.Element) -> str:
     """Return the namespace prefix actually used by the root's children."""
@@ -158,6 +166,11 @@ def _parse_param(param: ET.Element, ns: str) -> dict:
     desc_el = _t(param, "description", ns)
     if desc_el is not None and desc_el.text:
         p["description"] = desc_el.text.strip()
+    param_type = param.get("type")
+    if param_type in ANIMATION_STRING_KEYFRAME_TYPES:
+        p["keyframes"] = True
+    elif param_type in SIMPLEKEYFRAME_TYPES:
+        p["keyframes"] = "simplekeyframe"
     return p
 
 
