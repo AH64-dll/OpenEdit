@@ -38,11 +38,8 @@ Kdenlive and re-run.
 
 | File | Purpose |
 |---|---|
-| `skipif_helpers.py` | skipif functions used by `test_e2e_pi_session.py`. |
-| `xvfb.py` | `XvfbContext` — start/stop virtual display. |
-| `kdenlive.py` | `KdenliveLaunch` — launch Kdenlive + wait for D-Bus. |
-| `chat_ui.py` | `ChatUIServer` — launch chat UI + healthcheck. |
+| `e2e.py` | The ONE entry point: skipif helpers + `XvfbContext` + `KdenliveLaunch` + `ChatUIServer` + `read_timeline_state` + re-exported `WSClient`. |
+| `skipif.py` | Thin re-export shim — `from phase7_real_session.skipif import _has`. |
+| `xvfb.py` | (legacy module; logic now lives in `e2e.py`). |
 | `ws_client.py` | `WSClient` — drive the WebSocket, collect events. |
-| `dbus_probe.py` | `read_timeline_state` — read live Kdenlive state. |
-| `tests/test_*.py` | Unit tests for the above. |
-| `tests/test_e2e_pi_session.py` | The e2e test. |
+| `tests/test_e2e.py` | The ONE persistent test: 1 unit test class for the XML parser + 1 e2e class that drives a real pi + real Kdenlive. |

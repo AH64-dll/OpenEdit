@@ -10,4 +10,4 @@ test:
 
 test-e2e:
 	@echo "Running e2e real-pi-session test (needs pi, kdenlive, Xvfb, OPENCODE_API_KEY)..."
-	@PYTHONPATH=.. python3 -m unittest tests.test_e2e_pi_session -v
+	@PYTHONPATH=.. python3 -m unittest tests.test_e2e -v
