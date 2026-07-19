@@ -147,3 +147,29 @@ def test_add_effect_with_unknown_effect_type_is_rejected(tmp_path) -> None:
     assert any("definitely_not_in_catalog" in e for e in errors)
     assert any("fix:" in e for e in errors)
     assert any("use one of:" in e for e in errors)
+
+
+def test_add_effect_unknown_type_is_rejected_by_default_catalog(tmp_path) -> None:
+    """Bug-hunt finding: validate_op must reject unknown effect types even
+    when no catalog is passed. The catalog singleton is loaded lazily and
+    used by default."""
+    from open_edit.ir.types import AddClipOp, AddEffectOp, Project
+    from open_edit.storage.assets import AssetStore
+
+    asset_store = AssetStore(tmp_path / "assets")
+    assets = asset_store.ingest_paths([str(TESTDATA / "clip_a.mp4")])
+    project = Project(name="t", assets={a.asset_hash: a for a in assets})
+
+    clip = AddClipOp(
+        author="user", asset_hash=assets[0].asset_hash,
+        track_id="v1", position_sec=0.0,
+    )
+    project.edit_graph.append(clip)
+
+    op = AddEffectOp(
+        author="user", target_kind="clip", target_id=clip.clip_id,
+        effect_type="definitely_not_in_catalog", params={"x": 1.0},
+    )
+    errors = validate_op(op, project)  # NOTE: no catalog argument
+    assert any("definitely_not_in_catalog" in e for e in errors)
+    assert any("use one of:" in e for e in errors)

@@ -5,6 +5,7 @@ includes a `fix:` line per the spec.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from open_edit.ir.types import (
@@ -22,6 +23,19 @@ from open_edit.ir.types import (
 
 if TYPE_CHECKING:
     from open_edit.ir.catalog.loader import EffectCatalog
+
+
+_DEFAULT_CATALOG: Optional["EffectCatalog"] = None
+
+
+def _get_default_catalog() -> "EffectCatalog":
+    """Load the bundled effect catalog once, on first use, and cache it."""
+    global _DEFAULT_CATALOG
+    if _DEFAULT_CATALOG is None:
+        from open_edit.ir.catalog.loader import EffectCatalog
+        catalog_dir = Path(__file__).parent / "catalog"
+        _DEFAULT_CATALOG = EffectCatalog(catalog_dir)
+    return _DEFAULT_CATALOG
 
 
 def _known_clip_ids(project: Project) -> set[str]:
@@ -47,7 +61,16 @@ def validate_op(
     project: Project,
     catalog: Optional["EffectCatalog"] = None,
 ) -> list[str]:
-    """Validate an operation against the project. Returns a list of errors."""
+    """Validate an operation against the project. Returns a list of errors.
+
+    The default catalog is loaded from the bundled effects directory on
+    first use. Tests can pass an explicit ``catalog=`` to isolate from the
+    real catalog. Spec §6.1.1 requires the unknown-effect-type check to
+    be unconditional, so the catalog is always applied when one is
+    available.
+    """
+    if catalog is None:
+        catalog = _get_default_catalog()
     errors: list[str] = []
 
     if op.status != "applied":
