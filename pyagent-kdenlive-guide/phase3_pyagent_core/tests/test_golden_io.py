@@ -138,6 +138,10 @@ _CASES: list[tuple[str, dict, str]] = [
     # --- effects read/set param (demo clip "2" has no effects; setup applies brightness) ---
     ("get_effect_param", {"clip_id": "2", "effect_index": 0, "param_name": "level"}, "get_effect_param"),
     ("set_effect_param", {"clip_id": "2", "effect_index": 0, "param_name": "level", "value": "0.8"}, "set_effect_param"),
+    # --- keyframes (demo clip "2" has no effects; setup applies brightness) ---
+    ("list_keyframes", {"clip_id": "2", "effect_index": 0, "param_name": "level"}, "list_keyframes"),
+    ("set_keyframe", {"clip_id": "2", "effect_index": 0, "param_name": "level", "frame": 30, "value": "0.4", "type": "smooth"}, "set_keyframe"),
+    ("remove_keyframe", {"clip_id": "2", "effect_index": 0, "param_name": "level", "frame": 25}, "remove_keyframe"),
     # --- transitions (remove is exercised; add_transition supplies the id via setup) ---
     ("remove_transition", {}, "remove_transition"),
     # --- groups (list_groups is read-only; group/ungroup use a placeholder
@@ -168,6 +172,15 @@ _SETUP: dict = {
     ),
     "set_effect_param": (
         "apply_effect", {"clip_id": "2", "effect_id": "brightness"},
+    ),
+    "list_keyframes": (
+        "apply_effect", {"clip_id": "2", "effect_id": "brightness", "params": {"level": "0=1.0; 25~0.5; 50=0.0"}},
+    ),
+    "set_keyframe": (
+        "apply_effect", {"clip_id": "2", "effect_id": "brightness", "params": {"level": "0=1.0; 50=0.0"}},
+    ),
+    "remove_keyframe": (
+        "apply_effect", {"clip_id": "2", "effect_id": "brightness", "params": {"level": "0=1.0; 25=0.5; 50=0.0"}},
     ),
     "remove_transition": _setup_remove_transition,
     "group_clips": _setup_group_clips,

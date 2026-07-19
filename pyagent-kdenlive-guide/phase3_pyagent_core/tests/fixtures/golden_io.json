@@ -139,11 +139,15 @@
   },
   "group_clips": {
     "group_name": "golden_test",
-    "clip_ids": ["2"]
+    "clip_ids": [
+      "2"
+    ]
   },
   "ungroup_clips": {
     "dissolved_group_name": "golden_test",
-    "affected_clip_ids": ["2"]
+    "affected_clip_ids": [
+      "2"
+    ]
   },
   "get_effect_param": {
     "clip_id": "2",
@@ -154,7 +158,11 @@
     "is_keyframable": true,
     "format": "animated",
     "keyframes": [
-      {"frame": 1, "value": "", "type": ""}
+      {
+        "frame": 1,
+        "value": "",
+        "type": ""
+      }
     ]
   },
   "set_effect_param": {
@@ -164,5 +172,44 @@
     "previous_value": "1",
     "new_value": "0.8",
     "is_keyframable": true
+  },
+  "list_keyframes": {
+    "clip_id": "2",
+    "effect_index": 0,
+    "param_name": "level",
+    "format": "animated",
+    "keyframes": [
+      {
+        "frame": 0,
+        "value": "1.0",
+        "type": ""
+      },
+      {
+        "frame": 25,
+        "value": "0.5",
+        "type": "~"
+      },
+      {
+        "frame": 50,
+        "value": "0.0",
+        "type": ""
+      }
+    ]
+  },
+  "set_keyframe": {
+    "clip_id": "2",
+    "effect_index": 0,
+    "param_name": "level",
+    "frame": 30,
+    "value": "0.4",
+    "type": "smooth",
+    "action": "added"
+  },
+  "remove_keyframe": {
+    "clip_id": "2",
+    "effect_index": 0,
+    "param_name": "level",
+    "frame": 25,
+    "removed": true
   }
 }

@@ -23,6 +23,7 @@ from .clips_edit import (
     split_clip,
 )
 from .effects import apply_effect, get_effect_param, remove_effect, set_effect_param
+from .keyframes import list_keyframes, remove_keyframe, set_keyframe
 from .groups import group_clips, list_groups, ungroup_clips
 from .markers import add_marker
 from .transitions import add_transition, remove_transition
@@ -46,6 +47,9 @@ __all__ = [
     "get_effect_param",
     "remove_effect",
     "set_effect_param",
+    "list_keyframes",
+    "set_keyframe",
+    "remove_keyframe",
     "add_marker",
     "group_clips",
     "ungroup_clips",

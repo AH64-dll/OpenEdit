@@ -165,6 +165,19 @@ class KdenliveFileBackend(EditorBackend):
             catalog=self.catalog.effects,
         )
 
+    def list_keyframes(self, clip_id, effect_index, param_name):
+        return ops.list_keyframes(self.tree, clip_id, effect_index, param_name)
+
+    def set_keyframe(self, clip_id, effect_index, param_name, frame, value, type="linear"):
+        return ops.set_keyframe(
+            self.tree, clip_id, effect_index, param_name, frame, value, type=type,
+        )
+
+    def remove_keyframe(self, clip_id, effect_index, param_name, frame):
+        return ops.remove_keyframe(
+            self.tree, clip_id, effect_index, param_name, frame,
+        )
+
     def add_marker(self, position_sec, label, kind="marker"):
         ops.add_marker(self.tree, position_sec, label, kind)
 
