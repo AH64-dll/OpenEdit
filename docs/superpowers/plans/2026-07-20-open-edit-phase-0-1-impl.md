@@ -1989,6 +1989,434 @@ git commit -m "[open_edit] ir.validate: schema + referential + asset-exists chec
 
 ---
 
+## Task 8.5: Effect catalog — YAML registry + validation gate
+
+**Files:**
+- Create: `open_edit/open_edit/ir/catalog/__init__.py`
+- Create: `open_edit/open_edit/ir/catalog/loader.py`
+- Create: `open_edit/open_edit/ir/catalog/effects/volume.yaml`
+- Create: `open_edit/open_edit/ir/catalog/effects/luma.yaml`
+- Create: `open_edit/open_edit/ir/catalog/effects/brightness.yaml`
+- Create: `open_edit/open_edit/ir/catalog/effects/dissolve.yaml`
+- Create: `open_edit/open_edit/ir/catalog/effects/saturation.yaml`
+- Create: `open_edit/tests/test_ir/test_catalog.py`
+- Modify: `open_edit/open_edit/ir/validate.py` (use catalog)
+- Modify: `open_edit/tests/test_ir/test_validate.py` (add catalog rejection test)
+
+**Interfaces (produced):**
+- `class EffectCatalog` — loads all `.yaml` files in the effects dir at construction
+- `EffectCatalog.is_known(effect_type: str) -> bool`
+- `EffectCatalog.get(effect_type: str) -> EffectSpec | None`
+- `EffectSpec` — a Pydantic model for the catalog entry (name, mlt_service, target_kind, params, keyframe_params, interp, description)
+- `validate_op` (from Task 8) is updated to use the catalog: reject `AddEffectOp.effect_type` not in catalog with `fix: use one of: <list>`
+
+- [ ] **Step 1: Write the failing tests for the catalog and the validation update**
+
+File: `/home/ah64/apps/mlt-pipeline/open_edit/tests/test_ir/test_catalog.py`
+
+```python
+"""Tests for the EffectCatalog (YAML registry + validation gate)."""
+from pathlib import Path
+
+import pytest
+
+from open_edit.ir.catalog.loader import EffectCatalog, EffectSpec
+
+
+@pytest.fixture
+def catalog_dir(tmp_path: Path) -> Path:
+    """Write a tiny catalog with two effects to a temp dir."""
+    d = tmp_path / "catalog" / "effects"
+    d.mkdir(parents=True)
+    (d / "volume.yaml").write_text("""
+name: volume
+mlt_service: volume
+target_kind: [clip, track]
+params:
+  gain:
+    type: float
+    default: 1.0
+    range: [0.0, 4.0]
+    unit: linear
+keyframe_params: [gain]
+interp: [linear, discrete]
+description: "Audio volume control. gain=1.0 is unity."
+""")
+    (d / "brightness.yaml").write_text("""
+name: brightness
+mlt_service: brightness
+target_kind: [clip]
+params:
+  value:
+    type: float
+    default: 0.0
+    range: [-1.0, 1.0]
+keyframe_params: [value]
+interp: [linear, discrete]
+description: "Brightness adjustment."
+""")
+    return tmp_path / "catalog"
+
+
+def test_catalog_loads_all_yaml_files(catalog_dir: Path) -> None:
+    cat = EffectCatalog(catalog_dir)
+    assert cat.is_known("volume") is True
+    assert cat.is_known("brightness") is True
+    assert cat.is_known("nonexistent") is False
+
+
+def test_catalog_get_returns_spec(catalog_dir: Path) -> None:
+    cat = EffectCatalog(catalog_dir)
+    spec = cat.get("volume")
+    assert spec is not None
+    assert spec.name == "volume"
+    assert spec.mlt_service == "volume"
+    assert "clip" in spec.target_kind
+    assert "track" in spec.target_kind
+    assert "gain" in spec.params
+
+
+def test_catalog_returns_none_for_unknown(catalog_dir: Path) -> None:
+    cat = EffectCatalog(catalog_dir)
+    assert cat.get("unknown") is None
+
+
+def test_catalog_known_names(catalog_dir: Path) -> None:
+    cat = EffectCatalog(catalog_dir)
+    assert set(cat.known_names()) == {"volume", "brightness"}
+
+
+def test_catalog_handles_empty_directory(tmp_path: Path) -> None:
+    d = tmp_path / "empty_catalog" / "effects"
+    d.mkdir(parents=True)
+    cat = EffectCatalog(tmp_path / "empty_catalog")
+    assert cat.known_names() == set()
+```
+
+Add to `open_edit/tests/test_ir/test_validate.py` (after the existing tests):
+
+```python
+def test_add_effect_with_unknown_effect_type_is_rejected(tmp_path) -> None:
+    """The spec requires effect_type validation against the catalog.
+
+    AddEffectOp with an effect_type not in the catalog must be rejected
+    with a 'fix: use one of: <list>' line.
+    """
+    from open_edit.ir.catalog.loader import EffectCatalog
+    from open_edit.ir.types import AddClipOp, AddEffectOp, Project
+    from open_edit.storage.assets import AssetStore
+
+    # Need a real asset so the asset check passes
+    asset_store = AssetStore(tmp_path / "assets")
+    assets = asset_store.ingest_paths([str(TESTDATA / "clip_a.mp4")])
+    project = Project(name="t", assets={a.asset_hash: a for a in assets})
+
+    # Add a clip so the target exists
+    clip = AddClipOp(
+        author="user", asset_hash=assets[0].asset_hash,
+        track_id="v1", position_sec=0.0,
+    )
+    project.edit_graph.append(clip)
+
+    # Catalog is loaded from the default path
+    catalog = EffectCatalog(Path(__file__).parent.parent.parent / "open_edit" / "ir" / "catalog")
+    op = AddEffectOp(
+        author="user", target_kind="clip", target_id=clip.clip_id,
+        effect_type="definitely_not_in_catalog", params={"x": 1.0},
+    )
+    errors = validate_op(op, project, catalog=catalog)
+    assert any("definitely_not_in_catalog" in e for e in errors)
+    assert any("fix:" in e for e in errors)
+    assert any("use one of:" in e for e in errors)
+```
+
+(Add `from pathlib import Path` and `TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"` to the top of `test_validate.py` if not present.)
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+```bash
+cd /home/ah64/apps/mlt-pipeline/open_edit && pytest tests/test_ir/test_catalog.py tests/test_ir/test_validate.py -v
+```
+
+Expected: `ModuleNotFoundError` for `open_edit.ir.catalog.loader`.
+
+- [ ] **Step 3: Implement the catalog loader**
+
+File: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/ir/catalog/__init__.py`
+
+```python
+"""Effect catalog — YAML-driven registry of valid effects and their params."""
+```
+
+File: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/ir/catalog/loader.py`
+
+```python
+"""Load the effect catalog from a directory of YAML files.
+
+Each YAML file in `<catalog_dir>/effects/` describes one effect:
+- name (str): the effect_type string used in AddEffectOp
+- mlt_service (str): the actual MLT service ID
+- target_kind (list[str]): "clip" and/or "track"
+- params (dict): parameter name -> {type, default, range, unit}
+- keyframe_params (list[str]): which params accept SetKeyframeOp
+- interp (list[str]): legal interp values for keyframes
+- description (str): human-readable
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Literal
+
+import yaml
+from pydantic import BaseModel, Field
+
+
+class ParamSpec(BaseModel):
+    type: Literal["float", "int", "str", "bool"]
+    default: float | int | str | bool | None = None
+    range: list[float] | None = None
+    unit: str | None = None
+
+
+class EffectSpec(BaseModel):
+    name: str
+    mlt_service: str
+    target_kind: list[Literal["clip", "track"]]
+    params: dict[str, ParamSpec] = Field(default_factory=dict)
+    keyframe_params: list[str] = Field(default_factory=list)
+    interp: list[Literal["linear", "discrete", "smooth"]] = Field(default_factory=list)
+    description: str = ""
+
+
+class EffectCatalog:
+    """In-memory registry of effect specs loaded from YAML."""
+
+    def __init__(self, catalog_dir: str | Path):
+        self.catalog_dir = Path(catalog_dir)
+        self._specs: dict[str, EffectSpec] = {}
+        self._load()
+
+    def _load(self) -> None:
+        effects_dir = self.catalog_dir / "effects"
+        if not effects_dir.exists():
+            return
+        for path in sorted(effects_dir.glob("*.yaml")):
+            with open(path) as f:
+                data = yaml.safe_load(f)
+            spec = EffectSpec(**data)
+            self._specs[spec.name] = spec
+
+    def is_known(self, effect_type: str) -> bool:
+        return effect_type in self._specs
+
+    def get(self, effect_type: str) -> EffectSpec | None:
+        return self._specs.get(effect_type)
+
+    def known_names(self) -> set[str]:
+        return set(self._specs.keys())
+```
+
+- [ ] **Step 4: Write 4 catalog YAML files (volume, luma, brightness, dissolve, saturation)**
+
+File: `open_edit/open_edit/ir/catalog/effects/volume.yaml`
+
+```yaml
+name: volume
+mlt_service: volume
+target_kind: [clip, track]
+params:
+  gain:
+    type: float
+    default: 1.0
+    range: [0.0, 4.0]
+    unit: linear
+  duration_s:
+    type: float
+    default: null
+    range: [0.0, 10.0]
+keyframe_params: [gain]
+interp: [linear, discrete]
+description: "Audio volume control. gain=1.0 is unity."
+```
+
+File: `open_edit/open_edit/ir/catalog/effects/brightness.yaml`
+
+```yaml
+name: brightness
+mlt_service: brightness
+target_kind: [clip]
+params:
+  value:
+    type: float
+    default: 0.0
+    range: [-1.0, 1.0]
+keyframe_params: [value]
+interp: [linear, discrete]
+description: "Brightness adjustment; -1 to 1."
+```
+
+File: `open_edit/open_edit/ir/catalog/effects/saturation.yaml`
+
+```yaml
+name: saturation
+mlt_service: saturation
+target_kind: [clip]
+params:
+  value:
+    type: float
+    default: 1.0
+    range: [0.0, 2.0]
+keyframe_params: [value]
+interp: [linear, discrete]
+description: "Saturation; 1.0 is unity."
+```
+
+File: `open_edit/open_edit/ir/catalog/effects/luma.yaml`
+
+```yaml
+name: luma
+mlt_service: luma
+target_kind: [clip]
+params:
+  softness:
+    type: float
+    default: 0.0
+    range: [0.0, 1.0]
+  invert:
+    type: bool
+    default: false
+keyframe_params: []
+interp: []
+description: "Luma transition effect (white-fade, dip-to-black)."
+```
+
+File: `open_edit/open_edit/ir/catalog/effects/dissolve.yaml`
+
+```yaml
+name: dissolve
+mlt_service: dissolve
+target_kind: [clip]
+params:
+  {}
+keyframe_params: []
+interp: []
+description: "Crossfade between two clips."
+```
+
+- [ ] **Step 5: Add `pyyaml` to dependencies**
+
+Edit `open_edit/pyproject.toml` and add `pyyaml` to the `dependencies` list:
+
+```toml
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+```
+
+Then reinstall:
+
+```bash
+cd /home/ah64/apps/mlt-pipeline/open_edit && uv pip install -e ".[dev]"
+```
+
+- [ ] **Step 6: Update `validate.py` to use the catalog**
+
+Replace the `AddEffectOp` branch in `open_edit/open_edit/ir/validate.py` with:
+
+```python
+    elif isinstance(op, AddEffectOp):
+        if op.target_kind == "clip" and op.target_id not in _known_clip_ids(project):
+            errors.append(
+                f"AddEffectOp: target clip '{op.target_id}' not found. "
+                f"fix: add the clip before applying the effect."
+            )
+        # Catalog validation: effect_type must be in the loaded catalog
+        if catalog is not None and not catalog.is_known(op.effect_type):
+            known = ", ".join(sorted(catalog.known_names()))
+            errors.append(
+                f"AddEffectOp: unknown effect_type '{op.effect_type}'. "
+                f"fix: use one of: {known}"
+            )
+        # Also validate target_kind against the spec
+        if catalog is not None:
+            spec = catalog.get(op.effect_type)
+            if spec and op.target_kind not in spec.target_kind:
+                errors.append(
+                    f"AddEffectOp: effect '{op.effect_type}' cannot be applied "
+                    f"to {op.target_kind}; it supports {spec.target_kind}. "
+                    f"fix: change target_kind."
+                )
+```
+
+And update the function signature:
+
+```python
+def validate_op(
+    op: OperationUnion,
+    project: Project,
+    catalog: Optional["EffectCatalog"] = None,
+) -> list[str]:
+    """Validate an operation against the project. Returns a list of errors.
+
+    If `catalog` is provided, also validates AddEffectOp.effect_type against
+    the catalog and rejects unknown types.
+    """
+```
+
+(Add `from typing import Optional` and `from open_edit.ir.catalog.loader import EffectCatalog` at the top of `validate.py` inside a `TYPE_CHECKING` block to avoid circular imports.)
+
+- [ ] **Step 7: Update the test fixture path in the new test**
+
+Make sure `test_validate.py` has the necessary imports at the top:
+
+```python
+import shutil
+from pathlib import Path
+```
+
+And add a `TESTDATA` constant near the imports:
+
+```python
+TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
+```
+
+Also add a skipif for ffprobe to the new test:
+
+```python
+@pytest.fixture(autouse=True)
+def skip_without_ffprobe():
+    if not shutil.which("ffprobe"):
+        pytest.skip("ffprobe not installed")
+```
+
+(Or just put the existing tests' pytestmark on the new test too.)
+
+- [ ] **Step 8: Run the tests to verify they pass**
+
+```bash
+cd /home/ah64/apps/mlt-pipeline/open_edit && pytest tests/test_ir/test_catalog.py tests/test_ir/test_validate.py -v
+```
+
+Expected: all tests pass (5 catalog + 11 validate including the new catalog rejection test).
+
+- [ ] **Step 9: Run the full test suite to confirm no regressions**
+
+```bash
+cd /home/ah64/apps/mlt-pipeline/open_edit && pytest -q
+```
+
+Expected: all ~100+ tests pass (catalog adds 5-6 more).
+
+- [ ] **Step 10: Commit**
+
+```bash
+cd /home/ah64/apps/mlt-pipeline && git add open_edit/open_edit/ir/catalog/ open_edit/open_edit/ir/validate.py open_edit/tests/test_ir/test_catalog.py open_edit/tests/test_ir/test_validate.py open_edit/pyproject.toml
+git commit -m "[open_edit] ir.catalog: YAML effect registry + catalog-aware validation"
+```
+
+---
+
 ## Task 9: `ir/apply.py` — the **Bug A** transition centering fix
 
 **Files:**
