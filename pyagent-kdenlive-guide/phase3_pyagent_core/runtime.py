@@ -76,6 +76,7 @@ OP_TABLE: dict[str, str] = {
     "trim_clip": "trim_clip",
     "delete_clip": "delete_clip",
     "add_transition": "add_transition",
+    "remove_transition": "remove_transition",
     "apply_effect": "apply_effect",
     "remove_effect": "remove_effect",
     "add_marker": "add_marker",
@@ -92,7 +93,7 @@ OP_TABLE: dict[str, str] = {
 # subsequent subprocess calls see the change.
 MUTATING_OPS: frozenset[str] = frozenset({
     "import_media", "insert_clip", "append_clip", "move_clip", "trim_clip",
-    "delete_clip", "add_transition", "apply_effect", "remove_effect", "add_marker",
+    "delete_clip", "add_transition", "remove_transition", "apply_effect", "remove_effect", "add_marker",
     "slip_clip", "ripple_delete_clip", "change_clip_speed", "split_clip",
     "replace_clip_source", "save",
 })

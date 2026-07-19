@@ -61,6 +61,44 @@ CATALOG = "phase1_knowledge_base/catalog.json"
 # `key` is the JSON key in the golden file. For tools with multiple
 # meaningful argument combinations (e.g. list_catalog's three kinds)
 # we suffix the kind to keep them as separate golden entries.
+def _setup_remove_transition(proj_path: str, catalog_path: str, _args: dict) -> dict:
+    """Insert 2 adjacent clips, add a dissolve, capture the id.
+
+    The demo fixture has 1 clip on track 0 of duration 4.0. Insert
+    a second clip at 4.0, then add a transition between them. The
+    captured id is returned so the test loop can call remove_transition
+    with it.
+    """
+    insert_args = {
+        "track_index": 0, "position_sec": 4.0,
+        "source_id": "1", "source_in_sec": 0.0, "source_out_sec": 2.0,
+    }
+    code, resp = run_op("insert_clip", insert_args, proj_path, catalog_path)
+    assert code == 0, f"setup insert_clip failed: {resp}"
+    new_clip_id = resp.get("result", "")
+    if isinstance(new_clip_id, dict):
+        new_clip_id = new_clip_id.get("clip_id", "")
+    assert new_clip_id, f"setup insert_clip returned no id: {resp}"
+    # The first clip in the demo is "2"; the new one is whatever id was assigned.
+    add_args = {
+        "clip_a_id": "2", "clip_b_id": new_clip_id,
+        "kind": "dissolve", "duration_sec": 1.0,
+    }
+    code, resp = run_op("add_transition", add_args, proj_path, catalog_path)
+    assert code == 0, f"setup add_transition failed: {resp}"
+    new_tid = resp.get("result", "")
+    assert new_tid, f"setup add_transition returned no id: {resp}"
+    return {"transition_id": new_tid}
+
+
+# One entry per (op, args) that has a meaningful JSON response worth
+# locking. Read-only tools are listed first; mutating tools are also
+# covered because they are the high-risk surface (the ones the LLM
+# actually relies on for correct ground-truth after an edit).
+#
+# `key` is the JSON key in the golden file. For tools with multiple
+# meaningful argument combinations (e.g. list_catalog's three kinds)
+# we suffix the kind to keep them as separate golden entries.
 _CASES: list[tuple[str, dict, str]] = [
     # --- Read-only project intros ---
     ("get_project_info", {}, "get_project_info"),
@@ -77,6 +115,8 @@ _CASES: list[tuple[str, dict, str]] = [
     ("replace_clip_source", {"clip_id": "2", "new_source_id": "1"}, "replace_clip_source"),
     # --- effects (apply is exercised by remove's setup; remove is locked here) ---
     ("remove_effect", {"clip_id": "2", "effect_index": 0}, "remove_effect"),
+    # --- transitions (remove is exercised; add_transition supplies the id via setup) ---
+    ("remove_transition", {}, "remove_transition"),
 ]
 
 # Some golden cases need setup: the op alone would error because the
@@ -84,10 +124,18 @@ _CASES: list[tuple[str, dict, str]] = [
 # against the same tmp project (auto-saves), then the golden op runs.
 # Keep this minimal — only add a setup when the op's precondition
 # isn't already true in the demo fixture.
-_SETUP: dict[str, tuple[str, dict]] = {
+#
+# A value can be either:
+# - (op_name, args_dict): a single op to run as setup.
+# - A callable(proj_path, catalog_path, args_dict) -> dict: a custom
+#   setup that mutates the project in place and returns the resolved
+#   args for the golden op. Use this when the golden args depend on
+#   a value produced by the setup (e.g. a freshly generated transition id).
+_SETUP: dict = {
     "remove_effect": (
         "apply_effect", {"clip_id": "2", "effect_id": "sepia"},
     ),
+    "remove_transition": _setup_remove_transition,
 }
 
 # Read-only ops do not mutate, so we can run them directly against the
@@ -116,6 +164,7 @@ def _compare_key_subset(actual, expected, path: str = "") -> None:
         "modified", "created", "uuid", "control_uuid", "id",
         "path",  # project file path varies by checkout
         "name",  # in ProjectInfo this is a UUID, varies by fixture
+        "transition_id",  # auto-assigned by next_kdenlive_id, varies by run
     }
     if isinstance(expected, dict):
         assert isinstance(actual, dict), f"{path}: expected dict, got {type(actual).__name__}"
@@ -151,9 +200,14 @@ def test_op_output_matches_golden(op, args, key, tmp_path):
         shutil.copy(DEMO_PROJECT, test_proj)
         proj_path = str(test_proj)
     if op in _SETUP:
-        setup_op, setup_args = _SETUP[op]
-        setup_code, setup_resp = run_op(setup_op, setup_args, proj_path, CATALOG)
-        assert setup_code == 0, f"setup {setup_op} failed: {setup_resp}"
+        setup = _SETUP[op]
+        if callable(setup):
+            # Multi-step setup; returns the resolved args for the golden op.
+            args = setup(proj_path, CATALOG, args)
+        else:
+            setup_op, setup_args = setup
+            setup_code, setup_resp = run_op(setup_op, setup_args, proj_path, CATALOG)
+            assert setup_code == 0, f"setup {setup_op} failed: {setup_resp}"
     code, resp = run_op(op, args, proj_path, CATALOG)
     assert code == 0, f"{op} failed: {resp}"
     assert resp.get("ok") is True, f"{op} not ok: {resp}"

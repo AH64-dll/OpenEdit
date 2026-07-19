@@ -410,3 +410,29 @@ Three latent bugs in the brief's skeleton code, caught during TDD:
 Test count after Task 2: 245 passed, 1 skipped (baseline 242 + 3 new:
 2 integration tests in test_ops_effects.py — happy path + out-of-range,
 1 golden test in test_golden_io.py). Output pristine.
+
+## 2026-07-19 — Task 3 (sub-project 2a): remove_transition
+
+Two latent bugs in the brief's skeleton code, caught during TDD:
+
+- BUG T3.1: the brief's `remove_transition` looked for the transition
+  by `t.get("kdenlive:id")` — an XML attribute. The kdenlive:id lives
+  in a child `<property name="kdenlive:id">` element (the same shape
+  as every other kdenlive:id in the tree, including clip ids), not
+  an attribute. Fix: `t.find("property[@name='kdenlive:id']")` and
+  read `.text`. Files: `phase2_project_engine/ops/transitions.py:96-129`;
+  `phase2_project_engine/tests/test_ops_transitions.py:124-137` (regression
+  test asserts pre/post removal count and the returned `transition_id`).
+- BUG T3.2: the brief's test called
+  `add_transition(tree, track_index=0, between_clip_a=a, between_clip_b=b, kind="fade", duration_sec=1.0)`.
+  The actual `add_transition` signature is
+  `add_transition(tree, *, clip_a_id, clip_b_id, kind, duration_sec, catalog)`,
+  and `"fade"` is not in the catalog. Fix: call with the actual kwarg
+  names (`clip_a_id=a, clip_b_id=b`) and use `kind="dissolve"` with
+  a one-entry catalog `[{"kdenlive_id": "dissolve", "mlt_service": "luma"}]`
+  (mirrors the existing `test_add_transition_*` pattern). Files:
+  `phase2_project_engine/tests/test_ops_transitions.py:140-167`.
+
+Test count after Task 3: 249 passed, 1 skipped (baseline 246 + 3 new:
+2 integration tests in test_ops_transitions.py — happy path + unknown-id,
+1 golden test in test_golden_io.py). Output pristine.

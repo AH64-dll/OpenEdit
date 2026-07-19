@@ -115,3 +115,78 @@ def test_add_transition_rejects_cross_track_with_fix_hint():
     # The fix hint should name the source track so the caller knows
     # where to move the other clip.
     assert "track 0" in msg
+
+
+def _first_transition_id(tree):
+    """Find the kdenlive:id of the first <transition> element.
+
+    The id lives in a child <property name="kdenlive:id"> element,
+    NOT an attribute, so we must descend into properties (this is
+    the same pattern as clip kdenlive:id lookups elsewhere).
+    """
+    from lxml import etree
+    for t in tree.root.iter("transition"):
+        kid_prop = t.find("property[@name='kdenlive:id']")
+        if kid_prop is not None and kid_prop.text:
+            return kid_prop.text
+    raise AssertionError("no transition found in tree")
+
+
+def test_remove_transition_by_id():
+    """remove_transition drops the transition element with the given kdenlive:id.
+
+    Regression for Task 3: the kdenlive:id is a child <property> element,
+    not an attribute; remove_transition must descend into the property
+    children to find the target.
+    """
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.transitions import add_transition, remove_transition
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    a = insert_clip(
+        tree, track_index=0, position_sec=0.0, source_id=src,
+        source_in_sec=0.0, source_out_sec=5.0,
+    )
+    b = insert_clip(
+        tree, track_index=0, position_sec=5.0, source_id=src,
+        source_in_sec=0.0, source_out_sec=5.0,
+    )
+    add_transition(
+        tree, clip_a_id=a, clip_b_id=b, kind="dissolve", duration_sec=1.0,
+        catalog=[{"kdenlive_id": "dissolve", "mlt_service": "luma"}],
+    )
+    pre_count = len(list(tree.root.iter("transition")))
+    transition_id = _first_transition_id(tree)
+    result = remove_transition(tree, transition_id=transition_id)
+    post_count = len(list(tree.root.iter("transition")))
+    assert post_count == pre_count - 1
+    # Verify the SPECIFIC transition is gone (not just any one).
+    remaining_ids = [
+        t.find("property[@name='kdenlive:id']").text
+        for t in tree.root.iter("transition")
+        if t.find("property[@name='kdenlive:id']") is not None
+    ]
+    assert transition_id not in remaining_ids
+    # Verify affected_clip_ids is in the result (spec contract).
+    assert "affected_clip_ids" in result
+    # Verify bounded clip entries are not modified: no entry should
+    # have gained a <property name="kdenlive:transition"> child.
+    entries_with_trans = [
+        e for e in tree.root.iter("entry")
+        if e.find("property[@name='kdenlive:transition']") is not None
+    ]
+    assert entries_with_trans == []
+    assert result["transition_id"] == transition_id
+
+
+def test_remove_transition_rejects_unknown_id():
+    """remove_transition with an unknown id raises NotFoundError."""
+    from phase2_project_engine.errors import NotFoundError
+    from phase2_project_engine.ops.transitions import remove_transition
+    tree = make_minimal_tree()
+    with pytest.raises(NotFoundError) as exc:
+        remove_transition(tree, transition_id="NONEXISTENT_ID")
+    assert "transition_not_found" in str(exc.value)
+    assert "fix: call get_timeline_summary and re-pick" in str(exc.value)

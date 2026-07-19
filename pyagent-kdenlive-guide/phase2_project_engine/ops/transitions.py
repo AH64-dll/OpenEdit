@@ -1,4 +1,4 @@
-"""Transition operations: add_transition.
+"""Transition operations: add_transition, remove_transition.
 
 BUG 2 fix: transition timing uses BOTH a.out and b.in (the
 boundary), not just a.out.
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from lxml import etree
 
-from ..errors import BackendError, ValidationError, validation_error
+from ..errors import BackendError, NotFoundError, ValidationError, validation_error
 from ..io import ProjectTree, _sec_to_tc, _tc_to_sec
 from ..tracks import find_clip_entry, get_tracks, next_kdenlive_id
 from ..validators import validate_transition_kind
@@ -90,4 +90,63 @@ def add_transition(
     return kid2
 
 
-__all__ = ["add_transition"]
+def remove_transition(tree: ProjectTree, transition_id: str) -> dict:
+    """Remove a transition by its kdenlive:id.
+
+    The kdenlive:id lives in a child <property name="kdenlive:id">
+    element (the same shape as every other kdenlive:id in the tree);
+    it is NOT an attribute on the <transition> element. We must
+    descend into the property children to find the target.
+
+    On a successful match we also scan every <entry> for any
+    <property name="kdenlive:transition"> whose text equals
+    ``transition_id`` and record the bounded entry's own
+    kdenlive:id into ``affected_clip_ids``. The current schema
+    does not store per-entry transition references on clips
+    produced by this codebase, so in practice this list is
+    always empty; the field is reserved for future use when
+    bounded-entry clearing is implemented. The clip entries
+    themselves are not modified by this op.
+
+    Args:
+        tree: The open project tree.
+        transition_id: The kdenlive:id of the transition to remove.
+
+    Returns:
+        A dict with:
+          - ``transition_id``: the id that was removed.
+          - ``affected_clip_ids``: list of clip ids that were
+            bounded by this transition (currently always empty;
+            see note above).
+
+    Raises:
+        NotFoundError: if no transition with the given id exists.
+            The error message includes a ``fix:`` line instructing
+            the caller to call ``get_timeline_summary`` and re-pick.
+    """
+    target = None
+    affected_clip_ids: list[str] = []
+    for t in tree.root.iter("transition"):
+        kid_prop = t.find("property[@name='kdenlive:id']")
+        if kid_prop is not None and kid_prop.text == transition_id:
+            target = t
+            for entry in tree.root.iter("entry"):
+                tref = entry.find("property[@name='kdenlive:transition']")
+                if tref is not None and tref.text == transition_id:
+                    kid = entry.find("property[@name='kdenlive:id']")
+                    if kid is not None and kid.text:
+                        affected_clip_ids.append(kid.text)
+            break
+    if target is None:
+        raise NotFoundError(
+            f"transition_not_found: transition_id={transition_id!r}\n"
+            f"fix: call get_timeline_summary and re-pick"
+        )
+    target.getparent().remove(target)
+    return {
+        "transition_id": transition_id,
+        "affected_clip_ids": affected_clip_ids,
+    }
+
+
+__all__ = ["add_transition", "remove_transition"]

@@ -129,5 +129,9 @@
     "removed_effect_index": 0,
     "removed_effect_id": "sepia",
     "remaining_effect_count": 0
+  },
+  "remove_transition": {
+    "transition_id": "PLACEHOLDER",
+    "affected_clip_ids": []
   }
 }

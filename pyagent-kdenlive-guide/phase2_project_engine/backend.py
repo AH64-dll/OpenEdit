@@ -64,6 +64,8 @@ class EditorBackend(ABC):
     def add_transition(self, clip_a_id: str, clip_b_id: str,
                        kind: str = "dissolve", duration_sec: float = 1.0) -> str: ...
     @abstractmethod
+    def remove_transition(self, transition_id: str) -> dict: ...
+    @abstractmethod
     def apply_effect(self, clip_id: str, effect_id: str,
                      params: dict | None = None) -> str: ...
     @abstractmethod
@@ -193,6 +195,9 @@ class KdenliveFileBackend(EditorBackend):
             self.tree, catalog=self.catalog.transitions,
             clip_a_id=clip_a_id, clip_b_id=clip_b_id, kind=kind, duration_sec=duration_sec,
         )
+
+    def remove_transition(self, transition_id):
+        return ops.remove_transition(self.tree, transition_id=transition_id)
 
     def apply_effect(self, clip_id, effect_id, params=None):
         return ops.apply_effect(self.tree, clip_id, effect_id, params,

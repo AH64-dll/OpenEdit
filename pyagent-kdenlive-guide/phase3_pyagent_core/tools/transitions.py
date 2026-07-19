@@ -4,6 +4,9 @@ from __future__ import annotations
 from .project import ToolDef
 
 
+_S = {"type": "string"}
+
+
 ADD_TRANSITION = ToolDef(
     name="pyagent_add_transition",
     label="Add transition",
@@ -23,4 +26,20 @@ ADD_TRANSITION = ToolDef(
 )
 
 
-TOOLS = [ADD_TRANSITION]
+REMOVE_TRANSITION = ToolDef(
+    name="pyagent_remove_transition",
+    label="Remove transition",
+    description=(
+        "Remove a transition by its id. Call pyagent_get_timeline_summary "
+        "first to see what transition_ids exist."
+    ),
+    op="remove_transition",
+    is_mutating=True,
+    parameters_schema={
+        "transition_id": _S,
+    },
+    required=("transition_id",),
+)
+
+
+TOOLS = [ADD_TRANSITION, REMOVE_TRANSITION]

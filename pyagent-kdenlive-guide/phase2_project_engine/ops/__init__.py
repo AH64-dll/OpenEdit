@@ -24,7 +24,7 @@ from .clips_edit import (
 )
 from .effects import apply_effect, remove_effect
 from .markers import add_marker
-from .transitions import add_transition
+from .transitions import add_transition, remove_transition
 
 
 __all__ = [
@@ -40,6 +40,7 @@ __all__ = [
     "split_clip",
     "replace_clip_source",
     "add_transition",
+    "remove_transition",
     "apply_effect",
     "remove_effect",
     "add_marker",
