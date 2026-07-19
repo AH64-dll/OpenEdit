@@ -173,3 +173,31 @@ def test_add_effect_unknown_type_is_rejected_by_default_catalog(tmp_path) -> Non
     errors = validate_op(op, project)  # NOTE: no catalog argument
     assert any("definitely_not_in_catalog" in e for e in errors)
     assert any("use one of:" in e for e in errors)
+
+
+def test_add_effect_target_kind_must_match_spec(tmp_path) -> None:
+    """Bug-hunt finding: validate_op must reject ops whose target_kind is
+    not in the effect spec's target_kind list. Brightness targets
+    [clip] only; applying it to a track must be rejected.
+    """
+    from open_edit.ir.types import AddClipOp, AddEffectOp, Project
+    from open_edit.storage.assets import AssetStore
+
+    asset_store = AssetStore(tmp_path / "assets")
+    assets = asset_store.ingest_paths([str(TESTDATA / "clip_a.mp4")])
+    project = Project(name="t", assets={a.asset_hash: a for a in assets})
+
+    clip = AddClipOp(
+        author="user", asset_hash=assets[0].asset_hash,
+        track_id="v1", position_sec=0.0,
+    )
+    project.edit_graph.append(clip)
+
+    op = AddEffectOp(
+        author="user", target_kind="track", target_id=clip.track_id,
+        effect_type="brightness", params={"value": 0.0},
+    )
+    errors = validate_op(op, project)
+    assert any("brightness" in e for e in errors)
+    assert any("target_kind" in e or "track" in e for e in errors)
+    assert any("fix:" in e for e in errors)

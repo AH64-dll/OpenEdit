@@ -151,6 +151,15 @@ def validate_op(
                 f"AddEffectOp: target clip '{op.target_id}' not found. "
                 f"fix: add the clip before applying the effect."
             )
+        if catalog is not None:
+            spec = catalog.get(op.effect_type)
+            if spec is not None and op.target_kind not in spec.target_kind:
+                allowed = ", ".join(spec.target_kind)
+                errors.append(
+                    f"AddEffectOp: effect '{op.effect_type}' cannot be "
+                    f"applied to {op.target_kind}; it supports: {allowed}. "
+                    f"fix: change target_kind to one of: {allowed}."
+                )
 
     elif isinstance(op, SetKeyframeOp):
         if op.effect_id not in _known_effect_ids(project):
