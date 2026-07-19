@@ -16,10 +16,10 @@ LLM tool call (pi extension)
        <- JSON result on stdout
 ```
 
-The `qc_check()` orchestrator in `qc_loop/__init__.py` runs the cheap
-deterministic checks (black frames, silence, audio levels) first and
-only pulls a thumbnail if anything was flagged — the recommended
-conversation flow from PHASE_6 §"The conversational QC loop".
+The LLM calls each tool individually for fine control, following the
+recommended conversation flow from PHASE_6 §"The conversational QC loop":
+run the cheap deterministic checks (black frames, silence, audio
+levels) first, only pull a thumbnail if anything is flagged.
 
 ## Tools
 
