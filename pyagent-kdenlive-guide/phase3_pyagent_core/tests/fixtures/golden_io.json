@@ -134,6 +134,12 @@
     "transition_id": "PLACEHOLDER",
     "affected_clip_ids": []
   },
+  "set_transition_property": {
+    "transition_id": "<skip>",
+    "prop_name": "in",
+    "previous_value": "00:00:01.500",
+    "new_value": "00:00:00.250"
+  },
   "list_groups": {
     "groups": []
   },

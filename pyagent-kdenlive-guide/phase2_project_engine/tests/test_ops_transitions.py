@@ -190,3 +190,50 @@ def test_remove_transition_rejects_unknown_id():
         remove_transition(tree, transition_id="NONEXISTENT_ID")
     assert "transition_not_found" in str(exc.value)
     assert "fix: call get_timeline_summary and re-pick" in str(exc.value)
+
+
+def test_set_transition_property_timing():
+    """Change a transition's `in` timecode."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.transitions import (
+        add_transition, set_transition_property,
+    )
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    a, b = _two_clips_on_track_0(tree, src)
+    tid = add_transition(
+        tree, clip_a_id=a, clip_b_id=b, kind="dissolve", duration_sec=1.0,
+        catalog=[{"kdenlive_id": "dissolve", "mlt_service": "luma"}],
+    )
+    result = set_transition_property(tree, tid, "in", "00:00:00.250")
+    assert result["prop_name"] == "in"
+    tr = _first_transition_with_kid(tree, tid)
+    assert tr.get("in") == "00:00:00.250"
+
+
+def _first_transition_with_kid(tree, kid):
+    for t in tree.root.iter("transition"):
+        prop = t.find("property[@name='kdenlive:id']")
+        if prop is not None and prop.text == kid:
+            return t
+    raise AssertionError(f"no transition with kdenlive:id={kid!r}")
+
+
+def test_set_transition_property_reserved_name_rejected():
+    """Reserved names like 'mlt_service' and 'id' are rejected."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.errors import ValidationError
+    from phase2_project_engine.ops.transitions import (
+        add_transition, set_transition_property,
+    )
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    a, b = _two_clips_on_track_0(tree, src)
+    tid = add_transition(
+        tree, clip_a_id=a, clip_b_id=b, kind="dissolve", duration_sec=1.0,
+        catalog=[{"kdenlive_id": "dissolve", "mlt_service": "luma"}],
+    )
+    with pytest.raises(ValidationError, match="prop_not_allowed"):
+        set_transition_property(tree, tid, "mlt_service", "dissolve")

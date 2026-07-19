@@ -146,6 +146,11 @@ class KdenliveFileBackend(EditorBackend):
     def remove_transition(self, transition_id):
         return ops.remove_transition(self.tree, transition_id=transition_id)
 
+    def set_transition_property(self, transition_id, prop_name, value):
+        return ops.set_transition_property(
+            self.tree, transition_id=transition_id, prop_name=prop_name, value=value,
+        )
+
     def apply_effect(self, clip_id, effect_id, params=None):
         return ops.apply_effect(self.tree, clip_id, effect_id, params,
                                 catalog=self.catalog.effects)

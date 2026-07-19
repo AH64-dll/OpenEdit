@@ -26,7 +26,7 @@ from .effects import apply_effect, get_effect_param, remove_effect, set_effect_p
 from .keyframes import list_keyframes, remove_keyframe, set_keyframe
 from .groups import group_clips, list_groups, ungroup_clips
 from .markers import add_marker
-from .transitions import add_transition, remove_transition
+from .transitions import add_transition, remove_transition, set_transition_property
 
 
 __all__ = [
@@ -43,6 +43,7 @@ __all__ = [
     "replace_clip_source",
     "add_transition",
     "remove_transition",
+    "set_transition_property",
     "apply_effect",
     "get_effect_param",
     "remove_effect",

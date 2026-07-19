@@ -149,4 +149,90 @@ def remove_transition(tree: ProjectTree, transition_id: str) -> dict:
     }
 
 
-__all__ = ["add_transition", "remove_transition"]
+__all__ = ["add_transition", "remove_transition", "set_transition_property"]
+
+
+_RESERVED_PROP_NAMES = frozenset({"mlt_service", "id", "_childid", "kdenlive:id"})
+
+
+def set_transition_property(
+    tree: ProjectTree,
+    transition_id: str,
+    prop_name: str,
+    value: str,
+) -> dict:
+    """Set any one property on a transition service.
+
+    Reserved names (mlt_service, id, _childid, kdenlive:id) are rejected.
+    All other prop names are accepted; integer coercion is applied
+    for a_track/b_track and timecode validation for in/out.
+    """
+    if prop_name in _RESERVED_PROP_NAMES or prop_name.startswith("_"):
+        raise validation_error(
+            f"prop_not_allowed: prop_name={prop_name!r} is reserved\n"
+            f"fix: pass a transition-specific property (e.g. 'in', 'out', "
+            f"'a_track', 'b_track', 'geometry')",
+        )
+    # Find the transition by its kdenlive:id (stored in a child
+    # <property name="kdenlive:id">, NOT an attribute).
+    transition = None
+    for t in tree.root.iter("transition"):
+        kid_prop = t.find("property[@name='kdenlive:id']")
+        if kid_prop is not None and kid_prop.text == transition_id:
+            transition = t
+            break
+    if transition is None:
+        raise NotFoundError(
+            f"transition_not_found: no transition with id={transition_id!r}\n"
+            f"fix: call get_timeline_summary to see valid transition ids"
+        )
+    # Find the existing prop (or none, if it's a new transition param).
+    previous_value = None
+    target_prop = None
+    is_attribute = prop_name in ("in", "out")
+    if is_attribute:
+        # `in`/`out` are attributes on the <transition> element (the
+        # same way add_transition sets them), not <property> children.
+        previous_value = transition.get(prop_name)
+    else:
+        for prop in transition.findall("property"):
+            if prop.get("name") == prop_name:
+                target_prop = prop
+                previous_value = prop.text
+                break
+    # Coerce the value: timing/track props as timecode/integer.
+    if prop_name in ("a_track", "b_track"):
+        try:
+            coerced = str(int(value))
+        except (TypeError, ValueError):
+            raise validation_error(
+                f"value_type_mismatch: a_track/b_track requires an integer, "
+                f"got {value!r}\n"
+                f"fix: pass an integer track index as a string",
+            )
+    elif prop_name in ("in", "out"):
+        try:
+            _tc_to_sec(value)
+            coerced = value
+        except (TypeError, ValueError):
+            raise validation_error(
+                f"value_type_mismatch: {prop_name} requires a timecode, "
+                f"got {value!r}\n"
+                f"fix: pass a timecode like '00:00:00.500'",
+            )
+    else:
+        coerced = str(value)
+    if is_attribute:
+        transition.set(prop_name, coerced)
+    elif target_prop is not None:
+        target_prop.text = coerced
+    else:
+        p = etree.SubElement(transition, "property")
+        p.set("name", prop_name)
+        p.text = coerced
+    return {
+        "transition_id": transition_id,
+        "prop_name": prop_name,
+        "previous_value": previous_value,
+        "new_value": coerced,
+    }

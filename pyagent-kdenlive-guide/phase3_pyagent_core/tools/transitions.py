@@ -42,4 +42,24 @@ REMOVE_TRANSITION = ToolDef(
 )
 
 
-TOOLS = [ADD_TRANSITION, REMOVE_TRANSITION]
+SET_TRANSITION_PROPERTY = ToolDef(
+    name="pyagent_set_transition_property",
+    label="Set transition property",
+    description=(
+        "Set any one property on a transition service. Reserved names "
+        "(mlt_service, id, _childid, kdenlive:id, anything starting with _) "
+        "are rejected. Use for editing timing (in, out, a_track, b_track) "
+        "or transition-specific params (e.g. 'geometry' for wipes)."
+    ),
+    op="set_transition_property",
+    is_mutating=True,
+    parameters_schema={
+        "transition_id": _S,
+        "prop_name": _S,
+        "value": _S,
+    },
+    required=("transition_id", "prop_name", "value"),
+)
+
+
+TOOLS = [ADD_TRANSITION, REMOVE_TRANSITION, SET_TRANSITION_PROPERTY]

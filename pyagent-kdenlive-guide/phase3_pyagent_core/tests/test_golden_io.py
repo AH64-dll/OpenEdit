@@ -91,6 +91,35 @@ def _setup_remove_transition(proj_path: str, catalog_path: str, _args: dict) -> 
     return {"transition_id": new_tid}
 
 
+def _setup_set_transition_prop(proj_path: str, catalog_path: str, args: dict) -> dict:
+    """Insert 2 adjacent clips, add a dissolve, capture the id.
+
+    The captured transition id is injected into the golden args so the
+    test loop can call set_transition_property against it.
+    """
+    insert_args = {
+        "track_index": 0, "position_sec": 4.0,
+        "source_id": "1", "source_in_sec": 0.0, "source_out_sec": 2.0,
+    }
+    code, resp = run_op("insert_clip", insert_args, proj_path, catalog_path)
+    assert code == 0, f"setup insert_clip failed: {resp}"
+    new_clip_id = resp.get("result", "")
+    if isinstance(new_clip_id, dict):
+        new_clip_id = new_clip_id.get("clip_id", "")
+    assert new_clip_id, f"setup insert_clip returned no id: {resp}"
+    add_args = {
+        "clip_a_id": "2", "clip_b_id": new_clip_id,
+        "kind": "dissolve", "duration_sec": 1.0,
+    }
+    code, resp = run_op("add_transition", add_args, proj_path, catalog_path)
+    assert code == 0, f"setup add_transition failed: {resp}"
+    new_tid = resp.get("result", "")
+    assert new_tid, f"setup add_transition returned no id: {resp}"
+    resolved = dict(args)
+    resolved["transition_id"] = new_tid
+    return resolved
+
+
 def _setup_group_clips(_proj_path: str, _catalog_path: str, args: dict) -> dict:
     """Replace the PLACEHOLDER_KID and PLACEHOLDER_NAME in the golden args
     with the demo's existing clip "2" and a fixed name. No mutation needed
@@ -144,6 +173,7 @@ _CASES: list[tuple[str, dict, str]] = [
     ("remove_keyframe", {"clip_id": "2", "effect_index": 0, "param_name": "level", "frame": 25}, "remove_keyframe"),
     # --- transitions (remove is exercised; add_transition supplies the id via setup) ---
     ("remove_transition", {}, "remove_transition"),
+    ("set_transition_property", {"transition_id": "PLACEHOLDER", "prop_name": "in", "value": "00:00:00.250"}, "set_transition_property"),
     # --- groups (list_groups is read-only; group/ungroup use a placeholder
     #     setup that captures a real clip_id from the demo) ---
     ("list_groups", {}, "list_groups"),
@@ -183,6 +213,7 @@ _SETUP: dict = {
         "apply_effect", {"clip_id": "2", "effect_id": "brightness", "params": {"level": "0=1.0; 25=0.5; 50=0.0"}},
     ),
     "remove_transition": _setup_remove_transition,
+    "set_transition_property": _setup_set_transition_prop,
     "group_clips": _setup_group_clips,
     "ungroup_clips": _setup_ungroup_clips,
 }
