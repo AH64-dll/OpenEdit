@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -45,7 +45,7 @@ def render_project(
     project_id: str,
     project_dir: Path,
     workdir: Path,
-    mode: str = "proxy",
+    mode: Literal["proxy", "final"] = "proxy",
     profile_name: str = "720p30",
     force: bool = False,
     nice_level: int = 10,
@@ -55,9 +55,6 @@ def render_project(
     project_dir: directory containing `.open_edit/edit_graph.db`
     workdir: directory for the rendered MP4 (and the cache)
     """
-    if mode not in ("proxy", "final"):
-        return RenderResult(ok=False, error=f"invalid mode: {mode}")
-
     melt_bin = shutil.which("melt")
     if melt_bin is None:
         return RenderResult(ok=False, error="melt not on PATH")
