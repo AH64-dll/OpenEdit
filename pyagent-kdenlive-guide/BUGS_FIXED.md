@@ -490,3 +490,14 @@ skipped pending a headless kdenlive open+save path). Output pristine.
   Files: `phase2_project_engine/ops/keyframes.py`,
   `phase2_project_engine/backend_dispatch.py:176-188`,
   `phase2_project_engine/tests/test_ops_keyframes.py` (2 tests).
+
+## 2026-07-19 — 2b final-verify bug: track-effect tools not registered
+
+- `tools/track_effects.py` defined `ADD_EFFECT_TO_TRACK` and
+  `LIST_TRACK_EFFECTS` but `tools/__init__.py` never imported
+  the module nor included `*track_effects.TOOLS` in `all_tools()`.
+  Result: `list_tools()` returned 36, not the spec'd 38, and
+  the 2 track-effect tools were invisible to the extension. Caught
+  by the Task 5.1 `list_tools()==38` check on the merged main.
+  Fix: register `track_effects` in `tools/__init__.py`.
+  File: `phase3_pyagent_core/tools/__init__.py`.
