@@ -60,3 +60,16 @@ def test_summary_shows_empty_timeline(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert "duration" in result.stdout.lower()
     assert "tracks" in result.stdout.lower()
+
+
+def test_render_subcommand_runs(tmp_path: Path) -> None:
+    """`open_edit render` runs without error on an empty project (early return)."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    for f in TESTDATA.iterdir():
+        shutil.copy(f, project_dir / f.name)
+    _run("init", cwd=project_dir)
+    result = _run("render", cwd=project_dir)
+    # Should exit 1 with "no ops" or similar
+    assert result.returncode == 1
+    assert "ops" in (result.stderr + result.stdout).lower() or "empty" in (result.stderr + result.stdout).lower()

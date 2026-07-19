@@ -1,4 +1,4 @@
-"""Open Edit CLI — init / list / summary / undo (Phase 0+1)."""
+"""Open Edit CLI — init / list / summary / undo / render (Phase 0+1+2)."""
 from __future__ import annotations
 
 import argparse
@@ -133,6 +133,37 @@ def cmd_undo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_render(args: argparse.Namespace) -> int:
+    """Render the current project to MP4."""
+    project_dir = _find_existing_project(Path.cwd())
+    if project_dir is None:
+        print("error: no open_edit project found", file=sys.stderr)
+        return 1
+    from open_edit.render.orchestrator import render_project
+    from open_edit.qc.gate import run_qc_gate
+    result = render_project(
+        project_id=project_dir.parent.name,
+        project_dir=project_dir.parent,
+        workdir=project_dir / "renders",
+        mode=args.mode,
+        profile_name=args.profile,
+        force=args.force,
+    )
+    if result.ok:
+        print(f"Rendered: {result.output_path}")
+        print(f"  duration: {result.duration_sec:.2f}s  elapsed: {result.elapsed_sec:.2f}s  cache_hit: {result.cache_hit}")
+        # Run QC gate
+        qc = run_qc_gate(result.output_path, project_dir / "thumbs")
+        print(f"QC: {'PASS' if qc.passed else 'FAIL'}")
+        for c in qc.checks:
+            mark = "✓" if c.passed else "✗"
+            print(f"  [{mark}] {c.name}: {c.detail}")
+        return 0 if qc.passed else 1
+    else:
+        print(f"Render failed: {result.error}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="open_edit",
@@ -153,6 +184,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_undo = sub.add_parser("undo", help="Revert the most recent applied op")
     p_undo.set_defaults(func=cmd_undo)
+
+    p_render = sub.add_parser("render", help="Render the project to MP4 + run QC")
+    p_render.add_argument("--profile", default="720p30", help="render profile (default 720p30)")
+    p_render.add_argument("--mode", default="proxy", choices=["proxy", "final"], help="render mode")
+    p_render.add_argument("--force", action="store_true", help="ignore render cache")
+    p_render.set_defaults(func=cmd_render)
 
     args = parser.parse_args(argv)
     if args.version:
