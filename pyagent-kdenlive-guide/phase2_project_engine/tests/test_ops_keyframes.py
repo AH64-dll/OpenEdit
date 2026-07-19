@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from phase2_project_engine.errors import ValidationError
 from phase2_project_engine.tests.ops_fixtures import (
     make_minimal_tree,
     CLIP_SHORT,
@@ -142,3 +143,52 @@ def test_remove_keyframe_nonexistent_is_noop():
                  catalog=BRIGHTNESS_CATALOG)
     result = remove_keyframe(tree, kid, 0, "level", 999)
     assert result["removed"] is False
+
+
+SIMPLEKEYFRAME_CATALOG = [
+    {
+        "kdenlive_id": "rotation_keyframable",
+        "mlt_service": "affine",
+        "name": "Rotate (keyframable)",
+        "parameters": [
+            {"name": "transition.rotate_x", "type": "simplekeyframe",
+             "keyframes": "simplekeyframe"},
+        ],
+    }
+]
+
+
+def test_set_keyframe_on_simplekeyframe_rejected():
+    """set_keyframe on a simplekeyframe param raises
+    simplekeyframe_format_unsupported (spec error code)."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.effects import apply_effect
+    from phase2_project_engine.ops.keyframes import set_keyframe
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = _insert_clip(tree, CLIP_SHORT, src)
+    apply_effect(tree, kid, "rotation_keyframable",
+                 params={"transition.rotate_x": "0=0"},
+                 catalog=SIMPLEKEYFRAME_CATALOG)
+    with pytest.raises(ValidationError, match="simplekeyframe_format_unsupported"):
+        set_keyframe(tree, kid, 0, "transition.rotate_x", 10, "0.5",
+                     catalog=SIMPLEKEYFRAME_CATALOG)
+
+
+def test_remove_keyframe_on_simplekeyframe_rejected():
+    """remove_keyframe on a simplekeyframe param raises
+    simplekeyframe_format_unsupported (spec error code)."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.effects import apply_effect
+    from phase2_project_engine.ops.keyframes import remove_keyframe
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = _insert_clip(tree, CLIP_SHORT, src)
+    apply_effect(tree, kid, "rotation_keyframable",
+                 params={"transition.rotate_x": "0=0"},
+                 catalog=SIMPLEKEYFRAME_CATALOG)
+    with pytest.raises(ValidationError, match="simplekeyframe_format_unsupported"):
+        remove_keyframe(tree, kid, 0, "transition.rotate_x", 0,
+                        catalog=SIMPLEKEYFRAME_CATALOG)

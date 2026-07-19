@@ -175,12 +175,14 @@ class KdenliveFileBackend(EditorBackend):
 
     def set_keyframe(self, clip_id, effect_index, param_name, frame, value, type="linear"):
         return ops.set_keyframe(
-            self.tree, clip_id, effect_index, param_name, frame, value, type=type,
+            self.tree, clip_id, effect_index, param_name, frame, value,
+            type=type, catalog=self.catalog.effects,
         )
 
     def remove_keyframe(self, clip_id, effect_index, param_name, frame):
         return ops.remove_keyframe(
             self.tree, clip_id, effect_index, param_name, frame,
+            catalog=self.catalog.effects,
         )
 
     def add_marker(self, position_sec, label, kind="marker"):
@@ -200,6 +202,18 @@ class KdenliveFileBackend(EditorBackend):
 
     def replace_clip_source(self, clip_id, new_source_id):
         return ops.replace_clip_source(self.tree, clip_id, new_source_id=new_source_id)
+
+    def set_clip_speed_ramp(self, clip_id, keyframes):
+        return ops.set_clip_speed_ramp(self.tree, clip_id, keyframes)
+
+    def add_effect_to_track(self, track_index, effect_id, params=None):
+        return ops.add_effect_to_track(
+            self.tree, track_index, effect_id, params,
+            catalog=self.catalog.effects,
+        )
+
+    def list_track_effects(self, track_index):
+        return ops.list_track_effects(self.tree, track_index)
 
     def group_clips(self, clip_ids, group_name):
         return ops.group_clips(self.tree, clip_ids, group_name)

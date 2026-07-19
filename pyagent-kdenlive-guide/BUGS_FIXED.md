@@ -477,3 +477,16 @@ Test count after Task 4: 259 passed, 2 skipped (baseline 249 + 10 new:
 7 integration tests in test_ops_groups.py — 5 brief + 2 AVSkip
 edge cases, 3 golden tests, plus the 1 new interop test which is
 skipped pending a headless kdenlive open+save path). Output pristine.
+
+## 2026-07-19 — 2b spec error-code gap (simplekeyframe guard)
+
+- The spec lists 14 new error codes, but `set_keyframe`/`remove_keyframe`
+  never raised `simplekeyframe_format_unsupported` (nor
+  `param_not_keyframable`), leaving 2 of 14 codes unreachable.
+  Added `catalog` param to both ops + a guard that raises
+  `simplekeyframe_format_unsupported` when the param is
+  `simplekeyframe` (mlt_geometry). Wired `catalog=self.catalog.effects`
+  through `backend_dispatch.py`. Added 2 regression tests.
+  Files: `phase2_project_engine/ops/keyframes.py`,
+  `phase2_project_engine/backend_dispatch.py:176-188`,
+  `phase2_project_engine/tests/test_ops_keyframes.py` (2 tests).

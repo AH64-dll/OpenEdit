@@ -1,11 +1,14 @@
 """Keyframe operations: list_keyframes, set_keyframe, remove_keyframe."""
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 from ..errors import NotFoundError, ValidationError, validation_error
 from ..io import ProjectTree
 from .._keyframes import (
     parse_animation_string,
     serialize_keyframes,
+    is_keyframable_param,
 )
 from ._helpers import get_project_fps
 
@@ -90,12 +93,20 @@ def set_keyframe(
     frame: int,
     value: str,
     type: str = "linear",
+    *,
+    catalog: Sequence[Mapping] | None = None,
 ) -> dict:
     """Add or update a keyframe at `frame`.
 
     `type` is one of: linear, discrete, hold, smooth, or the 8 ease
     variants (a, b, c, d, A, B, C, D). Default is linear.
+
+    `simplekeyframe` params (mlt_geometry) are not supported by this
+    op and raise `simplekeyframe_format_unsupported` when `catalog`
+    is supplied and identifies the param as such.
     """
+    if catalog is None:
+        catalog = []
     from .clips_edit import _find_entry_for_clip
 
     if type not in _TYPE_NAME_TO_CHAR:
@@ -124,6 +135,19 @@ def set_keyframe(
             f"param_not_found: effect at index {effect_index} on clip "
             f"{clip_id!r} has no parameter named {param_name!r}\n"
             f"fix: call list_catalog to see valid parameter names"
+        )
+    effect_id = ""
+    for prop in filt.findall("property"):
+        if prop.get("name") == "kdenlive:id" and prop.text:
+            effect_id = prop.text
+            break
+    if is_keyframable_param(catalog, effect_id, param_name) == "simplekeyframe":
+        raise validation_error(
+            f"simplekeyframe_format_unsupported: param '{param_name}' on "
+            f"effect '{effect_id}' is a simplekeyframe (mlt_geometry) which "
+            f"this op does not support\n"
+            f"fix: edit simplekeyframe params via set_effect_param with a "
+            f"geometry string, not set_keyframe"
         )
     current_str = value_prop.text or ""
     kfs = parse_animation_string(current_str)
@@ -170,8 +194,16 @@ def remove_keyframe(
     effect_index: int,
     param_name: str,
     frame: int,
+    *,
+    catalog: Sequence[Mapping] | None = None,
 ) -> dict:
-    """Remove the keyframe at `frame`. No error if no keyframe exists there."""
+    """Remove the keyframe at `frame`. No error if no keyframe exists there.
+
+    `simplekeyframe` params (mlt_geometry) are not supported and raise
+    `simplekeyframe_format_unsupported` when `catalog` identifies them.
+    """
+    if catalog is None:
+        catalog = []
     from .clips_edit import _find_entry_for_clip
 
     track, entry, _ti = _find_entry_for_clip(tree, clip_id)
@@ -193,6 +225,19 @@ def remove_keyframe(
             f"param_not_found: effect at index {effect_index} on clip "
             f"{clip_id!r} has no parameter named {param_name!r}\n"
             f"fix: call list_catalog to see valid parameter names"
+        )
+    effect_id = ""
+    for prop in filt.findall("property"):
+        if prop.get("name") == "kdenlive:id" and prop.text:
+            effect_id = prop.text
+            break
+    if is_keyframable_param(catalog, effect_id, param_name) == "simplekeyframe":
+        raise validation_error(
+            f"simplekeyframe_format_unsupported: param '{param_name}' on "
+            f"effect '{effect_id}' is a simplekeyframe (mlt_geometry) which "
+            f"this op does not support\n"
+            f"fix: edit simplekeyframe params via set_effect_param with a "
+            f"geometry string, not remove_keyframe"
         )
     current_str = value_prop.text or ""
     kfs = parse_animation_string(current_str)
