@@ -5,6 +5,8 @@ includes a `fix:` line per the spec.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional
+
 from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,
@@ -17,6 +19,9 @@ from open_edit.ir.types import (
     SetKeyframeOp,
     TrimClipOp,
 )
+
+if TYPE_CHECKING:
+    from open_edit.ir.catalog.loader import EffectCatalog
 
 
 def _known_clip_ids(project: Project) -> set[str]:
@@ -37,7 +42,11 @@ def _known_effect_ids(project: Project) -> set[str]:
     }
 
 
-def validate_op(op: OperationUnion, project: Project) -> list[str]:
+def validate_op(
+    op: OperationUnion,
+    project: Project,
+    catalog: Optional["EffectCatalog"] = None,
+) -> list[str]:
     """Validate an operation against the project. Returns a list of errors."""
     errors: list[str] = []
 
@@ -108,6 +117,12 @@ def validate_op(op: OperationUnion, project: Project) -> list[str]:
             )
 
     elif isinstance(op, AddEffectOp):
+        if catalog is not None and not catalog.is_known(op.effect_type):
+            known = ", ".join(sorted(catalog.known_names()))
+            errors.append(
+                f"AddEffectOp: effect_type '{op.effect_type}' is not in the catalog. "
+                f"fix: use one of: {known}."
+            )
         if op.target_kind == "clip" and op.target_id not in _known_clip_ids(project):
             errors.append(
                 f"AddEffectOp: target clip '{op.target_id}' not found. "

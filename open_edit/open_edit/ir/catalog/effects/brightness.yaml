@@ -1,0 +1,11 @@
+name: brightness
+mlt_service: brightness
+target_kind: [clip]
+params:
+  value:
+    type: float
+    default: 0.0
+    range: [-1.0, 1.0]
+keyframe_params: [value]
+interp: [linear, discrete]
+description: "Brightness adjustment. value=0.0 is unchanged."

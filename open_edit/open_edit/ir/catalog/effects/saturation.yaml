@@ -1,0 +1,11 @@
+name: saturation
+mlt_service: saturation
+target_kind: [clip]
+params:
+  value:
+    type: float
+    default: 1.0
+    range: [0.0, 2.0]
+keyframe_params: [value]
+interp: [linear, discrete]
+description: "Saturation adjustment. value=1.0 is unchanged."

@@ -1,0 +1,7 @@
+name: dissolve
+mlt_service: dissolve
+target_kind: [clip]
+params: {}
+keyframe_params: []
+interp: [linear, discrete]
+description: "Cross-dissolve transition. No parameters; duration is set on the AddTransitionOp."

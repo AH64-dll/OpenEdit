@@ -1,0 +1,14 @@
+name: luma
+mlt_service: luma
+target_kind: [clip]
+params:
+  softness:
+    type: float
+    default: 0.0
+    range: [0.0, 1.0]
+  invert:
+    type: bool
+    default: false
+keyframe_params: [softness]
+interp: [linear, discrete]
+description: "Luma transition/filter. softness controls blend sharpness; invert flips the luma curve."

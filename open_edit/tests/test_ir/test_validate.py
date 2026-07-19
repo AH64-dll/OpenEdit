@@ -1,4 +1,7 @@
 """Tests for op validation (schema + referential + asset-exists)."""
+import shutil
+from pathlib import Path
+
 import pytest
 
 from open_edit.ir.types import (
@@ -14,6 +17,9 @@ from open_edit.ir.types import (
     TrimClipOp,
 )
 from open_edit.ir.validate import validate_op
+
+TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
+pytestmark = pytest.mark.skipif(not shutil.which("ffprobe"), reason="ffprobe not installed")
 
 
 def _asset(asset_hash: str) -> Asset:
@@ -113,3 +119,31 @@ def test_set_audio_gain_with_unknown_clip_is_error() -> None:
     op = SetAudioGainOp(author="user", clip_id="nope", gain_db=-6.0)
     errors = validate_op(op, project)
     assert any("nope" in e for e in errors)
+
+
+def test_add_effect_with_unknown_effect_type_is_rejected(tmp_path) -> None:
+    """AddEffectOp with an effect_type not in the catalog must be rejected
+    with a 'fix: use one of: <list>' line."""
+    from open_edit.ir.catalog.loader import EffectCatalog
+    from open_edit.ir.types import AddClipOp, AddEffectOp, Project
+    from open_edit.storage.assets import AssetStore
+
+    asset_store = AssetStore(tmp_path / "assets")
+    assets = asset_store.ingest_paths([str(TESTDATA / "clip_a.mp4")])
+    project = Project(name="t", assets={a.asset_hash: a for a in assets})
+
+    clip = AddClipOp(
+        author="user", asset_hash=assets[0].asset_hash,
+        track_id="v1", position_sec=0.0,
+    )
+    project.edit_graph.append(clip)
+
+    catalog = EffectCatalog(Path(__file__).parent.parent.parent / "open_edit" / "ir" / "catalog")
+    op = AddEffectOp(
+        author="user", target_kind="clip", target_id=clip.clip_id,
+        effect_type="definitely_not_in_catalog", params={"x": 1.0},
+    )
+    errors = validate_op(op, project, catalog=catalog)
+    assert any("definitely_not_in_catalog" in e for e in errors)
+    assert any("fix:" in e for e in errors)
+    assert any("use one of:" in e for e in errors)
