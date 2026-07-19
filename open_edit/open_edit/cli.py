@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     p_undo.set_defaults(func=cmd_undo)
 
     p_render = sub.add_parser("render", help="Render the project to MP4 + run QC")
-    p_render.add_argument("--profile", default="720p30", help="render profile (default 720p30)")
+    p_render.add_argument("--profile", default=None, help="render profile (default: auto from --mode; 720p30 for proxy, 1080p30 for final)")
     p_render.add_argument("--mode", default="proxy", choices=["proxy", "final"], help="render mode")
     p_render.add_argument("--force", action="store_true", help="ignore render cache")
     p_render.set_defaults(func=cmd_render)

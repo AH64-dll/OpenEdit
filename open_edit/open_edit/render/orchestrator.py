@@ -46,7 +46,7 @@ def render_project(
     project_dir: Path,
     workdir: Path,
     mode: Literal["proxy", "final"] = "proxy",
-    profile_name: str = "720p30",
+    profile_name: Optional[str] = None,
     force: bool = False,
     nice_level: int = 10,
 ) -> RenderResult:
@@ -54,32 +54,38 @@ def render_project(
 
     project_dir: directory containing `.open_edit/edit_graph.db`
     workdir: directory for the rendered MP4 (and the cache)
+
+    If profile_name is None, a profile is auto-selected from mode:
+    proxy -> 720p30, final -> 1080p30.
     """
     melt_bin = shutil.which("melt")
     if melt_bin is None:
         return RenderResult(ok=False, error="melt not on PATH")
 
+    if profile_name is None or profile_name == "":
+        profile_name = "1080p30" if mode == "final" else "720p30"
     profile = select_profile(profile_name)
 
     project_path = project_dir / ".open_edit" / "edit_graph.db"
     store = EditGraphStore(project_path)
     ops = store.load_all()
-    if not ops:
+    applied_ops = [op for op in ops if op.status == "applied"]
+    if not applied_ops:
         return RenderResult(ok=False, error="empty edit graph; nothing to render")
 
     project = Project(name=project_id)
-    project.edit_graph = list(ops)
+    project.edit_graph = list(applied_ops)
     timeline = derive_timeline(project)
 
     asset_paths: dict[str, str] = {}
     asset_store = AssetStore(project_dir / ".open_edit" / "assets")
-    for op in ops:
+    for op in applied_ops:
         if isinstance(op, AddClipOp):
             path = asset_store.path(op.asset_hash)
             if path is not None:
                 asset_paths[op.asset_hash] = str(path)
 
-    payload = [op.model_dump(mode="json") for op in ops]
+    payload = [op.model_dump(mode="json") for op in applied_ops]
     graph_hash = canonical_json_hash(payload)
 
     cache = RenderCache(workdir / "render_cache")

@@ -42,10 +42,20 @@ def test_golden_transitions_references_valid_clips() -> None:
 
 def test_golden_expected_timeline_matches_derive() -> None:
     """Deriving the timeline from the edit graph produces a Timeline with
-    11 clips across 1 video track."""
+    11 clips across 1 video track, and the resulting Timeline matches the
+    checked-in expected_timeline.json golden file."""
     payload = json.loads((GOLDEN_DIR / "edit_graph.json").read_text())
     project = TypeAdapter(Project).validate_python(payload)
     from open_edit.ir.apply import derive_timeline
     timeline = derive_timeline(project)
     assert len(timeline.tracks) == 1
     assert len(timeline.tracks[0].clips) == 11
+
+    # Compare the full derived timeline against the golden JSON. A
+    # regression in derive_timeline (or any operation kind) will surface
+    # as a diff in clip in/out points, transition effects, or duration.
+    expected_path = GOLDEN_DIR / "expected_timeline.json"
+    expected = json.loads(expected_path.read_text())
+    actual = timeline.model_dump(mode="json")
+    assert json.dumps(actual, sort_keys=True, indent=2) == \
+        json.dumps(expected, sort_keys=True, indent=2)

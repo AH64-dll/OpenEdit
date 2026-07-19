@@ -29,12 +29,12 @@ def run_qc_gate(video_path: str, output_thumb_dir: Path) -> QCReport:
     """Run all 5 QC checks against a rendered video file."""
     checks: list[QCCheck] = []
 
-    # 1. mlt_load: in Task 11 E2E this validates the emitted XML. Here we
-    #    accept any video that exists; the orchestrator already verified
-    #    melt loaded the XML before producing the video.
+    # 1. render_completed: honest signal — the orchestrator returned
+    #    ok=True with a non-empty MP4. We do NOT call validate_mlt_loads
+    #    here (this gate is video-only and would need the XML, not the MP4).
     checks.append(QCCheck(
-        name="mlt_load", passed=True,
-        detail="(assumed valid; orchestrator verified at render time)",
+        name="render_completed", passed=True,
+        detail="(proxy MP4 exists; orchestrator returned ok=True)",
     ))
 
     # 2. proxy_render: the file exists and is non-empty

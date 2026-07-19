@@ -30,7 +30,7 @@ def test_run_qc_gate_check_names() -> None:
         output_thumb_dir=Path("/tmp"),
     )
     names = [c.name for c in report.checks]
-    assert "mlt_load" in names
+    assert "render_completed" in names
     assert "proxy_render" in names
     assert "black_frames" in names
     assert "silence" in names
