@@ -7,6 +7,8 @@ from open_edit.ir.types import (
     AddEffectOp,
     AddTransitionOp,
     Effect,
+    GroupEditsOp,
+    NormalizeAudioOp,
     Project,
     RemoveClipOp,
     SetKeyframeOp,
@@ -170,6 +172,73 @@ def test_add_transition_with_clip_a_already_trimmed() -> None:
     )
     assert clip_a.out_point_sec == pytest.approx(1.0, abs=0.001)
     assert clip_b.in_point_sec == pytest.approx(0.0, abs=0.001)
+
+
+# ===== NormalizeAudioOp / GroupEditsOp (Bug-hunt #5) =====
+
+def test_normalize_audio_adds_volume_effect_to_clip() -> None:
+    timeline = Timeline()
+    add = AddClipOp(
+        author="user", asset_hash="a", track_id="audio_1",
+        track_kind="audio", position_sec=0.0,
+    )
+    timeline = apply_operation(timeline, add)
+    norm = NormalizeAudioOp(
+        author="user", target_kind="clip", target_id=add.clip_id,
+        target_dbfs=-16.0,
+    )
+    out = apply_operation(timeline, norm)
+    effects = out.tracks[0].clips[0].effects
+    assert len(effects) == 1
+    assert effects[0].effect_type == "volume"
+    assert effects[0].params.get("target_dbfs") == -16.0
+    assert effects[0].params.get("normalize") is True
+
+
+def test_normalize_audio_adds_volume_effect_to_track() -> None:
+    timeline = Timeline()
+    AddClipOp(author="user", asset_hash="a", track_id="audio_1",
+              track_kind="audio", position_sec=0.0)
+    add = AddClipOp(author="user", asset_hash="a", track_id="audio_1",
+                    track_kind="audio", position_sec=2.0)
+    timeline = apply_operation(timeline, add)
+    norm = NormalizeAudioOp(
+        author="user", target_kind="track", target_id="audio_1",
+        target_dbfs=-14.0,
+    )
+    out = apply_operation(timeline, norm)
+    track = next(t for t in out.tracks if t.track_id == "audio_1")
+    assert len(track.effects) == 1
+    assert track.effects[0].effect_type == "volume"
+    assert track.effects[0].params.get("target_dbfs") == -14.0
+
+
+def test_normalize_audio_unknown_target_is_silent_noop() -> None:
+    """The op must not crash; unknown targets leave the timeline intact.
+    The agent's view of the timeline is unchanged, but the op is recorded
+    in the edit graph so a follow-up retry or correction can address it.
+    """
+    timeline = Timeline()
+    norm = NormalizeAudioOp(
+        author="user", target_kind="clip", target_id="nonexistent",
+        target_dbfs=-16.0,
+    )
+    out = apply_operation(timeline, norm)
+    assert out == timeline
+
+
+def test_group_edits_is_metadata_only() -> None:
+    """GroupEditsOp groups child ops (via parent_id) but does not change the
+    timeline itself; replaying it must leave the timeline unchanged."""
+    timeline = Timeline()
+    add = AddClipOp(author="user", asset_hash="a", track_id="v1", position_sec=0.0)
+    timeline = apply_operation(timeline, add)
+    group = GroupEditsOp(
+        author="user", edit_ids=[add.edit_id], label="intro",
+    )
+    out = apply_operation(timeline, group)
+    assert len(out.tracks[0].clips) == 1
+    assert out.tracks[0].clips[0].clip_id == add.clip_id
 
 
 # ===== Remove / Move / Trim =====
