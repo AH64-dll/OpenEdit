@@ -3,6 +3,17 @@ bin/
 *.exe
 *.out
 
+# Python virtual environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
 # Generated test data (committed; uncomment if regenerating)
 # testdata/clip_short.mp4
 # testdata/clip_short.expected.preview.mp4
