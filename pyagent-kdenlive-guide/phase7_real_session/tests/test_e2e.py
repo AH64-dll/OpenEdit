@@ -361,3 +361,14 @@ def test_groups_round_trip_through_real_kdenlive(tmp_path):
         "properties. See test_groups_round_trip_through_real_kdenlive "
         "docstring for the path forward."
     )
+
+
+@_KdenliveBin
+def test_2b_round_trip_through_real_kdenlive():
+    """Build a project with a keyframed effect, a track effect, and a
+    time-remapped clip. Open in real Kdenlive, save, re-load, and verify
+    all three features survive.
+
+    ACTIVATION: requires the Xvfb+Kdenlive harness extension documented
+    in BUGS_FIXED T4.5. Currently always skipped."""
+    pytest.skip("Real Kdenlive interop test is gated on the Xvfb harness extension")

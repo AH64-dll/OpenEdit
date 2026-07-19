@@ -217,5 +217,30 @@
     "param_name": "level",
     "frame": 25,
     "removed": true
+  },
+  "add_effect_to_track": {
+    "track_index": 0,
+    "effect_index": 0,
+    "effect_id": "brightness"
+  },
+  "list_track_effects": {
+    "track_index": 0,
+    "effects": [
+      {
+        "index": 0,
+        "effect_id": "brightness",
+        "enabled": true,
+        "params": {
+          "level": "0.5"
+        }
+      }
+    ]
+  },
+  "set_clip_speed_ramp": {
+    "clip_id": "2",
+    "keyframes_added": 3,
+    "time_map": "00:00:00:00=1.000;00:00:01:00=2.000;00:00:02:00=1.000;",
+    "min_rate": 1.0,
+    "max_rate": 2.0
   }
 }

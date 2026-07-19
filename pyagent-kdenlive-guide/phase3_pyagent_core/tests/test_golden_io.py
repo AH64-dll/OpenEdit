@@ -174,6 +174,11 @@ _CASES: list[tuple[str, dict, str]] = [
     # --- transitions (remove is exercised; add_transition supplies the id via setup) ---
     ("remove_transition", {}, "remove_transition"),
     ("set_transition_property", {"transition_id": "PLACEHOLDER", "prop_name": "in", "value": "00:00:00.250"}, "set_transition_property"),
+    # --- track effects (add a video effect to the demo's video track 0) ---
+    ("add_effect_to_track", {"track_index": 0, "effect_id": "brightness", "params": {"level": "0.5"}}, "add_effect_to_track"),
+    ("list_track_effects", {"track_index": 0}, "list_track_effects"),
+    # --- clip speed ramp (demo clip "2" exists; timeremap written to its producer) ---
+    ("set_clip_speed_ramp", {"clip_id": "2", "keyframes": [{"time_ms": 0, "rate": 1.0}, {"time_ms": 1000, "rate": 2.0}, {"time_ms": 2000, "rate": 1.0}]}, "set_clip_speed_ramp"),
     # --- groups (list_groups is read-only; group/ungroup use a placeholder
     #     setup that captures a real clip_id from the demo) ---
     ("list_groups", {}, "list_groups"),
@@ -214,6 +219,9 @@ _SETUP: dict = {
     ),
     "remove_transition": _setup_remove_transition,
     "set_transition_property": _setup_set_transition_prop,
+    "list_track_effects": (
+        "add_effect_to_track", {"track_index": 0, "effect_id": "brightness", "params": {"level": "0.5"}},
+    ),
     "group_clips": _setup_group_clips,
     "ungroup_clips": _setup_ungroup_clips,
 }

@@ -170,6 +170,23 @@ def copy_elem(elem: etree._Element) -> etree._Element:
     return _copy.deepcopy(elem)
 
 
+def get_project_fps(tree: ProjectTree) -> float:
+    """Return the project's frame rate (frames per second).
+
+    Reads frame_rate_num/den from the <profile> element; falls back to
+    25.0 if the profile is missing or the fields are unreadable.
+    """
+    try:
+        profile = tree.root.find("profile")
+        if profile is None:
+            return 25.0
+        num = float(profile.get("frame_rate_num", "25"))
+        den = float(profile.get("frame_rate_den", "1"))
+        return num / den if den else 25.0
+    except Exception:
+        return 25.0
+
+
 def probe_duration_sec(path: Path) -> float:
     """Use ffprobe (already an mlt-pipeline dep) to read duration.
     Returns 0.0 if probe fails.
@@ -186,4 +203,5 @@ __all__ = [
     "shift_entry_on_timeline",
     "insert_entry_at_position",
     "probe_duration_sec",
+    "get_project_fps",
 ]

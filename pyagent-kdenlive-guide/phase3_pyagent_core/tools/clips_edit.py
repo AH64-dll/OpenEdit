@@ -64,4 +64,39 @@ REPLACE_CLIP_SOURCE = ToolDef(
 )
 
 
-TOOLS = [SLIP_CLIP, RIPPLE_DELETE_CLIP, CHANGE_CLIP_SPEED, SPLIT_CLIP, REPLACE_CLIP_SOURCE]
+SET_CLIP_SPEED_RAMP = ToolDef(
+    name="pyagent_set_clip_speed_ramp",
+    label="Set clip speed ramp",
+    description=(
+        "Add or replace a keyframed speed ramp on a clip. Uses an "
+        "<link mlt_service='timeremap'> element on the clip's producer. "
+        "The first keyframe MUST be at time_ms=0 and rate=1.0. The ramp "
+        "is replaced wholesale; the AI is expected to read get_timeline_summary "
+        "or list_keyframes first if it wants to preserve existing keyframes."
+    ),
+    op="set_clip_speed_ramp",
+    is_mutating=True,
+    parameters_schema={
+        "type": "object",
+        "properties": {
+            "clip_id": {"type": "string"},
+            "keyframes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "time_ms": {"type": "integer", "minimum": 0},
+                        "rate": {"type": "number", "exclusiveMinimum": 0, "maximum": 10},
+                    },
+                    "required": ["time_ms", "rate"],
+                },
+                "description": "Sorted ascending by time_ms; first must be at time_ms=0 rate=1.0",
+            },
+        },
+        "required": ["clip_id", "keyframes"],
+        "additionalProperties": False,
+    },
+)
+
+
+TOOLS = [SLIP_CLIP, RIPPLE_DELETE_CLIP, CHANGE_CLIP_SPEED, SPLIT_CLIP, REPLACE_CLIP_SOURCE, SET_CLIP_SPEED_RAMP]

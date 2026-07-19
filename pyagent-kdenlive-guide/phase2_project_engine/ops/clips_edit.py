@@ -222,7 +222,20 @@ def replace_clip_source(tree: ProjectTree, clip_id: str, new_source_id: str) -> 
     }
 
 
+def _find_clip_producer(tree: ProjectTree, entry) -> etree._Element | None:
+    """Return the <producer> element for the given <entry>, or None.
+
+    Delegates to the shared implementation in ``clips_speed`` so the
+    speed-ramp logic stays in one place under the 300-line module cap.
+    """
+    from .clips_speed import _find_clip_producer as _impl
+    return _impl(tree, entry)
+
+
+from .clips_speed import set_clip_speed_ramp  # noqa: E402  (keep public export)
+
+
 __all__ = [
     "slip_clip", "ripple_delete_clip", "change_clip_speed",
-    "split_clip", "replace_clip_source",
+    "split_clip", "replace_clip_source", "set_clip_speed_ramp",
 ]

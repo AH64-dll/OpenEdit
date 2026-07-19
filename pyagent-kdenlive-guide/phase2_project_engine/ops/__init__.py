@@ -19,6 +19,7 @@ from .clips_edit import (
     change_clip_speed,
     replace_clip_source,
     ripple_delete_clip,
+    set_clip_speed_ramp,
     slip_clip,
     split_clip,
 )
@@ -26,6 +27,7 @@ from .effects import apply_effect, get_effect_param, remove_effect, set_effect_p
 from .keyframes import list_keyframes, remove_keyframe, set_keyframe
 from .groups import group_clips, list_groups, ungroup_clips
 from .markers import add_marker
+from .track_effects import add_effect_to_track, list_track_effects
 from .transitions import add_transition, remove_transition, set_transition_property
 
 
@@ -41,6 +43,9 @@ __all__ = [
     "change_clip_speed",
     "split_clip",
     "replace_clip_source",
+    "set_clip_speed_ramp",
+    "add_effect_to_track",
+    "list_track_effects",
     "add_transition",
     "remove_transition",
     "set_transition_property",

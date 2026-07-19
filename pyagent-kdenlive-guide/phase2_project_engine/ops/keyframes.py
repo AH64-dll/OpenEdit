@@ -7,6 +7,7 @@ from .._keyframes import (
     parse_animation_string,
     serialize_keyframes,
 )
+from ._helpers import get_project_fps
 
 
 def list_keyframes(
@@ -78,15 +79,7 @@ _TYPE_NAME_TO_CHAR = {
 
 
 def _get_project_fps(tree: ProjectTree) -> float:
-    try:
-        profile = tree.root.find("profile")
-        if profile is None:
-            return 25.0
-        num = float(profile.get("frame_rate_num", "25"))
-        den = float(profile.get("frame_rate_den", "1"))
-        return num / den if den else 25.0
-    except Exception:
-        return 25.0
+    return get_project_fps(tree)
 
 
 def set_keyframe(
