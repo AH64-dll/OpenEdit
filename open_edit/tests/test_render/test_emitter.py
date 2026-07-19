@@ -83,7 +83,7 @@ def test_emitter_emits_transitions() -> None:
         profile={"width": 320, "height": 240, "frame_rate_num": 30, "frame_rate_den": 1}
     ))
     assert "<transition" in xml
-    assert 'lti_rect=""' not in xml  # not blank
+    assert 'service="luma"' in xml
 
 
 def test_emitter_emits_effects_as_filters() -> None:
