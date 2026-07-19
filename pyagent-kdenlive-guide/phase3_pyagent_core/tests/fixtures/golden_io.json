@@ -86,5 +86,42 @@
       "mlt_service": "frei0r.test_pat_B",
       "description": "Generates test card lookalikes"
     }
-  ]
+  ],
+  "slip_clip": {
+    "clip_id": "2",
+    "source_id": "producer_4",
+    "source_in_sec": 0.0,
+    "source_out_sec": 4.0,
+    "track_index": 0,
+    "timeline_start_sec": 0.0,
+    "duration_sec": 4.0
+  },
+  "ripple_delete_clip": {
+    "deleted_clip_id": "2",
+    "shifted_clip_ids": []
+  },
+  "change_clip_speed": {
+    "clip_id": "2",
+    "source_id": "producer_4",
+    "source_in_sec": 0.0,
+    "source_out_sec": 4.0,
+    "rate": 1.0,
+    "old_duration_sec": 4.0,
+    "new_duration_sec": 4.0
+  },
+  "split_clip": {
+    "left_clip_id": "2",
+    "right_clip_id": "3"
+  },
+  "replace_clip_source": {
+    "clip_id": "2",
+    "old_source_id": "producer_4",
+    "new_source_id": "1",
+    "old_rate": 1.0,
+    "new_rate": 1.0,
+    "old_duration_sec": 4.0,
+    "new_duration_sec": 4.0,
+    "source_in_sec": 0.0,
+    "source_out_sec": 4.0
+  }
 }

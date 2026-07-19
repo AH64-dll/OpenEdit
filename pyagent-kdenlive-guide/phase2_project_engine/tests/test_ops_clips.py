@@ -220,3 +220,133 @@ def test_delete_clip_rejects_unknown_id():
     with pytest.raises(Exception) as ei:
         delete_clip(tree, "99999")
     assert "no clip" in str(ei.value).lower()
+
+
+# --- clips-edit ops (slip / ripple / speed / split / replace) -------------
+
+
+def test_slip_clip_shifts_source_within_fixed_window():
+    """slip with delta=+1.0 shifts source_in and source_out each by 1.0;
+    timeline position and duration are unchanged."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.clips_edit import slip_clip
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = insert_clip(tree, track_index=0, position_sec=0.0, source_id=src,
+                      source_in_sec=0.0, source_out_sec=5.0)
+    pre = slip_clip(tree, kid, delta_sec=0.0)
+    post = slip_clip(tree, kid, delta_sec=1.0)
+    assert abs(post["source_in_sec"] - (pre["source_in_sec"] + 1.0)) < 1e-6
+    assert abs(post["source_out_sec"] - (pre["source_out_sec"] + 1.0)) < 1e-6
+    assert post["timeline_start_sec"] == pre["timeline_start_sec"]
+    assert post["duration_sec"] == pre["duration_sec"]
+
+
+def test_slip_clip_raises_source_oob_on_out_of_bounds_delta():
+    """A delta that would push source_in below 0 raises source_oob."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.clips_edit import slip_clip
+    from phase2_project_engine.errors import NotFoundError
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = insert_clip(tree, track_index=0, position_sec=0.0, source_id=src,
+                      source_in_sec=0.0, source_out_sec=5.0)
+    with pytest.raises(NotFoundError) as exc:
+        slip_clip(tree, kid, delta_sec=-100.0)
+    assert "source_oob" in str(exc.value)
+
+
+def test_change_clip_speed_halves_duration_at_rate_2():
+    """rate=2.0 halves the clip's duration on the timeline."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.clips_edit import change_clip_speed
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = insert_clip(tree, track_index=0, position_sec=0.0, source_id=src,
+                      source_in_sec=0.0, source_out_sec=10.0)
+    pre_dur = change_clip_speed(tree, kid, rate=1.0)["new_duration_sec"]
+    result = change_clip_speed(tree, kid, rate=2.0)
+    assert abs(result["new_duration_sec"] - pre_dur / 2.0) < 1e-3
+    assert result["rate"] == 2.0
+
+
+def test_change_clip_speed_rejects_rate_out_of_range():
+    """rate > 10.0 raises rate_out_of_range ValidationError."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.clips_edit import change_clip_speed
+    from phase2_project_engine.errors import ValidationError
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = insert_clip(tree, track_index=0, position_sec=0.0, source_id=src,
+                      source_in_sec=0.0, source_out_sec=5.0)
+    with pytest.raises(ValidationError) as exc:
+        change_clip_speed(tree, kid, rate=11.0)
+    assert "rate_out_of_range" in str(exc.value)
+    assert "fix:" in str(exc.value)
+
+
+def test_split_clip_returns_left_and_right_clip_ids():
+    """split returns the original clip_id (left) and a new id (right)."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.clips_edit import split_clip
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    kid = insert_clip(tree, track_index=0, position_sec=0.0, source_id=src,
+                      source_in_sec=0.0, source_out_sec=10.0)
+    result = split_clip(tree, kid, at_sec=4.0)
+    assert result["left_clip_id"] == kid
+    assert result["right_clip_id"] != kid
+    assert result["right_clip_id"].isdigit()
+
+
+def test_ripple_delete_clip_removes_entry_and_shifts_following():
+    """ripple_delete removes the entry and returns the ids of clips that
+    follow it on the same track (whose timeline positions change)."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.clips_edit import ripple_delete_clip
+    tree = make_minimal_tree()
+    src = _import_source(tree, CLIP_SHORT)
+    a = insert_clip(tree, track_index=0, position_sec=0.0, source_id=src,
+                    source_in_sec=0.0, source_out_sec=3.0)
+    b = insert_clip(tree, track_index=0, position_sec=3.0, source_id=src,
+                    source_in_sec=0.0, source_out_sec=3.0)
+    result = ripple_delete_clip(tree, a)
+    assert result["deleted_clip_id"] == a
+    assert b in result["shifted_clip_ids"]
+    pl = video_playlist(tree)
+    ids = [e.find("property[@name='kdenlive:id']").text
+           for e in pl.findall("entry") if e.find("property[@name='kdenlive:id']") is not None]
+    assert a not in ids
+    assert b in ids
+
+
+def test_replace_clip_source_resets_rate_and_source_in():
+    """replace_clip_source resets source_in to 0, source_out to min(old, new_source),
+    and rate to 1.0."""
+    if not CLIP_SHORT.exists():
+        pytest.skip(f"missing testdata: {CLIP_SHORT}")
+    from phase2_project_engine.ops.clips import insert_clip
+    from phase2_project_engine.ops.clips_edit import replace_clip_source
+    tree = make_minimal_tree()
+    src1 = _import_source(tree, CLIP_SHORT)
+    src2 = _import_source(tree, CLIP_SHORT)  # same file, but different source id
+    kid = insert_clip(tree, track_index=0, position_sec=0.0, source_id=src1,
+                      source_in_sec=2.0, source_out_sec=8.0)
+    result = replace_clip_source(tree, kid, new_source_id=src2)
+    assert result["new_source_id"] == src2
+    assert result["source_in_sec"] == 0.0
+    assert result["new_rate"] == 1.0
+    assert result["old_duration_sec"] == 6.0
+    assert result["new_duration_sec"] == 6.0  # source is the same length

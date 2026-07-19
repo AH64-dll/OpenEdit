@@ -5,7 +5,7 @@ Each tools/*.py module exports a `TOOLS` list of `ToolDef`s. The
 """
 from __future__ import annotations
 
-from . import bin, catalog, clips, effects, markers, project, render_qc, transitions
+from . import bin, catalog, clips, clips_edit, effects, markers, project, render_qc, transitions
 
 
 def all_tools() -> list:
@@ -15,6 +15,7 @@ def all_tools() -> list:
         *catalog.TOOLS,
         *bin.TOOLS,
         *clips.TOOLS,
+        *clips_edit.TOOLS,
         *transitions.TOOLS,
         *effects.TOOLS,
         *markers.TOOLS,

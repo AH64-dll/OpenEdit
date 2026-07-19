@@ -69,6 +69,16 @@ class EditorBackend(ABC):
     @abstractmethod
     def add_marker(self, position_sec: float, label: str, kind: str = "marker") -> None: ...
     @abstractmethod
+    def slip_clip(self, clip_id: str, delta_sec: float) -> dict: ...
+    @abstractmethod
+    def ripple_delete_clip(self, clip_id: str) -> dict: ...
+    @abstractmethod
+    def change_clip_speed(self, clip_id: str, rate: float) -> dict: ...
+    @abstractmethod
+    def split_clip(self, clip_id: str, at_sec: float) -> dict: ...
+    @abstractmethod
+    def replace_clip_source(self, clip_id: str, new_source_id: str) -> dict: ...
+    @abstractmethod
     def save(self, path: str | None = None) -> None: ...
 
 
@@ -188,6 +198,21 @@ class KdenliveFileBackend(EditorBackend):
 
     def add_marker(self, position_sec, label, kind="marker"):
         ops.add_marker(self.tree, position_sec, label, kind)
+
+    def slip_clip(self, clip_id, delta_sec):
+        return ops.slip_clip(self.tree, clip_id, delta_sec=delta_sec)
+
+    def ripple_delete_clip(self, clip_id):
+        return ops.ripple_delete_clip(self.tree, clip_id)
+
+    def change_clip_speed(self, clip_id, rate):
+        return ops.change_clip_speed(self.tree, clip_id, rate=rate)
+
+    def split_clip(self, clip_id, at_sec):
+        return ops.split_clip(self.tree, clip_id, at_sec=at_sec)
+
+    def replace_clip_source(self, clip_id, new_source_id):
+        return ops.replace_clip_source(self.tree, clip_id, new_source_id=new_source_id)
 
     def save(self, path=None):
         save_project(self.tree, path)

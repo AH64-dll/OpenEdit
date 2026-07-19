@@ -15,6 +15,13 @@ from .clips import (
     move_clip,
     trim_clip,
 )
+from .clips_edit import (
+    change_clip_speed,
+    replace_clip_source,
+    ripple_delete_clip,
+    slip_clip,
+    split_clip,
+)
 from .effects import apply_effect
 from .markers import add_marker
 from .transitions import add_transition
@@ -27,6 +34,11 @@ __all__ = [
     "move_clip",
     "trim_clip",
     "delete_clip",
+    "slip_clip",
+    "ripple_delete_clip",
+    "change_clip_speed",
+    "split_clip",
+    "replace_clip_source",
     "add_transition",
     "apply_effect",
     "add_marker",

@@ -329,3 +329,50 @@ Sub-project 1 of 3 (whole-pipeline cleanup of
 - `git log cleanup/whole-pipeline` — full commit history
 - `docs/superpowers/plans/2026-07-19-cleanup.md` — the plan that drove
   this sub-project
+
+## 2026-07-19 — Task 1 (sub-project 2a): clips-edit tools
+
+Five latent bugs in the brief's skeleton code, caught and fixed during TDD:
+
+- BUG T1.1: `_find_entry_for_clip` iterated `track.iter("entry")` on the
+  TRACTOR. Entries live inside the playlists referenced by `<track
+  producer="..."/>` refs, not inside the tractor itself. So the helper
+  never found any entry and every op raised `clip_not_found`. Fix:
+  use the tracks→playlists→entries pattern from
+  `tracks.find_all_entries`. File:
+  `phase2_project_engine/ops/clips_edit.py:19-31`.
+- BUG T1.2: `slip_clip` returned `timeline_start_sec` by reading
+  `entry.getparent().get("kdenlive:start") or "0"`. Playlists have no
+  `kdenlive:start` attribute, so the fallback `"0"` raised
+  `ValueError` from `_tc_to_sec`. Fix: use `entry_start_sec(pl, entry)`
+  from `ops._helpers`. File:
+  `phase2_project_engine/ops/clips_edit.py:67-78`.
+- BUG T1.3: the brief's `test_ripple_delete_clip_removes_entry_and_shifts_following`
+  used `e.find("producer/property[@name='kdenlive:id']")` to read
+  each entry's kid. Entries have `kdenlive:id` as a direct
+  `<property>` child, NOT nested under `<producer>` (the bin
+  producer's `kdenlive:id` is what's nested, but that's a different
+  element). Fix: use `e.find("property[@name='kdenlive:id']")`. File:
+  `phase2_project_engine/tests/test_ops_clips.py:266-267`.
+- BUG T1.4: `ripple_delete_clip` collected "shifted" clip ids by
+  iterating `playlist.findall("entry")` AFTER `playlist.remove(entry)`,
+  then checking `if e is entry: following_started = True`. The `entry`
+  reference is detached after removal, so the check never fires and
+  `shifted_clip_ids` is always empty. Fix: collect the kid list BEFORE
+  removal, using `entry_idx = entries.index(entry)`. File:
+  `phase2_project_engine/ops/clips_edit.py:101-122`.
+- BUG T1.5 (pre-existing latent): `_READ_ONLY_OPS` in
+  `test_golden_io.py:83` was computed as `{c[0] for c in _CASES}`.
+  When all cases were read-only, this was fine. Adding mutating cases
+  (`slip_clip`, `ripple_delete_clip`, etc.) made the test skip the
+  tmp-copy branch and run mutating ops directly against the demo
+  fixture, auto-saving (via `runtime.MUTATING_OPS`) and silently
+  corrupting the fixture. The corruption cascaded into 13+ test
+  failures across `test_runtime.py`, `test_tracks.py`, the golden
+  tests, and the e2e tests. Fix: hardcode the read-only set
+  `{get_project_info, get_timeline_summary, list_catalog}`. File:
+  `phase3_pyagent_core/tests/test_golden_io.py:80-86`.
+
+Test count after Task 1: 242 passed, 1 skipped (baseline 230 + 12 new:
+7 integration tests in test_ops_clips.py, 5 golden tests in
+test_golden_io.py). Output pristine.

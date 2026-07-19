@@ -69,12 +69,20 @@ _CASES: list[tuple[str, dict, str]] = [
     ("list_catalog", {"kind": "effects"}, "list_catalog_effects"),
     ("list_catalog", {"kind": "transitions"}, "list_catalog_transitions"),
     ("list_catalog", {"kind": "generators"}, "list_catalog_generators"),
+    # --- clips-edit (5 mutating tools) ---
+    ("slip_clip", {"clip_id": "2", "delta_sec": 0.0}, "slip_clip"),
+    ("ripple_delete_clip", {"clip_id": "2"}, "ripple_delete_clip"),
+    ("change_clip_speed", {"clip_id": "2", "rate": 1.0}, "change_clip_speed"),
+    ("split_clip", {"clip_id": "2", "at_sec": 2.0}, "split_clip"),
+    ("replace_clip_source", {"clip_id": "2", "new_source_id": "1"}, "replace_clip_source"),
 ]
 
 # Read-only ops do not mutate, so we can run them directly against the
 # demo fixture (no tmp copy needed) — and that keeps the response's
-# `path` field stable between golden generation and test runs.
-_READ_ONLY_OPS = {c[0] for c in _CASES}
+# `path` field stable between golden generation and test runs. (This
+# is a hardcoded set; do NOT derive from _CASES — that would include
+# mutating ops and corrupt the demo fixture.)
+_READ_ONLY_OPS = {"get_project_info", "get_timeline_summary", "list_catalog"}
 
 
 def _skip_if_fixture_missing() -> None:

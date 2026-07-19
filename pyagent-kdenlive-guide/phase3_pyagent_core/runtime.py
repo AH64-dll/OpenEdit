@@ -78,6 +78,11 @@ OP_TABLE: dict[str, str] = {
     "add_transition": "add_transition",
     "apply_effect": "apply_effect",
     "add_marker": "add_marker",
+    "slip_clip": "slip_clip",
+    "ripple_delete_clip": "ripple_delete_clip",
+    "change_clip_speed": "change_clip_speed",
+    "split_clip": "split_clip",
+    "replace_clip_source": "replace_clip_source",
     "save": "save",
     # "list_catalog" handled specially (not a backend op).
 }
@@ -86,7 +91,9 @@ OP_TABLE: dict[str, str] = {
 # subsequent subprocess calls see the change.
 MUTATING_OPS: frozenset[str] = frozenset({
     "import_media", "insert_clip", "append_clip", "move_clip", "trim_clip",
-    "delete_clip", "add_transition", "apply_effect", "add_marker", "save",
+    "delete_clip", "add_transition", "apply_effect", "add_marker",
+    "slip_clip", "ripple_delete_clip", "change_clip_speed", "split_clip",
+    "replace_clip_source", "save",
 })
 
 _ALLOWED_CATALOG_KINDS = ("effects", "transitions", "generators")
