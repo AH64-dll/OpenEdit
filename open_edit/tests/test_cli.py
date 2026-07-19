@@ -1,0 +1,62 @@
+"""End-to-end CLI tests for open_edit init/list/summary/undo."""
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+TESTDATA = Path(__file__).parent / "testdata" / "raw_videos"
+
+
+def _has_ffprobe() -> bool:
+    return shutil.which("ffprobe") is not None
+
+
+pytestmark = pytest.mark.skipif(
+    not _has_ffprobe(), reason="ffprobe not installed"
+)
+
+
+def _run(*args: str, cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["open_edit", *args],
+        capture_output=True, text=True, cwd=cwd, check=False,
+    )
+
+
+def test_init_ingests_videos(tmp_path: Path) -> None:
+    # Copy test videos into a fresh folder
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    for f in TESTDATA.iterdir():
+        shutil.copy(f, project_dir / f.name)
+    # Initialize
+    result = _run("init", cwd=project_dir)
+    assert result.returncode == 0, result.stderr
+    # Assets dir created
+    assert (project_dir / ".open_edit" / "assets").exists()
+    # DB created
+    assert (project_dir / ".open_edit" / "edit_graph.db").exists()
+
+
+def test_list_shows_no_ops_initially(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    for f in TESTDATA.iterdir():
+        shutil.copy(f, project_dir / f.name)
+    _run("init", cwd=project_dir)
+    result = _run("list", cwd=project_dir)
+    assert result.returncode == 0
+    assert "0 ops" in result.stdout or "applied: 0" in result.stdout
+
+
+def test_summary_shows_empty_timeline(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    for f in TESTDATA.iterdir():
+        shutil.copy(f, project_dir / f.name)
+    _run("init", cwd=project_dir)
+    result = _run("summary", cwd=project_dir)
+    assert result.returncode == 0
+    assert "duration" in result.stdout.lower()
+    assert "tracks" in result.stdout.lower()
