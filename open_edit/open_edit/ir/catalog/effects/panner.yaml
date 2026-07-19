@@ -1,0 +1,15 @@
+name: panner
+mlt_service: panner
+target_kind: [clip, track]
+params:
+  start:
+    type: float
+    default: 0.0
+    range: [-1.0, 1.0]
+  end:
+    type: float
+    default: 0.0
+    range: [-1.0, 1.0]
+keyframe_params: [start, end]
+interp: [linear, discrete]
+description: "Stereo panning. start=-1.0 is full left, 0.0 is center, 1.0 is full right."

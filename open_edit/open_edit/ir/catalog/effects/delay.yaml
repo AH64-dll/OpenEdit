@@ -1,0 +1,12 @@
+name: delay
+mlt_service: delay
+target_kind: [clip, track]
+params:
+  time:
+    type: float
+    default: 0.0
+    range: [0.0, 5.0]
+    unit: seconds
+keyframe_params: [time]
+interp: [linear, discrete]
+description: "Audio delay line. time is the delay length in seconds."

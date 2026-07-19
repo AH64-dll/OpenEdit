@@ -1,0 +1,12 @@
+name: gain
+mlt_service: volume
+target_kind: [clip, track]
+params:
+  gain:
+    type: float
+    default: 0.0
+    range: [-60.0, 24.0]
+    unit: dB
+keyframe_params: [gain]
+interp: [linear, discrete]
+description: "Audio gain in decibels. 0.0 dB is unity, -inf dB is silence. Distinct from volume (linear)."

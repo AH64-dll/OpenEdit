@@ -73,3 +73,19 @@ def test_catalog_handles_empty_directory(tmp_path: Path) -> None:
     d.mkdir(parents=True)
     cat = EffectCatalog(tmp_path / "empty_catalog")
     assert cat.known_names() == set()
+
+
+def test_bundled_catalog_has_all_spec_required_effects() -> None:
+    """Bug-hunt finding: the bundled catalog must contain all 10
+    spec-required effects (volume, brightness, contrast, saturation,
+    panner, eq, gain, delay, luma, dissolve)."""
+    from pathlib import Path
+    bundled = Path(__file__).parent.parent.parent / "open_edit" / "ir" / "catalog"
+    cat = EffectCatalog(bundled)
+    required = {
+        "volume", "brightness", "contrast", "saturation",
+        "panner", "eq", "gain", "delay", "luma", "dissolve",
+    }
+    assert required.issubset(cat.known_names()), (
+        f"missing effects: {required - cat.known_names()}"
+    )

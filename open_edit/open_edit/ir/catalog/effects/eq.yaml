@@ -1,0 +1,21 @@
+name: eq
+mlt_service: equalizer
+target_kind: [clip, track]
+params:
+  frequency:
+    type: float
+    default: 1000.0
+    range: [20.0, 20000.0]
+    unit: Hz
+  gain:
+    type: float
+    default: 0.0
+    range: [-24.0, 24.0]
+    unit: dB
+  bandwidth:
+    type: float
+    default: 1.0
+    range: [0.1, 5.0]
+keyframe_params: [frequency, gain, bandwidth]
+interp: [linear, discrete]
+description: "Single-band parametric EQ. frequency is the center, gain the boost/cut in dB, bandwidth the Q-like slope."
