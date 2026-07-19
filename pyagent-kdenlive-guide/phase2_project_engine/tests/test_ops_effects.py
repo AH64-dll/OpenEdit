@@ -6,6 +6,8 @@ the effect label property must be `kdenlive:id` (with a colon), not
 `kdenlive_id` (snake).
 """
 import os
+from pathlib import Path
+
 import pytest
 
 from phase2_project_engine.errors import ValidationError, CatalogError
@@ -33,7 +35,7 @@ BRIGHTNESS_CATALOG = [
         "mlt_service": "brightness",
         "name": "Intensity",
         "parameters": [
-            {"name": "level", "type": "animated", "default": "1"},
+            {"name": "level", "type": "animated", "default": "1", "keyframes": True},
         ],
     }
 ]
@@ -206,3 +208,110 @@ def test_remove_effect_rejects_out_of_range_index():
     with pytest.raises(NotFoundError) as exc:
         remove_effect(tree, clip_id=kid, effect_index=5)
     assert "effect_index_out_of_range" in str(exc.value)
+
+
+REAL_CLIP = Path("/home/ah64/apps/mlt-pipeline/testdata/clip_short.mp4")
+
+
+def _insert_clip_real(tree, source, src_id):
+    from phase2_project_engine.ops.clips import insert_clip
+    return insert_clip(
+        tree, track_index=0, position_sec=0.0, source_id=src_id,
+        source_in_sec=0.0, source_out_sec=4.0,
+    )
+
+
+def _prepare(tree):
+    """Import REAL_CLIP and insert a clip; return the new clip id."""
+    src = _import_source(tree, REAL_CLIP)
+    return _insert_clip_real(tree, REAL_CLIP, src)
+
+
+def test_get_effect_param_static():
+    """Reading a non-keyframable param returns its value and is_keyframable=True."""
+    from phase2_project_engine.ops.effects import apply_effect, get_effect_param
+    tree = make_minimal_tree()
+    _import_source(tree, REAL_CLIP)
+    kid = _prepare(tree)
+    apply_effect(tree, kid, "brightness", params={"level": "0.5"},
+                 catalog=BRIGHTNESS_CATALOG)
+    result = get_effect_param(tree, kid, 0, "level", catalog=BRIGHTNESS_CATALOG)
+    assert result == {
+        "clip_id": kid,
+        "effect_index": 0,
+        "effect_id": "brightness",
+        "param_name": "level",
+        "value": "0.5",
+        "is_keyframable": True,
+        "format": "animated",
+        "keyframes": [{"frame": 0, "value": ".5", "type": ""}],
+    }
+
+
+def test_get_effect_param_clip_not_found():
+    from phase2_project_engine.errors import NotFoundError
+    from phase2_project_engine.ops.effects import get_effect_param
+    tree = make_minimal_tree()
+    with pytest.raises(NotFoundError, match="clip_not_found"):
+        get_effect_param(tree, "nonexistent", 0, "x", catalog=BRIGHTNESS_CATALOG)
+
+
+def test_get_effect_param_param_not_found():
+    from phase2_project_engine.errors import NotFoundError
+    from phase2_project_engine.ops.effects import apply_effect, get_effect_param
+    tree = make_minimal_tree()
+    _import_source(tree, REAL_CLIP)
+    kid = _prepare(tree)
+    apply_effect(tree, kid, "brightness", catalog=BRIGHTNESS_CATALOG)
+    with pytest.raises(NotFoundError, match="param_not_found"):
+        get_effect_param(tree, kid, 0, "nonexistent_param", catalog=BRIGHTNESS_CATALOG)
+
+
+def test_set_effect_param_static():
+    """Setting a non-keyframable param overwrites the value."""
+    from phase2_project_engine.ops.effects import apply_effect, set_effect_param
+    tree = make_minimal_tree()
+    _import_source(tree, REAL_CLIP)
+    kid = _prepare(tree)
+    apply_effect(tree, kid, "brightness", params={"level": "0.5"},
+                 catalog=BRIGHTNESS_CATALOG)
+    result = set_effect_param(tree, kid, 0, "level", "0.8",
+                              catalog=BRIGHTNESS_CATALOG)
+    assert result["previous_value"] == "0.5"
+    assert result["new_value"] == "0.8"
+    assert result["is_keyframable"] is True
+
+
+def test_set_effect_param_clobbers_keyframes_returns_warning_info():
+    """If the param has keyframes, set_effect_param replaces the entire
+    animation string. The response surfaces is_keyframable=True so the
+    caller can detect and decide."""
+    from phase2_project_engine.ops.effects import apply_effect, set_effect_param
+    tree = make_minimal_tree()
+    _import_source(tree, REAL_CLIP)
+    kid = _prepare(tree)
+    apply_effect(tree, kid, "brightness",
+                 params={"level": "0=1.0; 25=0.5; 50=0.0"},
+                 catalog=BRIGHTNESS_CATALOG)
+    result = set_effect_param(tree, kid, 0, "level", "0.7",
+                              catalog=BRIGHTNESS_CATALOG)
+    assert result["previous_value"] == "0=1.0; 25=0.5; 50=0.0"
+    assert result["new_value"] == "0.7"
+    assert result["is_keyframable"] is True
+
+
+def test_set_effect_param_value_type_mismatch():
+    """If the value can't be coerced to the catalog's type, raise
+    ValidationError with value_type_mismatch."""
+    from phase2_project_engine.errors import ValidationError
+    from phase2_project_engine.ops.effects import apply_effect, set_effect_param
+    DOUBLE_CATALOG = [
+        {"kdenlive_id": "dbl", "mlt_service": "dbl", "name": "Dbl",
+         "parameters": [{"name": "x", "type": "double", "default": "1"}]}
+    ]
+    tree = make_minimal_tree()
+    _import_source(tree, REAL_CLIP)
+    kid = _prepare(tree)
+    apply_effect(tree, kid, "dbl", catalog=DOUBLE_CATALOG)
+    with pytest.raises(ValidationError, match="value_type_mismatch"):
+        set_effect_param(tree, kid, 0, "x", "not a number", catalog=DOUBLE_CATALOG)

@@ -22,7 +22,7 @@ from .clips_edit import (
     slip_clip,
     split_clip,
 )
-from .effects import apply_effect, remove_effect
+from .effects import apply_effect, get_effect_param, remove_effect, set_effect_param
 from .groups import group_clips, list_groups, ungroup_clips
 from .markers import add_marker
 from .transitions import add_transition, remove_transition
@@ -43,7 +43,9 @@ __all__ = [
     "add_transition",
     "remove_transition",
     "apply_effect",
+    "get_effect_param",
     "remove_effect",
+    "set_effect_param",
     "add_marker",
     "group_clips",
     "ungroup_clips",

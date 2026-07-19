@@ -44,4 +44,56 @@ REMOVE_EFFECT = ToolDef(
 )
 
 
-TOOLS = [APPLY_EFFECT, REMOVE_EFFECT]
+GET_EFFECT_PARAM = ToolDef(
+    name="pyagent_get_effect_param",
+    label="Get effect param",
+    description=(
+        "Read the current value of an effect parameter on a clip. "
+        "For keyframable params, also returns the parsed keyframes list. "
+        "WARNING: this does NOT validate that the clip's effect stack "
+        "matches the catalog; the returned 'effect_id' is read from the "
+        "kdenlive:id property in the file. To change a param's value, "
+        "use set_effect_param."
+    ),
+    parameters_schema={
+        "type": "object",
+        "properties": {
+            "clip_id": {"type": "string", "description": "Target clip id"},
+            "effect_index": {"type": "integer", "description": "0-based effect index in the clip's filter list"},
+            "param_name": {"type": "string", "description": "Parameter name (e.g. 'opacity', 'level')"},
+        },
+        "required": ["clip_id", "effect_index", "param_name"],
+        "additionalProperties": False,
+    },
+    op="get_effect_param",
+    is_mutating=False,
+)
+
+SET_EFFECT_PARAM = ToolDef(
+    name="pyagent_set_effect_param",
+    label="Set effect param",
+    description=(
+        "Set an effect parameter to a static value. "
+        "WARNING: if the param is keyframable, this REPLACES the entire "
+        "animation string. The response includes 'is_keyframable' and "
+        "'previous_value' so the caller can detect the case and use "
+        "set_keyframe instead. For non-keyframable params, the value is "
+        "coerced to the catalog's type."
+    ),
+    parameters_schema={
+        "type": "object",
+        "properties": {
+            "clip_id": {"type": "string"},
+            "effect_index": {"type": "integer"},
+            "param_name": {"type": "string"},
+            "value": {"type": "string", "description": "New value (as string; coerced to type)"},
+        },
+        "required": ["clip_id", "effect_index", "param_name", "value"],
+        "additionalProperties": False,
+    },
+    op="set_effect_param",
+    is_mutating=True,
+)
+
+
+TOOLS = [APPLY_EFFECT, REMOVE_EFFECT, GET_EFFECT_PARAM, SET_EFFECT_PARAM]

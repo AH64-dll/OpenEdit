@@ -135,6 +135,9 @@ _CASES: list[tuple[str, dict, str]] = [
     ("replace_clip_source", {"clip_id": "2", "new_source_id": "1"}, "replace_clip_source"),
     # --- effects (apply is exercised by remove's setup; remove is locked here) ---
     ("remove_effect", {"clip_id": "2", "effect_index": 0}, "remove_effect"),
+    # --- effects read/set param (demo clip "2" has no effects; setup applies brightness) ---
+    ("get_effect_param", {"clip_id": "2", "effect_index": 0, "param_name": "level"}, "get_effect_param"),
+    ("set_effect_param", {"clip_id": "2", "effect_index": 0, "param_name": "level", "value": "0.8"}, "set_effect_param"),
     # --- transitions (remove is exercised; add_transition supplies the id via setup) ---
     ("remove_transition", {}, "remove_transition"),
     # --- groups (list_groups is read-only; group/ungroup use a placeholder
@@ -159,6 +162,12 @@ _CASES: list[tuple[str, dict, str]] = [
 _SETUP: dict = {
     "remove_effect": (
         "apply_effect", {"clip_id": "2", "effect_id": "sepia"},
+    ),
+    "get_effect_param": (
+        "apply_effect", {"clip_id": "2", "effect_id": "brightness"},
+    ),
+    "set_effect_param": (
+        "apply_effect", {"clip_id": "2", "effect_id": "brightness"},
     ),
     "remove_transition": _setup_remove_transition,
     "group_clips": _setup_group_clips,

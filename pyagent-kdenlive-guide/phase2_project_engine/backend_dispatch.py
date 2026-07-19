@@ -153,6 +153,18 @@ class KdenliveFileBackend(EditorBackend):
     def remove_effect(self, clip_id, effect_index):
         return ops.remove_effect(self.tree, clip_id, effect_index)
 
+    def get_effect_param(self, clip_id, effect_index, param_name):
+        return ops.get_effect_param(
+            self.tree, clip_id, effect_index, param_name,
+            catalog=self.catalog.effects,
+        )
+
+    def set_effect_param(self, clip_id, effect_index, param_name, value):
+        return ops.set_effect_param(
+            self.tree, clip_id, effect_index, param_name, value,
+            catalog=self.catalog.effects,
+        )
+
     def add_marker(self, position_sec, label, kind="marker"):
         ops.add_marker(self.tree, position_sec, label, kind)
 

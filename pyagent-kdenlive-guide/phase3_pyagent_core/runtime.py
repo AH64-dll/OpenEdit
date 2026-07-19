@@ -79,6 +79,8 @@ OP_TABLE: dict[str, str] = {
     "remove_transition": "remove_transition",
     "apply_effect": "apply_effect",
     "remove_effect": "remove_effect",
+    "get_effect_param": "get_effect_param",
+    "set_effect_param": "set_effect_param",
     "add_marker": "add_marker",
     "slip_clip": "slip_clip",
     "ripple_delete_clip": "ripple_delete_clip",
@@ -99,6 +101,7 @@ MUTATING_OPS: frozenset[str] = frozenset({
     "delete_clip", "add_transition", "remove_transition", "apply_effect", "remove_effect", "add_marker",
     "slip_clip", "ripple_delete_clip", "change_clip_speed", "split_clip",
     "replace_clip_source", "group_clips", "ungroup_clips", "save",
+    "get_effect_param", "set_effect_param",
 })
 
 _ALLOWED_CATALOG_KINDS = ("effects", "transitions", "generators")

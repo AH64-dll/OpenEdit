@@ -104,4 +104,178 @@ def remove_effect(tree: ProjectTree, clip_id: str, effect_index: int) -> dict:
     }
 
 
-__all__ = ["apply_effect", "remove_effect"]
+def get_effect_param(
+    tree: ProjectTree,
+    clip_id: str,
+    effect_index: int,
+    param_name: str,
+    *,
+    catalog: Sequence[Mapping] | None = None,
+) -> dict:
+    """Return the current value of `param_name` on effect `effect_index` of `clip_id`.
+
+    For keyframable params, also returns the parsed list of keyframes and
+    the on-disk format ("animated", "keyframe", "simplekeyframe", etc.).
+    """
+    from .clips_edit import _find_entry_for_clip
+    from .._keyframes import is_keyframable_param, parse_animation_string
+
+    if catalog is None:
+        catalog = []
+    track, entry, _ti = _find_entry_for_clip(tree, clip_id)
+    filters = list(entry.findall("filter"))
+    if effect_index < 0 or effect_index >= len(filters):
+        raise NotFoundError(
+            f"effect_index_out_of_range: effect_index={effect_index}, "
+            f"effect_count={len(filters)}\n"
+            f"fix: call get_timeline_summary to see valid indices"
+        )
+    filt = filters[effect_index]
+    # Resolve effect_id from the kdenlive:id (colon) property
+    effect_id = ""
+    for prop in filt.findall("property"):
+        if prop.get("name") == "kdenlive:id" and prop.text:
+            effect_id = prop.text
+            break
+    # Find the requested param's value
+    value = None
+    for prop in filt.findall("property"):
+        if prop.get("name") == param_name:
+            value = prop.text or ""
+            break
+    if value is None:
+        raise NotFoundError(
+            f"param_not_found: effect '{effect_id}' (index {effect_index}) on "
+            f"clip '{clip_id}' has no parameter named '{param_name}'\n"
+            f"fix: call list_catalog to see valid parameter names for {effect_id}"
+        )
+    kf_status = is_keyframable_param(catalog, effect_id, param_name)
+    is_kf = kf_status is True
+    is_simplekf = kf_status == "simplekeyframe"
+    if is_kf:
+        kfs = parse_animation_string(value)
+        keyframes = [{"frame": k.frame, "value": k.value, "type": k.type}
+                     for k in kfs]
+    elif is_simplekf:
+        keyframes = []  # mlt_geometry not yet supported
+    else:
+        keyframes = None
+    # Format string for the response
+    fmt = ""
+    if is_kf:
+        # Look up the exact type= from catalog to report
+        for entry_cat in catalog:
+            if entry_cat.get("kdenlive_id") == effect_id:
+                for p in entry_cat.get("parameters", []):
+                    if p.get("name") == param_name:
+                        fmt = p.get("type", "")
+                        break
+                break
+    return {
+        "clip_id": clip_id,
+        "effect_index": effect_index,
+        "effect_id": effect_id,
+        "param_name": param_name,
+        "value": value,
+        "is_keyframable": is_kf,
+        "format": fmt,
+        "keyframes": keyframes,
+    }
+
+
+def set_effect_param(
+    tree: ProjectTree,
+    clip_id: str,
+    effect_index: int,
+    param_name: str,
+    value: str,
+    *,
+    catalog: Sequence[Mapping] | None = None,
+) -> dict:
+    """Set `param_name` on effect `effect_index` of `clip_id` to a static `value`.
+
+    WARNING: if the param is keyframable, this REPLACES the entire
+    animation string with the static value. The response includes
+    `is_keyframable` and `previous_value` so the caller can detect
+    the case and decide to use set_keyframe instead.
+    """
+    from .clips_edit import _find_entry_for_clip
+    from .._keyframes import is_keyframable_param, coerce_param_value
+    from ..errors import validation_error
+
+    if catalog is None:
+        catalog = []
+    track, entry, _ti = _find_entry_for_clip(tree, clip_id)
+    filters = list(entry.findall("filter"))
+    if effect_index < 0 or effect_index >= len(filters):
+        raise NotFoundError(
+            f"effect_index_out_of_range: effect_index={effect_index}, "
+            f"effect_count={len(filters)}\n"
+            f"fix: call get_timeline_summary to see valid indices"
+        )
+    filt = filters[effect_index]
+    effect_id = ""
+    for prop in filt.findall("property"):
+        if prop.get("name") == "kdenlive:id" and prop.text:
+            effect_id = prop.text
+            break
+    # Find current value
+    current_value = None
+    for prop in filt.findall("property"):
+        if prop.get("name") == param_name:
+            current_value = prop.text or ""
+            break
+    if current_value is None:
+        raise NotFoundError(
+            f"param_not_found: effect '{effect_id}' (index {effect_index}) on "
+            f"clip '{clip_id}' has no parameter named '{param_name}'\n"
+            f"fix: call list_catalog to see valid parameter names for {effect_id}"
+        )
+    # Coerce the new value to the catalog's type (if specified)
+    cat_entry = None
+    for e in catalog:
+        if e.get("kdenlive_id") == effect_id:
+            cat_entry = e
+            break
+    cat_param = None
+    if cat_entry:
+        for p in cat_entry.get("parameters", []):
+            if p.get("name") == param_name:
+                cat_param = p
+                break
+    if cat_param is not None:
+        param_type = cat_param.get("type", "constant")
+        try:
+            coerced = coerce_param_value(param_type, value)
+        except ValueError as e:
+            raise validation_error(
+                f"value_type_mismatch: cannot coerce {value!r} to "
+                f"param type {param_type!r} for {effect_id}.{param_name}: {e}\n"
+                f"fix: pass a value that parses as {param_type}",
+            )
+    else:
+        coerced = str(value)
+    # Find or create the property element and update its text
+    found_prop = None
+    for prop in filt.findall("property"):
+        if prop.get("name") == param_name:
+            found_prop = prop
+            break
+    if found_prop is not None:
+        found_prop.text = coerced
+    else:
+        p = etree.SubElement(filt, "property")
+        p.set("name", param_name)
+        p.text = coerced
+    kf_status = is_keyframable_param(catalog, effect_id, param_name)
+    return {
+        "clip_id": clip_id,
+        "effect_index": effect_index,
+        "param_name": param_name,
+        "previous_value": current_value,
+        "new_value": coerced,
+        "is_keyframable": kf_status is True,
+    }
+
+
+__all__ = ["apply_effect", "get_effect_param", "remove_effect", "set_effect_param"]

@@ -144,5 +144,25 @@
   "ungroup_clips": {
     "dissolved_group_name": "golden_test",
     "affected_clip_ids": ["2"]
+  },
+  "get_effect_param": {
+    "clip_id": "2",
+    "effect_index": 0,
+    "effect_id": "brightness",
+    "param_name": "level",
+    "value": "1",
+    "is_keyframable": true,
+    "format": "animated",
+    "keyframes": [
+      {"frame": 1, "value": "", "type": ""}
+    ]
+  },
+  "set_effect_param": {
+    "clip_id": "2",
+    "effect_index": 0,
+    "param_name": "level",
+    "previous_value": "1",
+    "new_value": "0.8",
+    "is_keyframable": true
   }
 }
