@@ -122,7 +122,7 @@ def test_emitter_emits_audio_tracks_separately() -> None:
         profile={"width": 320, "height": 240, "frame_rate_num": 30, "frame_rate_den": 1}
     ))
     # Should have a multitrack with both video and audio tracks
-    assert xml.count("<track>") >= 2
+    assert xml.count("<track ") >= 2
 
 
 def test_emitter_includes_producers() -> None:

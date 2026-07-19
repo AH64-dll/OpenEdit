@@ -142,8 +142,9 @@ def emit_timeline(
     multitrack = etree.SubElement(tractor, "multitrack")
 
     for track in timeline.tracks:
-        mlt_track = etree.SubElement(multitrack, "track")
-        playlist = etree.SubElement(mlt_track, "playlist")
+        playlist = etree.SubElement(root, "playlist", attrib={
+            "id": f"playlist_{track.track_id}",
+        })
 
         for clip in track.clips:
             entry = etree.SubElement(playlist, "entry", attrib={
@@ -156,6 +157,10 @@ def emit_timeline(
                     _emit_transition(entry, effect)
                 else:
                     _emit_filter(entry, effect, fps_num, fps_den)
+
+        etree.SubElement(multitrack, "track", attrib={
+            "producer": f"playlist_{track.track_id}",
+        })
 
     xml_bytes = etree.tostring(
         root, pretty_print=True, xml_declaration=True, encoding="UTF-8",
