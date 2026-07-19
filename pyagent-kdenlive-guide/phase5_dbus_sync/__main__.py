@@ -7,10 +7,8 @@ import json
 import sys
 from pathlib import Path
 
-from phase5_dbus_sync.kdenlive_state import is_running, detect_service_name
-from phase5_dbus_sync.notifier import notify
-from phase5_dbus_sync.dbus_client import KdenliveDBus
-from phase5_dbus_sync.live_sync import LiveSync
+from phase5_dbus_sync.dbus_client import KdenliveDBus, detect_service_name, is_running
+from phase5_dbus_sync.live_sync import LiveSync, notify
 
 
 def _cmd_apply(args: argparse.Namespace) -> int:
@@ -24,8 +22,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     if not Path(project).is_file():
         print(f"error: project file not found: {project}", file=sys.stderr)
         return 2
-    ls = LiveSync(project)
-    result = ls.apply(tool, tool_args)
+    result = LiveSync(project).apply(tool, tool_args).to_dict()
     if not result.get("ok", False) and result.get("error"):
         print(f"error: {result['error']}", file=sys.stderr)
         return 1

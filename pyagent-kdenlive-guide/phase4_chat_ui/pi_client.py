@@ -14,21 +14,9 @@ import json
 import os
 import shutil
 import sys
-from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
-
-@dataclass
-class PiEvent:
-    """A normalized event emitted while a prompt is being processed."""
-    kind: str  # "message" | "tool" | "plan" | "error" | "done"
-    role: str | None = None          # for message: "user" | "assistant"
-    text: str | None = None          # for message / error
-    tool: str | None = None          # for tool
-    args: dict | None = None         # for tool
-    result: Any | None = None        # for tool
-    error: str | None = None         # for tool / error
-    cost: float | None = None         # USD spent this event (from pi usage.cost.total)
+from phase4_chat_ui.types import PiEvent
 
 
 class PiClient:

@@ -19,5 +19,4 @@ packages = [
   "phase6_render_qc.thumbnails",
   "phase6_render_qc.audio",
   "phase6_render_qc.black_frames",
-  "phase6_render_qc.qc_loop",
 ]

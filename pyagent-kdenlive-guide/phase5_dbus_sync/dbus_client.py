@@ -1,7 +1,17 @@
-"""jeepney-based client for Kdenlive's org.kde.kdenlive.MainWindow D-Bus."""
+"""jeepney-based client for Kdenlive's org.kde.kdenlive D-Bus interfaces.
+
+Also exposes two small process-discovery helpers (`is_running`,
+`detect_service_name`) that used to live in a separate
+`kdenlive_state.py` module; they were inlined here because every caller
+already imported `KdenliveDBus` from this file, and the split module
+added no value.
+"""
 from __future__ import annotations
 
+import shutil
+import subprocess
 from typing import Any
+
 from jeepney import new_method_call
 from jeepney.io.blocking import open_dbus_connection
 
@@ -9,6 +19,34 @@ from jeepney.io.blocking import open_dbus_connection
 SERVICE = "org.kde.kdenlive"
 PATH = "/kdenlive/MainWindow_1"
 INTERFACE = "org.kde.kdenlive.MainWindow"
+
+
+def is_running() -> bool:
+    """True if `pgrep` finds a kdenlive process."""
+    if shutil.which("pgrep") is None:
+        return False
+    r = subprocess.run(
+        ["pgrep", "-x", "kdenlive"],
+        capture_output=True, text=True,
+    )
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def detect_service_name() -> str | None:
+    """Return the actual D-Bus service name (e.g. `org.kde.kdenlive-2046260`)
+    by listing bus names via `busctl`, or None if not found."""
+    if shutil.which("busctl") is None:
+        return SERVICE if is_running() else None
+    r = subprocess.run(
+        ["busctl", "--user", "list"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return SERVICE if is_running() else None
+    for line in r.stdout.splitlines():
+        if "org.kde.kdenlive" in line:
+            return line.split()[0]
+    return None
 
 
 class KdenliveDBus:
@@ -68,10 +106,6 @@ class KdenliveDBus:
         return self._call("updateProjectPath", "s", path)
 
     def clean_restart(self, clean: bool = False) -> bool:
-        # Single-bool overload: cleanRestart(false) reloads the *current*
-        # open project from disk in place (window stays open). The (b,b)
-        # overload with forceQuit=True instead quits Kdenlive, which is
-        # why edits only appeared after a manual close/reopen.
         return self._call("cleanRestart", "b", clean)
 
     def exit_app(self) -> bool:

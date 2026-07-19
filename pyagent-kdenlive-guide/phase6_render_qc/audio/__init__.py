@@ -82,7 +82,11 @@ def get_audio_levels(
     if out_sec > 0:
         cmd += ["-to", f"{(out_sec - in_sec):.3f}"]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return AudioLevels(False, in_sec, out_sec, 0.0, 0.0,
+                           "ffmpeg timed out after 60s (synthetic infinite-audio source?)")
     if proc.returncode != 0:
         return AudioLevels(False, in_sec, out_sec, 0.0, 0.0,
                            (proc.stderr or "").strip().splitlines()[-1:][:1] or ["ffmpeg failed"][0])
@@ -121,7 +125,11 @@ def list_silence(
     if out_sec > 0:
         cmd += ["-to", f"{(out_sec - in_sec):.3f}"]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return SilenceResult(False, in_sec, out_sec, threshold_db, min_sec, [],
+                             "ffmpeg timed out after 60s (synthetic infinite-audio source?)")
     if proc.returncode != 0:
         return SilenceResult(False, in_sec, out_sec, threshold_db, min_sec, [],
                              (proc.stderr or "").strip().splitlines()[-1:][:1] or ["ffmpeg failed"][0])

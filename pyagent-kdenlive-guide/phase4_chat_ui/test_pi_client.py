@@ -8,8 +8,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from phase4_chat_ui.pi_client import PiClient, PiEvent  # noqa: E402
+from phase4_chat_ui.pi_client import PiClient  # noqa: E402
 from phase4_chat_ui.session import Session  # noqa: E402
+from phase4_chat_ui.types import PiEvent  # noqa: E402
 
 FAKE_PI = str(_REPO_ROOT / "phase4_chat_ui" / "tests" / "fake_pi.py")
 

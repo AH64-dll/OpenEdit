@@ -6,10 +6,18 @@ spawn ffmpeg) are in test_render_integration.py.
 """
 from __future__ import annotations
 
+import subprocess
 import unittest
+from unittest.mock import patch
 
-from phase6_render_qc.audio import _parse_db, _parse_overall_db, _parse_silence
-from phase6_render_qc.black_frames import _parse_blackdetect
+from phase6_render_qc.audio import (
+    _parse_db,
+    _parse_overall_db,
+    _parse_silence,
+    get_audio_levels,
+    list_silence,
+)
+from phase6_render_qc.black_frames import _parse_blackdetect, list_black_frames
 from phase6_render_qc.render import parse_profile
 from phase6_render_qc.thumbnails import _long_edge_scale
 
@@ -115,6 +123,94 @@ class TestParseAudioDb(unittest.TestCase):
 
     def test_missing(self) -> None:
         self.assertEqual(_parse_db("", "RMS level"), 0.0)
+
+
+class TestAudioTimeout(unittest.TestCase):
+    """Regression: a synthetic infinite-audio source (FIFO that never closes)
+    must not crash the caller. The ffmpeg subprocess will hang; the function
+    must catch TimeoutExpired and return ok=False with a clear error."""
+
+    def setUp(self) -> None:
+        import tempfile
+        # Real file so the function's "video not found" check passes; the
+        # file content is irrelevant because subprocess.run is mocked.
+        fd, self.path = tempfile.mkstemp(suffix=".mp4")
+        import os
+        os.close(fd)
+
+    def tearDown(self) -> None:
+        import os
+        os.unlink(self.path)
+
+    def test_get_audio_levels_timeout_returns_ok_false(self) -> None:
+        with patch(
+            "phase6_render_qc.audio.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=60),
+        ):
+            r = get_audio_levels(self.path)
+        self.assertFalse(r.ok)
+        self.assertIsNotNone(r.error)
+        self.assertIn("timed out", r.error.lower())
+
+    def test_list_silence_timeout_returns_ok_false(self) -> None:
+        with patch(
+            "phase6_render_qc.audio.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=60),
+        ):
+            r = list_silence(self.path)
+        self.assertFalse(r.ok)
+        self.assertIsNotNone(r.error)
+        self.assertIn("timed out", r.error.lower())
+
+
+class TestBlackFramesRangeValidation(unittest.TestCase):
+    """Regression: the -to argument passed to ffmpeg is computed as
+    ``out_sec - in_sec``. If out_sec <= in_sec, this becomes zero or
+    negative and ffmpeg errors out. The function must reject the bad
+    range up-front instead of passing a nonsense command line."""
+
+    def test_out_sec_less_than_in_sec_rejected(self) -> None:
+        r = list_black_frames("dummy.mp4", in_sec=5.0, out_sec=2.0)
+        self.assertFalse(r.ok)
+        self.assertIsNotNone(r.error)
+        self.assertIn("range", r.error.lower())
+
+    def test_out_sec_equal_to_in_sec_rejected(self) -> None:
+        r = list_black_frames("dummy.mp4", in_sec=3.0, out_sec=3.0)
+        self.assertFalse(r.ok)
+        self.assertIsNotNone(r.error)
+        self.assertIn("range", r.error.lower())
+
+
+class TestBlackFramesSyntheticFixture(unittest.TestCase):
+    """Synthetic ffmpeg blackdetect output exercising multi-span and
+    min_sec-filtered (sub-threshold) cases. ffmpeg's blackdetect only
+    emits lines for spans >= d= (the min_sec windowing parameter), so
+    the parser should never see sub-threshold lines in production; this
+    fixture locks in the expected parsing of the standard output."""
+
+    def test_multi_span_fixture(self) -> None:
+        text = (
+            "[blackdetect @ 0xabc] black_start:0.5 black_end:2.0 black_duration:1.5\n"
+            "[blackdetect @ 0xabc] black_start:5.0 black_end:6.5 black_duration:1.5\n"
+        )
+        spans = _parse_blackdetect(text, base_offset=0.0)
+        self.assertEqual(len(spans), 2)
+        self.assertAlmostEqual(spans[0].start_sec, 0.5)
+        self.assertAlmostEqual(spans[0].end_sec, 2.0)
+        self.assertAlmostEqual(spans[0].duration_sec, 1.5)
+        self.assertAlmostEqual(spans[1].start_sec, 5.0)
+        self.assertAlmostEqual(spans[1].end_sec, 6.5)
+        self.assertAlmostEqual(spans[1].duration_sec, 1.5)
+
+    def test_multi_span_with_offset(self) -> None:
+        text = (
+            "[blackdetect @ 0xabc] black_start:0.5 black_end:2.0 black_duration:1.5\n"
+        )
+        spans = _parse_blackdetect(text, base_offset=100.0)
+        self.assertEqual(len(spans), 1)
+        self.assertAlmostEqual(spans[0].start_sec, 100.5)
+        self.assertAlmostEqual(spans[0].end_sec, 102.0)
 
 
 if __name__ == "__main__":

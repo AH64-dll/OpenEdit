@@ -48,6 +48,9 @@ def list_black_frames(
     min_sec: float = DEFAULT_BLACK_MIN_SEC,
 ) -> BlackFramesResult:
     """Return black-frame spans for the [in_sec, out_sec] range."""
+    if out_sec > 0 and out_sec <= in_sec:
+        return BlackFramesResult(False, in_sec, out_sec, threshold, min_sec, [],
+                                 f"invalid range: out_sec={out_sec} must be > in_sec={in_sec}")
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         return BlackFramesResult(False, in_sec, out_sec, threshold, min_sec, [], "ffmpeg not on PATH")

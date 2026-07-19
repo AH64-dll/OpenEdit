@@ -21,14 +21,21 @@ NODE = "node"
 
 
 class TestMutatingSet(unittest.TestCase):
-    """The auto_approve gate's MUTATING set must cover exactly tools 3-12."""
+    """The mutating-tool set must cover exactly the 10 mutating tools.
+
+    As of Task 2.3 the set is built dynamically from list_tools()
+    (the Python source of truth), so we test the source of truth
+    here rather than regex-matching extension.ts.
+    """
+
+    def _mutating_names(self) -> set[str]:
+        # Import here so the test fails clearly if list_tools is broken,
+        # rather than at module-load time.
+        from phase3_pyagent_core.runtime import list_tools
+        return {t["name"] for t in list_tools() if t["is_mutating"]}
 
     def test_mutating_set_includes_all_10_mutating_tools(self):
-        src = EXT_TS.read_text()
-        # Extract the MUTATING = new Set([...]) block.
-        match = re.search(r"const MUTATING = new Set\(\[(.*?)\]\);", src, re.DOTALL)
-        self.assertIsNotNone(match, "could not find MUTATING set in extension.ts")
-        block = match.group(1)
+        names = self._mutating_names()
         expected = [
             "pyagent_import_media", "pyagent_insert_clip", "pyagent_append_clip",
             "pyagent_move_clip", "pyagent_trim_clip", "pyagent_delete_clip",
@@ -36,17 +43,15 @@ class TestMutatingSet(unittest.TestCase):
             "pyagent_add_marker", "pyagent_save_project",
         ]
         for name in expected:
-            self.assertIn(f'"{name}"', block, f"{name} missing from MUTATING set")
+            self.assertIn(name, names, f"{name} missing from mutating set")
 
     def test_mutating_set_does_not_include_readonly_tools(self):
-        src = EXT_TS.read_text()
-        match = re.search(r"const MUTATING = new Set\(\[(.*?)\]\);", src, re.DOTALL)
-        block = match.group(1)
+        names = self._mutating_names()
         for name in ("pyagent_get_project_info",
                      "pyagent_get_timeline_summary",
                      "pyagent_list_catalog"):
-            self.assertNotIn(f'"{name}"', block,
-                             f"{name} should NOT be in MUTATING set")
+            self.assertNotIn(name, names,
+                             f"{name} should NOT be in mutating set")
 
 
 class TestHumanize(unittest.TestCase):

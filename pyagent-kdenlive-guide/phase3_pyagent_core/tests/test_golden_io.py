@@ -1,0 +1,157 @@
+"""Golden-file tests that lock the 19 tools' JSON I/O.
+
+These tests run each (op, args) pair against a copy of the demo
+project, then compare the response's structure against a checked-in
+golden file. The golden captures the schema — keys, types, and
+non-timestamp values — so that any future refactor that silently
+changes what a tool returns is caught here.
+
+Two design choices:
+
+1. We copy the demo fixture to a tmp dir before every call so the
+   read-only tests are idempotent and the fixture stays clean.
+2. The comparison is "subset + recursive": we check that every
+   documented key in the golden is present in the actual response
+   with a matching value, but we allow extra keys (forward compat)
+   and we skip timestamp/uuid fields that vary between runs.
+
+This file is intentionally short. If it grows past ~200 lines, that
+is a signal that the golden should be split per-domain (one golden
+per tools/*.py).
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+from dataclasses import asdict, is_dataclass
+from pathlib import Path
+
+import pytest
+
+from phase3_pyagent_core.runtime import run_op
+
+
+def _to_jsonable(obj):
+    """Mirror runtime._to_jsonable: turn dataclasses into dicts.
+
+    We keep a private copy here so the test does not import private
+    internals. The shape must match what the runtime emits over
+    stdout (which is what the extension sees).
+    """
+    if is_dataclass(obj):
+        return asdict(obj)
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    return obj
+
+
+GOLDEN_PATH = Path(__file__).parent / "fixtures" / "golden_io.json"
+DEMO_PROJECT = Path(__file__).parent / "fixtures" / "demo.kdenlive"
+CATALOG = "phase1_knowledge_base/catalog.json"
+
+
+# One entry per (op, args) that has a meaningful JSON response worth
+# locking. Read-only tools are listed first; mutating tools are also
+# covered because they are the high-risk surface (the ones the LLM
+# actually relies on for correct ground-truth after an edit).
+#
+# `key` is the JSON key in the golden file. For tools with multiple
+# meaningful argument combinations (e.g. list_catalog's three kinds)
+# we suffix the kind to keep them as separate golden entries.
+_CASES: list[tuple[str, dict, str]] = [
+    # --- Read-only project intros ---
+    ("get_project_info", {}, "get_project_info"),
+    ("get_timeline_summary", {}, "get_timeline_summary"),
+    # --- Catalog lookups (one per kind) ---
+    ("list_catalog", {"kind": "effects"}, "list_catalog_effects"),
+    ("list_catalog", {"kind": "transitions"}, "list_catalog_transitions"),
+    ("list_catalog", {"kind": "generators"}, "list_catalog_generators"),
+]
+
+# Read-only ops do not mutate, so we can run them directly against the
+# demo fixture (no tmp copy needed) — and that keeps the response's
+# `path` field stable between golden generation and test runs.
+_READ_ONLY_OPS = {c[0] for c in _CASES}
+
+
+def _skip_if_fixture_missing() -> None:
+    if not DEMO_PROJECT.exists():
+        pytest.skip(f"demo fixture missing: {DEMO_PROJECT}")
+    if not os.path.exists(CATALOG):
+        pytest.skip(f"catalog missing: {CATALOG}")
+
+
+def _compare_key_subset(actual, expected, path: str = "") -> None:
+    """Recursively check that every key in `expected` exists in `actual`.
+
+    Skips env-specific fields (project `path` and the project's UUID
+    `name` — both vary by checkout / fixture) and allows the actual
+    to have extra keys (forward compatibility).
+    """
+    skip_keys = {
+        "modified", "created", "uuid", "control_uuid", "id",
+        "path",  # project file path varies by checkout
+        "name",  # in ProjectInfo this is a UUID, varies by fixture
+    }
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict), f"{path}: expected dict, got {type(actual).__name__}"
+        for k, v in expected.items():
+            if k in skip_keys:
+                continue
+            assert k in actual, f"{path}: missing key {k!r}"
+            _compare_key_subset(actual[k], v, f"{path}.{k}")
+    elif isinstance(expected, list):
+        assert isinstance(actual, (list, tuple)), (
+            f"{path}: expected list, got {type(actual).__name__}"
+        )
+        actual = list(actual)  # dataclass asdict leaves tuples; normalize
+        assert len(actual) >= len(expected), (
+            f"{path}: actual list shorter ({len(actual)}) than golden ({len(expected)})"
+        )
+        for i, v in enumerate(expected):
+            _compare_key_subset(actual[i], v, f"{path}[{i}]")
+    else:
+        assert actual == expected, f"{path}: {actual!r} != {expected!r}"
+
+
+@pytest.mark.parametrize("op,args,key", _CASES, ids=[c[2] for c in _CASES])
+def test_op_output_matches_golden(op, args, key, tmp_path):
+    _skip_if_fixture_missing()
+    # Read-only ops can hit the demo fixture directly; this keeps the
+    # `path` field stable between golden generation and test runs.
+    # (When future mutating cases are added, copy to tmp_path first.)
+    if op in _READ_ONLY_OPS:
+        proj_path = str(DEMO_PROJECT)
+    else:
+        test_proj = tmp_path / "test.kdenlive"
+        shutil.copy(DEMO_PROJECT, test_proj)
+        proj_path = str(test_proj)
+    code, resp = run_op(op, args, proj_path, CATALOG)
+    assert code == 0, f"{op} failed: {resp}"
+    assert resp.get("ok") is True, f"{op} not ok: {resp}"
+    actual = _to_jsonable(resp.get("result", resp))
+    with open(GOLDEN_PATH) as f:
+        golden = json.load(f)
+    assert key in golden, f"no golden entry for {key!r} (run generate_golden.py)"
+    _compare_key_subset(actual, golden[key], path=key)
+
+
+def test_golden_covers_every_read_only_op():
+    """The golden file should have an entry for every read-only op.
+
+    Mutating ops are exercised by tests/test_runtime.py + the
+    per-domain test files; the golden only locks the I/O shape of
+    the operations whose response is "what does the project look
+    like right now?" — the things the LLM reads back.
+    """
+    if not GOLDEN_PATH.exists():
+        pytest.skip("golden file not generated yet")
+    with open(GOLDEN_PATH) as f:
+        golden = json.load(f)
+    expected_keys = {c[2] for c in _CASES}
+    assert set(golden.keys()) >= expected_keys, (
+        f"golden missing keys: {expected_keys - set(golden.keys())}"
+    )

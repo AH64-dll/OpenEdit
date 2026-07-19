@@ -1,6 +1,8 @@
 import unittest
 from unittest import mock
-from phase5_dbus_sync.dbus_client import KdenliveDBus
+from phase5_dbus_sync.dbus_client import (
+    KdenliveDBus, detect_service_name, is_running,
+)
 
 
 class FakeMessage:
@@ -94,3 +96,31 @@ class TestKdenliveDBus(unittest.TestCase):
 
         fake_call_reply.return_value = (False, None)
         self.assertIsNone(self.kd.get_timeline_duration())
+
+
+class TestKdenliveProcessDiscovery(unittest.TestCase):
+    """Cover `is_running` + `detect_service_name` (moved from
+    kdenlive_state.py into dbus_client.py in Task 4.1)."""
+
+    @mock.patch("phase5_dbus_sync.dbus_client.subprocess.run")
+    def test_is_running_true(self, fake_run):
+        fake_run.return_value = mock.Mock(returncode=0, stdout="12345\n")
+        self.assertTrue(is_running())
+
+    @mock.patch("phase5_dbus_sync.dbus_client.subprocess.run")
+    def test_is_running_false(self, fake_run):
+        fake_run.return_value = mock.Mock(returncode=1, stdout="")
+        self.assertFalse(is_running())
+
+    @mock.patch("phase5_dbus_sync.dbus_client.subprocess.run")
+    def test_detect_service_name_found(self, fake_run):
+        fake_run.return_value = mock.Mock(
+            returncode=0,
+            stdout="org.kde.kdenlive-2046260  …\norg.freedesktop.systemd1 …\n",
+        )
+        self.assertEqual(detect_service_name(), "org.kde.kdenlive-2046260")
+
+    @mock.patch("phase5_dbus_sync.dbus_client.subprocess.run")
+    def test_detect_service_name_none(self, fake_run):
+        fake_run.return_value = mock.Mock(returncode=0, stdout="")
+        self.assertIsNone(detect_service_name())

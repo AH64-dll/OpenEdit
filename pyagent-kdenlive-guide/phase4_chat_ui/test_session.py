@@ -2,7 +2,8 @@
 import time
 import unittest
 
-from phase4_chat_ui.session import ChatMessage, PlanCard, Session
+from phase4_chat_ui.session import Session
+from phase4_chat_ui.types import ChatMessage, PlanCard
 
 
 class TestSession(unittest.TestCase):

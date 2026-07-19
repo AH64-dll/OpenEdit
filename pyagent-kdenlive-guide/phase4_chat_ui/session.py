@@ -1,7 +1,6 @@
 """Session state: chat history, pending plan, and cached project state."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
@@ -13,6 +12,8 @@ import time
 import re
 import logging
 
+from phase4_chat_ui.types import ChatMessage, PlanCard
+
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY = 500
@@ -23,40 +24,6 @@ DEFAULT_MODEL = ""
 def _validate_session_id(session_id: str) -> bool:
     return bool(re.match(r"^[a-zA-Z0-9_-]+$", session_id))
 
-
-
-@dataclass
-class ChatMessage:
-    role: Literal["user", "assistant", "tool"]
-    content: str
-    tool_name: str | None = None
-    timestamp: float = 0.0
-    images: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "role": self.role,
-            "content": self.content,
-            "tool_name": self.tool_name,
-            "timestamp": self.timestamp,
-            "images": [],
-        }
-
-
-@dataclass
-class PlanCard:
-    plan_id: str
-    summary: str
-    diff: str
-    status: Literal["pending", "approved", "rejected", "applied"] = "pending"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "plan_id": self.plan_id,
-            "summary": self.summary,
-            "diff": self.diff,
-            "status": self.status,
-        }
 
 
 def get_sessions_dir() -> Path:
