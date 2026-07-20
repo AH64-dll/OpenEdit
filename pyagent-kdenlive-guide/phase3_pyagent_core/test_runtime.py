@@ -24,6 +24,22 @@ MLT_ROOT = Path(__file__).resolve().parents[2]
 TESTDATA_CLIP = MLT_ROOT / "testdata" / "clip_short.mp4"
 
 
+def setUpModule():
+    """Skip the entire module: it tests the old KdenliveFileBackend path.
+
+    Phase 4 T7 repointed all 32 wrappers from KdenliveFileBackend.* to
+    open_edit.ir.api.*. The runtime now rejects .kdenlive fixtures, so every
+    test in this file (which calls phase3_pyagent_core as a subprocess with
+    tests/fixtures/demo.kdenlive) returns exit 2 / KeyError. Kept for
+    historical reference, not maintained. See .superpowers/sdd/task-7-report.md.
+    """
+    raise unittest.SkipTest(
+        "Phase 4 T7 decoupled tools from KdenliveFileBackend; this file "
+        "exercises the old Kdenlive XML fixture path. Kept for reference, "
+        "not maintained. See .superpowers/sdd/task-7-report.md."
+    )
+
+
 def _run_runtime(op: str, args: dict, project: str, catalog: str = str(CATALOG_PATH)) -> tuple[int, dict]:
     """Invoke phase3_pyagent_core as a subprocess. Returns (exit_code, json_response)."""
     proc = subprocess.run(
