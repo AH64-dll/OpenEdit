@@ -172,12 +172,12 @@ class WsHandler:
         })
 
     async def _handle_note(self, ws, sess: Session, m: str, data: dict) -> None:
-        """Dispatch one of the 4 `note_*` message types.
+        """Dispatch project-scoped message types (notes + version history).
 
-        All note messages carry an implicit `project_id` derived from the
+        All these messages carry an implicit `project_id` derived from the
         websocket's currently-bound session. Broadcasts are scoped to that
         project (per audit H4) so other projects in the same UI don't see
-        each other's notes.
+        each other's notes or render history.
         """
         project_id = sess.project
         if not project_id:
@@ -193,6 +193,8 @@ class WsHandler:
             await msg_handlers.handle_note_delete(ws, project_id, data, broadcast)
         elif m == "note_list":
             await msg_handlers.handle_note_list(ws, project_id, data, broadcast)
+        elif m == "version_list":
+            await msg_handlers.handle_version_list(ws, project_id, data, broadcast)
 
     # ---- main websocket endpoint -----------------------------------
 
@@ -282,5 +284,5 @@ class WsHandler:
             await msg_handlers.handle_set(self, ws, sess, data, is_app=(m == "set_app"))
         elif m == "prompt":
             await msg_handlers.handle_prompt(self, ws, sess, client, data)
-        elif m in ("note_add", "note_update", "note_delete", "note_list"):
+        elif m in ("note_add", "note_update", "note_delete", "note_list", "version_list"):
             await self._handle_note(ws, sess, m, data)

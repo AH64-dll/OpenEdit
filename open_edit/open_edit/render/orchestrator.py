@@ -7,6 +7,8 @@ Handles:
 - Resolving asset paths via the AssetStore and passing them to the emitter
 - Emitting MLT XML
 - Calling melt via subprocess (with optional cache hit/force flag)
+- Recording a `RenderSnapshot` in `RenderSnapshotStore` (Phase 4 T4) so the
+  preview UI can show a version list and switch between renders.
 - Returning a structured RenderResult
 """
 from __future__ import annotations
@@ -26,6 +28,9 @@ from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.profiles import RenderProfile, select_profile, profile_to_mlt_args
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.render_snapshots import (
+    RenderSnapshot, RenderSnapshotStore, RenderStatus,
+)
 
 
 class RenderResult(BaseModel):
@@ -122,6 +127,7 @@ def render_project(
 
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip().splitlines()
+        _record_snapshot_failure(project_dir, project_id, graph_hash, output_mp4)
         return RenderResult(
             ok=False, output_path=str(output_mp4), mode=mode,
             profile=profile.model_dump(), duration_sec=timeline.duration_sec,
@@ -130,6 +136,7 @@ def render_project(
         )
 
     cache.put(graph_hash, output_mp4)
+    _record_snapshot_success(project_dir, project_id, graph_hash, output_mp4)
 
     return RenderResult(
         ok=True, output_path=str(output_mp4), mode=mode,
@@ -148,3 +155,49 @@ def _build_melt_command(
     if nice_level > 0:
         return ["nice", "-n", str(nice_level)] + args
     return args
+
+
+def _snapshots_path(project_dir: Path) -> Path:
+    """Resolve the SQLite path for a project's render snapshots.
+
+    Mirrors the chat-UI helper: anchor next to the project file when the
+    project_dir is a real directory.
+    """
+    return project_dir / ".open_edit" / "render_snapshots.db"
+
+
+def _record_snapshot_success(
+    project_dir: Path, project_id: str, graph_hash: str, mp4_path: Path,
+) -> None:
+    """Append a `ready` snapshot to the RenderSnapshotStore and evict
+    the oldest ready entry if the cap is exceeded (per audit M1)."""
+    store = RenderSnapshotStore(_snapshots_path(project_dir))
+    existing = store.list_for_project(project_id)
+    label = f"v{len(existing) + 1}"
+    snap = RenderSnapshot(
+        project_id=project_id,
+        edit_graph_hash=graph_hash,
+        render_path=mp4_path,
+        status=RenderStatus.ready,
+        label=label,
+    )
+    store.append(snap)
+    store.evict_oldest_ready(max_versions=20)
+
+
+def _record_snapshot_failure(
+    project_dir: Path, project_id: str, graph_hash: str, mp4_path: Path,
+) -> None:
+    """Append a `failed` snapshot so the user can see the attempt failed
+    in the version list. Per audit M1, `failed` is never evicted."""
+    store = RenderSnapshotStore(_snapshots_path(project_dir))
+    existing = store.list_for_project(project_id)
+    label = f"v{len(existing) + 1}"
+    snap = RenderSnapshot(
+        project_id=project_id,
+        edit_graph_hash=graph_hash,
+        render_path=mp4_path,
+        status=RenderStatus.failed,
+        label=label,
+    )
+    store.append(snap)

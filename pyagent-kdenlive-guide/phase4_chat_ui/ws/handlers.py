@@ -131,6 +131,42 @@ async def handle_note_list(ws, project_id, msg, broadcast) -> None:
     await ws.send_json(_note_list_payload(project_id))
 
 
+# ---- render version history (Phase 4 T4) ---------------------------------
+
+
+def get_snapshots_db_path(project_id: str) -> Path:
+    """Resolve the SQLite path for a project's render snapshots.
+
+    Mirrors `get_notes_db_path`: anchor next to the project file for
+    absolute paths, fall back under the user's home for slug-style ids.
+    """
+    p = Path(project_id)
+    if p.is_absolute() and p.suffix:
+        return p.parent / ".open_edit" / "render_snapshots.db"
+    return Path.home() / _NOTES_DIRNAME / f"{project_id}.snapshots.db"
+
+
+def _version_list_payload(project_id: str) -> dict:
+    """Build a `version_list` message for the project."""
+    from open_edit.storage.render_snapshots import RenderSnapshotStore
+    store = RenderSnapshotStore(get_snapshots_db_path(project_id))
+    snaps = store.list_for_project(project_id)
+    return {
+        "type": "version_list",
+        "project_id": project_id,
+        "versions": [s.model_dump(mode="json") for s in snaps],
+    }
+
+
+async def handle_version_list(ws, project_id, msg, broadcast) -> None:
+    """`version_list` — push the current render-history snapshot to the
+    requesting socket. The `version_ready` message (server → client) is
+    fired by the orchestrator after a successful melt and re-requests
+    this list, so the dropdown in the UI refreshes without polling.
+    """
+    await ws.send_json(_version_list_payload(project_id))
+
+
 # ---- session management -------------------------------------------------
 
 

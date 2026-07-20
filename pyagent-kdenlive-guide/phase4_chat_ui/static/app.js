@@ -440,8 +440,9 @@ function applyVersionList(versions) {
   const sel = document.getElementById("version-switcher");
   const video = document.getElementById("preview-video");
   if (!sel) return;
+  const list = versions || [];
   sel.innerHTML = "";
-  for (const v of versions || []) {
+  for (const v of list) {
     const opt = document.createElement("option");
     opt.value = v.version_id;
     const label = v.label || v.version_id;
@@ -449,7 +450,13 @@ function applyVersionList(versions) {
     opt.disabled = v.status !== "ready";
     sel.appendChild(opt);
   }
-  const latest = (versions || []).find(v => v.status === "ready");
+  sel.onchange = () => {
+    const chosen = list.find(v => v.version_id === sel.value);
+    if (chosen && chosen.render_path && video) {
+      video.src = chosen.render_path;
+    }
+  };
+  const latest = list.find(v => v.status === "ready");
   if (latest && video) {
     video.src = latest.render_path;
   }
