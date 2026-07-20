@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from open_edit.ir.types import Asset
+from open_edit.storage.transcription import transcribe
 
 
 CHUNK_SIZE = 65536
@@ -121,6 +122,7 @@ class AssetStore:
             if not dest.exists():
                 shutil.copy2(src, dest)
             media_info = _probe_media(str(src))
+            alignment = transcribe(src, model_size="base")
             asset = Asset(
                 asset_hash=asset_hash,
                 original_path=str(src),
@@ -132,6 +134,7 @@ class AssetStore:
                 height=media_info["height"],
                 codec=media_info["codec"],
                 has_audio=media_info["has_audio"],
+                alignment=alignment,
             )
             sidecar = self._sidecar_path(asset_hash)
             sidecar.write_text(asset.model_dump_json(indent=2))

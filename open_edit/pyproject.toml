@@ -14,6 +14,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
 ]
+whisper = [
+    "faster-whisper>=1.0.0",
+]
 
 [project.scripts]
 open_edit = "open_edit.cli:main"

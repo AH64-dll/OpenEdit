@@ -55,6 +55,13 @@ class Timeline(BaseModel):
     duration_sec: float = 0.0
 
 
+class WordAlignment(BaseModel):
+    word: str
+    t_start: float
+    t_end: float
+    confidence: float = 1.0
+
+
 class Asset(BaseModel):
     asset_hash: str
     original_path: str
@@ -66,6 +73,7 @@ class Asset(BaseModel):
     height: Optional[int] = None
     codec: Optional[str] = None
     has_audio: bool = False
+    alignment: list[WordAlignment] = Field(default_factory=list)
 
 
 # ===== Operation base + concrete variants =====
