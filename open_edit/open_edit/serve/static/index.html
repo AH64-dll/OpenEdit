@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Edit</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- =================== Top bar =================== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">⏺ Open Edit</span>
+    </div>
+    <div class="topbar-center">
+      <label class="project-label">Project:</label>
+      <select id="project-select" class="project-select">
+        <option value="">— select —</option>
+      </select>
+      <button id="btn-new-project" class="btn btn-ghost" title="New project">+ New</button>
+      <button id="btn-refresh-project" class="btn btn-ghost" title="Refresh projects">⟳</button>
+    </div>
+    <div class="topbar-right">
+      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets">☰</button>
+      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders">≡</button>
+      <span id="conn-status" class="conn-status disconnected" title="Disconnected">●</span>
+    </div>
+  </header>
+
+  <!-- =================== Main 3-column layout =================== -->
+  <main class="layout">
+    <!-- ----- LEFT panel ----- -->
+    <aside id="left-panel" class="panel panel-left">
+      <div class="panel-tabs">
+        <button class="tab active" data-tab="assets">Assets</button>
+        <button class="tab" data-tab="edits">Edit graph</button>
+      </div>
+
+      <div class="tab-content active" data-tab="assets">
+        <div id="assets-list" class="assets-list">
+          <div class="empty-state">No assets yet.<br>Upload one below.</div>
+        </div>
+
+        <div id="dropzone" class="dropzone">
+          <div class="dropzone-inner">
+            <div class="dropzone-icon">⬆</div>
+            <div class="dropzone-text">Drop files here<br><span class="muted">or click to browse</span></div>
+          </div>
+          <input type="file" id="file-input" multiple accept="video/*,audio/*,image/*" hidden>
+        </div>
+        <div id="upload-progress" class="upload-progress hidden"></div>
+      </div>
+
+      <div class="tab-content" data-tab="edits">
+        <div id="edit-graph-list" class="edit-graph-list">
+          <div class="empty-state">No edits yet.<br>Ask the agent to do something.</div>
+        </div>
+        <div class="panel-footer muted small">Auto-refreshes every 5s</div>
+      </div>
+    </aside>
+
+    <!-- ----- CENTER panel ----- -->
+    <section class="panel panel-center">
+      <div id="chat-log" class="chat-log">
+        <div class="empty-state">Select a project to start chatting.</div>
+      </div>
+      <div class="chat-input-row">
+        <textarea id="chat-input" class="chat-input" placeholder="Type a message… (Enter to send, Shift+Enter for newline)" rows="1" disabled></textarea>
+        <button id="btn-send" class="btn btn-primary" disabled>Send</button>
+      </div>
+    </section>
+
+    <!-- ----- RIGHT panel ----- -->
+    <aside id="right-panel" class="panel panel-right">
+      <div class="panel-section">
+        <div class="panel-section-header">
+          <span>Renders</span>
+          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh">⟳</button>
+        </div>
+        <div id="renders-list" class="renders-list">
+          <div class="empty-state">No renders yet.</div>
+        </div>
+        <div class="render-buttons">
+          <button id="btn-render-proxy" class="btn btn-secondary btn-sm">Render proxy</button>
+          <button id="btn-render-final" class="btn btn-secondary btn-sm">Render final</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header">
+          <span>Notes</span>
+          <button id="btn-show-notes" class="btn btn-ghost btn-xs">View</button>
+        </div>
+        <div id="notes-summary" class="notes-summary muted small">—</div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header"><span>Style</span></div>
+        <div class="muted small">Pinned values come from the agent as you chat.</div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- =================== Modals =================== -->
+  <div id="modal-new-project" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <h3>New project</h3>
+      <input type="text" id="new-project-name" class="text-input" placeholder="project name" autocomplete="off">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Cancel</button>
+        <button id="btn-create-project" class="btn btn-primary">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-asset-preview" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-card-wide">
+      <h3 id="asset-preview-title">Preview</h3>
+      <video id="asset-preview-video" controls class="asset-preview-video"></video>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-notes" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-card-wide">
+      <h3>Review notes</h3>
+      <div id="notes-list" class="notes-list">Loading…</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================== Toast =================== -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
