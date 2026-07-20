@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.2.0 (2026-07-20) — CI infrastructure
+
+Sets up GitHub Actions CI to actually run the bwrap-dependent tests that v1.1 added but ignored. No user-facing changes; pure infrastructure.
+
+### Added
+
+- **`.github/workflows/ci.yml`** — GitHub Actions workflow with 3 jobs:
+  - `python-unit` — 308 Python unit tests on Python 3.11, 3.12, 3.14 (~2 min)
+  - `rust-build` — `cargo build` + `cargo test` on the Rust sandbox (~1 min)
+  - `bwrap-tests` — un-ignores the 5 Rust integration tests and 5 Python e2e tests from v1.1; uses the `bin/setup_render_cgroup.sh` script with sudo to set up cgroup v2 (~5-10 min)
+- Runs on every push to main, every PR to main, every tag of the form `v*`, and manual dispatch
+- Concurrency: cancels in-progress runs on PRs; never cancels on main
+
+### Notes
+
+- The 5 Rust integration tests and 5 Python e2e tests are un-ignored in CI but stay ignored/skipped locally (where bwrap + cgroup v2 may not be available). This is the v1.2 follow-up filed at `.superpowers/sdd/v1.2-followup.md`, now resolved.
+- The `bwrap-tests` job is the only one that requires passwordless sudo. GitHub-hosted `ubuntu-latest` runners have this.
+- For local testing of the workflow, install [`act`](https://github.com/nektos/act) and run `act -j python-unit` (the bwrap job will not work locally without bwrap + cgroup v2 setup).
+
 ## v1.1.0 (2026-07-20) — Polish release
 
 Resolves all 7 review-flagged polish items from the final whole-branch review of Phase 4 + 4.5. No new features; pure quality work + operator tooling.
