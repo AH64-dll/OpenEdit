@@ -117,6 +117,9 @@ def render_project(
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
+        # Per T5 carry-over #2: record a `failed` snapshot on timeout so
+        # the version list shows the attempt rather than disappearing.
+        _record_snapshot_failure(project_dir, project_id, graph_hash, output_mp4)
         return RenderResult(
             ok=False, output_path=str(output_mp4), mode=mode,
             profile=profile.model_dump(), duration_sec=timeline.duration_sec,

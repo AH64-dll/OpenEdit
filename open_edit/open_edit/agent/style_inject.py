@@ -49,8 +49,34 @@ def build_prior_state(
             parts.append(f"<latest_ops>\n{ops_lines}\n</latest_ops>")
 
     # 5. Pending notes summary (≤150 tokens)
-    # Implemented in T6's style_inject update; here just placeholder.
-    parts.append("<pending_notes_summary>0 pending notes</pending_notes_summary>")
+    # Per phase4-design-revised.md §3.2 + audit M4: the agent needs to
+    # know what's queued so it can reason about over-commit risk before
+    # it's asked to "process" the notes via commit_feedback.
+    if workdir:
+        from open_edit.storage.notes import NotesStore
+        notes_db = Path(workdir) / "notes.db"
+        if notes_db.exists():
+            store = NotesStore(notes_db)
+            pending = store.list_pending(project_id)
+            summary_lines = [f"{len(pending)} pending notes"]
+            for n in pending[:3]:
+                anchor = n.anchor
+                if anchor.anchor_type == "timestamp":
+                    anchor_text = f"[{anchor.t_start:.1f}s]"
+                elif anchor.anchor_type == "region":
+                    anchor_text = f"[{anchor.t_start:.1f}s region]"
+                else:
+                    anchor_text = f"[op]"
+                summary_lines.append(f"- {anchor_text} {n.text[:50]}")
+            parts.append(
+                "<pending_notes_summary>\n"
+                + "\n".join(summary_lines)
+                + "\n</pending_notes_summary>"
+            )
+        else:
+            parts.append("<pending_notes_summary>0 pending notes</pending_notes_summary>")
+    else:
+        parts.append("<pending_notes_summary>0 pending notes</pending_notes_summary>")
 
     inner = "\n".join(parts)
     return f"<prior_state>\n{inner}\n</prior_state>"

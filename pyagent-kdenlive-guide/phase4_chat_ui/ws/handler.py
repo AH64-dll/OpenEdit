@@ -286,3 +286,5 @@ class WsHandler:
             await msg_handlers.handle_prompt(self, ws, sess, client, data)
         elif m in ("note_add", "note_update", "note_delete", "note_list", "version_list"):
             await self._handle_note(ws, sess, m, data)
+        elif m == "commit_feedback":
+            await msg_handlers.handle_commit_feedback(self, ws, sess, client, data)

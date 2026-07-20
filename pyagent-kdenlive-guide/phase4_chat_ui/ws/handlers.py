@@ -134,6 +134,21 @@ async def handle_note_list(ws, project_id, msg, broadcast) -> None:
 # ---- render version history (Phase 4 T4) ---------------------------------
 
 
+def get_workdir(project_id: str) -> Path:
+    """Resolve the project's working directory.
+
+    For absolute `.kdenlive` paths this is `<project_parent>/.open_edit/`
+    — the directory containing `notes.db`, `render_snapshots.db`, and
+    `edit_graph.db`. For slug-style ids we fall back under the user's
+    home. Centralised here so notes / snapshots / build_prior_state all
+    agree on the same anchor.
+    """
+    p = Path(project_id)
+    if p.is_absolute() and p.suffix:
+        return p.parent / ".open_edit"
+    return Path.home() / _NOTES_DIRNAME
+
+
 def get_snapshots_db_path(project_id: str) -> Path:
     """Resolve the SQLite path for a project's render snapshots.
 
@@ -165,6 +180,208 @@ async def handle_version_list(ws, project_id, msg, broadcast) -> None:
     this list, so the dropdown in the UI refreshes without polling.
     """
     await ws.send_json(_version_list_payload(project_id))
+
+
+# ---- commit_feedback (Phase 4 T7) ----------------------------------------
+
+
+def _read_edit_graph_ops(workdir: Path) -> list:
+    """Read all ops from the project's edit_graph.db.
+
+    Returns an empty list if the db doesn't exist yet (fresh project with
+    no applied ops). The list is ordered by sequence_num, which is
+    monotonic per project, so callers can use ``len(pre)`` / ``len(post)``
+    to compute the slice of new ops appended during a run.
+    """
+    from open_edit.storage.edit_graph import EditGraphStore
+    db_path = Path(workdir) / "edit_graph.db"
+    if not db_path.exists():
+        return []
+    return EditGraphStore(db_path).load_all()
+
+
+def _project_dir_for(project_id: str, workdir: Path) -> Path:
+    """Return the directory that contains the project's `.open_edit/`.
+
+    For absolute `.kdenlive` paths this is the file's parent; for slug
+    ids we fall back to ``workdir.parent`` (the home-dir notes bucket
+    for that slug). The orchestrator appends ``.open_edit/edit_graph.db``
+    onto this so it must be the directory above ``.open_edit/``.
+    """
+    p = Path(project_id)
+    if p.is_absolute() and p.suffix:
+        return p.parent
+    return workdir.parent
+
+
+def _map_ops_to_notes(new_ops: list, pending_notes: list) -> dict[str, str]:
+    """Map newly-appended ops to their source notes (FIFO).
+
+    Per T7 step 7: the agent is told to address notes in the order they
+    were queued (timestamp → region → op-anchored), and we attribute the
+    i-th new op to the i-th note. Extra ops all roll up to the last
+    note; notes with no op get an empty string (which `mark_processed`
+    stores as `[]` for that note's `resulting_op_ids`).
+    """
+    mapping: dict[str, str] = {}
+    for i, op in enumerate(new_ops):
+        if i < len(pending_notes):
+            note_id = pending_notes[i].note_id
+        else:
+            note_id = pending_notes[-1].note_id
+        mapping[note_id] = op.edit_id
+    return mapping
+
+
+async def handle_commit_feedback(handler, ws, project_id, msg, broadcast, client=None) -> None:
+    """`commit_feedback` — batch-process all pending notes (T7 + audit H1).
+
+    Flow (per phase4-design §3.7 + audit H1):
+      1. Generate a `commit_token`, call ``NotesStore.commit_pending`` to
+         atomically claim all currently-pending notes (per audit H1).
+      2. If empty, return an error to the requesting socket.
+      3. Order the notes (timestamp → region → op-anchored) and build
+         the ``pending_feedback`` block.
+      4. Build the ``prior_state`` block (which itself embeds the
+         ``pending_notes_summary`` sub-block from T3 + T6).
+      5. Inject both into the system prompt and stream the agent run,
+         relaying events to the requesting socket.
+      6. After the agent run, find the new ops in ``edit_graph.db`` and
+         attribute them FIFO to the notes.
+      7. Trigger ``render_project`` (which records a snapshot).
+      8. Mark the claimed notes ``processed`` with their resulting op ids.
+      9. Broadcast ``version_ready`` to the project-scoped connections
+         (T5 carry-over #1 — the request side was wired in T5 but no
+         producer was sending this message).
+
+    Notes added *after* step 1 are not in the agent's context and remain
+    ``status=pending`` for the next click; the UI surfaces this with a
+    "your last note arrived after you clicked Send" toast.
+    """
+    import uuid
+
+    from open_edit.agent.style_inject import build_prior_state
+    from open_edit.render.orchestrator import render_project, RenderResult
+    from open_edit.storage.notes import NotesStore
+    from open_edit.storage.render_snapshots import RenderSnapshotStore
+
+    if not project_id:
+        return
+
+    # Allow tests to inject a mock client; production code resolves it
+    # from the handler's per-websocket adapter map.
+    if client is None:
+        client = handler.ws_client_map.get(ws)
+
+    notes_store = NotesStore(get_notes_db_path(project_id))
+    commit_token = uuid.uuid4().hex[:12]
+    pending_notes = notes_store.commit_pending(project_id, commit_token)
+
+    if not pending_notes:
+        await ws.send_json({"type": "error", "message": "no pending notes to commit"})
+        return
+
+    # Order: timestamp first, then region, then op-anchored (per T7 spec).
+    pending_notes.sort(key=lambda n: (
+        {"timestamp": 0, "region": 1, "op": 2}[n.anchor.anchor_type],
+        n.created_at,
+    ))
+
+    # Build the pending_feedback block (≤200 tokens for 5 notes).
+    feedback_lines = []
+    for n in pending_notes:
+        if n.anchor.anchor_type == "timestamp":
+            anchor_text = f"[{n.anchor.t_start:.1f}s - {n.anchor.t_end:.1f}s]"
+        elif n.anchor.anchor_type == "region":
+            anchor_text = f"[{n.anchor.t_start:.1f}s - {n.anchor.t_end:.1f}s, region]"
+        else:
+            anchor_text = f"[op_id={n.anchor.op_id}]"
+        feedback_lines.append(f"- {n.note_id}: {anchor_text} \"{n.text}\"")
+    pending_feedback = "\n".join(feedback_lines)
+
+    workdir = get_workdir(project_id)
+
+    # Build the prior_state (includes pending_notes_summary via T3+).
+    prior_state = build_prior_state(
+        project_id=project_id,
+        expected_op_type="AddEffect",
+        creativity_level=(msg or {}).get("creativity_level", "balanced"),
+        workdir=str(workdir),
+    )
+
+    # Snapshot the edit_graph so we can compute the diff of new ops.
+    pre_ops = _read_edit_graph_ops(workdir)
+
+    # Synthesize the agent prompt. The prior_state already wraps itself
+    # in <prior_state>; we just append the pending_feedback block.
+    prompt = (
+        f"{prior_state}\n"
+        f"<pending_feedback>\n{pending_feedback}\n</pending_feedback>\n\n"
+        "Process the feedback above. For each note, emit operations that "
+        "address it (in the order listed). Use the IR API; ops are "
+        "appended to edit_graph.db automatically."
+    )
+
+    # Stream the agent run. We pass through `relay` so the user sees the
+    # agent's text and tool calls in the chat panel.
+    sess = handler.sessions_cache.get(handler.ws_session_map.get(ws)) if handler.ws_session_map.get(ws) else None
+    if sess is None and hasattr(handler, "default_session"):
+        sess = handler.default_session
+    try:
+        if client is not None:
+            async for ev in client.run_prompt(prompt):
+                await relay(ws, ev, sess, handler)
+        else:
+            await ws.send_json({"type": "error", "message": "no agent client available"})
+            return
+    except Exception as e:
+        await ws.send_json({"type": "error", "message": f"agent run failed: {e}"})
+        # Notes remain status=pending; user can retry. Per audit H1, this
+        # is the intended behavior — the click was atomic up to the agent
+        # boundary, and a failure here leaves the audit trail intact.
+        return
+
+    # Find new ops appended during the run; map FIFO to notes.
+    post_ops = _read_edit_graph_ops(workdir)
+    new_ops = post_ops[len(pre_ops):]
+    note_to_op = _map_ops_to_notes(new_ops, pending_notes)
+
+    # Trigger the render. This is sync and CPU/IO-heavy; run in a thread
+    # so the event loop stays responsive.
+    project_dir = _project_dir_for(project_id, workdir)
+    render_workdir = workdir / "renders"
+    try:
+        result = await asyncio.to_thread(
+            render_project,
+            project_id=project_id,
+            project_dir=project_dir,
+            workdir=render_workdir,
+        )
+    except Exception as e:
+        result = RenderResult(ok=False, error=str(e))
+        await ws.send_json({"type": "error", "message": f"render failed: {e}"})
+
+    # Mark the claimed notes processed. Per audit H1, this is keyed on
+    # the note_ids we got from commit_pending — a note added after step
+    # 1 was never claimed and is intentionally left alone.
+    notes_store.mark_processed(
+        note_ids=[n.note_id for n in pending_notes],
+        resulting_op_ids=[note_to_op.get(n.note_id, "") for n in pending_notes],
+    )
+
+    # Broadcast version_ready (T5 carry-over #1). The orchestrator
+    # records a snapshot in render_snapshots.db; we read it back here
+    # and forward the id+path to the UI so the version dropdown refreshes
+    # without a manual reload.
+    if result.ok:
+        snap_store = RenderSnapshotStore(get_snapshots_db_path(project_id))
+        latest = snap_store.latest_ready(project_id)
+        if latest is not None:
+            await broadcast(project_id, {
+                "type": "version_ready",
+                "version_id": latest.version_id,
+                "render_path": str(latest.render_path),
+            })
 
 
 # ---- session management -------------------------------------------------
