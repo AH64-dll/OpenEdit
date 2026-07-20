@@ -5,6 +5,7 @@ Optional: if faster-whisper is not installed, transcribe() returns [].
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from open_edit.ir.types import WordAlignment
@@ -15,6 +16,9 @@ except ImportError:
     WhisperModel = None  # type: ignore
 
 
+_log = logging.getLogger(__name__)
+
+
 def _has_whisper() -> bool:
     return WhisperModel is not None
 
@@ -22,20 +26,25 @@ def _has_whisper() -> bool:
 def transcribe(src: Path, model_size: str = "base") -> list[WordAlignment]:
     """Transcribe an audio/video file to word-level alignment.
 
-    Returns [] if faster-whisper is not installed.
+    Returns [] if faster-whisper is not installed, or if transcription
+    raises for any reason (one bad file should not break the whole batch).
     """
     if not _has_whisper():
         return []
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-    segments, info = model.transcribe(str(src), word_timestamps=True)
-    alignments = []
-    for segment in segments:
-        if segment.words:
-            for w in segment.words:
-                alignments.append(WordAlignment(
-                    word=w.word,
-                    t_start=w.start,
-                    t_end=w.end,
-                    confidence=w.probability,
-                ))
-    return alignments
+    try:
+        model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        segments, info = model.transcribe(str(src), word_timestamps=True)
+        alignments = []
+        for segment in segments:
+            if segment.words:
+                for w in segment.words:
+                    alignments.append(WordAlignment(
+                        word=w.word,
+                        t_start=w.start,
+                        t_end=w.end,
+                        confidence=w.probability,
+                    ))
+        return alignments
+    except Exception as exc:
+        _log.warning("transcribe() failed for %s: %s", src, exc)
+        return []

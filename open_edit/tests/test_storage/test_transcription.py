@@ -26,3 +26,15 @@ def test_transcribe_with_mocked_whisper(tmp_path):
     assert len(result) == 2
     assert result[0].word == "hello"
     assert result[0].t_start == 0.0
+
+
+def test_transcribe_returns_empty_on_internal_failure(tmp_path, caplog):
+    """M1: one bad file must not break the batch — transcribe() returns []."""
+    from open_edit.storage.transcription import transcribe
+    fake_model = MagicMock()
+    fake_model.transcribe.side_effect = RuntimeError("whisper blew up")
+    with patch("open_edit.storage.transcription._has_whisper", return_value=True), \
+         patch("open_edit.storage.transcription.WhisperModel", return_value=fake_model), \
+         caplog.at_level("WARNING"):
+        result = transcribe(tmp_path / "broken.mp4", model_size="base")
+    assert result == []

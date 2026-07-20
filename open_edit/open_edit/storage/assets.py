@@ -122,7 +122,7 @@ class AssetStore:
             if not dest.exists():
                 shutil.copy2(src, dest)
             media_info = _probe_media(str(src))
-            alignment = transcribe(src, model_size="base")
+            alignment = transcribe(src) if media_info["has_audio"] else []
             asset = Asset(
                 asset_hash=asset_hash,
                 original_path=str(src),
