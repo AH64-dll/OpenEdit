@@ -56,44 +56,35 @@ def test_render_bootstrap_is_self_contained():
     assert '"/scratch/ops.jsonl"' in bootstrap
 
 
-def test_render_bootstrap_inlines_all_24_op_classes():
-    """C1 (final-fixes): bootstrap must include all 24 op class definitions.
+def test_render_bootstrap_inlines_all_op_classes():
+    """C1 follow-up: bootstrap must inline a class definition for every op in OperationUnion.
 
-    Regression: T7 added 12 new op types, but the bootstrap's `op_types`
-    list was never updated. The IR class source references all 24 ops
-    (via type annotations), but the class definitions are only inlined for
-    whatever names are in `op_types`. Any IR method that constructs one of
-    the 12 missing ops would raise NameError inside the sandbox.
+    Self-enforcing: derives the expected set from `OperationUnion` itself via
+    `typing.get_args`, not a hardcoded list. Adding a 25th op class to
+    `OperationUnion` (and forgetting to add it to `op_types` in
+    `sandbox_bridge._render_bootstrap`) will fail this test with a clear
+    "Missing op class definitions" message naming the missing op.
     """
-    from open_edit.ir import types as _types
-    all_24 = [
-        "AddClipOp", "RemoveClipOp", "MoveClipOp", "TrimClipOp",
-        "AddTransitionOp", "RemoveTransitionOp", "SetTransitionPropertyOp",
-        "AddEffectOp", "RemoveEffectOp", "SetEffectParamOp",
-        "SetKeyframeOp", "RemoveKeyframeOp",
-        "SlipClipOp", "RippleDeleteClipOp", "ChangeClipSpeedOp",
-        "SplitClipOp", "ReplaceClipSourceOp", "SetClipSpeedRampOp",
-        "SetAudioGainOp", "NormalizeAudioOp",
-        "GroupEditsOp", "UngroupEditsOp",
-        "RawMltXmlOp", "FreeFormCodeOp",
-    ]
-    # Sanity: union actually has 24 members
-    union_members = _types.OperationUnion.__args__[0].__args__
-    assert len(union_members) == 24, (
-        f"IR's Union has {len(union_members)} members; "
-        f"this test assumes 24. Update the list above if you add ops."
-    )
+    from typing import get_args
+    from open_edit.ir.types import OperationUnion
+
+    # OperationUnion is `Annotated[Union[...], Field(...)]`. Unwrap the
+    # Annotated to get the Union, then get_args() to list all op classes.
+    _op_union, _ = get_args(OperationUnion)
+    op_classes = get_args(_op_union)  # tuple of all op classes
+    expected_names = {cls.__name__ for cls in op_classes}
 
     bootstrap = _render_bootstrap(project_id="p1", parent_op_id="e1")
 
-    missing = [
-        name for name in all_24
+    missing = sorted(
+        name for name in expected_names
         if f"class {name}" not in bootstrap
-    ]
-    assert missing == [], (
-        f"Bootstrap is missing {len(missing)} op class definitions: {missing}. "
-        f"The IR source references them, but `op_types` in _render_bootstrap "
-        f"was not updated when these ops were added in T7."
+    )
+    assert not missing, (
+        f"Missing op class definitions in bootstrap: {missing}. "
+        f"Either add them to `op_types` in "
+        f"open_edit/agent/sandbox_bridge.py:_render_bootstrap, "
+        f"or this is a regression of the C1 fix."
     )
 
 
