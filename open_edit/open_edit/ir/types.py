@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -179,6 +180,7 @@ OperationUnion = Annotated[
 class Project(BaseModel):
     project_id: str = Field(default_factory=new_id)
     name: str
+    workdir: Optional[Path] = None
     created_at: str = Field(default_factory=now_iso8601)
     assets: dict[str, Asset] = Field(default_factory=dict)
     edit_graph: list[OperationUnion] = Field(default_factory=list)

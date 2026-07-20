@@ -45,6 +45,27 @@ class EditGraphStore:
         with self._conn() as conn:
             conn.executescript(SCHEMA_PATH.read_text())
 
+    @property
+    def project_id(self) -> str:
+        """Return the stable project_id for this db file. Generated on first open.
+
+        Phase 3 Task 1: stored in the project_meta table. Stable across reopens.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT value FROM project_meta WHERE key = 'project_id'"
+            )
+            row = cur.fetchone()
+            if row is not None:
+                return row[0]
+            from open_edit.ir.types import new_id
+            pid = new_id()
+            conn.execute(
+                "INSERT INTO project_meta (key, value) VALUES ('project_id', ?)",
+                (pid,),
+            )
+            return pid
+
     def append(
         self, op: OperationUnion, sequence_num: int | None = None
     ) -> int:
