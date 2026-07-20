@@ -214,6 +214,62 @@ def test_run_free_form_clamps_timeout_and_mem():
     # covered in test_free_form_e2e.py.
 
 
+@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+def test_timeout_clamped_to_max(mock_run, tmp_path):
+    """T5: a timeout > MAX_FREEFORM_TIMEOUT_SEC is clamped before reaching the binary."""
+    from open_edit.agent.sandbox_bridge import (
+        run_free_form, MAX_FREEFORM_TIMEOUT_SEC,
+    )
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout='{"exit_code":0,"ok":true,"stderr":""}\n',
+    )
+    run_free_form(
+        code="# ir_api_version: 0.1; libs: {}",
+        workdir=workdir,
+        project_id="p1",
+        parent_op_id="e1",
+        timeout=999_999,
+    )
+    cmd = mock_run.call_args[0][0]
+    assert "--timeout" in cmd, f"expected --timeout in {cmd}"
+    idx = cmd.index("--timeout")
+    assert cmd[idx + 1] == str(MAX_FREEFORM_TIMEOUT_SEC), \
+        f"expected {MAX_FREEFORM_TIMEOUT_SEC}, got {cmd[idx + 1]}"
+
+
+@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+def test_mem_mb_clamped_to_max(mock_run, tmp_path):
+    """T5: a mem_mb > MAX_FREEFORM_MEM_MB is clamped before reaching the binary."""
+    from open_edit.agent.sandbox_bridge import (
+        run_free_form, MAX_FREEFORM_MEM_MB,
+    )
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout='{"exit_code":0,"ok":true,"stderr":""}\n',
+    )
+    run_free_form(
+        code="# ir_api_version: 0.1; libs: {}",
+        workdir=workdir,
+        project_id="p1",
+        parent_op_id="e1",
+        mem_mb=999_999,
+    )
+    cmd = mock_run.call_args[0][0]
+    assert "--mem" in cmd, f"expected --mem in {cmd}"
+    idx = cmd.index("--mem")
+    assert cmd[idx + 1] == str(MAX_FREEFORM_MEM_MB), \
+        f"expected {MAX_FREEFORM_MEM_MB}, got {cmd[idx + 1]}"
+
+
 def test_run_free_form_sandbox_binary_missing(tmp_path):
     """H5: SANDBOX_BIN not on PATH → FreeFormResult.fail('sandbox_binary_missing')."""
     from open_edit.agent.sandbox_bridge import run_free_form
