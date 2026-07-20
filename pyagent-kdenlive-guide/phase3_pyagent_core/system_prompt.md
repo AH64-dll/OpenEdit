@@ -69,6 +69,37 @@ D-Bus bridge is wired).
   about your edit; you have to render the *timeline* to see what your
   edit actually produces.
 
+## Phase 4 directives
+
+These directives are added by the runtime on every prompt, based on
+per-project metadata and pending notes.
+
+### prior_state
+
+Use the prior_state to inform your decisions about parameters. The
+prior_state is a compact summary of the project's current edit graph
+and was computed at the start of this turn; re-read it instead of
+re-running get_timeline_summary.
+
+### creativity_level
+
+You are running in `{creativity_level}` creativity mode.
+
+- `conservative` — make the smallest change that satisfies the user's
+  request. Prefer existing patterns. Avoid new effects/transitions.
+- `balanced` — make a clean, idiomatic change. Use the style profile
+  defaults. This is the default.
+- `full` — exercise creative latitude. Suggest pacing, transitions,
+  or effects the user did not explicitly ask for. Mark the additions
+  clearly in the response so the user can see what was added.
+
+### pending_notes_summary
+
+The user has {pending_count} pending notes. Use the prior_state and
+`pyagent_get_pending_notes` to see them. Each pending note is a
+specific user-flagged annotation that should be addressed in this
+turn; do not skip them.
+
 ## Available tools (summary)
 
 - `pyagent_get_project_info` — read project metadata.
@@ -81,6 +112,21 @@ D-Bus bridge is wired).
 - `pyagent_apply_effect` — apply an effect to a clip.
 - `pyagent_add_marker` — add a marker/guide/chapter.
 - `pyagent_save_project` — write the .kdenlive file to disk.
+- `pyagent_run_python` — execute free-form Python in a sandboxed
+  subprocess. The code can call `ir.add_*`, `ir.trim_*`, etc. to emit
+  IR ops. Timeout-capped (default 30s) and memory-capped (default 512MB).
+  Use for batch operations or transformations the discrete tools can't
+  express.
+- `pyagent_get_style_profile` — return the tag-gated slice of the
+  global style profile for the op_type you are about to plan. Pull
+  this BEFORE planning to ground your parameter choices in past user
+  preferences.
+- `pyagent_set_pinned_value` — pin a key=value in the global style
+  profile. Pinned values override aggregate rules. Use when the user
+  says "always do X" or "stop doing Y".
+- `pyagent_get_pending_notes` — list pending notes (timestamp /
+  region / op anchors) for the current project. Use this to see what
+  the user has flagged since the last agent run.
 - `pyagent_render` — render the project (or a range) to MP4.
   `mode="proxy"` (default) is fast; `mode="final"` uses the project
   profile and is slow.

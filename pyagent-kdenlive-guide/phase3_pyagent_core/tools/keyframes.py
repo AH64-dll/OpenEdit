@@ -1,4 +1,7 @@
-"""ToolDef definitions for the keyframe operations."""
+"""ToolDef definitions for the keyframe operations.
+
+Phase 4 Task 7: repointed to IR.set_keyframe / IR.remove_keyframe.
+"""
 from __future__ import annotations
 
 from .project import ToolDef
@@ -67,3 +70,78 @@ REMOVE_KEYFRAME = ToolDef(
 
 
 TOOLS = [LIST_KEYFRAMES, SET_KEYFRAME, REMOVE_KEYFRAME]
+
+
+# --- Wrapper functions (Phase 4 Task 7) ---
+
+
+def _effect_id_for(clip_id: str, effect_index: int) -> str:
+    """Derive an effect_id from clip_id + effect_index.
+
+    Read-back paths need a stable handle. We use `<clip_id>__<index>`
+    which matches the convention used by `apply_effect` callers in the
+    golden tests.
+    """
+    return f"{clip_id}__{int(effect_index)}"
+
+
+def list_keyframes(args: dict, project_path: str) -> dict:
+    """Read-back: list keyframes for a clip's effect parameter."""
+    from open_edit.agent.tools._helpers import load_project
+    from open_edit.ir.apply import derive_timeline
+
+    project = load_project(project_path)
+    timeline = derive_timeline(project)
+    clip_id = args["clip_id"]
+    effect_index = int(args["effect_index"])
+    param_name = args["param_name"]
+    for track in timeline.tracks:
+        for clip in track.clips:
+            if clip.clip_id != clip_id:
+                continue
+            if effect_index < 0 or effect_index >= len(clip.effects):
+                return {
+                    "format": "linear",
+                    "keyframes": [],
+                    "effect_count": len(clip.effects),
+                }
+            effect = clip.effects[effect_index]
+            keyframes = effect.keyframes.get(param_name, [])
+            return {
+                "format": "linear",
+                "effect_id": effect.effect_id,
+                "keyframes": [
+                    {"frame": float(f), "value": str(v), "type": t}
+                    for f, v, t in keyframes
+                ],
+            }
+    return {"format": "linear", "keyframes": []}
+
+
+def set_keyframe(args: dict, project_path: str) -> dict:
+    """Add or update a keyframe."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    effect_id = _effect_id_for(args["clip_id"], args["effect_index"])
+    keyframes = [(float(args["frame"]), float(args["value"]), args.get("type", "linear"))]
+    ir.set_keyframe(
+        effect_id=effect_id,
+        param=args["param_name"],
+        keyframes=keyframes,
+    )
+    return {"status": "ok"}
+
+
+def remove_keyframe(args: dict, project_path: str) -> dict:
+    """Remove a keyframe at the given frame."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    effect_id = _effect_id_for(args["clip_id"], args["effect_index"])
+    ir.remove_keyframe(
+        effect_id=effect_id,
+        param=args["param_name"],
+        frame=float(args["frame"]),
+    )
+    return {"status": "ok", "removed": True}

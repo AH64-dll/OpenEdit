@@ -118,6 +118,18 @@ class AddTransitionOp(Operation):
     duration_sec: float
 
 
+class RemoveTransitionOp(Operation):
+    kind: Literal["remove_transition"] = "remove_transition"
+    transition_id: str
+
+
+class SetTransitionPropertyOp(Operation):
+    kind: Literal["set_transition_property"] = "set_transition_property"
+    transition_id: str
+    prop_name: str
+    value: str
+
+
 class AddEffectOp(Operation):
     kind: Literal["add_effect"] = "add_effect"
     target_kind: Literal["clip", "track"]
@@ -127,11 +139,70 @@ class AddEffectOp(Operation):
     effect_id: str = Field(default_factory=new_id)
 
 
+class RemoveEffectOp(Operation):
+    kind: Literal["remove_effect"] = "remove_effect"
+    clip_id: str
+    effect_index: int
+
+
+class SetEffectParamOp(Operation):
+    kind: Literal["set_effect_param"] = "set_effect_param"
+    clip_id: str
+    effect_index: int
+    param_name: str
+    value: str
+    effect_id: str = ""
+
+
 class SetKeyframeOp(Operation):
     kind: Literal["set_keyframe"] = "set_keyframe"
     effect_id: str
     param: str
     keyframes: list[tuple[float, float, str]]
+
+
+class RemoveKeyframeOp(Operation):
+    kind: Literal["remove_keyframe"] = "remove_keyframe"
+    effect_id: str
+    param: str
+    frame: float
+
+
+class SlipClipOp(Operation):
+    kind: Literal["slip_clip"] = "slip_clip"
+    clip_id: str
+    delta_sec: float
+
+
+class RippleDeleteClipOp(Operation):
+    kind: Literal["ripple_delete_clip"] = "ripple_delete_clip"
+    clip_id: str
+
+
+class ChangeClipSpeedOp(Operation):
+    kind: Literal["change_clip_speed"] = "change_clip_speed"
+    clip_id: str
+    rate: float
+
+
+class SplitClipOp(Operation):
+    kind: Literal["split_clip"] = "split_clip"
+    clip_id: str
+    at_sec: float
+    left_clip_id: str = Field(default_factory=new_id)
+    right_clip_id: str = Field(default_factory=new_id)
+
+
+class ReplaceClipSourceOp(Operation):
+    kind: Literal["replace_clip_source"] = "replace_clip_source"
+    clip_id: str
+    new_asset_hash: str
+
+
+class SetClipSpeedRampOp(Operation):
+    kind: Literal["set_clip_speed_ramp"] = "set_clip_speed_ramp"
+    clip_id: str
+    keyframes: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SetAudioGainOp(Operation):
@@ -156,6 +227,11 @@ class GroupEditsOp(Operation):
     label: str
 
 
+class UngroupEditsOp(Operation):
+    kind: Literal["ungroup_edits"] = "ungroup_edits"
+    label: str
+
+
 class RawMltXmlOp(Operation):
     kind: Literal["raw_mlt_xml"] = "raw_mlt_xml"
     xml: str
@@ -173,9 +249,14 @@ class FreeFormCodeOp(Operation):
 OperationUnion = Annotated[
     Union[
         AddClipOp, RemoveClipOp, MoveClipOp, TrimClipOp,
-        AddTransitionOp, AddEffectOp, SetKeyframeOp,
+        AddTransitionOp, RemoveTransitionOp, SetTransitionPropertyOp,
+        AddEffectOp, RemoveEffectOp, SetEffectParamOp,
+        SetKeyframeOp, RemoveKeyframeOp,
+        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp,
+        SplitClipOp, ReplaceClipSourceOp, SetClipSpeedRampOp,
         SetAudioGainOp, NormalizeAudioOp,
-        GroupEditsOp, RawMltXmlOp, FreeFormCodeOp,
+        GroupEditsOp, UngroupEditsOp,
+        RawMltXmlOp, FreeFormCodeOp,
     ],
     Field(discriminator="kind"),
 ]

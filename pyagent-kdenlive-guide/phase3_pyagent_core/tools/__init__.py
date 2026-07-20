@@ -6,7 +6,7 @@ Each tools/*.py module exports a `TOOLS` list of `ToolDef`s. The
 from __future__ import annotations
 
 from . import (
-    bin, catalog, clips, clips_edit, effects, groups, keyframes,
+    _phase4, bin, catalog, clips, clips_edit, effects, groups, keyframes,
     markers, project, render_qc, transitions, track_effects,
 )
 
@@ -26,6 +26,7 @@ def all_tools() -> list:
         *groups.TOOLS,
         *markers.TOOLS,
         *render_qc.TOOLS,
+        *_phase4.TOOLS,
     ]
 
 

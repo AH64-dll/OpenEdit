@@ -1,4 +1,7 @@
-"""Tool defs for clip-edit operations on the timeline."""
+"""Tool defs for clip-edit operations on the timeline.
+
+Phase 4 Task 7: repointed to IR.slip_clip / IR.ripple_delete_clip / etc.
+"""
 from __future__ import annotations
 
 from .project import ToolDef
@@ -100,3 +103,76 @@ SET_CLIP_SPEED_RAMP = ToolDef(
 
 
 TOOLS = [SLIP_CLIP, RIPPLE_DELETE_CLIP, CHANGE_CLIP_SPEED, SPLIT_CLIP, REPLACE_CLIP_SOURCE, SET_CLIP_SPEED_RAMP]
+
+
+# --- Wrapper functions (Phase 4 Task 7) ---
+
+
+def slip_clip(args: dict, project_path: str) -> dict:
+    """Slip a clip by delta_sec."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    ir.slip_clip(
+        clip_id=args["clip_id"],
+        delta_sec=float(args["delta_sec"]),
+    )
+    return {"status": "ok"}
+
+
+def ripple_delete_clip(args: dict, project_path: str) -> dict:
+    """Remove a clip and ripple-close the gap."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    ir.ripple_delete_clip(clip_id=args["clip_id"])
+    return {"status": "ok"}
+
+
+def change_clip_speed(args: dict, project_path: str) -> dict:
+    """Change a clip's playback rate."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    ir.change_clip_speed(
+        clip_id=args["clip_id"],
+        rate=float(args["rate"]),
+    )
+    return {"status": "ok"}
+
+
+def split_clip(args: dict, project_path: str) -> dict:
+    """Split a clip at the given position; return both new clip ids."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    left_id, right_id = ir.split_clip(
+        clip_id=args["clip_id"],
+        at_sec=float(args["at_sec"]),
+    )
+    return {"left_clip_id": left_id, "right_clip_id": right_id}
+
+
+def replace_clip_source(args: dict, project_path: str) -> dict:
+    """Replace a clip's source asset."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    new_hash = args.get("new_asset_hash") or args["new_source_id"]
+    ir.replace_clip_source(
+        clip_id=args["clip_id"],
+        new_asset_hash=new_hash,
+    )
+    return {"status": "ok"}
+
+
+def set_clip_speed_ramp(args: dict, project_path: str) -> dict:
+    """Set a keyframed speed ramp on a clip."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    ir.set_clip_speed_ramp(
+        clip_id=args["clip_id"],
+        keyframes=args["keyframes"],
+    )
+    return {"status": "ok"}

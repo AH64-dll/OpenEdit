@@ -11,6 +11,8 @@ carries the list of required parameter names separately. The TS side
 Storing them split avoids the bug where the JSON-Schema top-level keys
 ("type", "properties", "required") get treated as parameter names by
 Type.Object().
+
+Phase 4 Task 7: read-back bodies use Project.load_all + derive_timeline.
 """
 from __future__ import annotations
 
@@ -54,3 +56,62 @@ GET_TIMELINE_SUMMARY = ToolDef(
 
 
 TOOLS = [GET_PROJECT_INFO, GET_TIMELINE_SUMMARY]
+
+
+# --- Wrapper functions (Phase 4 Task 7) ---
+
+
+def get_project_info(args: dict, project_path: str) -> dict:
+    """Return project metadata (id, name, workdir, track_count, duration)."""
+    from open_edit.agent.tools._helpers import _db_path, load_project
+    from open_edit.ir.apply import derive_timeline
+
+    project = load_project(project_path)
+    timeline = derive_timeline(project)
+    db_path = _db_path(project_path)
+    return {
+        "project_id": project.project_id,
+        "name": project.name,
+        "workdir": str(project.workdir) if project.workdir else str(db_path.parent),
+        "track_count": len(timeline.tracks),
+        "duration_sec": timeline.duration_sec,
+        "asset_count": len(project.assets),
+        "op_count": len(project.edit_graph),
+    }
+
+
+def get_timeline_summary(args: dict, project_path: str) -> dict:
+    """Return tracks/clips/effects/groups summary derived from the timeline."""
+    from open_edit.agent.tools._helpers import load_project
+    from open_edit.ir.apply import derive_timeline
+
+    project = load_project(project_path)
+    timeline = derive_timeline(project)
+    tracks = []
+    for t in timeline.tracks:
+        tracks.append({
+            "track_id": t.track_id,
+            "kind": t.kind,
+            "clip_count": len(t.clips),
+            "effect_count": len(t.effects),
+        })
+    clips = [
+        {
+            "clip_id": c.clip_id,
+            "asset_hash": c.asset_hash,
+            "track_id": c.track_id,
+            "position_sec": c.position_sec,
+            "in_point_sec": c.in_point_sec,
+            "out_point_sec": c.out_point_sec,
+            "effect_count": len(c.effects),
+        }
+        for t in timeline.tracks for c in t.clips
+    ]
+    groups = [op.label for op in project.edit_graph if op.kind == "group_edits"]
+    return {
+        "project_id": project.project_id,
+        "tracks": tracks,
+        "clips": clips,
+        "groups": groups,
+        "duration_sec": timeline.duration_sec,
+    }

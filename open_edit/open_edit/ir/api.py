@@ -14,9 +14,12 @@ from __future__ import annotations
 from typing import Any, Optional, Protocol
 
 from open_edit.ir.types import (
-    AddClipOp, AddEffectOp, AddTransitionOp, FreeFormCodeOp, GroupEditsOp,
-    MoveClipOp, NormalizeAudioOp, RawMltXmlOp, RemoveClipOp, SetAudioGainOp,
-    SetKeyframeOp, TrimClipOp, new_id,
+    AddClipOp, AddEffectOp, AddTransitionOp, ChangeClipSpeedOp, FreeFormCodeOp,
+    GroupEditsOp, MoveClipOp, NormalizeAudioOp, RawMltXmlOp, RemoveClipOp,
+    RemoveEffectOp, RemoveKeyframeOp, RemoveTransitionOp, ReplaceClipSourceOp,
+    RippleDeleteClipOp, SetAudioGainOp, SetClipSpeedRampOp, SetEffectParamOp,
+    SetKeyframeOp, SetTransitionPropertyOp, SlipClipOp, SplitClipOp,
+    TrimClipOp, UngroupEditsOp, new_id,
 )
 
 
@@ -130,18 +133,80 @@ class IR:
         )
         self._ops.append(op)
 
+    def remove_transition(
+        self, transition_id: str,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = RemoveTransitionOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            transition_id=transition_id,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def set_transition_property(
+        self, transition_id: str, prop_name: str, value: str,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = SetTransitionPropertyOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            transition_id=transition_id,
+            prop_name=prop_name,
+            value=value,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
     def add_effect(
         self, target_kind: str, target_id: str, effect_type: str, params: dict[str, Any],
         originating_note_id: Optional[str] = None,
-    ) -> None:
+    ) -> str:
+        effect_id = new_id()
         op = AddEffectOp(
-            edit_id=new_id(),
+            edit_id=effect_id,
             author="ai",
             parent_id=self._parent_op_id,
             target_kind=target_kind,
             target_id=target_id,
             effect_type=effect_type,
             params=params,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+        return effect_id
+
+    def remove_effect(
+        self, clip_id: str, effect_index: int,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = RemoveEffectOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
+            effect_index=effect_index,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def set_effect_param(
+        self, clip_id: str, effect_index: int, param_name: str, value: str,
+        effect_id: str = "",
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = SetEffectParamOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
+            effect_index=effect_index,
+            param_name=param_name,
+            value=value,
+            effect_id=effect_id,
             originating_note_id=self._note_id(originating_note_id),
         )
         self._ops.append(op)
@@ -156,6 +221,109 @@ class IR:
             parent_id=self._parent_op_id,
             effect_id=effect_id,
             param=param,
+            keyframes=keyframes,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def remove_keyframe(
+        self, effect_id: str, param: str, frame: float,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = RemoveKeyframeOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            effect_id=effect_id,
+            param=param,
+            frame=frame,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def slip_clip(
+        self, clip_id: str, delta_sec: float,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = SlipClipOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
+            delta_sec=delta_sec,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def ripple_delete_clip(
+        self, clip_id: str,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = RippleDeleteClipOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def change_clip_speed(
+        self, clip_id: str, rate: float,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = ChangeClipSpeedOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
+            rate=rate,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def split_clip(
+        self, clip_id: str, at_sec: float,
+        originating_note_id: Optional[str] = None,
+    ) -> tuple[str, str]:
+        left_id = new_id()
+        right_id = new_id()
+        op = SplitClipOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
+            at_sec=at_sec,
+            left_clip_id=left_id,
+            right_clip_id=right_id,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+        return (left_id, right_id)
+
+    def replace_clip_source(
+        self, clip_id: str, new_asset_hash: str,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = ReplaceClipSourceOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
+            new_asset_hash=new_asset_hash,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def set_clip_speed_ramp(
+        self, clip_id: str, keyframes: list[dict[str, Any]],
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = SetClipSpeedRampOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            clip_id=clip_id,
             keyframes=keyframes,
             originating_note_id=self._note_id(originating_note_id),
         )
@@ -199,6 +367,19 @@ class IR:
             author="ai",
             parent_id=self._parent_op_id,
             edit_ids=edit_ids,
+            label=label,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def ungroup_edits(
+        self, label: str,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = UngroupEditsOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
             label=label,
             originating_note_id=self._note_id(originating_note_id),
         )

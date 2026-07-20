@@ -1,4 +1,8 @@
-"""Tool defs for transition operations."""
+"""Tool defs for transition operations.
+
+Phase 4 Task 7: repointed to IR.add_transition / IR.remove_transition /
+IR.set_transition_property.
+"""
 from __future__ import annotations
 
 from .project import ToolDef
@@ -63,3 +67,44 @@ SET_TRANSITION_PROPERTY = ToolDef(
 
 
 TOOLS = [ADD_TRANSITION, REMOVE_TRANSITION, SET_TRANSITION_PROPERTY]
+
+
+# --- Wrapper functions (Phase 4 Task 7) ---
+
+
+def add_transition(args: dict, project_path: str) -> dict:
+    """Add a transition between two adjacent clips."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    transition_type = args.get("transition_type") or args["kind"]
+    duration_sec = float(args.get("duration_sec", 1.0))
+    ir.add_transition(
+        clip_a_id=args["clip_a_id"],
+        clip_b_id=args["clip_b_id"],
+        transition_type=transition_type,
+        duration_sec=duration_sec,
+    )
+    return {"status": "ok"}
+
+
+def remove_transition(args: dict, project_path: str) -> dict:
+    """Remove a transition by id."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    ir.remove_transition(transition_id=args["transition_id"])
+    return {"status": "ok"}
+
+
+def set_transition_property(args: dict, project_path: str) -> dict:
+    """Set a single property on a transition."""
+    from open_edit.agent.tools._helpers import make_ir
+
+    ir = make_ir(project_path)
+    ir.set_transition_property(
+        transition_id=args["transition_id"],
+        prop_name=args["prop_name"],
+        value=str(args["value"]),
+    )
+    return {"status": "ok"}
