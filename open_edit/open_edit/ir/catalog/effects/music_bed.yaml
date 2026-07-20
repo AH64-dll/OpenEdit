@@ -1,0 +1,11 @@
+name: music_bed
+mlt_service: volume
+target_kind: [track]
+params:
+  track_id: {type: str}
+  gain_db: {type: float, default: -12.0}
+  t_start: {type: float, default: 0.0}
+  t_end: {type: float, default: 0.0}
+keyframe_params: [gain]
+interp: [linear]
+description: "Background music bed with optional ducking keyframes."
