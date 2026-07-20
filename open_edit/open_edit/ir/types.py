@@ -164,6 +164,9 @@ class RawMltXmlOp(Operation):
 class FreeFormCodeOp(Operation):
     kind: Literal["free_form_code"] = "free_form_code"
     code: str
+    timeout_sec: int = 30
+    mem_mb: int = 512
+    label: Optional[str] = None
 
 
 OperationUnion = Annotated[
