@@ -6,6 +6,7 @@ edit_graph.db atomically; this wrapper just translates the call.
 """
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from open_edit.agent.exceptions import FreeFormResult
@@ -16,11 +17,12 @@ from open_edit.agent.tools._helpers import _db_path
 def run_python(args: dict, project_path: str) -> dict:
     """Run free-form Python; return {status, ops, error}."""
     workdir = Path(_db_path(project_path)).parent
+    parent_op_id = args.get("parent_op_id") or f"pyagent_{uuid.uuid4().hex[:12]}"
     result: FreeFormResult = run_free_form(
         code=args["code"],
         workdir=workdir,
         project_id=args["project_id"],
-        parent_op_id=args.get("parent_op_id"),
+        parent_op_id=parent_op_id,
         timeout=int(args.get("timeout_sec", 30)),
         mem_mb=int(args.get("mem_mb", 512)),
         originating_note_id=args.get("originating_note_id"),

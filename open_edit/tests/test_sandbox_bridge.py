@@ -59,6 +59,103 @@ def test_render_bootstrap_is_self_contained():
     assert '"/scratch/ops.jsonl"' in bootstrap
 
 
+def test_render_bootstrap_inlines_all_24_op_classes():
+    """C1 (final-fixes): bootstrap must include all 24 op class definitions.
+
+    Regression: T7 added 12 new op types, but the bootstrap's `op_types`
+    list was never updated. The IR class source references all 24 ops
+    (via type annotations), but the class definitions are only inlined for
+    whatever names are in `op_types`. Any IR method that constructs one of
+    the 12 missing ops would raise NameError inside the sandbox.
+    """
+    from open_edit.ir import types as _types
+    all_24 = [
+        "AddClipOp", "RemoveClipOp", "MoveClipOp", "TrimClipOp",
+        "AddTransitionOp", "RemoveTransitionOp", "SetTransitionPropertyOp",
+        "AddEffectOp", "RemoveEffectOp", "SetEffectParamOp",
+        "SetKeyframeOp", "RemoveKeyframeOp",
+        "SlipClipOp", "RippleDeleteClipOp", "ChangeClipSpeedOp",
+        "SplitClipOp", "ReplaceClipSourceOp", "SetClipSpeedRampOp",
+        "SetAudioGainOp", "NormalizeAudioOp",
+        "GroupEditsOp", "UngroupEditsOp",
+        "RawMltXmlOp", "FreeFormCodeOp",
+    ]
+    # Sanity: union actually has 24 members
+    union_members = _types.OperationUnion.__args__[0].__args__
+    assert len(union_members) == 24, (
+        f"IR's Union has {len(union_members)} members; "
+        f"this test assumes 24. Update the list above if you add ops."
+    )
+
+    bootstrap = _render_bootstrap(project_id="p1", parent_op_id="e1")
+
+    missing = [
+        name for name in all_24
+        if f"class {name}" not in bootstrap
+    ]
+    assert missing == [], (
+        f"Bootstrap is missing {len(missing)} op class definitions: {missing}. "
+        f"The IR source references them, but `op_types` in _render_bootstrap "
+        f"was not updated when these ops were added in T7."
+    )
+
+
+def test_bootstrap_exec_instantiates_all_24_op_classes(tmp_path):
+    """C1 (final-fixes): executing the bootstrap must make every op class
+    available in scope (no NameError when IR methods construct them).
+    """
+    bootstrap = _render_bootstrap(
+        project_id="p1",
+        parent_op_id="e1",
+        originating_note_id="n1",
+    )
+    # Run the bootstrap in an isolated globals dict, like the Rust binary does
+    g: dict = {"__name__": "__sandbox__", "__file__": "<bootstrap>"}
+    exec(compile(bootstrap, "<bootstrap>", "exec"), g)
+
+    # Every op class name must be reachable in the bootstrap's globals
+    expected = [
+        "AddClipOp", "RemoveClipOp", "MoveClipOp", "TrimClipOp",
+        "AddTransitionOp", "RemoveTransitionOp", "SetTransitionPropertyOp",
+        "AddEffectOp", "RemoveEffectOp", "SetEffectParamOp",
+        "SetKeyframeOp", "RemoveKeyframeOp",
+        "SlipClipOp", "RippleDeleteClipOp", "ChangeClipSpeedOp",
+        "SplitClipOp", "ReplaceClipSourceOp", "SetClipSpeedRampOp",
+        "SetAudioGainOp", "NormalizeAudioOp",
+        "GroupEditsOp", "UngroupEditsOp",
+        "RawMltXmlOp", "FreeFormCodeOp",
+    ]
+    for name in expected:
+        assert name in g, f"{name} not in bootstrap scope after exec"
+
+    # `ir` instance must be present and must accept a method that was added
+    # in T7 (was NameError before the fix).
+    assert "ir" in g
+    # Wire a buffer; IR will append a SlipClipOp
+    import json
+    ops_file = tmp_path / "ops.jsonl"
+    class _Buf(list):
+        def append(self, op):
+            super().append(op)
+            with open(ops_file, "a") as f:
+                f.write(op.model_dump_json() + "\n")
+    g["_ops"] = _Buf()
+    g["ir"] = g["IR"](
+        g["_ops"],
+        project_id="p1",
+        parent_op_id="e1",
+        originating_note_id="n1",
+    )
+    # Calling a T7 method must not raise NameError
+    g["ir"].slip_clip(clip_id="c1", delta_sec=0.5)
+    assert ops_file.exists()
+    lines = [ln for ln in ops_file.read_text().splitlines() if ln.strip()]
+    assert len(lines) == 1
+    parsed = json.loads(lines[0])
+    assert parsed["kind"] == "slip_clip"
+    assert parsed["parent_id"] == "e1"
+
+
 def test_run_free_form_missing_header_returns_preflight_failed(tmp_path):
     """No # ir_api_version: header → FreeFormResult.fail('preflight_failed')."""
     from open_edit.agent.sandbox_bridge import run_free_form

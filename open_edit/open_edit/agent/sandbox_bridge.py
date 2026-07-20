@@ -339,9 +339,14 @@ def _render_bootstrap(
     op_types = [
         "Operation",
         "AddClipOp", "RemoveClipOp", "MoveClipOp", "TrimClipOp",
-        "AddTransitionOp", "AddEffectOp", "SetKeyframeOp",
+        "AddTransitionOp", "RemoveTransitionOp", "SetTransitionPropertyOp",
+        "AddEffectOp", "RemoveEffectOp", "SetEffectParamOp",
+        "SetKeyframeOp", "RemoveKeyframeOp",
+        "SlipClipOp", "RippleDeleteClipOp", "ChangeClipSpeedOp",
+        "SplitClipOp", "ReplaceClipSourceOp", "SetClipSpeedRampOp",
         "SetAudioGainOp", "NormalizeAudioOp",
-        "GroupEditsOp", "RawMltXmlOp", "FreeFormCodeOp",
+        "GroupEditsOp", "UngroupEditsOp",
+        "RawMltXmlOp", "FreeFormCodeOp",
     ]
     op_sources = [inspect.getsource(getattr(_types, name)) for name in op_types]
     new_id_source = inspect.getsource(_types.new_id)
