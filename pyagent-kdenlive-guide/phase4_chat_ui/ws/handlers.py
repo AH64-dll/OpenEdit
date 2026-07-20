@@ -397,6 +397,12 @@ async def handle_commit_feedback(handler, ws, sess, client, data) -> None:
         resulting_op_ids=[note_to_op.get(n.note_id, "") for n in pending_notes],
     )
 
+    # Per audit M3: move processed notes older than 30 days to notes_archive
+    # so the main notes table doesn't grow unbounded.
+    archived_count = notes_store.archive_old_processed(retention_days=30)
+    if archived_count > 0:
+        print(f"Archived {archived_count} old notes")
+
     # Broadcast version_ready (T5 carry-over #1) for any new snapshot,
     # success OR failure (per fix M3). The UI surfaces failed renders
     # distinctly (audit H2: failed entries should be visible), so we

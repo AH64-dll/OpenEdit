@@ -10,7 +10,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal, Optional, Union
@@ -95,6 +95,19 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_project_status ON notes(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_notes_commit_token ON notes(commit_token);
 CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at);
+CREATE TABLE IF NOT EXISTS notes_archive (
+    note_id        TEXT PRIMARY KEY,
+    project_id     TEXT NOT NULL,
+    anchor_type    TEXT NOT NULL,
+    anchor         TEXT NOT NULL,
+    text           TEXT NOT NULL DEFAULT '',
+    source         TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    processed_at   TEXT,
+    commit_token   TEXT,
+    resulting_op_ids TEXT NOT NULL DEFAULT '[]'
+);
 """
 
 
@@ -226,6 +239,28 @@ class NotesStore:
                 "UPDATE notes SET commit_token = NULL WHERE note_id = ?",
                 [(n,) for n in note_ids],
             )
+
+    def archive_old_processed(self, retention_days: int = 30) -> int:
+        """Per audit M3: move processed notes older than retention_days to notes_archive."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        with sqlite3.connect(self.db_path) as con:
+            rows = con.execute(
+                "SELECT note_id, project_id, anchor_type, anchor, text, source, status, "
+                "created_at, processed_at, commit_token, resulting_op_ids "
+                "FROM notes WHERE status = 'processed' AND created_at < ?",
+                (cutoff,),
+            ).fetchall()
+            for row in rows:
+                con.execute(
+                    "INSERT INTO notes_archive (note_id, project_id, anchor_type, anchor, text, source, status, created_at, processed_at, commit_token, resulting_op_ids) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    row,
+                )
+            con.execute(
+                "DELETE FROM notes WHERE status = 'processed' AND created_at < ?",
+                (cutoff,),
+            )
+        return len(rows)
 
     def update(self, note_id: str, **fields) -> None:
         """Update mutable fields on a note.
