@@ -47,3 +47,173 @@ fn bwrap_unavailable_reason() {
         .failure();
     // Detailed JSON inspection is brittle; the e2e test in Python covers it.
 }
+
+#[test]
+#[ignore = "requires bwrap + namespace/loopback setup"]
+fn e2e_network_blocked() {
+    use std::time::Duration;
+    let scratch = tempdir().unwrap();
+    let script = r#"
+import sys
+try:
+    import urllib.request
+    urllib.request.urlopen('http://example.com', timeout=3)
+    print("NETWORK_AVAILABLE", file=sys.stdout)  # sentinel; should NOT appear
+    sys.exit(0)
+except Exception as e:
+    print(f"BLOCKED:{type(e).__name__}", file=sys.stderr)
+    sys.exit(1)
+"#;
+    fs::write(scratch.path().join("code.py"), script).unwrap();
+
+    let assert = sandbox_bin()
+        .arg("--scratch").arg(scratch.path())
+        .arg("--python-bin").arg("/usr/bin/python3.14")
+        .arg("--expected-py-version").arg("3.14")
+        .arg("--json")
+        .arg("--timeout").arg("30")
+        .timeout(Duration::from_secs(60))
+        .assert()
+        .failure();  // script exits non-zero on block
+
+    let output = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        output.contains("BLOCKED:"),
+        "stderr should contain BLOCKED: sentinel, got: {output}"
+    );
+}
+
+#[test]
+#[ignore = "requires bwrap + source-ro mount setup"]
+fn e2e_source_ro_blocks_writes() {
+    let scratch = tempdir().unwrap();
+    let source = scratch.path().join("source");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("seed.txt"), b"protected content").unwrap();
+
+    let script = r#"
+import sys
+try:
+    with open('/source/seed.txt', 'w') as f:
+        f.write('overwrite attempt')
+    print("WRITE_SUCCEEDED", file=sys.stdout)
+    sys.exit(0)
+except Exception as e:
+    print(f"BLOCKED:{type(e).__name__}", file=sys.stderr)
+    sys.exit(1)
+"#;
+    fs::write(scratch.path().join("code.py"), script).unwrap();
+
+    let assert = sandbox_bin()
+        .arg("--scratch").arg(scratch.path())
+        .arg("--python-bin").arg("/usr/bin/python3.14")
+        .arg("--expected-py-version").arg("3.14")
+        .arg("--json")
+        .arg("--bind-ro").arg(format!("{}:/source", source.display()))
+        .timeout(std::time::Duration::from_secs(60))
+        .assert()
+        .failure();
+
+    let output = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(output.contains("BLOCKED:PermissionError") || output.contains("BLOCKED:OSError"),
+        "stderr should contain BLOCKED:PermissionError or BLOCKED:OSError, got: {output}");
+}
+
+#[test]
+#[ignore = "requires bwrap + cgroup v2"]
+fn e2e_timeout_kills_runaway() {
+    let scratch = tempdir().unwrap();
+    // Script sleeps 60s; test passes --timeout 5; expect kill within ~6s.
+    let script = "import time; time.sleep(60)";
+    fs::write(scratch.path().join("code.py"), script).unwrap();
+
+    let assert = sandbox_bin()
+        .arg("--scratch").arg(scratch.path())
+        .arg("--python-bin").arg("/usr/bin/python3.14")
+        .arg("--expected-py-version").arg("3.14")
+        .arg("--json")
+        .arg("--timeout").arg("5")
+        .timeout(std::time::Duration::from_secs(30))
+        .assert()
+        .failure();
+
+    let output = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(output.contains("timeout") || output.contains("killed"),
+        "stderr should mention timeout or killed, got: {output}");
+}
+
+#[test]
+#[ignore = "requires bwrap + IR bootstrap (see sandbox_bridge._render_bootstrap)"]
+fn e2e_parent_id_stamped() {
+    let scratch = tempdir().unwrap();
+    let bootstrap = r#"
+import json
+from open_edit.ir.api import IR
+
+class _Buf(list):
+    def append(self, op):
+        super().append(op)
+        with open('/scratch/ops.jsonl', 'a') as f:
+            f.write(op.model_dump_json() + '\n')
+
+ir = IR(_Buf(), project_id='p', parent_op_id='parent_xyz')
+"#;
+    let code = r#"ir.add_clip(asset_hash='abc', track_id='t1', position_sec=0.0)"#;
+    fs::write(scratch.path().join("_bootstrap.py"), bootstrap).unwrap();
+    fs::write(scratch.path().join("code.py"), code).unwrap();
+
+    let assert = sandbox_bin()
+        .arg("--scratch").arg(scratch.path())
+        .arg("--python-bin").arg("/usr/bin/python3.14")
+        .arg("--expected-py-version").arg("3.14")
+        .arg("--parent-op-id").arg("parent_xyz")
+        .arg("--json")
+        .timeout(std::time::Duration::from_secs(60))
+        .assert()
+        .success();
+
+    let ops_path = scratch.path().join("ops.jsonl");
+    assert!(ops_path.exists(), "ops.jsonl should be written");
+    let contents = fs::read_to_string(&ops_path).unwrap();
+    assert!(contents.contains("\"parent_id\":\"parent_xyz\""),
+        "ops.jsonl should contain parent_id='parent_xyz', got: {contents}");
+}
+
+#[test]
+#[ignore = "requires bwrap + both python3.11 and python3.14 on host"]
+fn e2e_python_version_mismatch() {
+    // Only run if BOTH python3.11 and python3.14 are present.
+    let has_311 = std::process::Command::new("which")
+        .arg("python3.11")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let has_314 = std::process::Command::new("which")
+        .arg("python3.14")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !(has_311 && has_314) {
+        // TODO(linux-distro): python3.11 not available; test stub only
+        eprintln!("SKIP: requires both python3.11 and python3.14 on host");
+        return;
+    }
+
+    let scratch = tempdir().unwrap();
+    let script = "print('hello')";
+    fs::write(scratch.path().join("code.py"), script).unwrap();
+
+    let assert = sandbox_bin()
+        .arg("--scratch").arg(scratch.path())
+        .arg("--python-bin").arg("/usr/bin/python3.14")
+        .arg("--expected-py-version").arg("3.11")  // MISMATCH on purpose
+        .arg("--json")
+        .timeout(std::time::Duration::from_secs(30))
+        .assert()
+        .failure();
+
+    let output = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(output.contains("version") || output.contains("mismatch"),
+        "stderr should mention version or mismatch, got: {output}");
+}
