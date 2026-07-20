@@ -1,8 +1,5 @@
 """Phase 3 Task 1: EditGraphStore.project_id round-trip + Project.workdir Optional."""
-import json
 from pathlib import Path
-
-import pytest
 
 from open_edit.ir.types import Project
 from open_edit.storage.edit_graph import EditGraphStore
@@ -28,7 +25,7 @@ def test_project_workdir_optional():
     assert p2.workdir == Path("/tmp/x")
 
 
-def test_project_loads_with_workdir_none(tmp_path):
+def test_project_loads_with_workdir_none():
     """Phase 0+1 edit_graph.json without workdir still deserializes."""
     p = Project.model_validate({"name": "legacy", "assets": {}, "edit_graph": []})
     assert p.workdir is None
