@@ -1,0 +1,11 @@
+name: sfx
+mlt_service: volume
+target_kind: [track]
+params:
+  sfx_id: {type: str}
+  t_start: {type: float, default: 0.0}
+  duration_s: {type: float, default: 0.5}
+  gain_db: {type: float, default: 0.0}
+keyframe_params: [gain]
+interp: [linear]
+description: "Sound effect placed at a narrative beat transition. Routed to the audio_sfx track."
