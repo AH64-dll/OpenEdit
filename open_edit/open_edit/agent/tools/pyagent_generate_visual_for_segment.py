@@ -43,11 +43,14 @@ def generate_visual_for_segment(args: dict, project_path: str) -> dict:
         }
     from pathlib import Path
     workdir = Path(project_path).parent if Path(project_path).is_file() else Path(project_path)
-    op = generate_visual(
-        segment=segment,
-        template=args["template"],
-        params=args.get("params", {}),
-        project_id=args["project_id"],
-        workdir=workdir,
-    )
+    try:
+        op = generate_visual(
+            segment=segment,
+            template=args["template"],
+            params=args.get("params", {}),
+            project_id=args["project_id"],
+            workdir=workdir,
+        )
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        return {"status": "error", "error": str(e)}
     return {"status": "ok", "op": op.model_dump()}

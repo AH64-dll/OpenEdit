@@ -70,13 +70,18 @@ def generate_visual(
     code = template_fn(motion_params, duration_s)
 
     output_path = workdir / "_render_output.mp4"
-    run_render(
+    render_result = run_render(
         code=code,
         workdir=workdir,
         output_path=output_path,
         timeout_sec=300,
         mem_mb=2048,
     )
+    if not render_result.ok:
+        raise RuntimeError(
+            f"render sandbox failed for template {template!r} "
+            f"(segment {segment.beat_type!r}): {render_result.detail}"
+        )
 
     asset_store = AssetStore(workdir / "assets")
     assets = asset_store.ingest_paths([str(output_path)])

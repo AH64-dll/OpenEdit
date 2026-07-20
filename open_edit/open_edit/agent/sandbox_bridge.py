@@ -55,6 +55,11 @@ from open_edit.ir.types import (
     OperationUnion, Project, Asset, new_id,
     AddClipOp, TrimClipOp, MoveClipOp, RemoveClipOp,
     AddEffectOp, SetKeyframeOp, SetAudioGainOp,
+    AddTransitionOp, RemoveTransitionOp, SetTransitionPropertyOp,
+    RemoveEffectOp, SetEffectParamOp, RemoveKeyframeOp,
+    SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
+    ReplaceClipSourceOp, SetClipSpeedRampOp, NormalizeAudioOp,
+    GroupEditsOp, UngroupEditsOp,
 )
 from open_edit.pydantic_compat import TypeAdapter
 from open_edit.storage.assets import AssetStore
@@ -237,7 +242,7 @@ def _validate_ops_incrementally(ops_path: Path, workdir: Path) -> tuple[list, ob
             continue
         try:
             op = TypeAdapter(OperationUnion).validate_python(json.loads(line))
-            _validate_references(op, timeline, project.assets)
+            _validate_references(op, timeline, project.assets, project.edit_graph)
             timeline = apply_operation(timeline, op)
             ops.append(op)
         except Exception as e:
@@ -277,7 +282,27 @@ def _load_assets_via_store(store: EditGraphStore, workdir: Path) -> dict[str, As
     return assets
 
 
-def _validate_references(op: OperationUnion, timeline, assets) -> None:
+def _effects_for_clip(timeline, clip_id: str) -> list:
+    for t in timeline.tracks:
+        for c in t.clips:
+            if c.clip_id == clip_id:
+                return c.effects
+    return []
+
+
+def _validate_references(op: OperationUnion, timeline, assets, edit_graph=None) -> None:
+    """I2 (final-fixes): validate referential integrity for every op type.
+
+    Before the fix only 7 of 24 op classes were checked; ops added in T7
+    (transitions, effect params, slip/ripple/speed, replace-source, speed
+    ramp, normalize, group/ungroup) bypassed validation entirely. An op
+    with a non-existent reference would then silently no-op in
+    apply_operation (or crash). This function now raises ReferenceError
+    for every op type whose targets must exist in the current timeline /
+    asset store / edit graph.
+
+    RawMltXmlOp and FreeFormCodeOp are free-form and need no reference check.
+    """
     asset_hashes = {a.asset_hash for a in assets.values()}
     track_ids = {t.track_id for t in timeline.tracks}
     clip_ids: set[str] = set()
@@ -290,15 +315,44 @@ def _validate_references(op: OperationUnion, timeline, assets) -> None:
         for e in t.effects:
             effect_ids.add(e.effect_id)
 
+    edit_ids: set[str] = set()
+    group_labels: set[str] = set()
+    if edit_graph is not None:
+        for e in edit_graph:
+            edit_ids.add(e.edit_id)
+            if isinstance(e, GroupEditsOp):
+                group_labels.add(e.label)
+
+    # ---- clip-targeting ops (clip_id must exist) ----
+    if isinstance(op, (
+        TrimClipOp, MoveClipOp, RemoveClipOp,
+        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
+        SetClipSpeedRampOp, SetAudioGainOp,
+    )):
+        if op.clip_id not in clip_ids:
+            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
+
+    # ---- AddClipOp: asset must exist; track is auto-created ----
     if isinstance(op, AddClipOp):
         if op.asset_hash not in asset_hashes:
             raise ReferenceError(f"asset_hash {op.asset_hash!r} not in project")
         # AddClipOp auto-creates the track via _get_or_create_track, so we
         # do NOT pre-validate track_id here. The first op on a new track
         # would otherwise be rejected before the track is created.
-    if isinstance(op, (TrimClipOp, MoveClipOp, RemoveClipOp)):
-        if op.clip_id not in clip_ids:
-            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
+
+    # ---- transitions ----
+    if isinstance(op, AddTransitionOp):
+        if op.clip_a_id not in clip_ids:
+            raise ReferenceError(f"clip_a_id {op.clip_a_id!r} not in project")
+        if op.clip_b_id not in clip_ids:
+            raise ReferenceError(f"clip_b_id {op.clip_b_id!r} not in project")
+    if isinstance(op, (RemoveTransitionOp, SetTransitionPropertyOp)):
+        # Transitions are stored as Effects on clip_a (effect_type starts
+        # with "transition_"). Validate against effect_ids which includes them.
+        if op.transition_id not in effect_ids:
+            raise ReferenceError(f"transition_id {op.transition_id!r} not in project")
+
+    # ---- effects ----
     if isinstance(op, AddEffectOp):
         if op.target_kind == "clip":
             if op.target_id not in clip_ids:
@@ -311,12 +365,98 @@ def _validate_references(op: OperationUnion, timeline, assets) -> None:
                 f"AddEffectOp.target_kind must be 'clip' or 'track', "
                 f"got {op.target_kind!r}"
             )
+    if isinstance(op, RemoveEffectOp):
+        if op.clip_id not in clip_ids:
+            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
+        effects = _effects_for_clip(timeline, op.clip_id)
+        if not (0 <= op.effect_index < len(effects)):
+            raise ReferenceError(
+                f"effect_index {op.effect_index} out of range for clip "
+                f"{op.clip_id!r} (has {len(effects)} effects)"
+            )
+    if isinstance(op, SetEffectParamOp):
+        if op.clip_id not in clip_ids:
+            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
+        effects = _effects_for_clip(timeline, op.clip_id)
+        if not (0 <= op.effect_index < len(effects)):
+            raise ReferenceError(
+                f"effect_index {op.effect_index} out of range for clip "
+                f"{op.clip_id!r} (has {len(effects)} effects)"
+            )
+        # Validate param_name exists in the effect's params dict.
+        eff = effects[op.effect_index]
+        if op.param_name not in eff.params:
+            raise ReferenceError(
+                f"param_name {op.param_name!r} not in effect {eff.effect_id!r} "
+                f"(has params: {sorted(eff.params.keys())})"
+            )
+
+    # ---- keyframes ----
     if isinstance(op, SetKeyframeOp):
         if op.effect_id not in effect_ids:
             raise ReferenceError(f"effect_id {op.effect_id!r} not in project")
-    if isinstance(op, SetAudioGainOp):
+    if isinstance(op, RemoveKeyframeOp):
+        if op.effect_id not in effect_ids:
+            raise ReferenceError(f"effect_id {op.effect_id!r} not in project")
+        # Look up the effect to check param + frame.
+        target = None
+        for t in timeline.tracks:
+            for c in t.clips:
+                for eff in c.effects:
+                    if eff.effect_id == op.effect_id:
+                        target = eff
+                        break
+                if target is not None:
+                    break
+            if target is not None:
+                break
+        if target is None:
+            for t in timeline.tracks:
+                for eff in t.effects:
+                    if eff.effect_id == op.effect_id:
+                        target = eff
+                        break
+        if target is not None:
+            if op.param not in target.keyframes:
+                raise ReferenceError(
+                    f"param {op.param!r} not in effect {op.effect_id!r} "
+                    f"keyframes (has: {sorted(target.keyframes.keys())})"
+                )
+
+    # ---- source-replacement ----
+    if isinstance(op, ReplaceClipSourceOp):
         if op.clip_id not in clip_ids:
             raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
+        if op.new_asset_hash not in asset_hashes:
+            raise ReferenceError(
+                f"asset_hash {op.new_asset_hash!r} not in project"
+            )
+
+    # ---- audio normalize ----
+    if isinstance(op, NormalizeAudioOp):
+        if op.target_kind == "clip":
+            if op.target_id not in clip_ids:
+                raise ReferenceError(f"target_id {op.target_id!r} not in project")
+        elif op.target_kind == "track":
+            if op.target_id not in track_ids:
+                raise ReferenceError(f"target_id {op.target_id!r} not in project")
+        else:
+            raise ReferenceError(
+                f"NormalizeAudioOp.target_kind must be 'clip' or 'track', "
+                f"got {op.target_kind!r}"
+            )
+
+    # ---- groups ----
+    if isinstance(op, GroupEditsOp):
+        for eid in op.edit_ids:
+            if eid not in edit_ids:
+                raise ReferenceError(f"edit_id {eid!r} not in project edit_graph")
+    if isinstance(op, UngroupEditsOp):
+        if op.label not in group_labels:
+            raise ReferenceError(f"group label {op.label!r} not in project")
+
+    # ---- RawMltXmlOp + FreeFormCodeOp: no reference check (free-form) ----
+
     if op.parent_id is None:
         raise ReferenceError("op has no parent_id (IR class should stamp at build time)")
 
@@ -439,8 +579,17 @@ def run_render(
     mem_mb: int = 4096,
     with_hwaccel: bool = False,
 ) -> RenderResult:
-    """Run heavy-compute code in the render sandbox. Returns the output
-    path on success, or raises SandboxError on setup/render failure.
+    """Run heavy-compute code in the render sandbox. Returns a RenderResult
+    (never raises).
+
+    - ok=True, path=output_path on success.
+    - ok=False, detail=<reason> on setup/render failure (missing binary,
+      non-zero exit, missing output, timeout, output_path outside workdir,
+      FileNotFoundError, etc.).
+
+    Callers (e.g. ``engine.generate_visual``,
+    ``pyagent_generate_visual_for_segment``) MUST check ``result.ok`` and
+    convert the failure into the appropriate error shape for their caller.
 
     The Python code receives `OUTPUT_PATH` (the output file to write) and
     `HOME=/tmp` in its environment. It runs inside bwrap with user/pid/ipc/net
@@ -452,14 +601,21 @@ def run_render(
     if workdir not in output_path.resolve().parents and output_path.resolve().parent != workdir:
         # The Rust binary mounts `workdir` at /workdir; the output path must
         # live under the workdir so the rebind exposes it inside the sandbox.
-        raise SandboxError(
-            f"output_path {output_path} must live under workdir {workdir}"
+        return RenderResult(
+            path=output_path, ok=False,
+            detail=f"output_path {output_path} must live under workdir {workdir}",
         )
 
     code_file = workdir / "_render_code.py"
-    code_file.write_text(code)
     try:
-        binary = _resolve_render_binary()
+        code_file.write_text(code)
+    except OSError as e:
+        return RenderResult(path=output_path, ok=False, detail=f"failed to stage code: {e}")
+    try:
+        try:
+            binary = _resolve_render_binary()
+        except FileNotFoundError as e:
+            return RenderResult(path=output_path, ok=False, detail=str(e))
         cmd = [
             str(binary),
             "--code", str(code_file),
@@ -470,19 +626,29 @@ def run_render(
         ]
         if with_hwaccel:
             cmd.append("--with-hwaccel")
-        result = subprocess.run(
-            cmd,
-            capture_output=True, text=True, timeout=timeout_sec + 30,
-        )
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True, text=True, timeout=timeout_sec + 30,
+            )
+        except subprocess.TimeoutExpired as e:
+            return RenderResult(
+                path=output_path, ok=False,
+                detail=f"render sandbox timed out after {timeout_sec + 30}s",
+            )
         if result.returncode != 0:
-            raise SandboxError(
-                f"render sandbox failed (exit {result.returncode}): "
-                f"{result.stderr.strip() or result.stdout.strip()}"
+            return RenderResult(
+                path=output_path, ok=False,
+                detail=(
+                    f"render sandbox failed (exit {result.returncode}): "
+                    f"{result.stderr.strip() or result.stdout.strip()}"
+                ),
             )
         if not output_path.exists():
-            raise SandboxError(
-                f"render sandbox did not produce {output_path}"
+            return RenderResult(
+                path=output_path, ok=False,
+                detail=f"render sandbox did not produce {output_path}",
             )
-        return RenderResult(path=output_path, ok=True)
+        return RenderResult(path=output_path, ok=True, detail="")
     finally:
         code_file.unlink(missing_ok=True)
