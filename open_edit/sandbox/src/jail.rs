@@ -97,8 +97,10 @@ pub fn run_bwrap_with_limits(
 }
 
 /// Backwards-compatible wrapper that routes through `run_bwrap_with_limits`
-/// with the default limits. Task 7 will switch callers over to the
-/// `run_bwrap_with_limits` entry point with explicit limits from the CLI.
+/// with the default limits. Task 7 switched callers over to the
+/// `run_bwrap_with_limits` entry point with explicit limits from the CLI;
+/// retained for external callers and tests.
+#[allow(dead_code)]
 pub fn run_bwrap(args: &[String], timeout_secs: u64) -> anyhow::Result<RunResult> {
     let mut cmd = Command::new("bwrap");
     cmd.args(args);

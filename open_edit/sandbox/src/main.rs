@@ -1,7 +1,6 @@
 // Phase 3 Task 5: main entry. CLI parsing + JSON output.
 // Task 6 adds seccomp/rlimits/timeout. Task 7 adds the actual bwrap invocation.
 
-use anyhow::Context;
 use clap::Parser;
 use serde::Serialize;
 use std::process::ExitCode;
@@ -65,11 +64,17 @@ struct Output {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    // Build the bwrap argv. Task 7 fills this in.
+    // Task 7: real bwrap invocation via jail::run_bwrap_with_limits.
+    let limits = jail::Limits {
+        mem_mb: cli.mem,
+        cpu_secs: cli.cpu,
+        ..Default::default()
+    };
     let bwrap_args = build_bwrap_args(&cli);
-
+    let mut cmd = std::process::Command::new("bwrap");
+    cmd.args(&bwrap_args);
     let started = std::time::Instant::now();
-    let result = jail::run_bwrap(&bwrap_args, cli.timeout);
+    let result = jail::run_bwrap_with_limits(cmd, limits, cli.timeout);
     let duration_s = started.elapsed().as_secs_f64();
 
     let output = match result {
@@ -108,12 +113,66 @@ fn main() -> ExitCode {
 }
 
 fn build_bwrap_args(cli: &Cli) -> Vec<String> {
-    // Task 7: full bwrap invocation. For now, just pass --version to verify
-    // the binary works end-to-end.
-    let mut args = vec!["--version".to_string()];
-    // Placate the unused-variable warning until Task 7 fills this in.
-    let _ = (&cli.scratch, &cli.source_ro, &cli.project_meta,
-            &cli.python_bin, &cli.expected_py_version,
-            &cli.ops_output);
+    let mut args: Vec<String> = vec![];
+
+    // Namespaces: fail loud, no -try.
+    args.push("--unshare-user".into());
+    args.push("--unshare-pid".into());
+    args.push("--unshare-ipc".into());
+    args.push("--unshare-net".into());
+    args.push("--die-with-parent".into());
+
+    // Read-only filesystem bindings.
+    args.push("--ro-bind".into()); args.push("/usr".into()); args.push("/usr".into());
+    args.push("--ro-bind".into()); args.push("/lib".into());  args.push("/lib".into());
+    args.push("--ro-bind-try".into()); args.push("/lib64".into()); args.push("/lib64".into());
+    args.push("--ro-bind".into()); args.push("/etc".into());  args.push("/etc".into());
+    args.push("--symlink".into()); args.push("/usr/bin".into());  args.push("/bin".into());
+    args.push("--symlink".into()); args.push("/usr/sbin".into()); args.push("/sbin".into());
+    args.push("--proc".into()); args.push("/proc".into());
+
+    // Source media: ro-bound, one --source-ro per directory.
+    for (i, src) in cli.source_ro.iter().enumerate() {
+        args.push("--ro-bind".into());
+        args.push(src.clone());
+        args.push(format!("/mnt/src{i}"));
+    }
+
+    // Project metadata: ro-bound.
+    if let Some(meta) = &cli.project_meta {
+        args.push("--ro-bind".into());
+        args.push(meta.clone());
+        args.push("/mnt/meta".into());
+    }
+
+    // Scratch dir: rw.
+    args.push("--bind".into());
+    args.push(cli.scratch.clone());
+    args.push("/scratch".into());
+
+    // Tmpfs mounts.
+    args.push("--tmpfs".into()); args.push("/tmp".into());
+    args.push("--tmpfs".into()); args.push("/home".into());
+    args.push("--tmpfs".into()); args.push("/var".into());
+
+    // Single --dev /dev (C4).
+    args.push("--dev".into()); args.push("/dev".into());
+
+    // Env (M3).
+    args.push("--setenv".into()); args.push("HOME".into()); args.push("/tmp".into());
+    args.push("--setenv".into()); args.push("XDG_CACHE_HOME".into()); args.push("/tmp/cache".into());
+
+    args.push("--new-session".into());
+
+    // The Python invocation: version check, then exec _bootstrap.py then code.py.
+    // C5: parse the major.minor string back to a tuple in the child.
+    let py_check = format!(
+        "import sys; expected = tuple(int(x) for x in '{ver}'.split('.')); assert sys.version_info[:2] == expected, 'sandbox Python mismatch'; g = {{'__name__': '__main__'}}; exec(open('/scratch/_bootstrap.py').read(), g); exec(open('/scratch/code.py').read(), g)",
+        ver = cli.expected_py_version,
+    );
+    args.push("--".into());
+    args.push(cli.python_bin.clone());
+    args.push("-c".into());
+    args.push(py_check);
     args
 }
