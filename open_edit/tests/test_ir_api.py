@@ -83,6 +83,26 @@ def test_add_effect_stamps_parent(ir_instance):
     assert op.params == {"gain": 0.5}
 
 
+def test_add_effect_returns_canonical_effect_id(ir_instance):
+    """IR.add_effect must return the op's effect_id, distinct from edit_id.
+
+    Regression for Phase 4 Task 7 review: the old code passed the local
+    `effect_id` as `edit_id=...` and relied on `AddEffectOp.effect_id`'s
+    default_factory to populate `op.effect_id`, producing two unrelated
+    UUIDs. The caller (sandbox tools like pyagent_set_keyframe) gets
+    `edit_id` back but needs `op.effect_id` for downstream validation.
+    """
+    result = ir_instance.add_effect(
+        target_kind="clip", target_id="c1", effect_type="volume",
+        params={"gain": 0.5},
+    )
+    op = ir_instance._ops[0]
+    # Returned value MUST match the op's effect_id field.
+    assert result == op.effect_id
+    # Canonical invariant: effect_id and edit_id are distinct IDs.
+    assert result != op.edit_id
+
+
 def test_set_keyframe_stamps_parent(ir_instance):
     ir_instance.set_keyframe(
         effect_id="fx1", param="gain",

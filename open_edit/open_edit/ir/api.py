@@ -167,17 +167,18 @@ class IR:
     ) -> str:
         effect_id = new_id()
         op = AddEffectOp(
-            edit_id=effect_id,
+            edit_id=new_id(),
             author="ai",
             parent_id=self._parent_op_id,
             target_kind=target_kind,
             target_id=target_id,
             effect_type=effect_type,
             params=params,
+            effect_id=effect_id,
             originating_note_id=self._note_id(originating_note_id),
         )
         self._ops.append(op)
-        return effect_id
+        return op.effect_id
 
     def remove_effect(
         self, clip_id: str, effect_index: int,
