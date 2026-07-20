@@ -1,0 +1,16 @@
+# Phase 3: which ir_api_version and which library versions a free-form
+# Python script may declare. Loaded by open_edit/agent/libs.py via tomllib.
+#
+# Populated by hand for v1. v1.1 will add a "librarian" tool to populate
+# from site-packages.
+
+ir_api_versions = ["0.1"]
+
+[libs.numpy]
+versions = ["1.26.4", "2.1.3"]
+
+[libs.opencv-python]
+versions = ["4.8.1.78", "4.10.0.84"]
+
+[libs.pillow]
+versions = ["10.4.0", "11.0.0"]
