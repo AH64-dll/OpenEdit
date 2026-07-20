@@ -17,36 +17,47 @@ def tmp_notes_db(tmp_path):
 
 @pytest.fixture
 def tmp_project_with_assets(tmp_path):
-    """A project with one asset pre-ingested, suitable for free-form runs (L9)."""
+    """A project with one asset pre-ingested, suitable for free-form runs (L9).
+
+    Seeds on-disk state (CAS asset + edit graph entry) so run_free_form can
+    discover the asset via _load_assets_via_store. Returns a Project without
+    the misleading in-memory assets/edit_graph dicts: the sandbox always loads
+    from disk, so in-memory state would diverge from reality.
+    """
     from open_edit.ir.types import AddClipOp, Asset, Project
+    from open_edit.storage.assets import AssetStore
     from open_edit.storage.edit_graph import EditGraphStore
-    # CAS layout is <assets_dir>/<hash[:2]>/<hash> (bare file, no extension).
-    # Place a dummy byte at that path and a sidecar JSON so AssetStore.get()
-    # returns the asset without needing ffprobe on a 1-byte placeholder.
-    cas_file = tmp_path / "assets" / "ab" / "abc123"
-    cas_file.parent.mkdir(parents=True)
-    cas_file.write_bytes(b"\x00")
+
+    # AssetStore CAS layout: <assets_dir>/<hash[:2]>/<hash> (bare) with a
+    # sibling <hash>.meta.json sidecar. The sidecar lets AssetStore.get()
+    # return full metadata without invoking ffprobe on the 1-byte placeholder.
     asset = Asset(
         asset_hash="abc123",
         original_path="/tmp/clip.mp4",
-        stored_path=str(cas_file),
+        stored_path="",
         type="video",
         duration_sec=10.0,
         fps=30.0, width=1920, height=1080, codec="h264", has_audio=True,
     )
-    sidecar = cas_file.parent / "abc123.meta.json"
+    asset_store = AssetStore(tmp_path / "assets")
+    cas_file = asset_store._cas_path(asset.asset_hash)
+    cas_file.parent.mkdir(parents=True, exist_ok=True)
+    cas_file.write_bytes(b"\x00")
+    asset.stored_path = str(cas_file)
+    sidecar = asset_store._sidecar_path(asset.asset_hash)
     sidecar.write_text(asset.model_dump_json(indent=2))
-    # Seed edit_graph.db with an AddClipOp so _load_assets_via_store discovers
-    # the asset hash (it scans prior AddClipOps, not the filesystem).
-    store = EditGraphStore(tmp_path / "edit_graph.db")
+
+    # Seed the edit graph with an AddClipOp so _load_assets_via_store
+    # discovers the asset hash (it scans prior AddClipOps, not the fs).
+    graph = EditGraphStore(tmp_path / "edit_graph.db")
     seed_op = AddClipOp(
-        author="user", asset_hash=asset.asset_hash,
-        track_id="video_main", position_sec=0.0,
-        in_point_sec=0.0, out_point_sec=10.0,
+        author="user",
+        asset_hash=asset.asset_hash,
+        track_id="video_main",
+        position_sec=0.0,
+        in_point_sec=0.0,
+        out_point_sec=asset.duration_sec,
     )
-    store.append(seed_op)
-    return Project(
-        name="test", workdir=tmp_path,
-        assets={asset.asset_hash: asset},
-        edit_graph=[seed_op],
-    )
+    graph.append(seed_op)
+
+    return Project(name="test", workdir=tmp_path)
