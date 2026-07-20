@@ -1,0 +1,25 @@
+[package]
+name = "open-edit-sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "open-edit-sandbox"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+nix = { version = "0.27", features = ["signal", "process", "feature"] }
+libseccomp = "0.3"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
+tempfile = "3.8"
+
+[features]
+# L7: integration tests are gated; run with `cargo test --features integration`
+integration = []
