@@ -93,6 +93,18 @@ class RenderSnapshotStore:
         ready = [s for s in snaps if s.status == RenderStatus.ready]
         return ready[-1] if ready else None
 
+    def latest_for_project(self, project_id: str) -> Optional[RenderSnapshot]:
+        """Return the most recent snapshot for the project, regardless of status.
+
+        Used by the chat UI's `commit_feedback` handler to broadcast
+        ``version_ready`` for any new snapshot (per fix M3) — the UI
+        needs to see failed renders too (audit H2: failed entries should
+        be visible). ``list_for_project`` returns rows ordered by
+        ``created_at``, so the last entry is the newest.
+        """
+        snaps = self.list_for_project(project_id)
+        return snaps[-1] if snaps else None
+
     def update_status(self, version_id: str, status: RenderStatus) -> None:
         with sqlite3.connect(self.db_path) as con:
             con.execute(

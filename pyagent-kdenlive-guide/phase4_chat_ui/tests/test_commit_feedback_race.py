@@ -59,6 +59,7 @@ def test_handler_leaves_late_note_pending(tmp_path, monkeypatch):
     before mark_processed is left alone."""
     from phase4_chat_ui import ws as ws_module
     from phase4_chat_ui.ws import handlers as ws_handlers
+    from phase4_chat_ui.session import Session
 
     db_path = tmp_path / "notes.db"
     snapshots_db = tmp_path / "snapshots.db"
@@ -94,9 +95,11 @@ def test_handler_leaves_late_note_pending(tmp_path, monkeypatch):
             handler = MagicMock()
             handler.active_tasks = {}
             handler.get_workdir = lambda pid: tmp_path
+            broadcast = AsyncMock()
+            handler.manager.broadcast_to_project = broadcast
 
             ws = AsyncMock()
-            broadcast = AsyncMock()
+            sess = Session(session_id="s1", project="p1")
 
             monkeypatch.setattr(ws_handlers, "_read_edit_graph_ops", lambda w: [])
 
@@ -112,10 +115,9 @@ def test_handler_leaves_late_note_pending(tmp_path, monkeypatch):
             await ws_handlers.handle_commit_feedback(
                 handler=handler,
                 ws=ws,
-                project_id="p1",
-                msg={"creativity_level": "balanced"},
-                broadcast=broadcast,
+                sess=sess,
                 client=client,
+                data={"creativity_level": "balanced"},
             )
 
             # After the handler returns, the original note must be processed

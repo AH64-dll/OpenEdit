@@ -214,29 +214,39 @@ def _project_dir_for(project_id: str, workdir: Path) -> Path:
     return workdir.parent
 
 
-def _map_ops_to_notes(new_ops: list, pending_notes: list) -> dict[str, str]:
-    """Map newly-appended ops to their source notes (FIFO).
+def _ops_to_note_id(new_ops: list) -> dict[str, str]:
+    """Build a note_id → op_id map keyed on each op's `originating_note_id`.
 
-    Per T7 step 7: the agent is told to address notes in the order they
-    were queued (timestamp → region → op-anchored), and we attribute the
-    i-th new op to the i-th note. Extra ops all roll up to the last
-    note; notes with no op get an empty string (which `mark_processed`
-    stores as `[]` for that note's `resulting_op_ids`).
+    Per T7 step 7 (corrected per fix I1): the agent is instructed to pass
+    `originating_note_id=<note_id>` to every IR API call (add_clip, add_effect,
+    set_audio_gain, etc.). The IR stamps the field on each emitted op; this
+    function looks each op up by that field and records the note→op
+    attribution. Ops without `originating_note_id` are skipped (they were
+    not produced in response to a note, e.g. free-form edits the agent
+    made on its own). Notes with no attributed op get an empty string in
+    the caller, which `mark_processed` stores as `[""]` for that note's
+    `resulting_op_ids`.
     """
     mapping: dict[str, str] = {}
-    for i, op in enumerate(new_ops):
-        if i < len(pending_notes):
-            note_id = pending_notes[i].note_id
-        else:
-            note_id = pending_notes[-1].note_id
+    for op in new_ops:
+        note_id = getattr(op, "originating_note_id", None)
+        if not note_id:
+            continue
         mapping[note_id] = op.edit_id
     return mapping
 
 
-async def handle_commit_feedback(handler, ws, project_id, msg, broadcast, client=None) -> None:
+async def handle_commit_feedback(handler, ws, sess, client, data) -> None:
     """`commit_feedback` — batch-process all pending notes (T7 + audit H1).
 
-    Flow (per phase4-design §3.7 + audit H1):
+    Signature (per fix C1): matches the WsHandler dispatch
+    ``(handler, ws, sess, client, data)`` — the dispatcher in
+    ``handler.handle`` already has all four, so the per-message handler
+    does not need to re-derive them. ``project_id`` is taken from
+    ``sess.project`` and ``broadcast`` is the manager's
+    ``broadcast_to_project`` callable (reached via ``handler.manager``).
+
+    Flow (per phase4-design §3.7 + audit H1 + fixes C1/I1/I2):
       1. Generate a `commit_token`, call ``NotesStore.commit_pending`` to
          atomically claim all currently-pending notes (per audit H1).
       2. If empty, return an error to the requesting socket.
@@ -247,12 +257,20 @@ async def handle_commit_feedback(handler, ws, project_id, msg, broadcast, client
       5. Inject both into the system prompt and stream the agent run,
          relaying events to the requesting socket.
       6. After the agent run, find the new ops in ``edit_graph.db`` and
-         attribute them FIFO to the notes.
+         attribute them to notes via each op's ``originating_note_id``
+         (per fix I1 — the agent stamps this field via the IR API).
       7. Trigger ``render_project`` (which records a snapshot).
       8. Mark the claimed notes ``processed`` with their resulting op ids.
       9. Broadcast ``version_ready`` to the project-scoped connections
-         (T5 carry-over #1 — the request side was wired in T5 but no
-         producer was sending this message).
+         (T5 carry-over #1 — also fired on render failure so the UI sees
+         the new snapshot regardless of status; per fix M3).
+
+    Failure handling (per fix I2): on agent-run failure, the claimed
+    notes still carry their `commit_token`. Without intervention, the T2
+    `commit_pending` filter ``AND commit_token IS NULL`` would exclude
+    them on the next click — silent data loss. We call
+    ``NotesStore.clear_commit_token`` on the claimed notes so they
+    re-qualify as pending for the next `commit_feedback`.
 
     Notes added *after* step 1 are not in the agent's context and remain
     ``status=pending`` for the next click; the UI surfaces this with a
@@ -265,13 +283,11 @@ async def handle_commit_feedback(handler, ws, project_id, msg, broadcast, client
     from open_edit.storage.notes import NotesStore
     from open_edit.storage.render_snapshots import RenderSnapshotStore
 
+    project_id = sess.project if sess else ""
     if not project_id:
         return
 
-    # Allow tests to inject a mock client; production code resolves it
-    # from the handler's per-websocket adapter map.
-    if client is None:
-        client = handler.ws_client_map.get(ws)
+    broadcast = handler.manager.broadcast_to_project
 
     notes_store = NotesStore(get_notes_db_path(project_id))
     commit_token = uuid.uuid4().hex[:12]
@@ -305,7 +321,7 @@ async def handle_commit_feedback(handler, ws, project_id, msg, broadcast, client
     prior_state = build_prior_state(
         project_id=project_id,
         expected_op_type="AddEffect",
-        creativity_level=(msg or {}).get("creativity_level", "balanced"),
+        creativity_level=(data or {}).get("creativity_level", "balanced"),
         workdir=str(workdir),
     )
 
@@ -314,37 +330,49 @@ async def handle_commit_feedback(handler, ws, project_id, msg, broadcast, client
 
     # Synthesize the agent prompt. The prior_state already wraps itself
     # in <prior_state>; we just append the pending_feedback block.
+    # Per fix I1: instruct the agent to pass `originating_note_id=<note_id>`
+    # to every IR API call so the resulting ops can be attributed back to
+    # the note that requested them.
     prompt = (
         f"{prior_state}\n"
         f"<pending_feedback>\n{pending_feedback}\n</pending_feedback>\n\n"
         "Process the feedback above. For each note, emit operations that "
-        "address it (in the order listed). Use the IR API; ops are "
+        "address it (in the order listed). When calling IR methods like "
+        "`add_clip`, `add_effect`, `set_audio_gain`, `add_transition`, "
+        "etc., pass `originating_note_id=<note_id>` so the resulting ops "
+        "are tagged with the source note. Use the IR API; ops are "
         "appended to edit_graph.db automatically."
     )
 
     # Stream the agent run. We pass through `relay` so the user sees the
     # agent's text and tool calls in the chat panel.
-    sess = handler.sessions_cache.get(handler.ws_session_map.get(ws)) if handler.ws_session_map.get(ws) else None
-    if sess is None and hasattr(handler, "default_session"):
-        sess = handler.default_session
+    if client is None:
+        client = handler.ws_client_map.get(ws)
     try:
         if client is not None:
             async for ev in client.run_prompt(prompt):
                 await relay(ws, ev, sess, handler)
         else:
             await ws.send_json({"type": "error", "message": "no agent client available"})
+            # No client means the run never happened; the notes are still
+            # stamped by commit_pending. Clear the token so they're
+            # re-claimable on the next click.
+            notes_store.clear_commit_token([n.note_id for n in pending_notes])
             return
     except Exception as e:
         await ws.send_json({"type": "error", "message": f"agent run failed: {e}"})
-        # Notes remain status=pending; user can retry. Per audit H1, this
-        # is the intended behavior — the click was atomic up to the agent
-        # boundary, and a failure here leaves the audit trail intact.
+        # Per fix I2: clear the commit_token on the claimed notes so they
+        # re-qualify as pending for the next commit_pending. The T2
+        # `commit_pending` filter `AND commit_token IS NULL` would
+        # otherwise leave these notes stuck (silent data loss).
+        notes_store.clear_commit_token([n.note_id for n in pending_notes])
         return
 
-    # Find new ops appended during the run; map FIFO to notes.
+    # Find new ops appended during the run; attribute each to a note via
+    # `op.originating_note_id` (per fix I1).
     post_ops = _read_edit_graph_ops(workdir)
     new_ops = post_ops[len(pre_ops):]
-    note_to_op = _map_ops_to_notes(new_ops, pending_notes)
+    note_to_op = _ops_to_note_id(new_ops)
 
     # Trigger the render. This is sync and CPU/IO-heavy; run in a thread
     # so the event loop stays responsive.
@@ -369,19 +397,20 @@ async def handle_commit_feedback(handler, ws, project_id, msg, broadcast, client
         resulting_op_ids=[note_to_op.get(n.note_id, "") for n in pending_notes],
     )
 
-    # Broadcast version_ready (T5 carry-over #1). The orchestrator
-    # records a snapshot in render_snapshots.db; we read it back here
-    # and forward the id+path to the UI so the version dropdown refreshes
-    # without a manual reload.
-    if result.ok:
-        snap_store = RenderSnapshotStore(get_snapshots_db_path(project_id))
-        latest = snap_store.latest_ready(project_id)
-        if latest is not None:
-            await broadcast(project_id, {
-                "type": "version_ready",
-                "version_id": latest.version_id,
-                "render_path": str(latest.render_path),
-            })
+    # Broadcast version_ready (T5 carry-over #1) for any new snapshot,
+    # success OR failure (per fix M3). The UI surfaces failed renders
+    # distinctly (audit H2: failed entries should be visible), so we
+    # forward the status so the chat UI can render the version list
+    # accordingly.
+    snap_store = RenderSnapshotStore(get_snapshots_db_path(project_id))
+    latest = snap_store.latest_for_project(project_id)
+    if latest is not None:
+        await broadcast(project_id, {
+            "type": "version_ready",
+            "version_id": latest.version_id,
+            "render_path": str(latest.render_path),
+            "status": latest.status.value if hasattr(latest.status, "value") else str(latest.status),
+        })
 
 
 # ---- session management -------------------------------------------------

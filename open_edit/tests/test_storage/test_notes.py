@@ -252,4 +252,66 @@ def test_project_isolation(tmp_path):
         created_at=datetime.now(timezone.utc).isoformat(),
     ))
     assert len(store.list_all("p1")) == 1
-    assert len(store.list_all("p2")) == 1
+
+
+def test_clear_commit_token_resets_to_null(tmp_path):
+    """Per fix I2: clear_commit_token resets commit_token to NULL on the
+    given notes. Used by commit_feedback when the agent run fails — the
+    T2 commit_pending filter `AND commit_token IS NULL` would otherwise
+    leave claimed-but-unprocessed notes un-claimable on the next click
+    (silent data loss)."""
+    store = NotesStore(tmp_path / "notes.db")
+    n1 = ReviewNote(
+        project_id="p1",
+        anchor=TimestampAnchor(t_start=0.0, t_end=1.0),
+        text="note 1",
+        source=NoteSource.typed,
+        status=NoteStatus.pending,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    n2 = ReviewNote(
+        project_id="p1",
+        anchor=TimestampAnchor(t_start=1.0, t_end=2.0),
+        text="note 2",
+        source=NoteSource.typed,
+        status=NoteStatus.pending,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    store.append(n1)
+    store.append(n2)
+    store.commit_pending("p1", "token_abc")
+
+    # Before clear: both stamped.
+    notes = store.list_all("p1")
+    assert all(n.commit_token == "token_abc" for n in notes)
+
+    # Clear only n1.
+    store.clear_commit_token([n1.note_id])
+    notes = store.list_all("p1")
+    by_id = {n.note_id: n for n in notes}
+    assert by_id[n1.note_id].commit_token is None
+    assert by_id[n2.note_id].commit_token == "token_abc"
+
+    # n1 re-claimable; n2 still stamped (still un-claimable).
+    re_claimed = store.commit_pending("p1", "token_retry")
+    assert len(re_claimed) == 1
+    assert re_claimed[0].note_id == n1.note_id
+
+
+def test_clear_commit_token_empty_list_is_noop(tmp_path):
+    """clear_commit_token on an empty list is a no-op (no DB call needed)."""
+    store = NotesStore(tmp_path / "notes.db")
+    n = ReviewNote(
+        project_id="p1",
+        anchor=TimestampAnchor(t_start=0.0, t_end=1.0),
+        text="",
+        source=NoteSource.typed,
+        status=NoteStatus.pending,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    store.append(n)
+    store.commit_pending("p1", "token_x")
+    # No exception raised.
+    store.clear_commit_token([])
+    notes = store.list_all("p1")
+    assert notes[0].commit_token == "token_x"

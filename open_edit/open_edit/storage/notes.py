@@ -209,6 +209,24 @@ class NotesStore:
                     (note_id,),
                 )
 
+    def clear_commit_token(self, note_ids: list[str]) -> None:
+        """Reset `commit_token` to NULL on the given notes.
+
+        Used by `commit_feedback` when the agent run fails (per T7 fix I2):
+        the notes were claimed by `commit_pending` and stamped with a token,
+        but never processed. The T2 `commit_pending` filters by
+        `commit_token IS NULL`, so without this reset the notes would be
+        silently un-claimable on the next click. Cleared notes re-qualify
+        as pending and can be re-claimed by the next `commit_pending` call.
+        """
+        if not note_ids:
+            return
+        with sqlite3.connect(self.db_path) as con:
+            con.executemany(
+                "UPDATE notes SET commit_token = NULL WHERE note_id = ?",
+                [(n,) for n in note_ids],
+            )
+
     def update(self, note_id: str, **fields) -> None:
         """Update mutable fields on a note.
 

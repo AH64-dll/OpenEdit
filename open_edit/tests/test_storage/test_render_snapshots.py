@@ -72,3 +72,26 @@ def test_failed_not_evicted(tmp_path):
     snaps = store.list_for_project("p1")
     # All 25 failed; evict only if status==ready
     assert len(snaps) == 25
+
+
+def test_latest_for_project_returns_newest_any_status(tmp_path):
+    """Per fix M3: latest_for_project returns the most recent snapshot
+    regardless of status (unlike `latest_ready` which filters by ready).
+    The chat UI's commit_feedback handler uses this to broadcast
+    `version_ready` for any new snapshot, including failed renders."""
+    store = RenderSnapshotStore(tmp_path / "snapshots.db")
+    # Older ready + newer failed: latest_for_project returns the failed one.
+    store.append(_make_snapshot(status=RenderStatus.ready, age_days=2))
+    store.append(_make_snapshot(status=RenderStatus.failed, age_days=0))
+    latest = store.latest_for_project("p1")
+    assert latest is not None
+    assert latest.status == RenderStatus.failed
+    # latest_ready still returns the ready one.
+    ready = store.latest_ready("p1")
+    assert ready is not None
+    assert ready.status == RenderStatus.ready
+
+
+def test_latest_for_project_empty_returns_none(tmp_path):
+    store = RenderSnapshotStore(tmp_path / "snapshots.db")
+    assert store.latest_for_project("p1") is None
