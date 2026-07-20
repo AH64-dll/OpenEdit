@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -287,6 +288,28 @@ def cmd_notes(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Start the chat-driven FastAPI backend (uvicorn)."""
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "ERROR: uvicorn is not installed. Run `pip install 'uvicorn[standard]'` "
+            "or `pip install -e '.[serve]'`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    uvicorn.run(
+        "open_edit.serve.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level=args.log_level,
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="open_edit",
@@ -351,6 +374,42 @@ def main(argv: list[str] | None = None) -> int:
     p_notes_dismiss.set_defaults(func=cmd_notes_dismiss)
 
     p_notes.set_defaults(func=cmd_notes)
+
+    # --- chat UI serve (v1.3+) ------------------------------------------
+    p_serve = sub.add_parser(
+        "serve",
+        help="Start the chat-driven FastAPI backend (uvicorn).",
+        description=(
+            "Start the Open Edit HTTP + WebSocket server. The server "
+            "exposes a REST API under /api/ and a chat WebSocket at "
+            "/api/chat/{project_id}. The static frontend (if present) is "
+            "served at /."
+        ),
+    )
+    p_serve.add_argument(
+        "--host",
+        default=os.environ.get("OPEN_EDIT_SERVE_HOST", "0.0.0.0"),
+        help="Bind host (default 0.0.0.0, env OPEN_EDIT_SERVE_HOST)",
+    )
+    p_serve.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("OPEN_EDIT_SERVE_PORT", "8000")),
+        help="Bind port (default 8000, env OPEN_EDIT_SERVE_PORT)",
+    )
+    p_serve.add_argument(
+        "--reload",
+        action="store_true",
+        default=False,
+        help="Enable uvicorn auto-reload (dev mode).",
+    )
+    p_serve.add_argument(
+        "--log-level",
+        default="info",
+        choices=["critical", "error", "warning", "info", "debug", "trace"],
+        help="Uvicorn log level (default info).",
+    )
+    p_serve.set_defaults(func=cmd_serve)
 
     args = parser.parse_args(argv)
     if args.version:
