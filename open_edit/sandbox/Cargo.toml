@@ -7,6 +7,10 @@ edition = "2021"
 name = "open-edit-sandbox"
 path = "src/main.rs"
 
+[[bin]]
+name = "open-edit-render-sandbox"
+path = "src/render_main.rs"
+
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
 nix = { version = "0.27", features = ["signal", "resource"] }

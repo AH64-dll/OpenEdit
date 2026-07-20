@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Optional
 
 from open_edit.agent.exceptions import (
-    FreeFormResult, SandboxError, _ValidationError,
+    FreeFormResult, RenderResult, SandboxError, _ValidationError,
 )
 from open_edit.agent.libs import (
     parse_header, version_supported, lib_version_supported,
@@ -402,3 +402,82 @@ def _render_bootstrap(
         "",
     ]
     return "\n".join(bootstrap_lines)
+
+
+def _resolve_render_binary() -> Path:
+    """H5: resolve at call time, not at module import.
+
+    Order matches the install conventions in the README:
+    1. ~/.local/bin (user-local pip-style install)
+    2. /usr/local/bin (system install)
+    3. The repo's target/release binary (dev workflow)
+    """
+    candidates = [
+        Path.home() / ".local" / "bin" / "open-edit-render-sandbox",
+        Path("/usr/local/bin/open-edit-render-sandbox"),
+        Path(__file__).parent.parent.parent / "sandbox" / "target" / "release" / "open-edit-render-sandbox",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    raise FileNotFoundError(
+        "open-edit-render-sandbox binary not found in any known location "
+        f"(tried: {', '.join(str(c) for c in candidates)})"
+    )
+
+
+def run_render(
+    code: str,
+    workdir: Path,
+    output_path: Path,
+    timeout_sec: int = 3600,
+    mem_mb: int = 4096,
+    with_hwaccel: bool = False,
+) -> RenderResult:
+    """Run heavy-compute code in the render sandbox. Returns the output
+    path on success, or raises SandboxError on setup/render failure.
+
+    The Python code receives `OUTPUT_PATH` (the output file to write) and
+    `HOME=/tmp` in its environment. It runs inside bwrap with user/pid/ipc/net
+    namespaces, no seccomp, cgroup-based memory + CPU limits, and optional
+    /dev/dri bind for GPU work.
+    """
+    workdir = Path(workdir)
+    output_path = Path(output_path)
+    if workdir not in output_path.resolve().parents and output_path.resolve().parent != workdir:
+        # The Rust binary mounts `workdir` at /workdir; the output path must
+        # live under the workdir so the rebind exposes it inside the sandbox.
+        raise SandboxError(
+            f"output_path {output_path} must live under workdir {workdir}"
+        )
+
+    code_file = workdir / "_render_code.py"
+    code_file.write_text(code)
+    try:
+        binary = _resolve_render_binary()
+        cmd = [
+            str(binary),
+            "--code", str(code_file),
+            "--workdir", str(workdir),
+            "--output", str(output_path),
+            "--timeout", str(timeout_sec),
+            "--mem", str(mem_mb),
+        ]
+        if with_hwaccel:
+            cmd.append("--with-hwaccel")
+        result = subprocess.run(
+            cmd,
+            capture_output=True, text=True, timeout=timeout_sec + 30,
+        )
+        if result.returncode != 0:
+            raise SandboxError(
+                f"render sandbox failed (exit {result.returncode}): "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+        if not output_path.exists():
+            raise SandboxError(
+                f"render sandbox did not produce {output_path}"
+            )
+        return RenderResult(path=output_path, ok=True)
+    finally:
+        code_file.unlink(missing_ok=True)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,6 +29,19 @@ class FreeFormResult:
     @classmethod
     def fail(cls, reason: str, detail: str = "") -> "FreeFormResult":
         return cls(success=False, reason=reason, detail=detail)
+
+
+@dataclass
+class RenderResult:
+    """Result of a render-sandbox run (Phase 4.5 W2).
+
+    Distinct from open_edit.render.orchestrator.RenderResult (which is the
+    outcome of a melt subprocess run). This is the outcome of running
+    user-provided heavy-compute Python in the render sandbox.
+    """
+    path: Path
+    ok: bool = True
+    detail: str = ""
 
 
 class SandboxError(Exception):
