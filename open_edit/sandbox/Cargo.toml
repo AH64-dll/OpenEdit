@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
-nix = { version = "0.27", features = ["signal", "process", "feature"] }
+nix = { version = "0.27", features = ["signal", "resource"] }
 libseccomp = "0.3"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
