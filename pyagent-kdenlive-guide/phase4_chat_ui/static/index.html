@@ -65,6 +65,20 @@
       <div id="state-panel" class="state-panel">
         <p class="muted">Loading…</p>
       </div>
+      <div class="preview-section">
+        <h3>Preview</h3>
+        <div class="preview-frame">
+          <video id="preview-video" controls></video>
+          <div id="region-overlay" class="region-overlay"></div>
+        </div>
+        <div id="scrub-marker-row" class="scrub-marker-row"></div>
+        <div class="preview-controls">
+          <select id="version-switcher" class="ghost-btn" title="Switch render version"></select>
+          <button id="stt-btn" class="ghost-btn" type="button" style="display:none;" title="Dictate a note">🎙️</button>
+          <button id="commit-btn" class="primary-btn" type="button" disabled>Send to Claude</button>
+        </div>
+        <input type="text" id="per-frame-note" class="per-frame-note" placeholder="Note at current time… (Enter to send)" style="display:none;" />
+      </div>
       <div class="notes-section">
         <h3>Notes <span id="notes-count" class="badge">0</span></h3>
         <div id="notes-list"></div>

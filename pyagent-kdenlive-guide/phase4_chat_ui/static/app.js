@@ -270,6 +270,197 @@ function renderState(state) {
   statePanel.appendChild(table);
 }
 
+// ---- preview player (Phase 4 T5) -----------------------------------
+
+function shouldShowSttButton() {
+  return window.isSecureContext === true &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+}
+
+function initSttButton() {
+  const btn = document.getElementById("stt-btn");
+  if (!btn) return;
+  if (!shouldShowSttButton()) {
+    btn.style.display = "none";
+    return;
+  }
+  btn.style.display = "inline-block";
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recognition = new Recognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = navigator.language || "en-US";
+  btn.onclick = () => {
+    const noteInput = document.getElementById("per-frame-note");
+    if (!noteInput) return;
+    try {
+      recognition.start();
+      btn.textContent = "🎙️…";
+    } catch (e) {
+      status("STT: " + e.message);
+    }
+  };
+  recognition.onresult = (e) => {
+    const noteInput = document.getElementById("per-frame-note");
+    if (!noteInput) return;
+    const transcript = e.results[0][0].transcript || "";
+    noteInput.value = noteInput.value
+      ? noteInput.value + " " + transcript
+      : transcript;
+    noteInput.style.display = "inline-block";
+  };
+  recognition.onerror = (e) => status("STT error: " + e.error);
+  recognition.onend = () => { btn.textContent = "🎙️"; };
+}
+
+function initVideoPlayer() {
+  const video = document.getElementById("preview-video");
+  const overlay = document.getElementById("region-overlay");
+  if (!video || !overlay) return;
+
+  // Ask the server for the version list so we can load the latest render.
+  send({ type: "version_list" });
+
+  // Click-and-drag region mark. Produces a (x, y, w, h, t_start, t_end)
+  // record; per audit C3 the timestamps are validated against the video
+  // duration before the note is sent.
+  let dragStart = null;
+  overlay.onmousedown = (e) => {
+    if (video.paused === false) return;  // only allow marks while paused
+    const rect = video.getBoundingClientRect();
+    dragStart = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      t_start: video.currentTime,
+    };
+  };
+  overlay.onmousemove = (e) => {
+    if (!dragStart) return;
+    const rect = video.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    overlay.style.left = Math.min(dragStart.x, x) + "px";
+    overlay.style.top = Math.min(dragStart.y, y) + "px";
+    overlay.style.width = Math.abs(x - dragStart.x) + "px";
+    overlay.style.height = Math.abs(y - dragStart.y) + "px";
+  };
+  overlay.onmouseup = (e) => {
+    if (!dragStart) return;
+    const rect = video.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const w = Math.abs(x - dragStart.x);
+    const h = Math.abs(y - dragStart.y);
+    const t_end = video.currentTime;
+    // Per audit C3: reject regions outside the video bounds.
+    if (dragStart.t_start < 0 || (video.duration > 0 && t_end > video.duration)) {
+      status("Cannot mark region outside video bounds");
+      dragStart = null;
+      overlay.style.width = "0";
+      overlay.style.height = "0";
+      return;
+    }
+    if (!activeProject) {
+      status("No project loaded; cannot send note");
+      dragStart = null;
+      return;
+    }
+    send({
+      type: "note_add",
+      project_id: activeProject,
+      anchor: {
+        anchor_type: "region",
+        x: dragStart.x, y: dragStart.y, w, h,
+        t_start: dragStart.t_start, t_end,
+      },
+      text: "",
+      source: "region",
+    });
+    dragStart = null;
+    overlay.style.width = "0";
+    overlay.style.height = "0";
+  };
+}
+
+function initPerFrameNote() {
+  const video = document.getElementById("preview-video");
+  const noteInput = document.getElementById("per-frame-note");
+  if (!video || !noteInput) return;
+  video.ontimeupdate = () => {
+    if (video.paused) {
+      noteInput.style.display = "inline-block";
+      noteInput.dataset.tStart = String(video.currentTime);
+    } else {
+      noteInput.style.display = "none";
+    }
+  };
+  noteInput.onkeydown = (e) => {
+    if (e.key !== "Enter") return;
+    const text = noteInput.value.trim();
+    if (!text) return;
+    if (!activeProject) {
+      status("No project loaded; cannot send note");
+      return;
+    }
+    const t = parseFloat(noteInput.dataset.tStart || "0");
+    send({
+      type: "note_add",
+      project_id: activeProject,
+      anchor: { anchor_type: "timestamp", t_start: t, t_end: t },
+      text,
+      source: "typed",
+    });
+    noteInput.value = "";
+    video.play();
+  };
+}
+
+function initCommitButton() {
+  const btn = document.getElementById("commit-btn");
+  if (!btn) return;
+  btn.onclick = () => {
+    if (!activeProject) {
+      status("No project loaded; cannot commit");
+      return;
+    }
+    send({ type: "commit_feedback", project_id: activeProject });
+    btn.disabled = true;
+    btn.textContent = "Processing…";
+  };
+}
+
+function setCommitEnabled(enabled) {
+  const btn = document.getElementById("commit-btn");
+  if (!btn) return;
+  btn.disabled = !enabled;
+  btn.textContent = enabled ? "Send to Claude" : "Processing…";
+}
+
+function applyVersionList(versions) {
+  const sel = document.getElementById("version-switcher");
+  const video = document.getElementById("preview-video");
+  if (!sel) return;
+  sel.innerHTML = "";
+  for (const v of versions || []) {
+    const opt = document.createElement("option");
+    opt.value = v.version_id;
+    const label = v.label || v.version_id;
+    opt.textContent = v.status === "rendering" ? `${label} (rendering…)` : label;
+    opt.disabled = v.status !== "ready";
+    sel.appendChild(opt);
+  }
+  const latest = (versions || []).find(v => v.status === "ready");
+  if (latest && video) {
+    video.src = latest.render_path;
+  }
+}
+
+function applyVersionReady(versionId) {
+  setCommitEnabled(true);
+  status(`v${versionId} ready`);
+  send({ type: "version_list" });
+}
+
 // ---- notes (Phase 4 T6) ----------------------------------------------
 
 let _notesCache = [];
@@ -528,6 +719,12 @@ function handle(msg) {
     case "note_list":
       renderNotesSection(msg.notes || []);
       break;
+    case "version_list":
+      applyVersionList(msg.versions || []);
+      break;
+    case "version_ready":
+      applyVersionReady(msg.version_id);
+      break;
   }
 }
 
@@ -627,5 +824,11 @@ window.addEventListener("keydown", (e) => {
     send({ type: "reload_kdenlive" });
   }
 });
+
+initSttButton();
+initVideoPlayer();
+initPerFrameNote();
+initCommitButton();
+setCommitEnabled(false);
 
 connect();

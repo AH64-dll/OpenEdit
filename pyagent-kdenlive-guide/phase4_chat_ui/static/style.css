@@ -459,6 +459,96 @@ html, body {
   background: #ff5252;
 }
 
+/* Preview player (Phase 4 T5) */
+.preview-section {
+  margin-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.4);
+  padding-top: 12px;
+}
+.preview-section h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.preview-frame {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.preview-section video {
+  width: 100%;
+  max-height: 360px;
+  display: block;
+}
+.region-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  border: 2px dashed #ffe34a;
+  background: rgba(255, 227, 74, 0.12);
+  pointer-events: all;
+  box-sizing: border-box;
+}
+.scrub-marker-row {
+  position: relative;
+  height: 8px;
+  background: #333;
+  margin-top: 4px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.scrub-marker-row .marker {
+  position: absolute;
+  width: 2px;
+  background: #ff5252;
+  height: 100%;
+  top: 0;
+}
+.preview-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.preview-controls #version-switcher {
+  width: auto;
+  max-width: 120px;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.preview-controls .primary-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 700;
+  background: var(--sky, #7CC6F2);
+  color: #06304a;
+  cursor: pointer;
+  font-size: 12px;
+}
+.preview-controls .primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.preview-controls .primary-btn:hover:not(:disabled) {
+  background: #5fb8ec;
+}
+.per-frame-note {
+  margin-top: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
 
 /* D6: "reload needed" banner (AI edits saved, Kdenlive needs manual reload) */
 .reload-banner {
