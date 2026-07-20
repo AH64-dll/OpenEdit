@@ -39,3 +39,4 @@ projects/*/final.mp4.lck
 
 # Subagent-driven development working directory (transient, not source)
 .superpowers/
+!.superpowers/sdd/v1.2-followup.md
