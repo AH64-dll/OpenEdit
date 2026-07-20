@@ -1,5 +1,6 @@
 # Go build artifacts
 bin/
+!bin/*.sh
 *.exe
 *.out
 
