@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sqlite3
 from pathlib import Path
 
 from fastapi import WebSocket
@@ -51,19 +50,24 @@ def get_notes_db_path(project_id: str) -> Path:
 def parse_anchor(data: dict):
     """Build a NoteAnchor from the wire-level dict.
 
-    Dispatches by `anchor_type` to the right Pydantic model. Anything
-    unexpected falls back to TimestampAnchor so we never crash the
-    websocket over a malformed note.
+    Dispatches by `anchor_type` to the right Pydantic model. Unknown
+    anchor_types raise ``ValueError`` with a clear message instead of
+    falling through to ``TimestampAnchor`` (which would either drop
+    region/op data or crash the connection on a mismatched signature).
     """
     from open_edit.storage.notes import (
         TimestampAnchor, RegionAnchor, OpAnchor,
     )
     kind = data.get("anchor_type")
+    if kind == "timestamp":
+        return TimestampAnchor(**data)
     if kind == "region":
         return RegionAnchor(**data)
     if kind == "op":
         return OpAnchor(**data)
-    return TimestampAnchor(**data)
+    raise ValueError(
+        f"unknown anchor_type {kind!r}; expected one of 'timestamp', 'region', 'op'"
+    )
 
 
 def _note_list_payload(project_id: str) -> dict:
@@ -100,14 +104,14 @@ async def handle_note_update(ws, project_id, msg, broadcast) -> None:
     note_id = msg.get("note_id")
     if not note_id:
         return
+    fields: dict = {}
     if "text" in msg:
-        with sqlite3.connect(store.db_path) as con:
-            con.execute(
-                "UPDATE notes SET text = ? WHERE note_id = ?",
-                (msg["text"], note_id),
-            )
-    if msg.get("status") == "dismissed":
-        store.mark_dismissed([note_id])
+        fields["text"] = msg["text"]
+    status = msg.get("status")
+    if status is not None:
+        fields["status"] = status
+    if fields:
+        store.update(note_id, **fields)
     await broadcast(project_id, _note_list_payload(project_id))
 
 

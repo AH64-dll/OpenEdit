@@ -198,14 +198,24 @@ def cmd_free_form(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_notes(args: argparse.Namespace) -> int:
-    """List notes for a project (Phase 4 T6)."""
-    from open_edit.storage.notes import NotesStore, NoteStatus
-    project_dir = Path(args.project_dir)
+def _notes_store(project_dir_arg: str) -> tuple["NotesStore", Path] | None:
+    """Resolve the project dir + open a NotesStore; prints an error and returns
+    None on bad input."""
+    from open_edit.storage.notes import NotesStore
+    project_dir = Path(project_dir_arg)
     if not project_dir.exists():
         print(f"error: project dir not found: {project_dir}", file=sys.stderr)
+        return None
+    return NotesStore(project_dir / "notes.db"), project_dir
+
+
+def cmd_notes_list(args: argparse.Namespace) -> int:
+    """`open_edit notes list` — list notes for a project (Phase 4 T6)."""
+    from open_edit.storage.notes import NoteStatus
+    got = _notes_store(args.project_dir)
+    if got is None:
         return 1
-    store = NotesStore(project_dir / "notes.db")
+    store, _ = got
     status = NoteStatus(args.status) if args.status else None
     notes = store.list_all(args.project_id, status=status)
     if not notes:
@@ -215,6 +225,65 @@ def cmd_notes(args: argparse.Namespace) -> int:
         anchor = n.anchor.anchor_type
         text = n.text or "(no text)"
         print(f"{n.note_id} [{n.status.value}] {anchor} {text}")
+    return 0
+
+
+def cmd_notes_add(args: argparse.Namespace) -> int:
+    """`open_edit notes add` — append a note to a project (M1)."""
+    from open_edit.storage.notes import (
+        ReviewNote, NoteSource, NoteStatus,
+        TimestampAnchor, RegionAnchor, OpAnchor, NoteAnchor,
+    )
+    got = _notes_store(args.project_dir)
+    if got is None:
+        return 1
+    store, _ = got
+    try:
+        anchor_data = json.loads(args.anchor)
+    except json.JSONDecodeError as e:
+        print(f"error: --anchor is not valid JSON: {e}", file=sys.stderr)
+        return 1
+    try:
+        kind = anchor_data.get("anchor_type")
+        if kind == "timestamp":
+            anchor: NoteAnchor = TimestampAnchor(**anchor_data)
+        elif kind == "region":
+            anchor = RegionAnchor(**anchor_data)
+        elif kind == "op":
+            anchor = OpAnchor(**anchor_data)
+        else:
+            raise ValueError(
+                f"unknown anchor_type {kind!r}; expected timestamp, region, or op"
+            )
+    except (ValueError, TypeError) as e:
+        print(f"error: invalid anchor: {e}", file=sys.stderr)
+        return 1
+    note = ReviewNote(
+        project_id=args.project_id,
+        anchor=anchor,
+        text=args.text,
+        source=NoteSource(args.source),
+        status=NoteStatus.pending,
+    )
+    note_id = store.append(note)
+    print(note_id)
+    return 0
+
+
+def cmd_notes_dismiss(args: argparse.Namespace) -> int:
+    """`open_edit notes dismiss` — soft-delete (dismiss) a note by id (M1)."""
+    got = _notes_store(args.project_dir)
+    if got is None:
+        return 1
+    store, _ = got
+    store.mark_dismissed([args.note_id])
+    print(f"dismissed {args.note_id}")
+    return 0
+
+
+def cmd_notes(args: argparse.Namespace) -> int:
+    """Back-compat: bare `open_edit notes` with no subcommand prints help."""
+    parser_notes.print_help()
     return 0
 
 
@@ -252,11 +321,35 @@ def main(argv: list[str] | None = None) -> int:
     p_freeform.add_argument("--mem", type=int, default=512, help="memory cap in MB (default: 512)")
     p_freeform.set_defaults(func=cmd_free_form)
 
-    p_notes = sub.add_parser("notes", help="List notes for a project")
-    p_notes.add_argument("project_id", help="project id (matches the bound session's project)")
-    p_notes.add_argument("--project-dir", required=True, help="path to the open_edit project directory containing notes.db")
-    p_notes.add_argument("--status", choices=["pending", "processed", "dismissed"],
-                         help="filter by status; default = all")
+    p_notes = sub.add_parser("notes", help="Manage notes for a project (Phase 4 T6)")
+    notes_sub = p_notes.add_subparsers(dest="notes_cmd")
+
+    p_notes_list = notes_sub.add_parser("list", help="List notes for a project")
+    p_notes_list.add_argument("project_id", help="project id (matches the bound session's project)")
+    p_notes_list.add_argument("--project-dir", required=True, help="path to the open_edit project directory containing notes.db")
+    p_notes_list.add_argument("--status", choices=["pending", "processed", "dismissed"],
+                              help="filter by status; default = all")
+    p_notes_list.set_defaults(func=cmd_notes_list)
+
+    p_notes_add = notes_sub.add_parser("add", help="Append a note to a project")
+    p_notes_add.add_argument("project_id", help="project id (matches the bound session's project)")
+    p_notes_add.add_argument("--project-dir", required=True, help="path to the open_edit project directory containing notes.db")
+    p_notes_add.add_argument("--text", required=True, help="note text")
+    p_notes_add.add_argument(
+        "--anchor", required=True,
+        help='anchor JSON, e.g. \'{"anchor_type":"timestamp","t_start":0,"t_end":1}\'',
+    )
+    p_notes_add.add_argument("--source", default="typed",
+                             choices=["typed", "voice", "region", "agent", "form_correction"],
+                             help="note source (default: typed)")
+    p_notes_add.set_defaults(func=cmd_notes_add)
+
+    p_notes_dismiss = notes_sub.add_parser("dismiss", help="Soft-delete a note by id")
+    p_notes_dismiss.add_argument("project_id", help="project id (matches the bound session's project)")
+    p_notes_dismiss.add_argument("note_id", help="id of the note to dismiss")
+    p_notes_dismiss.add_argument("--project-dir", required=True, help="path to the open_edit project directory containing notes.db")
+    p_notes_dismiss.set_defaults(func=cmd_notes_dismiss)
+
     p_notes.set_defaults(func=cmd_notes)
 
     args = parser.parse_args(argv)

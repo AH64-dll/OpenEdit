@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NoteSource(str, Enum):
@@ -167,17 +167,30 @@ class NotesStore:
         return self.list_all(project_id, status=NoteStatus.pending)
 
     def commit_pending(self, project_id: str, commit_token: str) -> list[ReviewNote]:
-        """Per audit H1: stamp commit_token on all pending notes; return them.
+        """Per audit H1: stamp commit_token on all un-stamped pending notes.
 
-        Does NOT mark them processed. The agent run uses the returned list
+        Race-safe: only rows with `commit_token IS NULL` are stamped, so two
+        parallel callers never re-stamp each other's rows. The SELECT runs
+        inside the same connection and filters by the just-stamped token, so
+        the returned list contains exactly the rows this call touched.
+
+        Does NOT mark notes processed. The agent run uses the returned list
         to build pending_feedback; mark_processed is called after agent run.
         """
         with sqlite3.connect(self.db_path) as con:
+            con.row_factory = sqlite3.Row
             con.execute(
-                "UPDATE notes SET commit_token = ? WHERE project_id = ? AND status = 'pending'",
+                "UPDATE notes SET commit_token = ? "
+                "WHERE project_id = ? AND status = 'pending' AND commit_token IS NULL",
                 (commit_token, project_id),
             )
-        return self.list_pending(project_id)
+            rows = con.execute(
+                "SELECT * FROM notes "
+                "WHERE project_id = ? AND commit_token = ? "
+                "ORDER BY created_at",
+                (project_id, commit_token),
+            ).fetchall()
+        return [self._row_to_note(r) for r in rows]
 
     def mark_processed(self, note_ids: list[str], resulting_op_ids: list[str]) -> None:
         with sqlite3.connect(self.db_path) as con:
@@ -195,3 +208,37 @@ class NotesStore:
                     "UPDATE notes SET status = 'dismissed' WHERE note_id = ?",
                     (note_id,),
                 )
+
+    def update(self, note_id: str, **fields) -> None:
+        """Update mutable fields on a note.
+
+        Accepts only the Pydantic-validated set ``{text, status}``; any other
+        kwarg raises ``ValidationError``. A missing ``note_id`` is a no-op
+        (callers should look up first if they need to know the result).
+        """
+        payload = _NoteUpdate.model_validate(fields)
+        sets: list[str] = []
+        values: list = []
+        if payload.text is not None:
+            sets.append("text = ?")
+            values.append(payload.text)
+        if payload.status is not None:
+            sets.append("status = ?")
+            values.append(payload.status.value)
+        if not sets:
+            return
+        values.append(note_id)
+        with sqlite3.connect(self.db_path) as con:
+            con.execute(
+                f"UPDATE notes SET {', '.join(sets)} WHERE note_id = ?",
+                tuple(values),
+            )
+
+
+class _NoteUpdate(BaseModel):
+    """Pydantic model for the allowed kwargs of ``NotesStore.update``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: Optional[str] = None
+    status: Optional[NoteStatus] = None
