@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from open_edit.ir.types import Asset
 from open_edit.qc.black_frames import list_black_frames
 from open_edit.qc.silence import list_silence
 from open_edit.qc.thumbnail import get_thumbnail
@@ -87,3 +88,23 @@ def run_qc_gate(video_path: str, output_thumb_dir: Path) -> QCReport:
     ))
 
     return QCReport.from_checks(checks)
+
+
+def no_word_split_check(
+    asset: Asset, t_start: float, t_end: float, tolerance_ms: int = 50,
+) -> tuple[bool, str]:
+    """Check if a cut at [t_start, t_end] splits any word.
+
+    A cut splits a word if either endpoint falls strictly inside the
+    word's time range, leaving `tolerance_ms` of slack at each edge so
+    that a cut exactly on a word boundary still passes.
+
+    Returns (passed, detail). passed=True means no word is split.
+    """
+    tolerance_s = tolerance_ms / 1000.0
+    for w in asset.alignment:
+        if (w.t_start + tolerance_s) < t_start < (w.t_end - tolerance_s):
+            return False, f"Cut at {t_start}s splits word '{w.word}' ({w.t_start}s - {w.t_end}s)"
+        if (w.t_start + tolerance_s) < t_end < (w.t_end - tolerance_s):
+            return False, f"Cut at {t_end}s splits word '{w.word}' ({w.t_start}s - {w.t_end}s)"
+    return True, "no word split"
