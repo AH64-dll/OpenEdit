@@ -1,0 +1,1 @@
+"""Motion graphics templated skill."""
