@@ -1,7 +1,4 @@
 """Phase 3 Task 3: parse_header + version_supported + lib_version_supported."""
-import textwrap
-from pathlib import Path
-
 import pytest
 
 from open_edit.agent.exceptions import SandboxError
