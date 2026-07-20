@@ -3,7 +3,7 @@
 
 use clap::Parser;
 use serde::Serialize;
-use std::process::ExitCode;
+use std::process::{ExitCode, Stdio};
 
 mod jail;
 mod network_denylist;
@@ -72,10 +72,33 @@ fn main() -> ExitCode {
     };
     let bwrap_args = build_bwrap_args(&cli);
     let mut cmd = std::process::Command::new("bwrap");
-    cmd.args(&bwrap_args);
+    // M1 (v1.1): pipe the bwrap child so the script's print() calls and
+    // the IR ops JSONL (which the bootstrap writes to a file) cannot leak
+    // into this Rust process's stdout. Without piping, bwrap inherits our
+    // stdout, and any print() in the script mixes with the protocol JSON
+    // we print below, causing sandbox_protocol_error on the Python side.
+    cmd.args(&bwrap_args)
+        .stdout(Stdio::piped())   // capture child stdout (script noise + IR ops JSONL)
+        .stderr(Stdio::piped());  // capture child stderr (warnings, tracebacks)
     let started = std::time::Instant::now();
     let result = jail::run_bwrap_with_limits(cmd, limits, cli.timeout);
     let duration_s = started.elapsed().as_secs_f64();
+
+    // Decode the captured child streams. child_stdout is DISCARDED -- it's
+    // script noise (user print() calls) and the IR ops JSONL, which is
+    // also written to /scratch/ops.jsonl inside the sandbox and read by
+    // the Python wrapper after the run. child_stderr is the script's
+    // stderr (warnings, tracebacks) and is surfaced to the Python wrapper
+    // via Output.stderr for debugging.
+    let (child_stdout, child_stderr) = match &result {
+        Ok(r) => {
+            let so = String::from_utf8_lossy(&r.stdout).to_string();
+            let se = String::from_utf8_lossy(&r.stderr).to_string();
+            (so, se)
+        }
+        Err(_) => (String::new(), String::new()),
+    };
+    let _ = child_stdout;  // explicitly unused; documented above
 
     let output = match result {
         Ok(r) if r.status.success() => Output {
@@ -83,21 +106,21 @@ fn main() -> ExitCode {
             exit_code: r.status.code().unwrap_or(0),
             reason: String::new(),
             duration_s,
-            stderr: String::new(),
+            stderr: child_stderr,
         },
         Ok(r) if r.timed_out => Output {
             ok: false,
             exit_code: -1,
             reason: "timeout".to_string(),
             duration_s,
-            stderr: String::new(),
+            stderr: child_stderr,
         },
         Ok(r) => Output {
             ok: false,
             exit_code: r.status.code().unwrap_or(1),
             reason: "nonzero_exit".to_string(),
             duration_s,
-            stderr: String::new(),
+            stderr: child_stderr,
         },
         Err(e) => Output {
             ok: false,

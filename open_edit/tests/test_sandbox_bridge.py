@@ -232,6 +232,52 @@ def test_run_free_form_sandbox_binary_missing(tmp_path):
 
 
 # =========================================================================
+# M1 (v1.1 polish): wrapper must parse protocol JSON even when stdout
+# has print() noise. Defensive against the Rust binary emitting anything
+# on stdout before the final JSON line. Without the fix, json.loads()
+# raises JSONDecodeError and the wrapper returns sandbox_protocol_error.
+# =========================================================================
+
+@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+def test_free_form_print_does_not_corrupt_protocol_json(mock_run, tmp_path):
+    """A free-form script's print() output must not corrupt the protocol JSON.
+
+    Simulates a Rust binary whose stdout contains print() noise (e.g. from
+    the script inside the sandbox leaking through, or from a transitional
+    bug) before the final protocol JSON line. The wrapper must find and
+    parse the JSON, not fail with sandbox_protocol_error.
+    """
+    from open_edit.agent.sandbox_bridge import run_free_form
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    # The protocol JSON is the LAST line that starts with '{'.
+    # Everything before it on the Rust binary's stdout is noise from the
+    # script's print() calls (which is what M1 fixes in the Rust binary
+    # by piping+discarding bwrap's child stdout).
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout='print("hello")\nprint("world")\n{"exit_code":0,"ok":true,"stderr":""}\n',
+    )
+
+    result = run_free_form(
+        code="# ir_api_version: 0.1; libs: {}\nprint('hello')",
+        workdir=workdir,
+        project_id="p1",
+        parent_op_id="e1",
+    )
+
+    # Without the fix: json.loads fails on noisy stdout -> sandbox_protocol_error.
+    # With the fix: wrapper scans for the last '{' line and parses it.
+    # After parsing, ops.jsonl is missing (no real bwrap run), so we get
+    # ops_missing -- which proves the JSON parse succeeded.
+    assert result.reason != "sandbox_protocol_error", (
+        f"wrapper failed to parse noisy stdout: {result!r}"
+    )
+
+
+# =========================================================================
 # I1 (final-fixes): run_render must return RenderResult, never raise.
 # =========================================================================
 

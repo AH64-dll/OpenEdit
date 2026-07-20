@@ -15,6 +15,8 @@ use crate::network_denylist;
 pub struct RunResult {
     pub status: std::process::ExitStatus,
     pub timed_out: bool,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 pub struct Limits {
@@ -79,7 +81,7 @@ pub fn run_bwrap_with_limits(
         });
     }
 
-    let mut child = cmd.spawn().context("spawn bwrap")?;
+    let child = cmd.spawn().context("spawn bwrap")?;
     let pid = child.id() as i32;
 
     // Watcher thread: kill the child if it runs too long.
@@ -93,12 +95,26 @@ pub fn run_bwrap_with_limits(
         let _ = signal::kill(Pid::from_raw(pid), Signal::SIGKILL);
     });
 
-    let status = child.wait().context("wait bwrap")?;
+    // IMPORTANT: use wait_with_output (not child.wait() + manual
+    // child.stdout.take().read_to_end()). The script can write >64KB to
+    // either pipe; if we read one to end before waiting, a full pipe
+    // blocks the child on write, the parent blocks on read, and the
+    // child is never reaped -- classic pipe-buffer deadlock.
+    // wait_with_output reads BOTH pipes concurrently via internal threads,
+    // so the child never blocks waiting for the parent to drain.
+    // The child MUST be spawned with Stdio::piped() on stdout and stderr
+    // for this to be safe; the caller (main.rs) is responsible for that.
+    let output = child.wait_with_output().context("wait bwrap")?;
     let timed_out_value = timed_out.load(Ordering::SeqCst);
     // Don't join the watcher; let it die naturally after the kill (no-op).
     drop(watcher);
 
-    Ok(RunResult { status, timed_out: timed_out_value })
+    Ok(RunResult {
+        status: output.status,
+        timed_out: timed_out_value,
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
 }
 
 /// Backwards-compatible wrapper that routes through `run_bwrap_with_limits`

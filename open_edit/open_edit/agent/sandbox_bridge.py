@@ -203,8 +203,19 @@ def _run_sandboxed(
     )
 
     try:
-        rust = json.loads(proc.stdout)
-    except json.JSONDecodeError:
+        # M1 (v1.1): the Rust binary's stdout may have noise before the
+        # final protocol JSON line (e.g. from a transitional bug, or
+        # diagnostic output added in the future). Scan for the LAST line
+        # that starts with '{' and parse that. The Rust binary itself
+        # fixes the upstream source of noise (pipes bwrap's child stdout
+        # so print() calls don't reach the protocol JSON), but the wrapper
+        # is defensively robust to any noise that does slip through.
+        json_line = None
+        for line in proc.stdout.splitlines():
+            if line.startswith("{"):
+                json_line = line
+        rust = json.loads(json_line) if json_line else None
+    except (json.JSONDecodeError, TypeError):
         ops_path.unlink(missing_ok=True)
         return FreeFormResult.fail("sandbox_protocol_error",
                                    f"invalid JSON: {proc.stdout[:200]}")
