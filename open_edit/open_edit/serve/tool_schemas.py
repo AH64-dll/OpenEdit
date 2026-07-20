@@ -41,21 +41,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "timestamp": {
+                "t_start": {
                     "type": "number",
                     "description": "Position on the timeline in seconds (float).",
+                },
+                "t_end": {
+                    "type": "number",
+                    "description": "Optional end timestamp in seconds; defaults to t_start.",
                 },
                 "text": {
                     "type": "string",
                     "description": "The review note text. Be specific and actionable.",
                 },
-                "severity": {
-                    "type": "string",
-                    "enum": ["info", "warning", "critical"],
-                    "description": "Optional severity hint for the UI. Defaults to 'info'.",
-                },
             },
-            "required": ["timestamp", "text"],
+            "required": ["t_start", "text"],
         },
     },
     # 2 -----------------------------------------------------------------

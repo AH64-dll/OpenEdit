@@ -1,0 +1,11 @@
+{
+  "name": "open-edit-pi-extension",
+  "version": "0.1.0",
+  "description": "Pi extension that exposes Open Edit's 11 agent tools to the LLM.",
+  "private": true,
+  "type": "module",
+  "main": "extension.ts",
+  "scripts": {
+    "check": "tsc --noEmit extension.ts"
+  }
+}

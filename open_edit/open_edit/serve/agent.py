@@ -285,13 +285,23 @@ async def run_agent_turn(
         assistant_blocks: list[dict[str, Any]] = []
         current_text_parts: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
+        tool_results_by_name: dict[str, Any] = {}  # filled by pi provider
         stop_reason = "end_turn"
+
+        # Detect if the LLM provider is the ``pi`` subprocess driver. In that
+        # case the pi extension has ALREADY executed every tool call (via
+        # ``pi_bridge.py``) and streamed the results back to us as
+        # ``tool_result`` events. We must NOT re-execute locally.
+        from .llm import _provider as _llm_provider
+        provider_does_tool_exec = _llm_provider() == "pi"
 
         try:
             async for event in stream_chat(
                 messages=conversation_history,
                 tools=TOOL_SCHEMAS,
                 system=system_prompt,
+                session_id=conv_id,
+                project_path=str(project_path),
             ):
                 etype = event["type"]
                 if etype == "text_delta":
@@ -306,6 +316,13 @@ async def run_agent_turn(
                         "name": event["name"],
                         "input": event.get("input", {}),
                     })
+                elif etype == "tool_result":
+                    # Pi has already executed the tool; we receive the
+                    # result directly from the provider. Forward it as a
+                    # ``tool_result`` event and stash it for the next
+                    # LLM turn. Keyed by tool name since pi's events
+                    # don't always carry the tool_use_id forward.
+                    tool_results_by_name[event.get("name", "")] = event.get("result", {})
                 elif etype == "done":
                     stop_reason = event.get("stop_reason", "end_turn")
         except Exception as exc:
@@ -336,15 +353,18 @@ async def run_agent_turn(
             yield {"type": "done", "stop_reason": stop_reason}
             return
 
-        # Execute each tool call and emit events
+        # Execute each tool call and emit events. If the provider is
+        # ``pi``, the tool has already been run by the extension and we
+        # just forward the result we captured in ``tool_results_by_name``.
         tool_result_messages: list[dict[str, Any]] = []
         for tu in tool_use_blocks:
             tool_name = tu["name"]
             tool_input = tu.get("input", {})
             yield {"type": "tool_start", "name": tool_name, "input": tool_input}
 
-            try:
-                result = _execute_tool(tool_name, tool_input, project_path)
+            if provider_does_tool_exec:
+                # Use the result that pi's extension already produced.
+                result = tool_results_by_name.get(tool_name, {"status": "ok"})
                 yield {"type": "tool_result", "name": tool_name, "result": result}
 
                 # Special-case render: also emit a top-level render event
@@ -356,10 +376,22 @@ async def run_agent_turn(
                         yield {"type": "render", "path": output_path, "mode": mode}
 
                 tool_result_content = json.dumps(result, default=str)
-            except Exception as exc:
-                err_msg = f"tool '{tool_name}' failed: {exc}"
-                yield {"type": "error", "message": err_msg}
-                tool_result_content = json.dumps({"error": err_msg})
+            else:
+                try:
+                    result = _execute_tool(tool_name, tool_input, project_path)
+                    yield {"type": "tool_result", "name": tool_name, "result": result}
+
+                    if tool_name == "trigger_render" and isinstance(result, dict):
+                        output_path = result.get("output_path", "")
+                        mode = result.get("mode", "proxy")
+                        if output_path:
+                            yield {"type": "render", "path": output_path, "mode": mode}
+
+                    tool_result_content = json.dumps(result, default=str)
+                except Exception as exc:
+                    err_msg = f"tool '{tool_name}' failed: {exc}"
+                    yield {"type": "error", "message": err_msg}
+                    tool_result_content = json.dumps({"error": err_msg})
 
             tool_result_messages.append({
                 "role": "user",
