@@ -189,6 +189,7 @@ def _run_sandboxed(
     proc = subprocess.run(
         [sandbox_bin,
          '--scratch', str(scratch),
+         '--ops-output', str(ops_path),
          '--python-bin', PINNED_PYTHON_BIN,
          '--expected-py-version', EXPECTED_PY_VERSION,
          '--timeout', str(timeout),
@@ -218,6 +219,17 @@ def _run_sandboxed(
         ops_path.unlink(missing_ok=True)
         return FreeFormResult.fail("sandbox_protocol_error",
                                    f"invalid JSON: {proc.stdout[:200]}")
+
+    # Defense in depth: if the Rust binary returned with no JSON on stdout
+    # (e.g. failed with a usage error before producing protocol output),
+    # surface a clear error instead of crashing on `rust.get('ok')`.
+    if rust is None:
+        ops_path.unlink(missing_ok=True)
+        return FreeFormResult.fail(
+            "sandbox_protocol_error",
+            f"no protocol JSON in sandbox stdout: {proc.stdout[:200]!r} "
+            f"stderr: {proc.stderr[:200]!r}",
+        )
 
     if not rust.get('ok'):
         ops_path.unlink(missing_ok=True)

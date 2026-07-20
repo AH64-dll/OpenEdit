@@ -10,6 +10,7 @@ Both are fixed here. The intent of H10 (write-first-then-append) and the
 structural check on the rendered bootstrap are preserved.
 """
 import json
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -273,6 +274,89 @@ def test_run_free_form_sandbox_binary_missing(tmp_path):
         )
     assert not result.success
     assert result.reason == "sandbox_binary_missing"
+
+
+@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+def test_run_free_form_passes_ops_output_to_sandbox(mock_run, tmp_path):
+    """Regression (v1.2 release bug found during CLI demo):
+
+    The bridge must pass `--ops-output <ops_path>` to the Rust sandbox binary.
+    Without it, the binary fails with a usage error (missing required arg),
+    the bridge gets no JSON on stdout, and `rust` is None — which crashes
+    the protocol parser at `rust.get('ok')` with AttributeError.
+
+    Introduced by v1.1 T6 cleanup pass (commit 0567448) which removed the
+    flag from the bridge's subprocess call without providing a default in
+    the Rust binary. The 5 free-form tests in test_free_form_e2e.py skip
+    when bwrap is missing, so the regression was never caught locally.
+    """
+    from open_edit.agent.sandbox_bridge import run_free_form
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    # Mock the binary to return a valid protocol JSON. The wrapper will then
+    # try to read ops.jsonl (which doesn't exist) and return ops_missing —
+    # but the cmd has already been captured by mock_run.call_args.
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout='{"exit_code":0,"ok":true,"stderr":""}\n',
+    )
+    run_free_form(
+        code="# ir_api_version: 0.1; libs: {}",
+        workdir=workdir,
+        project_id="p1",
+        parent_op_id="e1",
+    )
+    cmd = mock_run.call_args[0][0]
+    assert "--ops-output" in cmd, (
+        f"bridge must pass --ops-output to the sandbox binary; got cmd: {cmd}"
+    )
+    idx = cmd.index("--ops-output")
+    ops_path_arg = cmd[idx + 1]
+    # ops_path should be inside the workdir, ending with ops.jsonl
+    assert ops_path_arg.endswith("ops.jsonl"), (
+        f"expected ops.jsonl path, got {ops_path_arg}"
+    )
+    assert workdir.resolve() in Path(ops_path_arg).resolve().parents, (
+        f"ops path should be under workdir {workdir}, got {ops_path_arg}"
+    )
+
+
+@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+def test_run_free_form_no_json_in_stdout_returns_protocol_error(mock_run, tmp_path):
+    """Defense in depth: if the Rust binary exits without writing any
+    JSON to stdout (e.g. a usage error from a missing required arg), the
+    bridge must return sandbox_protocol_error with a clear message —
+    NOT crash with AttributeError on `rust.get('ok')`.
+
+    Companion to test_run_free_form_passes_ops_output_to_sandbox: even if a
+    future bug removes the --ops-output flag again, the user gets a useful
+    error instead of an internal_error with a stack trace.
+    """
+    from open_edit.agent.sandbox_bridge import run_free_form
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    # Simulate the Rust binary failing with a usage error to stderr and
+    # nothing on stdout (the exact shape we hit with the v1.2 release bug).
+    mock_run.return_value = MagicMock(
+        returncode=2,
+        stdout="",
+        stderr="error: the following required arguments were not provided:\n  --ops-output <OPS_OUTPUT>\n",
+    )
+    result = run_free_form(
+        code="# ir_api_version: 0.1; libs: {}",
+        workdir=workdir,
+        project_id="p1",
+        parent_op_id="e1",
+    )
+    assert not result.success
+    assert result.reason == "sandbox_protocol_error", (
+        f"expected sandbox_protocol_error, got {result.reason}: {result.detail}"
+    )
+    assert "no protocol JSON" in result.detail
 
 
 # =========================================================================
