@@ -77,6 +77,7 @@ class Operation(BaseModel):
     author: Literal["ai", "user"]
     timestamp: str = Field(default_factory=now_iso8601)
     status: Literal["applied", "reverted", "superseded"] = "applied"
+    originating_note_id: Optional[str] = None
 
 
 class AddClipOp(Operation):

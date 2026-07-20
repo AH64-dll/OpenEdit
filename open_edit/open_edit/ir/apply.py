@@ -333,6 +333,7 @@ def _apply_free_form_code(op: FreeFormCodeOp, project: Project) -> Project:
         parent_op_id=op.edit_id,
         timeout=op.timeout_sec,
         mem_mb=op.mem_mb,
+        originating_note_id=op.originating_note_id,
     )
     if not result.success:
         raise ApplyError(f"free-form run failed: {result.reason}: {result.detail}")

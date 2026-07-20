@@ -41,6 +41,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 from open_edit.agent.exceptions import (
     FreeFormResult, SandboxError, _ValidationError,
@@ -98,8 +99,13 @@ def run_free_form(
     timeout: int = 30,
     mem_mb: int = 512,
     cpu_sec: int | None = None,
+    originating_note_id: Optional[str] = None,
 ) -> FreeFormResult:
-    """Run free-form Python in the sandbox. NEVER raises (C7)."""
+    """Run free-form Python in the sandbox. NEVER raises (C7).
+
+    `originating_note_id` is stamped on every op produced inside the sandbox
+    so the round-trip from a user note → agent IR op is auditable.
+    """
     timeout = min(int(timeout), MAX_FREEFORM_TIMEOUT_SEC)
     mem_mb = min(int(mem_mb), MAX_FREEFORM_MEM_MB)
     try:
@@ -133,7 +139,7 @@ def run_free_form(
         try:
             return _run_sandboxed(
                 code, workdir, project_id, parent_op_id,
-                timeout, mem_mb, cpu_sec,
+                timeout, mem_mb, cpu_sec, originating_note_id,
             )
         finally:
             lock.release(job_id, "completed")
@@ -147,7 +153,10 @@ def run_free_form(
         return FreeFormResult.fail("internal_error", repr(e))
 
 
-def _run_sandboxed(code, workdir, project_id, parent_op_id, timeout, mem_mb, cpu_sec):
+def _run_sandboxed(
+    code, workdir, project_id, parent_op_id,
+    timeout, mem_mb, cpu_sec, originating_note_id,
+):
     sandbox_bin = _resolve_sandbox_bin()
     if sandbox_bin is None:
         return FreeFormResult.fail(
@@ -164,7 +173,9 @@ def _run_sandboxed(code, workdir, project_id, parent_op_id, timeout, mem_mb, cpu
     bootstrap_path = scratch / '_bootstrap.py'
 
     code_path.write_text(code)
-    bootstrap_path.write_text(_render_bootstrap(project_id, parent_op_id))
+    bootstrap_path.write_text(_render_bootstrap(
+        project_id, parent_op_id, originating_note_id,
+    ))
 
     assets_dir = workdir / 'assets'
     source_dirs = sorted(p for p in assets_dir.iterdir() if p.is_dir()) if assets_dir.exists() else []
@@ -310,7 +321,11 @@ def _validate_references(op: OperationUnion, timeline, assets) -> None:
         raise ReferenceError("op has no parent_id (IR class should stamp at build time)")
 
 
-def _render_bootstrap(project_id: str, parent_op_id: str) -> str:
+def _render_bootstrap(
+    project_id: str,
+    parent_op_id: str,
+    originating_note_id: Optional[str] = None,
+) -> str:
     """Generate _bootstrap.py with the IR class and op models inlined.
 
     C2 preferred fix (Option A): vendor IR into the bootstrap.
@@ -361,6 +376,7 @@ def _render_bootstrap(project_id: str, parent_op_id: str) -> str:
         "# === INJECTED CONSTANTS ===",
         f"PROJECT_ID = {project_id!r}",
         f"PARENT_OP_ID = {parent_op_id!r}",
+        f"ORIGINATING_NOTE_ID = {originating_note_id!r}",
         'OPS_FILE = "/scratch/ops.jsonl"',
         "",
         "# Write FIRST, then append (H10).",
@@ -374,7 +390,8 @@ def _render_bootstrap(project_id: str, parent_op_id: str) -> str:
         "        super().append(op)",
         "",
         "_ops = _FlushingBuffer(OPS_FILE)",
-        "ir = IR(_ops, project_id=PROJECT_ID, parent_op_id=PARENT_OP_ID)",
+        "ir = IR(_ops, project_id=PROJECT_ID, parent_op_id=PARENT_OP_ID, "
+        "originating_note_id=ORIGINATING_NOTE_ID)",
         "",
         "# Pydantic rebuild: when the bootstrap is exec'd with a custom globals",
         "# dict (as the Rust binary does), Pydantic's class-not-fully-defined",
