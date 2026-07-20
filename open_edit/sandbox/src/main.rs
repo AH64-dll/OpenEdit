@@ -43,10 +43,6 @@ struct Cli {
     #[arg(long, default_value_t = 2048)]
     mem: u64,
 
-    /// path of ops.jsonl (for sandbox_bridge to read after)
-    #[arg(long = "ops-output")]
-    ops_output: String,
-
     /// machine-readable JSON output
     #[arg(long)]
     json: bool,

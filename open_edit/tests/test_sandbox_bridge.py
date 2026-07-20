@@ -10,15 +10,12 @@ Both are fixed here. The intent of H10 (write-first-then-append) and the
 structural check on the rendered bootstrap are preserved.
 """
 import json
-import textwrap
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
 from open_edit.agent.sandbox_bridge import (
-    _render_bootstrap, _FlushingBuffer, _validate_ops_incrementally,
-    _ValidationError,
+    _render_bootstrap, _FlushingBuffer,
 )
 from open_edit.agent.exceptions import FreeFormResult
 

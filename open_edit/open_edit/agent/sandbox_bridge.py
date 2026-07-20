@@ -189,7 +189,6 @@ def _run_sandboxed(
     proc = subprocess.run(
         [sandbox_bin,
          '--scratch', str(scratch),
-         '--ops-output', str(ops_path),
          '--python-bin', PINNED_PYTHON_BIN,
          '--expected-py-version', EXPECTED_PY_VERSION,
          '--timeout', str(timeout),

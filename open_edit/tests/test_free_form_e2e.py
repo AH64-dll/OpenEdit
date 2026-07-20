@@ -31,7 +31,6 @@ def _sandbox_runnable() -> bool:
             proc = subprocess.run(
                 ["open-edit-sandbox",
                  "--scratch", str(scratch),
-                 "--ops-output", str(scratch / "ops.jsonl"),
                  "--python-bin", "python3",
                  "--expected-py-version", "3.14",
                  "--timeout", "5", "--mem", "512", "--cpu", "5", "--json",
