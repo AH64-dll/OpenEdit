@@ -1,4 +1,4 @@
-"""Taste events for the Style Memory system (Phase 4 stub in Phase 0+1).
+"""Taste events for the Style Memory system (Phase 4).
 
 Phase 4 reads these, aggregates into a bounded style profile, and
 injects a tag-gated slice into each agent turn.
@@ -26,27 +26,30 @@ def _now_iso() -> str:
 
 class TasteEvent(BaseModel):
     id: str = Field(default_factory=_new_id)
-    ts: str = Field(default_factory=_now_iso)
+    timestamp: str = Field(default_factory=_now_iso)
     project_id: Optional[str] = None
     op_type: str
     proposed_params: dict = Field(default_factory=dict)
     final_params: dict = Field(default_factory=dict)
     action: Literal["applied_unmodified", "applied_modified", "reverted"]
     correction_note: Optional[str] = None
+    weight: int = 0
 
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS taste_events (
     id TEXT PRIMARY KEY,
-    ts TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
     project_id TEXT,
     op_type TEXT NOT NULL,
     proposed_params TEXT NOT NULL,
     final_params TEXT NOT NULL,
     action TEXT NOT NULL CHECK (action IN ('applied_unmodified', 'applied_modified', 'reverted')),
-    correction_note TEXT
+    correction_note TEXT,
+    weight INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_taste_events_ts ON taste_events(ts);
+CREATE INDEX IF NOT EXISTS idx_taste_events_ts ON taste_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_taste_events_project ON taste_events(project_id);
 """
 
 
@@ -77,43 +80,65 @@ class TasteEventStore:
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO taste_events "
-                "(id, ts, project_id, op_type, proposed_params, "
-                " final_params, action, correction_note) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "(id, timestamp, project_id, op_type, proposed_params, "
+                " final_params, action, correction_note, weight) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    event.id, event.ts, event.project_id, event.op_type,
+                    event.id, event.timestamp, event.project_id, event.op_type,
                     json.dumps(event.proposed_params, sort_keys=True, separators=(",", ":")),
                     json.dumps(event.final_params, sort_keys=True, separators=(",", ":")),
-                    event.action, event.correction_note,
+                    event.action, event.correction_note, event.weight,
                 ),
             )
 
-    def pull(self, window_days: int = 90, max_events: int = 200) -> list[TasteEvent]:
+    def pull(
+        self,
+        project_id: Optional[str] = None,
+        window_days: int = 90,
+        max_events: int = 200,
+    ) -> list[TasteEvent]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
         with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT id, ts, project_id, op_type, proposed_params, "
-                "final_params, action, correction_note "
-                "FROM taste_events WHERE ts >= ? "
-                "ORDER BY ts DESC LIMIT ?",
-                (cutoff, max_events),
-            )
+            if project_id is None:
+                cur = conn.execute(
+                    "SELECT id, timestamp, project_id, op_type, proposed_params, "
+                    "final_params, action, correction_note, weight "
+                    "FROM taste_events WHERE timestamp >= ? "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (cutoff, max_events),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT id, timestamp, project_id, op_type, proposed_params, "
+                    "final_params, action, correction_note, weight "
+                    "FROM taste_events WHERE project_id = ? AND timestamp >= ? "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (project_id, cutoff, max_events),
+                )
             return [
                 TasteEvent(
-                    id=row[0], ts=row[1], project_id=row[2], op_type=row[3],
+                    id=row[0], timestamp=row[1], project_id=row[2], op_type=row[3],
                     proposed_params=json.loads(row[4]),
                     final_params=json.loads(row[5]),
-                    action=row[6], correction_note=row[7],
+                    action=row[6], correction_note=row[7], weight=row[8],
                 )
                 for row in cur.fetchall()
             ]
 
-    def purge(self, ids: list[str]) -> None:
-        if not ids:
-            return
+    def purge(
+        self,
+        ids: list[str] | None = None,
+        project_id: Optional[str] = None,
+    ) -> None:
         with self._conn() as conn:
-            placeholders = ",".join("?" * len(ids))
-            conn.execute(
-                f"DELETE FROM taste_events WHERE id IN ({placeholders})",
-                ids,
-            )
+            if ids:
+                placeholders = ",".join("?" * len(ids))
+                conn.execute(
+                    f"DELETE FROM taste_events WHERE id IN ({placeholders})",
+                    ids,
+                )
+            elif project_id is not None:
+                conn.execute(
+                    "DELETE FROM taste_events WHERE project_id = ?",
+                    (project_id,),
+                )
