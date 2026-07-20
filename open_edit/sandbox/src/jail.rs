@@ -26,7 +26,12 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { mem_mb: 2048, cpu_secs: 30, nofile: 256, nproc: 64 }
+        // nproc default raised from 64 to 1024: in real Linux desktop
+        // environments a single user routinely has 100+ processes, and
+        // 64 caused "Creating new namespace failed: Resource temporarily
+        // unavailable" before bwrap could even start. 1024 still prevents
+        // trivial fork bombs while leaving headroom for normal use.
+        Self { mem_mb: 2048, cpu_secs: 30, nofile: 256, nproc: 1024 }
     }
 }
 

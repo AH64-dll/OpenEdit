@@ -282,8 +282,9 @@ def _validate_references(op: OperationUnion, timeline, assets) -> None:
     if isinstance(op, AddClipOp):
         if op.asset_hash not in asset_hashes:
             raise ReferenceError(f"asset_hash {op.asset_hash!r} not in project")
-        if op.track_id not in track_ids:
-            raise ReferenceError(f"track_id {op.track_id!r} not in project")
+        # AddClipOp auto-creates the track via _get_or_create_track, so we
+        # do NOT pre-validate track_id here. The first op on a new track
+        # would otherwise be rejected before the track is created.
     if isinstance(op, (TrimClipOp, MoveClipOp, RemoveClipOp)):
         if op.clip_id not in clip_ids:
             raise ReferenceError(f"clip_id {op.clip_id!r} not in project")

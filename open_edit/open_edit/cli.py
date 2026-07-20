@@ -164,6 +164,40 @@ def cmd_render(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_free_form(args: argparse.Namespace) -> int:
+    """Run a free-form Python script in the sandbox against a project."""
+    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.storage.edit_graph import EditGraphStore
+    code = Path(args.code_file).read_text()
+    db_path = Path(args.project_dir) / "edit_graph.db"
+    if not db_path.exists():
+        print(f"error: project db not found: {db_path}", file=sys.stderr)
+        return 1
+    store = EditGraphStore(db_path)
+    # Generate a synthetic parent_op_id for CLI testing; in real use this
+    # comes from the agent loop.
+    from open_edit.ir.types import new_id
+    parent_id = new_id()
+    result = run_free_form(
+        code, Path(args.project_dir),
+        project_id=store.project_id,
+        parent_op_id=parent_id,
+        timeout=args.timeout,
+        mem_mb=args.mem,
+    )
+    if not result.success:
+        print(
+            f"error: free-form run failed: {result.reason}: {result.detail}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"free-form run completed: {len(result.ops)} ops in {result.duration_s:.2f}s")
+    for op in result.ops:
+        store.append(op)
+    print(f"appended {len(result.ops)} ops to {db_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="open_edit",
@@ -190,6 +224,13 @@ def main(argv: list[str] | None = None) -> int:
     p_render.add_argument("--mode", default="proxy", choices=["proxy", "final"], help="render mode")
     p_render.add_argument("--force", action="store_true", help="ignore render cache")
     p_render.set_defaults(func=cmd_render)
+
+    p_freeform = sub.add_parser("free-form", help="Run a free-form Python script in the sandbox against a project")
+    p_freeform.add_argument("code_file", help="path to the Python script to run")
+    p_freeform.add_argument("project_dir", help="path to the open_edit project directory")
+    p_freeform.add_argument("--timeout", type=int, default=30, help="wall-clock timeout in seconds (default: 30)")
+    p_freeform.add_argument("--mem", type=int, default=512, help="memory cap in MB (default: 512)")
+    p_freeform.set_defaults(func=cmd_free_form)
 
     args = parser.parse_args(argv)
     if args.version:
