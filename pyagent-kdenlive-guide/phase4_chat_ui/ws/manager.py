@@ -1,11 +1,12 @@
 """WebSocket connection manager + Kdenlive D-Bus reload helper.
 
 `ChatConnectionManager` is the broadcast hub: every connected WebSocket is
-appended on `connect`, removed on `disconnect`, and the `broadcast` helper
+appended on `connect`, removed on `disconnect`. The `broadcast` helper
 sends a JSON message to all of them (silently dropping any that fail to
-send). `try_reload_kdenlive` is the only D-Bus call the chat UI makes; it
-lives here so the round-trip is in one module with the only callers
-(start_watching in handler.py + the `reload_kdenlive` message handler).
+send). For project-scoped notes broadcasts (Phase 4 T6) the manager
+maintains a `project_path -> set[ws]` map; `broadcast_to_project` uses
+that map so only websocket connections bound to the same project hear
+about note changes (per audit H4).
 """
 from __future__ import annotations
 
@@ -28,10 +29,16 @@ def try_reload_kdenlive() -> bool:
 
 
 class ChatConnectionManager:
-    """Tracks active WebSockets and broadcasts project-state updates."""
+    """Tracks active WebSockets and broadcasts project-state updates.
+
+    Sessions list is global; the per-project map (added in Phase 4 T6)
+    is maintained alongside it so we can broadcast note-list updates
+    to only the sockets bound to the same project.
+    """
 
     def __init__(self) -> None:
         self.sessions: list[WebSocket] = []
+        self._by_project: dict[str, set[WebSocket]] = {}
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -40,9 +47,32 @@ class ChatConnectionManager:
     def disconnect(self, ws: WebSocket) -> None:
         if ws in self.sessions:
             self.sessions.remove(ws)
+        for bucket in self._by_project.values():
+            bucket.discard(ws)
+
+    def track(self, project: str, ws: WebSocket) -> None:
+        if not project:
+            return
+        self._by_project.setdefault(project, set()).add(ws)
+
+    def untrack(self, project: str, ws: WebSocket) -> None:
+        bucket = self._by_project.get(project)
+        if bucket is not None:
+            bucket.discard(ws)
+            if not bucket:
+                self._by_project.pop(project, None)
 
     async def broadcast(self, msg: dict) -> None:
         for ws in list(self.sessions):
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                self.disconnect(ws)
+
+    async def broadcast_to_project(self, project: str, msg: dict) -> None:
+        """Per audit H4: send a message to all sockets bound to `project`."""
+        bucket = self._by_project.get(project, set())
+        for ws in list(bucket):
             try:
                 await ws.send_json(msg)
             except Exception:

@@ -171,6 +171,29 @@ class WsHandler:
             "active_session_id": sess.session_id,
         })
 
+    async def _handle_note(self, ws, sess: Session, m: str, data: dict) -> None:
+        """Dispatch one of the 4 `note_*` message types.
+
+        All note messages carry an implicit `project_id` derived from the
+        websocket's currently-bound session. Broadcasts are scoped to that
+        project (per audit H4) so other projects in the same UI don't see
+        each other's notes.
+        """
+        project_id = sess.project
+        if not project_id:
+            return
+        # Make sure this ws is tracked for project-scoped broadcasts.
+        self.manager.track(project_id, ws)
+        broadcast = self.manager.broadcast_to_project
+        if m == "note_add":
+            await msg_handlers.handle_note_add(ws, project_id, data, broadcast)
+        elif m == "note_update":
+            await msg_handlers.handle_note_update(ws, project_id, data, broadcast)
+        elif m == "note_delete":
+            await msg_handlers.handle_note_delete(ws, project_id, data, broadcast)
+        elif m == "note_list":
+            await msg_handlers.handle_note_list(ws, project_id, data, broadcast)
+
     # ---- main websocket endpoint -----------------------------------
 
     async def ws_endpoint(self, ws: WebSocket) -> None:
@@ -184,6 +207,7 @@ class WsHandler:
         self.start_watching(sess.project)
         # Initial snapshot: order is part of the wire protocol (the JS
         # client in static/app.js consumes these in this sequence).
+        self.manager.track(sess.project, ws)
         await ws.send_json({"type": "project", "path": sess.project})
         await ws.send_json({"type": "cost", "usd": sess.cost_usd, "delta": 0.0})
         await self._send_initial_snapshot(ws, sess)
@@ -258,3 +282,5 @@ class WsHandler:
             await msg_handlers.handle_set(self, ws, sess, data, is_app=(m == "set_app"))
         elif m == "prompt":
             await msg_handlers.handle_prompt(self, ws, sess, client, data)
+        elif m in ("note_add", "note_update", "note_delete", "note_list"):
+            await self._handle_note(ws, sess, m, data)

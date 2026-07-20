@@ -65,8 +65,24 @@
       <div id="state-panel" class="state-panel">
         <p class="muted">Loading…</p>
       </div>
+      <div class="notes-section">
+        <h3>Notes <span id="notes-count" class="badge">0</span></h3>
+        <div id="notes-list"></div>
+        <button id="notes-view-all" class="ghost-btn" type="button">View all</button>
+      </div>
     </aside>
   </main>
+
+  <div id="notes-modal" class="modal" style="display: none;" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="notes-modal-title">
+      <header class="modal-header">
+        <h2 id="notes-modal-title">All notes</h2>
+        <button class="ghost-btn modal-close" type="button" data-close-modal>×</button>
+      </header>
+      <div id="notes-modal-list" class="notes-modal-list"></div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

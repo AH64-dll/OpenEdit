@@ -230,6 +230,92 @@ html, body {
 .muted { color: var(--ink-soft); font-style: italic; }
 .status-line { font-size: 12px; color: var(--ink-soft); padding: 4px 2px; min-height: 16px; }
 
+/* Notes section (Phase 4 T6) */
+.notes-section {
+  margin-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.4);
+  padding-top: 12px;
+}
+.notes-section h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.badge {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--accent, #4a90e2);
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.4;
+}
+#notes-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.note-item {
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.35);
+  word-break: break-word;
+}
+.note-empty { font-size: 12px; padding: 4px 0; }
+
+/* Notes modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+.modal-card {
+  position: relative;
+  z-index: 1;
+  background: var(--glass-strong, #fff);
+  border-radius: 12px;
+  width: min(520px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.modal-header h2 { font-size: 14px; margin: 0; }
+.modal-close { font-size: 18px; line-height: 1; }
+.notes-modal-list {
+  overflow-y: auto;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.note-modal-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.note-modal-item.processed { opacity: 0.7; }
+.note-modal-item.dismissed { opacity: 0.5; text-decoration: line-through; }
+.note-meta { font-size: 11px; color: var(--ink-soft); margin-bottom: 4px; }
+.note-body { font-size: 13px; }
+
 /* Sessions Sidebar */
 .sessions-col {
   background: var(--glass);

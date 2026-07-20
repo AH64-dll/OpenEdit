@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sqlite3
 from pathlib import Path
 
 from fastapi import WebSocket
@@ -26,6 +27,104 @@ from phase4_chat_ui.session import (
     _validate_session_id,
 )
 from phase4_chat_ui.uploads import save_base64_image
+
+
+# ---- notes (Phase 4 T6) --------------------------------------------------
+
+
+_NOTES_DIRNAME = ".open_edit_notes"
+
+
+def get_notes_db_path(project_id: str) -> Path:
+    """Resolve the SQLite path for a project's notes.
+
+    Project_id is a free-form string (e.g. an absolute .kdenlive path or
+    a short slug). For paths we anchor the .db next to the project file;
+    for slugs we fall back to a notes dir under the user's home.
+    """
+    p = Path(project_id)
+    if p.is_absolute() and p.suffix:
+        return p.parent / ".open_edit" / "notes.db"
+    return Path.home() / _NOTES_DIRNAME / f"{project_id}.db"
+
+
+def parse_anchor(data: dict):
+    """Build a NoteAnchor from the wire-level dict.
+
+    Dispatches by `anchor_type` to the right Pydantic model. Anything
+    unexpected falls back to TimestampAnchor so we never crash the
+    websocket over a malformed note.
+    """
+    from open_edit.storage.notes import (
+        TimestampAnchor, RegionAnchor, OpAnchor,
+    )
+    kind = data.get("anchor_type")
+    if kind == "region":
+        return RegionAnchor(**data)
+    if kind == "op":
+        return OpAnchor(**data)
+    return TimestampAnchor(**data)
+
+
+def _note_list_payload(project_id: str) -> dict:
+    """Build a `note_list` message for the project."""
+    from open_edit.storage.notes import NotesStore
+    store = NotesStore(get_notes_db_path(project_id))
+    notes = store.list_all(project_id)
+    return {
+        "type": "note_list",
+        "project_id": project_id,
+        "notes": [n.model_dump(mode="json") for n in notes],
+    }
+
+
+async def handle_note_add(ws, project_id, msg, broadcast) -> None:
+    """`note_add` — persist a new note and rebroadcast the project list."""
+    from open_edit.storage.notes import NotesStore, ReviewNote, NoteSource, NoteStatus
+    store = NotesStore(get_notes_db_path(project_id))
+    note = ReviewNote(
+        project_id=project_id,
+        anchor=parse_anchor(msg["anchor"]),
+        text=msg.get("text", ""),
+        source=NoteSource(msg["source"]),
+        status=NoteStatus.pending,
+    )
+    store.append(note)
+    await broadcast(project_id, _note_list_payload(project_id))
+
+
+async def handle_note_update(ws, project_id, msg, broadcast) -> None:
+    """`note_update` — edit text or dismiss a note; rebroadcast."""
+    from open_edit.storage.notes import NotesStore
+    store = NotesStore(get_notes_db_path(project_id))
+    note_id = msg.get("note_id")
+    if not note_id:
+        return
+    if "text" in msg:
+        with sqlite3.connect(store.db_path) as con:
+            con.execute(
+                "UPDATE notes SET text = ? WHERE note_id = ?",
+                (msg["text"], note_id),
+            )
+    if msg.get("status") == "dismissed":
+        store.mark_dismissed([note_id])
+    await broadcast(project_id, _note_list_payload(project_id))
+
+
+async def handle_note_delete(ws, project_id, msg, broadcast) -> None:
+    """`note_delete` — soft-delete (dismiss) a note; rebroadcast."""
+    from open_edit.storage.notes import NotesStore
+    store = NotesStore(get_notes_db_path(project_id))
+    note_id = msg.get("note_id")
+    if not note_id:
+        return
+    store.mark_dismissed([note_id])
+    await broadcast(project_id, _note_list_payload(project_id))
+
+
+async def handle_note_list(ws, project_id, msg, broadcast) -> None:
+    """`note_list` — push the current notes snapshot to the requesting socket."""
+    await ws.send_json(_note_list_payload(project_id))
 
 
 # ---- session management -------------------------------------------------

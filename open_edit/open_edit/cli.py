@@ -198,6 +198,26 @@ def cmd_free_form(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_notes(args: argparse.Namespace) -> int:
+    """List notes for a project (Phase 4 T6)."""
+    from open_edit.storage.notes import NotesStore, NoteStatus
+    project_dir = Path(args.project_dir)
+    if not project_dir.exists():
+        print(f"error: project dir not found: {project_dir}", file=sys.stderr)
+        return 1
+    store = NotesStore(project_dir / "notes.db")
+    status = NoteStatus(args.status) if args.status else None
+    notes = store.list_all(args.project_id, status=status)
+    if not notes:
+        print(f"(no notes for project {args.project_id})")
+        return 0
+    for n in notes:
+        anchor = n.anchor.anchor_type
+        text = n.text or "(no text)"
+        print(f"{n.note_id} [{n.status.value}] {anchor} {text}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="open_edit",
@@ -231,6 +251,13 @@ def main(argv: list[str] | None = None) -> int:
     p_freeform.add_argument("--timeout", type=int, default=30, help="wall-clock timeout in seconds (default: 30)")
     p_freeform.add_argument("--mem", type=int, default=512, help="memory cap in MB (default: 512)")
     p_freeform.set_defaults(func=cmd_free_form)
+
+    p_notes = sub.add_parser("notes", help="List notes for a project")
+    p_notes.add_argument("project_id", help="project id (matches the bound session's project)")
+    p_notes.add_argument("--project-dir", required=True, help="path to the open_edit project directory containing notes.db")
+    p_notes.add_argument("--status", choices=["pending", "processed", "dismissed"],
+                         help="filter by status; default = all")
+    p_notes.set_defaults(func=cmd_notes)
 
     args = parser.parse_args(argv)
     if args.version:

@@ -270,6 +270,92 @@ function renderState(state) {
   statePanel.appendChild(table);
 }
 
+// ---- notes (Phase 4 T6) ----------------------------------------------
+
+let _notesCache = [];
+
+function formatTime(secs) {
+  if (secs == null || isNaN(secs)) return "—";
+  const m = Math.floor(secs / 60);
+  const s = (secs % 60).toFixed(1);
+  return `${m}:${s.padStart(4, "0")}`;
+}
+
+function anchorLabel(anchor) {
+  if (!anchor) return "";
+  if (anchor.anchor_type === "timestamp") {
+    return `[${formatTime(anchor.t_start)} – ${formatTime(anchor.t_end)}]`;
+  }
+  if (anchor.anchor_type === "region") {
+    return `[${formatTime(anchor.t_start)} region]`;
+  }
+  if (anchor.anchor_type === "op") {
+    return `[op: ${anchor.op_id}]`;
+  }
+  return "";
+}
+
+function noteDisplayText(note) {
+  const anchor = anchorLabel(note.anchor);
+  const body = (note.text && note.text.trim()) || "(no text)";
+  return anchor ? `${anchor} ${body}` : body;
+}
+
+function renderNotesSection(notes) {
+  _notesCache = notes || [];
+  const list = document.getElementById("notes-list");
+  const countEl = document.getElementById("notes-count");
+  if (!list || !countEl) return;
+  list.innerHTML = "";
+  const pending = _notesCache.filter(n => n.status === "pending");
+  countEl.textContent = String(pending.length);
+  for (const n of pending.slice(0, 3)) {
+    const item = el("div", "note-item");
+    item.textContent = noteDisplayText(n);
+    list.appendChild(item);
+  }
+  if (pending.length === 0) {
+    const empty = el("div", "muted note-empty", "No pending notes.");
+    list.appendChild(empty);
+  }
+}
+
+function openNotesModal() {
+  const modal = document.getElementById("notes-modal");
+  const list = document.getElementById("notes-modal-list");
+  if (!modal || !list) return;
+  list.innerHTML = "";
+  if (_notesCache.length === 0) {
+    list.appendChild(el("div", "muted", "No notes yet."));
+  } else {
+    for (const n of _notesCache) {
+      const row = el("div", "note-modal-item " + (n.status || ""));
+      const meta = el("div", "note-meta", `${n.status || ""} · ${n.source || ""}`);
+      const body = el("div", "note-body", noteDisplayText(n));
+      row.appendChild(meta);
+      row.appendChild(body);
+      list.appendChild(row);
+    }
+  }
+  modal.style.display = "flex";
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeNotesModal() {
+  const modal = document.getElementById("notes-modal");
+  if (!modal) return;
+  modal.style.display = "none";
+  modal.setAttribute("aria-hidden", "true");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const viewAllBtn = document.getElementById("notes-view-all");
+  if (viewAllBtn) viewAllBtn.onclick = openNotesModal;
+  document.querySelectorAll("[data-close-modal]").forEach((node) => {
+    node.addEventListener("click", closeNotesModal);
+  });
+});
+
 function toggleReloadBanner(show) {
   const banner = document.getElementById("reload-banner");
   if (banner) banner.style.display = show ? "flex" : "none";
@@ -438,6 +524,9 @@ function handle(msg) {
     case "model_changed":
       _currentModel = msg.model || _currentModel;
       renderModelSelect();
+      break;
+    case "note_list":
+      renderNotesSection(msg.notes || []);
       break;
   }
 }

@@ -9,6 +9,13 @@ sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture
+def tmp_notes_db(tmp_path):
+    """An isolated notes database file under a fresh tmp dir."""
+    from open_edit.storage.notes import NotesStore
+    return NotesStore(tmp_path / "notes.db")
+
+
+@pytest.fixture
 def tmp_project_with_assets(tmp_path):
     """A project with one asset pre-ingested, suitable for free-form runs (L9)."""
     from open_edit.ir.types import AddClipOp, Asset, Project
