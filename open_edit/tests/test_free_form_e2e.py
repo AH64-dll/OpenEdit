@@ -33,6 +33,7 @@ def _sandbox_runnable() -> bool:
                  "--scratch", str(scratch),
                  "--python-bin", "python3",
                  "--expected-py-version", "3.14",
+                 "--ops-output", str(scratch / "ops.jsonl"),
                  "--timeout", "5", "--mem", "512", "--cpu", "5", "--json",
                 ],
                 capture_output=True, text=True, timeout=15,
