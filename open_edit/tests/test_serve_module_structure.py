@@ -74,6 +74,10 @@ EXPECTED_TEST_HOOKS = [
     # Chat sender (P1-1: the search-results "Add to project" button
     # sends an import_asset message through this).
     "sendChatMessage",
+    # v1.4 P2 review fix: handleSend kicks scheduleReconnect when the
+    # WS is in CONNECTING state (the click-path contract the
+    # test_serve_send_reconnect test pins).
+    "handleSend",
 ]
 
 # The high-level helpers the loading-state tests drive. These are

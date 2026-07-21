@@ -507,10 +507,13 @@ export function createCostBadge(element) {
 export function sendChatMessage(text) {
   if (!state.ws || state.ws.readyState !== 1 /* WebSocket.OPEN */) {
     // The toast text is the user-facing promise that the system is
-    // trying to recover. The actual reconnect is owned by ws.js
-    // (it fires on onclose / online / focus), so this function
-    // just reports the failure — see the ``OpenEdit.*`` registration
-    // in app.js if you need to kick a reconnect from this path.
+    // trying to recover. Automatic reconnection is owned by:
+    //   - ws.js's onclose handler
+    //   - the online / focus event listeners registered in app.js
+    // The click path (``handleSend`` in app.js) also kicks a manual
+    // ``scheduleReconnect`` for the edge case where the WS is
+    // stuck in CONNECTING and onclose has not fired — see
+    // test_serve_send_reconnect.py for the contract.
     showToast('Not connected. Retrying…', 'error');
     return false;
   }

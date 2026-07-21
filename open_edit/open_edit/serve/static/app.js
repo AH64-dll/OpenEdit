@@ -290,6 +290,16 @@ function handleSend() {
     input.value = '';
     autoGrowInput();
     if (state.chatStatus) state.chatStatus.send();
+  } else {
+    // v1.4 P2 review fix: the WS layer's onclose handler covers the
+    // normal disconnect case, but if the user clicks Send while the
+    // socket is stuck in CONNECTING (e.g. stalled TCP handshake or
+    // browser tab throttling) onclose may never fire, leaving the
+    // user stuck on the "Not connected. Retrying…" toast. Kick a
+    // reconnect so the next attempt has a chance to land. Safe to
+    // call when a reconnect is already pending — scheduleReconnect
+    // is a no-op in that case (see ws.js).
+    scheduleReconnect();
   }
 }
 
@@ -582,5 +592,9 @@ window.OpenEdit = {
     appendSearchResults,
     // The chat sender (used by the Add-to-project button).
     sendChatMessage,
+    // v1.4 P2 review fix: the click-path that handles the
+    // CONNECTING-stuck edge case by kicking scheduleReconnect.
+    // Test: tests/test_serve_send_reconnect.py.
+    handleSend,
   },
 };
