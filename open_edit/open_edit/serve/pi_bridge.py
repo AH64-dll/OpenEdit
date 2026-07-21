@@ -96,32 +96,71 @@ def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) ->
     return fn(args, str(project_path))
 
 
+def _probe_duration(mp4_path: Path) -> float:
+    """Return the duration in seconds of ``mp4_path`` using ffprobe.
+
+    Raises ``RuntimeError`` if no video stream is found or ffprobe fails.
+    """
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(mp4_path),
+        ],
+        capture_output=True, text=True, check=False, shell=False, timeout=30,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise RuntimeError(f"no video stream in {mp4_path}")
+    try:
+        return float(proc.stdout.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"ffprobe returned non-numeric duration: {proc.stdout!r}") from exc
+
+
+# TODO(v1.5-slot-A): replace with `from open_edit.serve.visual_verify import build_failure_tool_result`
+# once Slot A lands. Inlined here because pi_bridge lives on a parallel worktree.
+def _build_failure_tool_result(reason: str, render_id: str, **extra: Any) -> dict[str, Any]:
+    """Inline copy of ``visual_verify.build_failure_tool_result``."""
+    detail = extra.pop("detail", "")
+    error_str = f"{reason}: {detail}".rstrip(": ").rstrip()
+    return {"error": error_str, "render_id": render_id, **extra}
+
+
 def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
-    """Server-side virtual tool: shell out to ``open_edit render``."""
+    """Server-side virtual tool: shell out to ``open_edit render``.
+
+    Returns one of the structured shapes from spec §4:
+      * Success: ``{output_path, mode, duration_s, render_id}``
+      * Failure: ``{error, render_id}`` (no verification block)
+    """
     mode = (args.get("mode") or "proxy").lower()
     if mode not in ("proxy", "final"):
         mode = "proxy"
+    render_id = f"render_{os.urandom(6).hex()}"
 
     try:
         proc = subprocess.run(
             ["open_edit", "render", "--mode", mode],
             cwd=str(project_path),
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
             timeout=1800,
+            shell=False,
         )
-    except FileNotFoundError as exc:
-        raise RuntimeError("`open_edit` CLI not found on PATH.") from exc
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(
-            f"`open_edit render --mode {mode}` failed (exit {exc.returncode}): "
-            f"{exc.stderr.strip() or exc.stdout.strip()}"
-        ) from exc
+    except FileNotFoundError:
+        return _build_failure_tool_result("render_failed", render_id, detail="`open_edit` CLI not found on PATH.")
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"render timed out after {exc.timeout}s") from exc
+        return _build_failure_tool_result("timeout", render_id, detail=f"after {exc.timeout}s")
 
-    # The CLI prints the output path on the last non-empty line of stdout.
+    if proc.returncode != 0:
+        return _build_failure_tool_result(
+            "render_failed", render_id,
+            detail=f"exit {proc.returncode}: {proc.stderr.strip() or proc.stdout.strip()}",
+        )
+
     last_line = ""
     for line in reversed(proc.stdout.splitlines()):
         if line.strip():
@@ -135,11 +174,23 @@ def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, A
             if mp4s:
                 output_path = str(mp4s[0])
 
+    if not output_path:
+        return _build_failure_tool_result("empty_render", render_id)
+
+    p = Path(output_path)
+    if not p.exists() or p.stat().st_size == 0:
+        return _build_failure_tool_result("empty_render", render_id, path=output_path)
+
+    try:
+        duration_s = _probe_duration(p)
+    except RuntimeError as exc:
+        return _build_failure_tool_result("no_video_stream", render_id, detail=str(exc))
+
     return {
-        "mode": mode,
         "output_path": output_path,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
+        "mode": mode,
+        "duration_s": duration_s,
+        "render_id": render_id,
     }
 
 

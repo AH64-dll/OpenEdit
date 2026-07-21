@@ -309,3 +309,39 @@ async def test_get_project_state_404_message_includes_path_hint(projects_root_tm
     assert "does-not-exist" in msg
     assert str(root) in msg
     assert "open_edit init" in msg
+
+
+# ---------------------------------------------------------------------------
+# v1.5: per-project verify_disabled opt-out
+# ---------------------------------------------------------------------------
+
+def test_project_meta_default_verify_disabled_is_zero(tmp_path):
+    """A freshly initialised project has verify_disabled=0 (verification enabled)."""
+    from open_edit.storage.edit_graph import EditGraphStore
+    db = tmp_path / ".open_edit" / "edit_graph.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    store = EditGraphStore(db)
+    meta = store.get_project_meta()
+    assert meta.get("verify_disabled", 0) == 0
+
+
+def test_set_verify_disabled_round_trips(tmp_path):
+    """Setting verify_disabled=1 persists and reads back."""
+    from open_edit.storage.edit_graph import EditGraphStore
+    db = tmp_path / ".open_edit" / "edit_graph.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    store = EditGraphStore(db)
+    store.set_project_meta_field("verify_disabled", 1)
+    store2 = EditGraphStore(db)
+    assert store2.get_project_meta().get("verify_disabled") == 1
+
+
+def test_agent_reads_verify_disabled_from_project_meta(tmp_path):
+    """is_verify_disabled(project_path) returns True after the flag is set."""
+    from open_edit.storage.edit_graph import EditGraphStore
+    db = tmp_path / ".open_edit" / "edit_graph.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    store = EditGraphStore(db)
+    store.set_project_meta_field("verify_disabled", 1)
+    from open_edit.serve.project_meta import is_verify_disabled
+    assert is_verify_disabled(tmp_path) is True
