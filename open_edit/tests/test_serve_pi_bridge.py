@@ -431,3 +431,109 @@ def test_run_trigger_render_returns_no_video_stream(tmp_path):
         out = pi_bridge._run_trigger_render({}, tmp_path)
     assert "error" in out
     assert "no_video_stream" in out["error"]
+
+
+# v1.6: trigger_render composited-overlay dispatch
+
+def test_trigger_render_overlay_mode_with_overlays_calls_html_overlay(tmp_path, monkeypatch):
+    """Test 42: trigger_render with mode='overlay' + at least one overlay
+    in the project → html_overlay.render_composited is invoked with a
+    bg_renderer lambda."""
+    from open_edit.serve import pi_bridge
+    from open_edit.serve import html_overlay
+    # Set up a project with one overlay.
+    from open_edit.ir.types import Timeline, HtmlOverlay
+    project = tmp_path / "myproject"
+    project.mkdir()
+    # Mock the timeline-loading to return a Timeline with one overlay.
+    fake_timeline = Timeline(overlays=[
+        HtmlOverlay(id="x", template_path="lower_third.html",
+                    variables={"name": "X", "title": "Y"},
+                    position_sec=0.0, duration_sec=2.0),
+    ])
+    fake_render_spec = {
+        "width": 1920, "height": 1080, "fps": 30, "duration_sec": 2.0,
+        "mode": "final", "hyperframes_bin": "npx hyperframes",
+        "hyperframes_timeout_s": 120, "tmpdir": project / ".open_edit" / "tmp",
+    }
+    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
+    monkeypatch.setattr(pi_bridge, "_build_render_spec",
+                        lambda p, mode, hyperframes_timeout: fake_render_spec)
+    monkeypatch.setattr(pi_bridge, "_should_use_composited",
+                        lambda args, project_path, render_spec: True)
+
+    captured = {}
+    async def fake_render_composited(timeline, project_workdir, render_spec, bg_renderer, should_cancel=None):
+        captured["called"] = True
+        captured["timeline"] = timeline
+        captured["project_workdir"] = project_workdir
+        captured["render_spec"] = render_spec
+        captured["bg_renderer"] = bg_renderer
+        return project / "final.mp4"
+
+    monkeypatch.setattr(html_overlay, "render_composited", fake_render_composited)
+    out = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+    assert captured.get("called") is True
+    assert captured["project_workdir"] == project
+    assert callable(captured["bg_renderer"])
+
+
+def test_trigger_render_overlay_mode_without_overlays_uses_bare_mlt(tmp_path, monkeypatch):
+    """Test 43: trigger_render with mode='overlay' BUT no overlays →
+    fall back to bare MLT (no composited path)."""
+    from open_edit.serve import pi_bridge
+    from open_edit.serve import html_overlay
+    from open_edit.ir.types import Timeline
+    project = tmp_path / "myproject"
+    project.mkdir()
+    fake_timeline = Timeline(overlays=[])  # empty
+    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
+    # _should_use_composited should now return False (no overlays).
+    called = {"composited": False}
+    async def fake_render_composited(*args, **kwargs):
+        called["composited"] = True
+    monkeypatch.setattr(html_overlay, "render_composited", fake_render_composited)
+    # Mock _run_mlt_only_render to avoid actually running open_edit render.
+    monkeypatch.setattr(pi_bridge, "_run_mlt_only_render",
+                        lambda args, p: {"output_path": "/tmp/fake.mp4", "mode": "proxy"})
+    out = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+    assert called["composited"] is False
+    assert out["output_path"] == "/tmp/fake.mp4"
+
+
+def test_trigger_render_overlay_render_error_falls_back_to_bare_mlt(tmp_path, monkeypatch, caplog):
+    """Test 44: html_overlay.render_composited raises OverlayRenderError
+    → log warning + fall back to bare MLT. If e.bg_path is set, return it
+    directly without re-rendering the bg."""
+    from open_edit.serve import pi_bridge
+    from open_edit.serve import html_overlay
+    from open_edit.ir.types import Timeline, HtmlOverlay
+    import logging
+    project = tmp_path / "myproject"
+    project.mkdir()
+    fake_timeline = Timeline(overlays=[
+        HtmlOverlay(id="x", template_path="lower_third.html",
+                    variables={}, position_sec=0.0, duration_sec=2.0),
+    ])
+    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
+    monkeypatch.setattr(pi_bridge, "_should_use_composited",
+                        lambda args, project_path, render_spec: True)
+    bg_path = project / "bg.mp4"
+    bg_path.write_bytes(b"x" * 100)
+
+    async def fake_render_composited(*args, **kwargs):
+        raise html_overlay.OverlayRenderError("hyperframes crashed", bg_path=bg_path)
+
+    monkeypatch.setattr(html_overlay, "render_composited", fake_render_composited)
+    # Mock _run_mlt_only_render to verify it's NOT called (bg_path is reused).
+    mlt_called = {"count": 0}
+    def fake_mlt(args, p):
+        mlt_called["count"] += 1
+        return {"output_path": "/tmp/should-not-render.mp4"}
+    monkeypatch.setattr(pi_bridge, "_run_mlt_only_render", fake_mlt)
+
+    with caplog.at_level(logging.WARNING, logger="open_edit.serve.pi_bridge"):
+        out = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+    # The bg_path is reused — mlt should NOT be called.
+    assert mlt_called["count"] == 0
+    assert out["output_path"] == str(bg_path)

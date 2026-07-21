@@ -19,7 +19,9 @@ For the special tool ``trigger_render``, we shell out to
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -27,7 +29,11 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from open_edit.serve import html_overlay  # noqa: E402
+from open_edit.serve.serve_env import get_overlay_config  # noqa: E402
 from open_edit.serve.visual_verify import build_failure_tool_result
+
+_LOG = logging.getLogger("open_edit.serve.pi_bridge")
 
 
 def _emit(obj: dict[str, Any]) -> None:
@@ -121,12 +127,103 @@ def _probe_duration(mp4_path: Path) -> float:
         raise RuntimeError(f"ffprobe returned non-numeric duration: {proc.stdout!r}") from exc
 
 
-def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
-    """Server-side virtual tool: shell out to ``open_edit render``.
+def _make_should_cancel():
+    """Return a cancellation predicate for the composited render pipeline.
 
-    Returns one of the structured shapes from spec §4:
-      * Success: ``{output_path, mode, duration_s, render_id}``
-      * Failure: ``{error, render_id}`` (no verification block)
+    The pi bridge runs as a short-lived subprocess, so there is no
+    long-running WebSocket to poll. The returned predicate always returns
+    False.
+    """
+    return lambda: False
+
+
+def _read_mlt_profile(project_path: Path) -> dict[str, Any]:
+    """Read the project's render profile (width/height/fps/duration_sec).
+
+    Falls back to 1080p30 defaults when the edit graph is missing or empty.
+    """
+    from open_edit.ir.apply import derive_timeline
+    from open_edit.ir.types import Project
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    db = project_path / ".open_edit" / "edit_graph.db"
+    if db.is_file():
+        store = EditGraphStore(db)
+        ops = store.load_all()
+        applied_ops = [op for op in ops if op.status == "applied"]
+        if applied_ops:
+            project = Project(name=project_path.name)
+            project.edit_graph = applied_ops
+            timeline = derive_timeline(project)
+            return {
+                "width": 1920,
+                "height": 1080,
+                "fps": 30,
+                "duration_sec": timeline.duration_sec,
+            }
+    return {"width": 1920, "height": 1080, "fps": 30, "duration_sec": 0.0}
+
+
+def _should_use_composited(args: dict, project_path: Path, render_spec: dict) -> bool:
+    """Decide whether the composited HTML-overlay path is the right one.
+
+    True iff the user asked for mode=='overlay' AND the project has at
+    least one HtmlOverlay in its timeline. Otherwise return False and
+    use the v1.5 bare-MLT path.
+    """
+    if (args.get("mode") or "").lower() != "overlay":
+        return False
+    try:
+        timeline = _load_timeline(project_path)
+        return bool(timeline.overlays)
+    except Exception:
+        return False
+
+
+def _load_timeline(project_path: Path):
+    """Load the Timeline from the project's edit graph; returns an empty
+    Timeline if the project has no overlays."""
+    from open_edit.ir.apply import derive_timeline
+    from open_edit.ir.types import Project, Timeline
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    db = project_path / ".open_edit" / "edit_graph.db"
+    if not db.is_file():
+        return Timeline(overlays=[])
+    store = EditGraphStore(db)
+    ops = store.load_all()
+    applied_ops = [op for op in ops if op.status == "applied"]
+    if not applied_ops:
+        return Timeline(overlays=[])
+    project = Project(name=project_path.name)
+    project.edit_graph = applied_ops
+    timeline = derive_timeline(project)
+    return timeline
+
+
+def _build_render_spec(project_path: Path, mode: str, hyperframes_timeout: int) -> dict:
+    """Build the RenderSpec TypedDict for one render."""
+    overlay_cfg = get_overlay_config()
+    profile = _read_mlt_profile(project_path)
+    return {
+        "width": profile["width"],
+        "height": profile["height"],
+        "fps": profile["fps"],
+        "duration_sec": profile["duration_sec"],
+        "mode": mode,
+        "hyperframes_bin": overlay_cfg["hyperframes_bin"] or html_overlay._resolve_hyperframes_bin(),
+        "hyperframes_timeout_s": overlay_cfg["hyperframes_timeout_s"],
+        "tmpdir": (Path(overlay_cfg["overlay_tmpdir"]) if overlay_cfg["overlay_tmpdir"]
+                   else project_path / ".open_edit" / "tmp" / "overlay"),
+    }
+
+
+def _run_mlt_only_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    """Existing v1.5 bare-MLT render path.
+
+    Shells out to ``open_edit render`` and returns the structured result.
+    The ``render_spec`` argument was dropped in v1.6 — the MLT path
+    does not need overlay rendering parameters.
     """
     mode = (args.get("mode") or "proxy").lower()
     if mode not in ("proxy", "final"):
@@ -185,6 +282,36 @@ def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, A
         "duration_s": duration_s,
         "render_id": render_id,
     }
+
+
+def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    """Server-side virtual tool: shell out to ``open_edit render``.
+
+    v1.6: when args['mode'] == 'overlay' AND the project has overlays,
+    run the composited pipeline (bg + hyperframes + ffmpeg). Otherwise
+    the existing v1.5 path runs unchanged.
+    """
+    mode = (args.get("mode") or "proxy").lower()
+    render_spec = _build_render_spec(project_path, mode, get_overlay_config()["hyperframes_timeout_s"])
+    if _should_use_composited(args, project_path, render_spec):
+        try:
+            return asyncio.run(html_overlay.render_composited(
+                timeline=_load_timeline(project_path),
+                project_workdir=project_path,
+                render_spec=render_spec,
+                bg_renderer=lambda: _run_mlt_only_render({"mode": mode}, project_path)["output_path"],
+                should_cancel=_make_should_cancel(),
+            ))
+        except html_overlay.OverlayRenderError as exc:
+            _LOG.warning(
+                "overlay render failed, returning %s: %s",
+                "MLT bg" if exc.bg_path else "fallback MLT",
+                exc,
+            )
+            if exc.bg_path:
+                return {"output_path": str(exc.bg_path), "mode": mode, "duration_s": 0.0, "render_id": "render_overlay_fallback"}
+            return _run_mlt_only_render(args, project_path)
+    return _run_mlt_only_render(args, project_path)
 
 
 def main(argv: list[str] | None = None) -> int:

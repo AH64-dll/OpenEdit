@@ -76,6 +76,7 @@ def get_overlay_config() -> dict[str, Any]:
             "overlay_tmpdir": Path | None, # base dir for per-render intermediate files; None = project-scoped default
         }
     """
+    overlay_tmpdir_str = _env_str("OPEN_EDIT_OVERLAY_TMPDIR", "") or ""
     return {
         "hyperframes_bin": (
             _env_str("OPEN_EDIT_HYPERFRAMES_BIN", None)
@@ -84,9 +85,5 @@ def get_overlay_config() -> dict[str, Any]:
             or ""  # sentinel: empty string means "auto-resolve"
         ),
         "hyperframes_timeout_s": _env_int("OPEN_EDIT_HYPERFRAMES_TIMEOUT_SECONDS", 120),
-        "overlay_tmpdir": (
-            Path(_env_str("OPEN_EDIT_OVERLAY_TMPDIR", "") or ".").resolve()
-            if _env_str("OPEN_EDIT_OVERLAY_TMPDIR", "")
-            else None
-        ),
+        "overlay_tmpdir": Path(overlay_tmpdir_str).resolve() if overlay_tmpdir_str else None,
     }

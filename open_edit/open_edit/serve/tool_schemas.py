@@ -304,18 +304,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "description": (
             "Trigger a render of the current edit graph. Use this when "
             "the user says 'render it', 'give me a preview', or 'export "
-            "the final cut'. Modes: 'proxy' (fast, low-res preview) or "
-            "'final' (full quality). Returns the output path when done. "
-            "This is a server-side tool — it is handled by the agent "
-            "loop, not by open_edit.agent.tools."
+            "the final cut'. Modes: 'proxy' (fast, low-res preview), "
+            "'final' (full quality), or 'overlay' (v1.6 HTML overlay "
+            "composited pipeline; requires at least one HtmlOverlay in "
+            "the timeline). Returns the output path when done. This is a "
+            "server-side tool — it is handled by the agent loop, not by "
+            "open_edit.agent.tools."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["proxy", "final"],
-                    "description": "'proxy' for a quick preview; 'final' for full quality.",
+                    "enum": ["proxy", "final", "overlay"],
+                    "description": "Render mode. 'overlay' triggers the v1.6 HTML overlay composited pipeline (requires at least one AddHtmlOverlayOp in the timeline). Default 'proxy'.",
                     "default": "proxy",
                 },
             },

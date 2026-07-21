@@ -279,8 +279,16 @@ def _execute_agent_tool(name: str, args: dict[str, Any], project_path: Path) -> 
 
 
 def _execute_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
-    """Server-side virtual tool: shell out to ``open_edit render``."""
+    """Server-side virtual tool: shell out to ``open_edit render``.
+
+    v1.6: ``mode=="overlay"`` is the composited HTML-overlay path. We
+    delegate to ``pi_bridge._run_trigger_render`` so the in-process
+    agent loop and the TS extension see identical behavior.
+    """
     mode = (args.get("mode") or "proxy").lower()
+    if mode == "overlay":
+        from .pi_bridge import _run_trigger_render as _bridge_trigger_render
+        return _bridge_trigger_render(args, project_path)
     if mode not in ("proxy", "final"):
         mode = "proxy"
 

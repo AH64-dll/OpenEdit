@@ -38,6 +38,7 @@ new binary dependency is `hyperframes@0.7.65` pinned in `package.json`.
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import os
@@ -470,10 +471,111 @@ def composite_with_background(
     )
 
 
+# ---------------------------------------------------------------------------
+# Async orchestrator (spec §6)
+# ---------------------------------------------------------------------------
+
+
+async def render_composited(
+    timeline: Timeline,
+    project_workdir: Path,
+    render_spec: dict,
+    bg_renderer: "callable",
+    should_cancel: "callable | None" = None,
+) -> Path:
+    """Concurrent composited-render pipeline.
+
+    Runs the bg render, composition HTML gen, and overlay render concurrently
+    where possible. The final ffmpeg composite waits for both the bg and
+    overlay to complete.
+
+    Returns the path to the final composited MP4.
+
+    Raises:
+        OverlayRenderError on any failure. The exception carries ``bg_path``
+        when the bg render succeeded but a downstream step failed — lets
+        pi_bridge's fallback return the completed bg without re-encoding.
+    """
+    tmpdir = Path(render_spec["tmpdir"])
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    # Composition HTML lives at <tmpdir>/overlay.html — Task 3's
+    # render_overlay_layer runs hyperframes with `-c overlay.html`
+    # from this directory, so the file must be at the tmpdir root
+    # (not in a subdir).
+    comp_html_path = tmpdir / "overlay.html"
+
+    bg_path_holder: dict[str, Path | None] = {"path": None}
+
+    # Stage 1: bg render (in a thread, via bg_renderer).
+    # Poll should_cancel before dispatching so cancellation works
+    # even if the bg renderer's call site can't poll internally.
+    async def _bg():
+        if should_cancel and should_cancel():
+            raise OverlayRenderError("cancelled before bg render", bg_path=None)
+        bg_result = await asyncio.to_thread(bg_renderer)
+        if should_cancel and should_cancel():
+            raise OverlayRenderError("cancelled after bg render", bg_path=Path(bg_result) if bg_result else None)
+        return bg_result
+
+    # Stage 2: composition HTML generation.
+    async def _gen_comp_html():
+        return await asyncio.to_thread(generate_composition_html, timeline, project_workdir, render_spec)
+
+    # Stage 3: overlay render (hyperframes subprocess).
+    async def _overlay():
+        return await asyncio.to_thread(
+            render_overlay_layer, comp_html_path, tmpdir / "overlay.mov", render_spec, should_cancel,
+        )
+
+    # Stage 4: ffmpeg composite.
+    async def _composite(bg_path: Path, overlay_path: Path):
+        return await asyncio.to_thread(
+            composite_with_background, bg_path, overlay_path, tmpdir / "final.mp4", render_spec, should_cancel,
+        )
+
+    try:
+        if should_cancel and should_cancel():
+            raise OverlayRenderError("cancelled before render", bg_path=None)
+
+        # Pre-flight: disk footprint check (uses timeline, doesn't need a render).
+        estimated_mb = _estimate_overlay_size_mb(timeline)
+        _disk_footprint_check(estimated_mb, tmpdir)
+
+        # Run bg and composition HTML concurrently.
+        bg_task = asyncio.create_task(_bg())
+        comp_html_task = asyncio.create_task(_gen_comp_html())
+        comp_html = await comp_html_task
+        comp_html_path.write_text(comp_html, encoding="utf-8")
+        # Start overlay render as soon as the composition HTML is ready.
+        overlay_task = asyncio.create_task(_overlay())
+        # Wait for bg.
+        bg_path = await bg_task
+        bg_path_holder["path"] = bg_path
+        # Wait for overlay.
+        overlay_path = await overlay_task
+        # Final ffmpeg composite.
+        if should_cancel and should_cancel():
+            raise OverlayRenderError("cancelled before ffmpeg composite", bg_path=bg_path)
+        final_path = await _composite(bg_path, overlay_path)
+        return final_path
+    except OverlayRenderError as exc:
+        # If we got a bg path, propagate it.
+        if bg_path_holder["path"] is not None and exc.bg_path is None:
+            exc.bg_path = bg_path_holder["path"]
+        raise
+    finally:
+        # Clean up the temp composition HTML.
+        comp_html_path.unlink(missing_ok=True)
+        # Clean up the overlay.mov (the ffmpeg composite produced final.mp4).
+        # Leave bg.mp4 — pi_bridge may want to return it.
+        (tmpdir / "overlay.mov").unlink(missing_ok=True)
+
+
 __all__ = [
     "OverlayRenderError",
     "_resolve_hyperframes_bin",
     "generate_composition_html",
     "render_overlay_layer",
     "composite_with_background",
+    "render_composited",
 ]
