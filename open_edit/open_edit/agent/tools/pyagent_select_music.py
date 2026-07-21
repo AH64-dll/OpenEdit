@@ -39,7 +39,7 @@ def select_music(args: dict, project_path: str) -> dict:
     return {"status": "ok", "ops": [op.model_dump() for op in ops]}
 
 
-def _load_music_library(path: str | None) -> list[MusicTrack]:
+def _load_music_library(path: str | None) -> list[MusicTrack]:  # noqa: F821
     """Load music library from a JSON file; empty list if not provided."""
     if not path:
         return []

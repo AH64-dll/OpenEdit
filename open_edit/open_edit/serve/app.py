@@ -412,7 +412,7 @@ async def get_asset_file(project_id: str, asset_hash: str) -> FileResponse:
     )
 
 
-def _guess_mime_type(asset: Asset) -> str:
+def _guess_mime_type(asset: Asset) -> str:  # noqa: F821
     """Best-effort mime type for a streamed asset.
 
     Prefers the original filename's extension (``clip_short.mp4`` →

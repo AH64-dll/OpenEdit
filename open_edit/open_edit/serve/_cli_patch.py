@@ -82,7 +82,7 @@ def _run_serve(args: argparse.Namespace) -> int:
     """
     try:
         import uvicorn
-    except ImportError as exc:
+    except ImportError:
         print(
             "ERROR: uvicorn is not installed. Run "
             "`pip install 'uvicorn[standard]'` (or `poetry install --with serve`).",

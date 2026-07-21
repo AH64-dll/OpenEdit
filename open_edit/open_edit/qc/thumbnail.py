@@ -41,11 +41,15 @@ def _probe_dimensions(path: str) -> tuple[int, int]:
         if "=" in line:
             k, v = line.split("=", 1)
             if k.strip() == "width":
-                try: w = int(v.strip())
-                except ValueError: pass
+                try:
+                    w = int(v.strip())
+                except ValueError:
+                    pass
             elif k.strip() == "height":
-                try: h = int(v.strip())
-                except ValueError: pass
+                try:
+                    h = int(v.strip())
+                except ValueError:
+                    pass
     return w, h
 
 

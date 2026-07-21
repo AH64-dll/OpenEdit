@@ -3,6 +3,7 @@
 Per phase4-design-revised.md section 4.5 (W6): the agent calls this tool to
 place sound effects at narrative beat transitions, with optional
 synchronization to music downbeats. The tool returns AddEffectOps targeting
+
 the conventional 'audio_sfx' track with effect_type='sfx'.
 """
 from __future__ import annotations
@@ -40,7 +41,7 @@ def place_sfx(args: dict, project_path: str) -> dict:
     return {"status": "ok", "ops": [op.model_dump() for op in ops]}
 
 
-def _load_sfx_library(path: str | None) -> list[SfxClip]:
+def _load_sfx_library(path: str | None) -> list[SfxClip]:  # noqa: F821
     """Load SFX library from a JSON file; empty list if not provided."""
     if not path:
         return []

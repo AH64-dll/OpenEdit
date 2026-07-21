@@ -814,7 +814,7 @@ def run_render(
                 cmd,
                 capture_output=True, text=True, timeout=timeout_sec + 30,
             )
-        except subprocess.TimeoutExpired as e:
+        except subprocess.TimeoutExpired:
             return RenderResult(
                 path=output_path, ok=False,
                 detail=f"render sandbox timed out after {timeout_sec + 30}s",

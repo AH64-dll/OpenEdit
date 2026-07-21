@@ -732,7 +732,6 @@ async def run_agent_turn(
     # Main loop
     for _ in range(MAX_AGENT_ITERATIONS):
         # Stream the LLM
-        assistant_blocks: list[dict[str, Any]] = []
         current_text_parts: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
         tool_results_by_name: dict[str, Any] = {}  # filled by pi provider

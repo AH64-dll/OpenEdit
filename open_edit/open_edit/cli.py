@@ -223,7 +223,7 @@ def cmd_free_form(args: argparse.Namespace) -> int:
     return 0
 
 
-def _notes_store(project_dir_arg: str) -> tuple["NotesStore", Path] | None:
+def _notes_store(project_dir_arg: str) -> tuple["NotesStore", Path] | None:  # noqa: F821
     """Resolve the project dir + open a NotesStore; prints an error and returns
     None on bad input."""
     from open_edit.storage.notes import NotesStore
