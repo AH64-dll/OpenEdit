@@ -702,21 +702,22 @@ function scrollChatToBottom() {
 // Chat status indicator (v1.4 P1-2)
 // ----------------------------------------------------------
 // A small state machine that surfaces "AI is running" / "Running
-// <tool>…" / "AI error" feedback near the chat input. The state is
-// driven by the same WS events the chat log already consumes (see
-// ``handleWsEvent``). Exposed as ``createChatStatus`` so Node-sandbox
-// tests can drive it without a real DOM (see
-// ``tests/test_serve_chat_status.py``).
+// <tool>…" feedback near the chat input. The state is driven by the
+// same WS events the chat log already consumes (see ``handleWsEvent``).
+// Exposed as ``createChatStatus`` so Node-sandbox tests can drive it
+// without a real DOM (see ``tests/test_serve_chat_status.py``).
 //
-// States: ``idle`` | ``thinking`` | ``tool_running`` | ``error``.
-// ``idle`` is the resting state (no in-flight turn). ``thinking`` is
-// entered immediately on ``send()`` and on a ``text`` event. A
-// ``tool_start`` event transitions to ``tool_running`` (with the tool
-// name carried in the label) and stays there until ``tool_result``,
-// which goes back to ``thinking`` so the user sees the model is
-// still alive. A turn-level ``error`` switches to ``error``; the
-// following ``done`` (which the backend always sends, see
-// ``app.py:471``) returns the indicator to ``idle``.
+// States: ``idle`` | ``thinking`` | ``tool_running``. ``idle`` is the
+// resting state (no in-flight turn). ``thinking`` is entered
+// immediately on ``send()`` and on a ``text`` event. A ``tool_start``
+// event transitions to ``tool_running`` (with the tool name carried in
+// the label) and stays there until ``tool_result``, which goes back to
+// ``thinking`` so the user sees the model is still alive. The
+// ``error`` and ``done`` events are both terminal — per the brief,
+// the indicator "clears within one frame of ``DONE`` or ``error``",
+// and both events converge on ``idle``. The error message itself is
+// surfaced through the chat log / toast (see ``handleWsEvent``) so the
+// chat-status pill does not need to render an error state.
 function createChatStatus(element) {
   let currentState = 'idle';
   let currentToolName = null;
@@ -773,7 +774,11 @@ function createChatStatus(element) {
           if (currentState === 'tool_running') setState('thinking');
           break;
         case 'error':
-          setState('error');
+          // Per the brief, the indicator clears within one frame of
+          // ``DONE`` or ``error``. The error message itself is shown
+          // via the chat log / toast (see ``handleWsEvent``), so the
+          // chat-status pill does not render an error state.
+          setState('idle');
           break;
         case 'done':
           setState('idle');
@@ -789,7 +794,6 @@ function createChatStatus(element) {
 function statusLabel(s, toolName) {
   if (s === 'thinking') return 'AI thinking…';
   if (s === 'tool_running') return `Running ${toolName || 'tool'}…`;
-  if (s === 'error') return 'AI error';
   return '';
 }
 

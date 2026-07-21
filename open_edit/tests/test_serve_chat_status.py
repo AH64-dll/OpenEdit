@@ -322,14 +322,18 @@ console.log(JSON.stringify({ thinkLabel, toolLabel, afterLabel }));
 
 
 # ---------------------------------------------------------------------------
-# Test: error state surfaces to the user, then DONE clears it
+# Test: error event clears the indicator (per the brief)
 # ---------------------------------------------------------------------------
 
 def test_chat_status_error_then_done_clears():
-    """A turn-level ``error`` event switches the indicator to the
-    ``error`` state so the user can see the request failed. The
-    subsequent ``done`` (which the backend always sends after an error,
-    per ``app.py``) clears the indicator back to idle."""
+    """Per the brief, the indicator "clears within one frame of ``DONE``
+    or ``error``" — both events are terminal and converge on the same
+    resting state. The error message itself is surfaced through the
+    chat log (``appendErrorMessage`` in ``handleWsEvent``) and the
+    existing toast wiring, so the chat-status pill does not need to
+    render an error state. This test pins that contract: after an
+    ``error`` event the indicator is hidden and ``data-state`` is
+    ``idle``."""
     script = _harness(r"""
 const hooks = sandbox.window.OpenEdit.__testHooks;
 let currentDataState = 'unset';
@@ -360,21 +364,28 @@ console.log(JSON.stringify(log));
     log = json.loads(out.strip().splitlines()[-1])
     by_at = {entry["at"]: entry for entry in log}
 
-    # After send: thinking.
+    # After send: thinking, visible.
     assert by_at["send"]["state"] == "thinking"
     assert by_at["send"]["hidden"] is False
 
-    # After error: error state, indicator still visible.
+    # After error: back to idle and hidden (per the brief: the indicator
+    # clears within one frame of ``DONE`` or ``error``; the error
+    # message itself is shown via the chat log / toast, not the
+    # chat-status pill).
     s = by_at["error"]
-    assert s["state"] == "error", s
-    assert s["dataState"] == "error"
-    assert s["hidden"] is False, "error state should keep indicator visible"
+    assert s["state"] == "idle", s
+    assert s["dataState"] == "idle", s
+    assert s["hidden"] is True, (
+        "error should clear the indicator (per brief: 'clears within "
+        "one frame of DONE or error'). The error message is shown via "
+        "the chat log / toast, not the chat-status pill."
+    )
 
-    # After done: back to idle and hidden.
+    # After done: still idle and hidden (both events converge on idle).
     s = by_at["done"]
     assert s["state"] == "idle", s
     assert s["dataState"] == "idle"
-    assert s["hidden"] is True, "done should hide the indicator"
+    assert s["hidden"] is True
 
 
 # ---------------------------------------------------------------------------

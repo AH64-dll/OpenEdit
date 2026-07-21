@@ -350,10 +350,12 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
 
 /* ---------- Chat status indicator (P1-2) ---------- */
 /* A small pill above the chat input that shows "AI is running" / */
-/* "Running <tool>…" / "AI error" feedback while a chat turn is in */
-/* flight. The state is driven by the WS event stream (see */
-/* ``createChatStatus`` in app.js). The dot blinks (CRT-REC vibe) to */
-/* match the connection-status indicator at the top of the page. */
+/* "Running <tool>…" feedback while a chat turn is in flight. The */
+/* state is driven by the WS event stream (see ``createChatStatus`` in */
+/* app.js). The dot blinks (CRT-REC vibe) to match the */
+/* connection-status indicator at the top of the page. Errors clear */
+/* the indicator (per the brief); the error message itself is shown */
+/* via the chat log / toast. */
 .chat-status {
   display: flex;
   align-items: center;
@@ -393,13 +395,6 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
 }
 .chat-status[data-state="tool_running"] .chat-status-dot {
   animation: pulse 0.55s ease-in-out infinite;
-}
-.chat-status[data-state="error"] {
-  color: var(--red);
-  background: rgba(248, 81, 73, 0.08);
-}
-.chat-status[data-state="error"] .chat-status-dot {
-  animation: pulse 0.35s ease-in-out infinite;
 }
 
 .chat-input-row {
