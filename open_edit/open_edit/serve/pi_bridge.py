@@ -27,6 +27,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from open_edit.serve.visual_verify import build_failure_tool_result
+
 
 def _emit(obj: dict[str, Any]) -> None:
     """Print a JSON object to stdout, flush, exit 0."""
@@ -119,15 +121,6 @@ def _probe_duration(mp4_path: Path) -> float:
         raise RuntimeError(f"ffprobe returned non-numeric duration: {proc.stdout!r}") from exc
 
 
-# TODO(v1.5-slot-A): replace with `from open_edit.serve.visual_verify import build_failure_tool_result`
-# once Slot A lands. Inlined here because pi_bridge lives on a parallel worktree.
-def _build_failure_tool_result(reason: str, render_id: str, **extra: Any) -> dict[str, Any]:
-    """Inline copy of ``visual_verify.build_failure_tool_result``."""
-    detail = extra.pop("detail", "")
-    error_str = f"{reason}: {detail}".rstrip(": ").rstrip()
-    return {"error": error_str, "render_id": render_id, **extra}
-
-
 def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Server-side virtual tool: shell out to ``open_edit render``.
 
@@ -151,12 +144,12 @@ def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, A
             shell=False,
         )
     except FileNotFoundError:
-        return _build_failure_tool_result("render_failed", render_id, detail="`open_edit` CLI not found on PATH.")
+        return build_failure_tool_result("render_failed", render_id, detail="`open_edit` CLI not found on PATH.")
     except subprocess.TimeoutExpired as exc:
-        return _build_failure_tool_result("timeout", render_id, detail=f"after {exc.timeout}s")
+        return build_failure_tool_result("timeout", render_id, detail=f"after {exc.timeout}s")
 
     if proc.returncode != 0:
-        return _build_failure_tool_result(
+        return build_failure_tool_result(
             "render_failed", render_id,
             detail=f"exit {proc.returncode}: {proc.stderr.strip() or proc.stdout.strip()}",
         )
@@ -175,16 +168,16 @@ def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, A
                 output_path = str(mp4s[0])
 
     if not output_path:
-        return _build_failure_tool_result("empty_render", render_id)
+        return build_failure_tool_result("empty_render", render_id)
 
     p = Path(output_path)
     if not p.exists() or p.stat().st_size == 0:
-        return _build_failure_tool_result("empty_render", render_id, path=output_path)
+        return build_failure_tool_result("empty_render", render_id, path=output_path)
 
     try:
         duration_s = _probe_duration(p)
     except RuntimeError as exc:
-        return _build_failure_tool_result("no_video_stream", render_id, detail=str(exc))
+        return build_failure_tool_result("no_video_stream", render_id, detail=str(exc))
 
     return {
         "output_path": output_path,
