@@ -104,6 +104,10 @@ export function handleWsEvent(ev) {
   // type), so this is a separate dispatch from the chat-status
   // indicator above.
   if (state.costBadge) state.costBadge.onEvent(ev);
+  // v1.5: route verification_started / verification_result events
+  // to the verification chip. Mirrors the chat-status / cost-badge
+  // wiring pattern.
+  if (state.verifyChip) state.verifyChip.onEvent(ev);
   switch (ev.type) {
     case 'ready':
       // Server ack; nothing to render.

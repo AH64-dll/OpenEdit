@@ -30,6 +30,7 @@ import {
   appendUserMessage,
   createChatStatus,
   createCostBadge,
+  createVerifyChip,
   sendChatMessage,
   appendSearchResults,
 } from './js/chat.js';
@@ -541,6 +542,12 @@ async function boot() {
   // agent's ``cost_update`` events.
   const costEl = document.querySelector('#cost-badge');
   if (costEl) state.costBadge = createCostBadge(costEl);
+  // v1.5: verification chip. Sits next to the cost badge;
+  // ``createVerifyChip`` keeps the per-render verify label in sync
+  // with the agent's ``verification_started`` / ``verification_result``
+  // events. Mirrors the chat-status / cost-badge wiring pattern.
+  const verifyEl = document.querySelector('.verify-chip');
+  if (verifyEl) state.verifyChip = createVerifyChip(verifyEl);
 
   // Wire the WS turn-done callback to refresh project state. This
   // keeps ws.js free of any dependency on the project-state loader

@@ -22,6 +22,9 @@ export const state = {
   // v1.4 P1-2: chat-status indicator state machine. Set in ``boot()``
   // once the DOM is ready. Driven by the WS event stream.
   chatStatus: null,
+  // v1.5: verification chip state machine. Set in boot() once the DOM
+  // is ready. Mirrors the chat-status wiring pattern.
+  verifyChip: null,
   // v1.4 P1-3: cost badge state machine. Lives next to the
   // chat-status pill in the DOM; the agent loop's
   // ``cost_update`` WS event drives the label.
