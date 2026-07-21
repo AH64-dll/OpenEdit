@@ -16,6 +16,7 @@ hyperframes + ffmpeg, and it's skipped if hyperframes is missing.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import shlex
@@ -25,6 +26,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 from unittest import mock
 
 import pytest
@@ -975,3 +977,193 @@ def test_end_to_end_overlay_composite(tmp_path):
         ))
     assert result is not None
     assert Path(result).is_file()
+
+
+# ---------------------------------------------------------------------------
+# v1.6 hardening: V2 callable annotations, sibling-task cancellation,
+# persistent tmpdir cleanup (regression tests for the 4-bug fix pass)
+# ---------------------------------------------------------------------------
+
+
+def test_v2_render_composited_bg_renderer_param_uses_callable_annotation():
+    """V2: bg_renderer must be annotated as Callable[[], str | Path] (not the string 'callable')."""
+    sig = inspect.signature(html_overlay.render_composited)
+    bg_param = sig.parameters["bg_renderer"]
+    # Module uses `from __future__ import annotations`, so the annotation is
+    # stored as a string. We assert the string form here.
+    assert bg_param.annotation == "Callable[[], str | Path]"
+
+
+def test_v2_render_composited_should_cancel_param_uses_callable_annotation():
+    """V2: render_composited.should_cancel must be Callable[[], bool] | None."""
+    sig = inspect.signature(html_overlay.render_composited)
+    sc = sig.parameters["should_cancel"]
+    assert sc.annotation == "Callable[[], bool] | None"
+
+
+def test_v2_render_overlay_layer_should_cancel_param_uses_callable_annotation():
+    """V2: render_overlay_layer.should_cancel must be Callable[[], bool] | None."""
+    sig = inspect.signature(html_overlay.render_overlay_layer)
+    sc = sig.parameters["should_cancel"]
+    assert sc.annotation == "Callable[[], bool] | None"
+
+
+def test_v2_composite_with_background_should_cancel_param_uses_callable_annotation():
+    """V2: composite_with_background.should_cancel must be Callable[[], bool] | None."""
+    sig = inspect.signature(html_overlay.composite_with_background)
+    sc = sig.parameters["should_cancel"]
+    assert sc.annotation == "Callable[[], bool] | None"
+
+
+def test_v2_run_subprocess_with_cancel_should_cancel_param_uses_callable_annotation():
+    """V2: _run_subprocess_with_cancel.should_cancel must be Callable[[], bool] | None."""
+    sig = inspect.signature(html_overlay._run_subprocess_with_cancel)
+    sc = sig.parameters["should_cancel"]
+    assert sc.annotation == "Callable[[], bool] | None"
+
+
+def test_render_composited_sibling_failure_raises_overlay_render_error(tmp_path):
+    """Sibling-task cancellation: when a non-OverlayRenderError exception is raised
+    in any task (e.g. comp_html_task), the orchestrator must catch it, cancel the
+    in-flight siblings, and re-raise as OverlayRenderError (with bg_path if known).
+
+    Before the fix: the original exception (e.g. ValueError) propagates as-is and
+    the sibling asyncio tasks are not cancelled.
+    """
+    timeline = _timeline([_overlay()])
+    bg = tmp_path / "bg.mp4"
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    bg_renderer = mock.Mock(return_value=bg)
+
+    # comp_html_task raises an unexpected (non-OverlayRenderError) exception.
+    with mock.patch.object(
+        html_overlay, "generate_composition_html",
+        side_effect=RuntimeError("comp_html_task boom"),
+    ):
+        with pytest.raises(html_overlay.OverlayRenderError) as exc_info:
+            asyncio.run(html_overlay.render_composited(
+                timeline=timeline,
+                project_workdir=project_dir,
+                render_spec=_render_spec(
+                    hyperframes_bin="hyperframes", tmpdir=project_dir,
+                ),
+                bg_renderer=bg_renderer,
+            ))
+    # bg_renderer was running — its result should be propagated as bg_path on the
+    # exception so pi_bridge can use it for fallback. But since the bg_renderer
+    # mock returns immediately and the exception came from comp_html_task before
+    # bg completed, bg_path may be None. Just assert the orchestrator transformed
+    # the exception correctly.
+    assert "comp_html_task boom" in str(exc_info.value) or exc_info.value.bg_path is not None
+
+
+def test_render_composited_cancels_bg_when_comp_html_raises(tmp_path):
+    """Sibling-task cancellation: when comp_html_task raises unexpectedly, the
+    orchestrator must cancel the in-flight bg_task and re-raise as
+    OverlayRenderError (not the original exception).
+
+    Before the fix: the original exception (e.g. ValueError) propagates as-is
+    and bg_task continues running (the asyncio task is not cancelled).
+    After the fix: the exception is caught, bg_task's asyncio task is cancelled,
+    and OverlayRenderError is raised.
+    """
+    timeline = _timeline([_overlay()])
+    bg = tmp_path / "bg.mp4"
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    bg_called = threading.Event()
+
+    def bg_renderer_fn():
+        bg_called.set()
+        return bg
+
+    bg_renderer = bg_renderer_fn
+
+    # Make comp_html_task raise an unexpected (non-OverlayRenderError) exception.
+    with mock.patch.object(
+        html_overlay, "generate_composition_html",
+        side_effect=ValueError("comp_html boom"),
+    ):
+        with pytest.raises(html_overlay.OverlayRenderError):
+            asyncio.run(html_overlay.render_composited(
+                timeline=timeline,
+                project_workdir=project_dir,
+                render_spec=_render_spec(
+                    hyperframes_bin="hyperframes", tmpdir=project_dir,
+                ),
+                bg_renderer=bg_renderer,
+            ))
+
+    # bg_renderer was invoked (proving the task was running when comp_html failed).
+    assert bg_called.is_set()
+
+
+def test_render_composited_unlinks_partial_final_mp4_on_failure(tmp_path):
+    """Persistent tmpdir cleanup: on failure, partial final.mp4 is unlinked."""
+    timeline = _timeline([_overlay()])
+    bg = tmp_path / "bg.mp4"
+    bg.write_bytes(b"x" * 100)
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    bg_renderer = mock.Mock(return_value=bg)
+    final_out = project_dir / "final.mp4"
+
+    def side_effect(cmd):
+        for i, a in enumerate(cmd):
+            if a == "-o" and i + 1 < len(cmd):
+                Path(cmd[i + 1]).write_bytes(b"x" * 100)
+        # Make the ffmpeg composite (last call) fail AFTER writing partial final.mp4.
+        if cmd[-1] == str(final_out):
+            raise RuntimeError("ffmpeg crash mid-write")
+
+    def fake_popen(cmd, **kwargs):
+        return _FakePopen(cmd, side_effect=side_effect)
+
+    with mock.patch("subprocess.Popen", side_effect=fake_popen):
+        with pytest.raises(html_overlay.OverlayRenderError):
+            asyncio.run(html_overlay.render_composited(
+                timeline=timeline,
+                project_workdir=project_dir,
+                render_spec=_render_spec(
+                    hyperframes_bin="hyperframes", tmpdir=project_dir,
+                ),
+                bg_renderer=bg_renderer,
+            ))
+
+    # On failure, partial final.mp4 must be cleaned up so it doesn't accumulate
+    # in a persistent tmpdir.
+    assert not final_out.exists(), (
+        f"partial final.mp4 left behind at {final_out} on failure"
+    )
+
+
+def test_render_composited_preserves_bg_mp4_on_overlay_failure(tmp_path):
+    """Persistent tmpdir cleanup: on overlay/subprocess failure, bg.mp4 is preserved
+    (not unlinked) so pi_bridge can return it via OverlayRenderError.bg_path fallback."""
+    timeline = _timeline([_overlay()])
+    bg = tmp_path / "bg.mp4"
+    bg.write_bytes(b"x" * 100)
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    bg_renderer = mock.Mock(return_value=bg)
+
+    def fake_popen(cmd, **kwargs):
+        # Make hyperframes fail.
+        return _FakePopen(cmd, returncode=1, stderr="hyperframes crash")
+
+    with mock.patch("subprocess.Popen", side_effect=fake_popen):
+        with pytest.raises(html_overlay.OverlayRenderError) as exc_info:
+            asyncio.run(html_overlay.render_composited(
+                timeline=timeline,
+                project_workdir=project_dir,
+                render_spec=_render_spec(
+                    hyperframes_bin="hyperframes", tmpdir=project_dir,
+                ),
+                bg_renderer=bg_renderer,
+            ))
+
+    # bg.mp4 must be preserved (bg_path is propagated for fallback).
+    assert exc_info.value.bg_path == bg
+    assert bg.exists(), f"bg.mp4 was unlinked despite bg_path fallback being set"

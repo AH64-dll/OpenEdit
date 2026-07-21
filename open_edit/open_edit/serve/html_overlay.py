@@ -48,7 +48,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from open_edit.ir.types import HtmlOverlay, Timeline  # noqa: F401  (re-exported)
 
@@ -262,11 +262,12 @@ def _run_subprocess_with_cancel(
     cmd: list[str],
     output_path: Path,
     timeout_s: int,
-    should_cancel: "callable | None",
+    should_cancel: Callable[[], bool] | None,
     operation: str,
     binary_label: str,
     timeout_label: str,
     nonzero_label: str,
+    cwd: str | os.PathLike[str] | None = None,
 ) -> Path:
     """Run ``cmd`` via :class:`subprocess.Popen` with cancellation support.
 
@@ -288,6 +289,7 @@ def _run_subprocess_with_cancel(
             stderr=subprocess.PIPE,
             text=True,
             shell=False,
+            cwd=cwd,
         )
     except FileNotFoundError as exc:
         raise OverlayRenderError(f"{binary_label} binary not found: {exc}") from exc
@@ -376,7 +378,7 @@ def render_overlay_layer(
     comp_html_path: Path,
     output_path: Path,
     render_spec: dict,
-    should_cancel: "callable | None" = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Path:
     """Run the hyperframes CLI to render `comp_html_path` to `output_path`.
 
@@ -423,6 +425,7 @@ def render_overlay_layer(
         binary_label="hyperframes",
         timeout_label="hyperframes timed out",
         nonzero_label="hyperframes non-zero exit",
+        cwd=str(tmp_project_dir.resolve()),
     )
 
 
@@ -431,7 +434,7 @@ def composite_with_background(
     overlay_path: Path,
     output_path: Path,
     render_spec: dict,
-    should_cancel: "callable | None" = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Path:
     """Composite the overlay MOV over the bg MP4 via ffmpeg.
 
@@ -480,8 +483,8 @@ async def render_composited(
     timeline: Timeline,
     project_workdir: Path,
     render_spec: dict,
-    bg_renderer: "callable",
-    should_cancel: "callable | None" = None,
+    bg_renderer: Callable[[], str | Path],
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Path:
     """Concurrent composited-render pipeline.
 
@@ -505,6 +508,7 @@ async def render_composited(
     comp_html_path = tmpdir / "overlay.html"
 
     bg_path_holder: dict[str, Path | None] = {"path": None}
+    success = False
 
     # Stage 1: bg render (in a thread, via bg_renderer).
     # Poll should_cancel before dispatching so cancellation works
@@ -541,34 +545,58 @@ async def render_composited(
         estimated_mb = _estimate_overlay_size_mb(timeline)
         _disk_footprint_check(estimated_mb, tmpdir)
 
-        # Run bg and composition HTML concurrently.
-        bg_task = asyncio.create_task(_bg())
-        comp_html_task = asyncio.create_task(_gen_comp_html())
-        comp_html = await comp_html_task
-        comp_html_path.write_text(comp_html, encoding="utf-8")
-        # Start overlay render as soon as the composition HTML is ready.
-        overlay_task = asyncio.create_task(_overlay())
-        # Wait for bg.
-        bg_path = await bg_task
-        bg_path_holder["path"] = bg_path
-        # Wait for overlay.
-        overlay_path = await overlay_task
-        # Final ffmpeg composite.
-        if should_cancel and should_cancel():
-            raise OverlayRenderError("cancelled before ffmpeg composite", bg_path=bg_path)
-        final_path = await _composite(bg_path, overlay_path)
+        # Run bg and composition HTML concurrently. asyncio.TaskGroup
+        # auto-cancels in-flight siblings on any exception — critical so a
+        # failure in one task (e.g. comp_html) doesn't leave bg_renderer
+        # running for up to 30 minutes (its subprocess timeout).
+        async with asyncio.TaskGroup() as tg:
+            bg_task = tg.create_task(_bg())
+            comp_html_task = tg.create_task(_gen_comp_html())
+            comp_html = await comp_html_task
+            comp_html_path.write_text(comp_html, encoding="utf-8")
+            # Start overlay render as soon as the composition HTML is ready.
+            overlay_task = tg.create_task(_overlay())
+            # Wait for bg.
+            bg_path = await bg_task
+            bg_path_holder["path"] = bg_path
+            # Wait for overlay.
+            overlay_path = await overlay_task
+            # Final ffmpeg composite.
+            if should_cancel and should_cancel():
+                raise OverlayRenderError("cancelled before ffmpeg composite", bg_path=bg_path)
+            final_path = await asyncio.create_task(
+                _composite(bg_path, overlay_path)
+            )
+        success = True
         return final_path
-    except OverlayRenderError as exc:
-        # If we got a bg path, propagate it.
+    except* OverlayRenderError as eg:
+        # TaskGroup wraps the failure in ExceptionGroup. Extract the first
+        # OverlayRenderError and propagate it with bg_path set if known.
+        exc = next((e for e in eg.exceptions if isinstance(e, OverlayRenderError)), eg.exceptions[0])
         if bg_path_holder["path"] is not None and exc.bg_path is None:
             exc.bg_path = bg_path_holder["path"]
-        raise
+        raise exc from eg
+    except* Exception as eg:
+        # Any non-OverlayRenderError exception in any task: wrap as OverlayRenderError
+        # so callers always see the documented exception type. TaskGroup has already
+        # cancelled sibling tasks.
+        first = eg.exceptions[0]
+        exc = OverlayRenderError(str(first) or type(first).__name__, bg_path=bg_path_holder["path"])
+        raise exc from eg
     finally:
-        # Clean up the temp composition HTML.
+        # Always clean up the temp composition HTML and overlay.mov.
         comp_html_path.unlink(missing_ok=True)
-        # Clean up the overlay.mov (the ffmpeg composite produced final.mp4).
-        # Leave bg.mp4 — pi_bridge may want to return it.
         (tmpdir / "overlay.mov").unlink(missing_ok=True)
+        # On failure, also unlink partial final.mp4 so it doesn't accumulate
+        # in a persistent tmpdir (OPEN_EDIT_OVERLAY_TMPDIR). On success, keep it.
+        if not success:
+            (tmpdir / "final.mp4").unlink(missing_ok=True)
+            # Only unlink bg.mp4 if no bg_path is being propagated to the
+            # exception — pi_bridge's fallback reuses the completed bg.
+            if bg_path_holder["path"] is None:
+                for candidate in (tmpdir / "bg.mp4",):
+                    if candidate.exists():
+                        candidate.unlink()
 
 
 __all__ = [
