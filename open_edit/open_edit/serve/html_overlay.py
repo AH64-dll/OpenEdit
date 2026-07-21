@@ -42,6 +42,10 @@ import html
 import logging
 import os
 import re
+import shlex
+import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -248,8 +252,228 @@ def generate_composition_html(
     )
 
 
+# ---------------------------------------------------------------------------
+# Subprocess wrappers (spec §5)
+# ---------------------------------------------------------------------------
+
+
+def _run_subprocess_with_cancel(
+    cmd: list[str],
+    output_path: Path,
+    timeout_s: int,
+    should_cancel: "callable | None",
+    operation: str,
+    binary_label: str,
+    timeout_label: str,
+    nonzero_label: str,
+) -> Path:
+    """Run ``cmd`` via :class:`subprocess.Popen` with cancellation support.
+
+    Polls ``should_cancel`` before launching the child.  While the child is
+    running a watcher thread checks ``should_cancel`` every 100 ms and kills
+    the process if it returns ``True``.  On success, verifies that
+    ``output_path`` exists and is non-empty.
+
+    Raises ``OverlayRenderError`` on cancellation, missing binary, timeout,
+    non-zero exit, or missing/empty output.
+    """
+    if should_cancel and should_cancel():
+        raise OverlayRenderError(f"cancelled before {operation}")
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=False,
+        )
+    except FileNotFoundError as exc:
+        raise OverlayRenderError(f"{binary_label} binary not found: {exc}") from exc
+
+    cancelled = threading.Event()
+
+    def _cancel_watcher() -> None:
+        while not cancelled.is_set():
+            if proc.poll() is not None:
+                break
+            if should_cancel and should_cancel():
+                cancelled.set()
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+                break
+            time.sleep(0.1)
+
+    watcher = threading.Thread(target=_cancel_watcher, daemon=True)
+    watcher.start()
+
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        cancelled.set()
+        raise OverlayRenderError(f"{timeout_label} after {timeout_s}s")
+    finally:
+        watcher.join(timeout=2.0)
+
+    if cancelled.is_set():
+        raise OverlayRenderError(f"cancelled during {operation}")
+
+    if should_cancel and should_cancel():
+        raise OverlayRenderError(f"cancelled during {operation}")
+
+    if proc.returncode != 0:
+        raise OverlayRenderError(
+            f"{nonzero_label} ({proc.returncode}): stderr={stderr.strip()[:500]}"
+        )
+
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise OverlayRenderError(
+            f"{operation} succeeded but output file is missing or empty: {output_path}"
+        )
+
+    return output_path
+
+
+def _estimate_overlay_size_mb(timeline: Timeline) -> int:
+    """Estimate the overlay.mov size in MB.
+
+    Rough heuristic per spec §5: 1 MB/s for static content (measured in
+    spec §16 — 2.0s @ 1920x1080 of static content = 2.1 MB). For
+    full-motion content this is a significant underestimate (~30 MB/s);
+    the preflight is intentionally biased toward false-negatives on
+    full-motion (we'd rather render and find out than false-positive
+    block a 5-minute static title card).
+    """
+    total_seconds = sum(o.duration_sec for o in timeline.overlays)
+    return int(round(total_seconds * 1.0))  # 1 MB/s
+
+
+def _disk_footprint_check(estimated_mb: int, tmpdir: Path) -> None:
+    """Log a WARNING if the estimate is large; raise OverlayRenderError if too large.
+
+    Thresholds from spec §5: soft warn at 500 MB, hard cap at 2 GB.
+    """
+    if estimated_mb > 2048:
+        raise OverlayRenderError(
+            f"overlay_render_too_large: ~{estimated_mb} MB exceeds 2048 MB cap. "
+            f"Shorten the overlay duration or render in segments."
+        )
+    if estimated_mb > 500:
+        _LOG.warning(
+            "overlay estimated ~%d MB; tmpdir=%s. This may take a while and use significant disk.",
+            estimated_mb, tmpdir,
+        )
+
+
+def render_overlay_layer(
+    comp_html_path: Path,
+    output_path: Path,
+    render_spec: dict,
+    should_cancel: "callable | None" = None,
+) -> Path:
+    """Run the hyperframes CLI to render `comp_html_path` to `output_path`.
+
+    Returns the `output_path` on success. Raises `OverlayRenderError` on
+    any failure (binary missing, timeout, non-zero exit, missing/empty output).
+    Polls `should_cancel` before launching the subprocess and monitors the
+    child with a watcher thread; if `should_cancel` returns `True`, the
+    child process is killed and `OverlayRenderError` is raised (with no bg_path).
+    """
+    output_path = output_path.resolve()
+    # Build the project tmpdir and mirror the composition HTML into it so
+    # the relative -c flag resolves without an absolute path.
+    tmp_project_dir = Path(render_spec["tmpdir"])
+    tmp_project_dir.mkdir(parents=True, exist_ok=True)
+    target_html = tmp_project_dir / "overlay.html"
+    try:
+        target_html.write_text(
+            comp_html_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    except FileNotFoundError as exc:
+        raise OverlayRenderError(f"composition HTML not found: {exc}") from exc
+
+    # Verify CLI syntax (spec §16): positional [DIR], -c <html>, -f <fps>,
+    # --format mov, -o <out>, -q standard, --strict.
+    bin_argv = shlex.split(render_spec["hyperframes_bin"])
+    cmd = bin_argv + [
+        "render",
+        "-c", "overlay.html",
+        "-f", str(int(render_spec["fps"])),
+        "--format", "mov",
+        "-o", str(output_path),
+        "-q", "standard",
+        "--strict",
+        str(tmp_project_dir.resolve()),
+    ]
+
+    _LOG.info("render_overlay_layer: %s", cmd)
+    return _run_subprocess_with_cancel(
+        cmd,
+        output_path=output_path,
+        timeout_s=int(render_spec["hyperframes_timeout_s"]),
+        should_cancel=should_cancel,
+        operation="overlay render",
+        binary_label="hyperframes",
+        timeout_label="hyperframes timed out",
+        nonzero_label="hyperframes non-zero exit",
+    )
+
+
+def composite_with_background(
+    bg_path: Path,
+    overlay_path: Path,
+    output_path: Path,
+    render_spec: dict,
+    should_cancel: "callable | None" = None,
+) -> Path:
+    """Composite the overlay MOV over the bg MP4 via ffmpeg.
+
+    Verifies the ffmpeg filter from spec §5: `[0:v][1:v]overlay=eof_action=pass`,
+    explicit `-map 0:a -map [outv] -c:a copy` so bg's audio wins and isn't
+    re-encoded. Returns the `output_path`. Raises OverlayRenderError on
+    any failure (binary missing, timeout, non-zero exit, missing/empty output).
+    Polls `should_cancel` before launching the subprocess and monitors the
+    child with a watcher thread; if `should_cancel` returns `True`, the
+    child process is killed and `OverlayRenderError` is raised (with no bg_path).
+    """
+    bg_path = bg_path.resolve()
+    overlay_path = overlay_path.resolve()
+    output_path = output_path.resolve()
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(bg_path),
+        "-i", str(overlay_path),
+        "-filter_complex", "[0:v][1:v]overlay=eof_action=pass",
+        "-map", "0:a",
+        "-map", "[outv]",
+        "-c:a", "copy",
+        "-c:v", "libx264",
+        str(output_path),
+    ]
+
+    _LOG.info("composite_with_background: %s", cmd)
+    return _run_subprocess_with_cancel(
+        cmd,
+        output_path=output_path,
+        timeout_s=int(render_spec["hyperframes_timeout_s"]),
+        should_cancel=should_cancel,
+        operation="ffmpeg composite",
+        binary_label="ffmpeg",
+        timeout_label="ffmpeg composite timed out",
+        nonzero_label="ffmpeg failed",
+    )
+
+
 __all__ = [
     "OverlayRenderError",
     "_resolve_hyperframes_bin",
     "generate_composition_html",
+    "render_overlay_layer",
+    "composite_with_background",
 ]

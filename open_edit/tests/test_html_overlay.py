@@ -20,7 +20,10 @@ import logging
 import os
 import shlex
 import shutil
+import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from unittest import mock
 
@@ -335,3 +338,368 @@ def test_template_not_found_raises_overlay_render_error(tmp_path):
     timeline = _timeline([_overlay(template_path="does_not_exist.html")])
     with pytest.raises(html_overlay.OverlayRenderError, match="template_not_found"):
         html_overlay.generate_composition_html(timeline, tmp_path, _render_spec())
+
+
+# ---------------------------------------------------------------------------
+# Subprocess wrappers (Task 3 — tests 19-29 in spec §10)
+# ---------------------------------------------------------------------------
+
+def _argv_of(mock_popen_call):
+    """Return the argv list from a mocked subprocess.Popen call."""
+    return list(mock_popen_call.args[0])
+
+
+def _make_popen_mock(returncode=0, stdout="", stderr="", communicate_side_effect=None):
+    """Build a fake Popen instance for the cancellation-aware wrappers."""
+    popen = mock.Mock()
+    popen.communicate.return_value = (stdout, stderr)
+    if communicate_side_effect is not None:
+        popen.communicate.side_effect = communicate_side_effect
+    popen.poll.return_value = returncode
+    popen.returncode = returncode
+    popen.kill.return_value = None
+    return popen
+
+
+def test_render_overlay_layer_uses_argv_list_no_shell(tmp_path):
+    """Test 19: subprocess.Popen is called with shell=False (explicit)."""
+    comp_html = tmp_path / "compositions" / "overlay.html"
+    comp_html.parent.mkdir(parents=True)
+    comp_html.write_text("<html></html>")
+    out = tmp_path / "overlay.mov"
+    out.write_bytes(b"x")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    # Write the composition HTML inside the project dir for the positional [DIR] arg.
+    proj_comp = project_dir / "compositions"
+    proj_comp.mkdir()
+    proj_comp.joinpath("overlay.html").write_text("<html></html>")
+    popen_inst = _make_popen_mock()
+    with mock.patch("subprocess.Popen", return_value=popen_inst) as popen_mock:
+        html_overlay.render_overlay_layer(
+            comp_html_path=proj_comp / "overlay.html",
+            output_path=out,
+            render_spec=_render_spec(
+                hyperframes_bin="/usr/local/bin/hyperframes",
+                tmpdir=project_dir,
+            ),
+        )
+    assert popen_mock.call_args.kwargs.get("shell", False) is False
+
+
+def test_render_overlay_layer_uses_mov_format_not_mp4(tmp_path):
+    """Test 20: argv contains '--format mov' (not '--format mp4' or '--transparent')."""
+    comp_html = tmp_path / "compositions" / "overlay.html"
+    comp_html.parent.mkdir(parents=True)
+    comp_html.write_text("<html></html>")
+    out = tmp_path / "overlay.mov"
+    out.write_bytes(b"x")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    popen_inst = _make_popen_mock()
+    with mock.patch("subprocess.Popen", return_value=popen_inst) as popen_mock:
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=out,
+            render_spec=_render_spec(
+                hyperframes_bin="/usr/local/bin/hyperframes",
+                tmpdir=project_dir,
+            ),
+        )
+    argv = _argv_of(popen_mock.call_args)
+    assert "--format" in argv
+    mov_idx = argv.index("--format")
+    assert argv[mov_idx + 1] == "mov"
+    assert "mp4" not in argv
+    assert "--transparent" not in argv
+
+
+def test_render_overlay_layer_uses_composition_flag_not_input(tmp_path):
+    """Test 21: argv contains '-c' (not '--input' which doesn't exist)."""
+    comp_html = tmp_path / "overlay.html"
+    comp_html.write_text("<html></html>")
+    out = tmp_path / "out.mov"
+    out.write_bytes(b"x")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    popen_inst = _make_popen_mock()
+    with mock.patch("subprocess.Popen", return_value=popen_inst) as popen_mock:
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=out,
+            render_spec=_render_spec(
+                hyperframes_bin="/usr/local/bin/hyperframes",
+                tmpdir=project_dir,
+            ),
+        )
+    argv = _argv_of(popen_mock.call_args)
+    assert "-c" in argv
+    c_idx = argv.index("-c")
+    assert argv[c_idx + 1] == "overlay.html"
+    assert "--input" not in argv
+
+
+def test_render_overlay_layer_uses_positional_dir_arg(tmp_path):
+    """Test 22: the last positional arg is the project tmpdir (not a flag)."""
+    comp_html = tmp_path / "overlay.html"
+    comp_html.write_text("<html></html>")
+    out = tmp_path / "out.mov"
+    out.write_bytes(b"x")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    popen_inst = _make_popen_mock()
+    with mock.patch("subprocess.Popen", return_value=popen_inst) as popen_mock:
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=out,
+            render_spec=_render_spec(
+                hyperframes_bin="/usr/local/bin/hyperframes",
+                tmpdir=project_dir,
+            ),
+        )
+    argv = _argv_of(popen_mock.call_args)
+    # After shlex.split, the first element is the binary; the last is the [DIR].
+    assert argv[-1] == str(project_dir.resolve())
+
+
+def test_render_overlay_layer_uses_strict_flag(tmp_path):
+    """Test 23: argv contains '--strict' (fails on lint errors)."""
+    comp_html = tmp_path / "overlay.html"
+    comp_html.write_text("<html></html>")
+    out = tmp_path / "out.mov"
+    out.write_bytes(b"x")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    popen_inst = _make_popen_mock()
+    with mock.patch("subprocess.Popen", return_value=popen_inst) as popen_mock:
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=out,
+            render_spec=_render_spec(
+                hyperframes_bin="/usr/local/bin/hyperframes",
+                tmpdir=project_dir,
+            ),
+        )
+    argv = _argv_of(popen_mock.call_args)
+    assert "--strict" in argv
+
+
+def test_render_overlay_layer_translates_file_not_found(tmp_path):
+    """Test 24: FileNotFoundError → OverlayRenderError."""
+    comp_html = tmp_path / "x.html"
+    comp_html.write_text("<html></html>")
+    with mock.patch("subprocess.Popen", side_effect=FileNotFoundError("no hyperframes")):
+        with pytest.raises(html_overlay.OverlayRenderError, match="binary not found"):
+            html_overlay.render_overlay_layer(
+                comp_html_path=comp_html,
+                output_path=tmp_path / "out.mov",
+                render_spec=_render_spec(hyperframes_bin="/nope/hyperframes", tmpdir=tmp_path),
+            )
+
+
+def test_render_overlay_layer_translates_timeout(tmp_path):
+    """Test 25: subprocess.TimeoutExpired → OverlayRenderError."""
+    comp_html = tmp_path / "x.html"
+    comp_html.write_text("<html></html>")
+    popen_inst = _make_popen_mock(communicate_side_effect=subprocess.TimeoutExpired(cmd="hf", timeout=5))
+    with mock.patch("subprocess.Popen", return_value=popen_inst):
+        with pytest.raises(html_overlay.OverlayRenderError, match="timed out"):
+            html_overlay.render_overlay_layer(
+                comp_html_path=comp_html,
+                output_path=tmp_path / "out.mov",
+                render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path, hyperframes_timeout_s=5),
+            )
+
+
+def test_render_overlay_layer_translates_nonzero_exit(tmp_path):
+    """Test 26: returncode != 0 → OverlayRenderError with stderr in the message."""
+    comp_html = tmp_path / "x.html"
+    comp_html.write_text("<html></html>")
+    popen_inst = _make_popen_mock(returncode=1, stderr="lint error: bad HTML")
+    with mock.patch("subprocess.Popen", return_value=popen_inst):
+        with pytest.raises(html_overlay.OverlayRenderError, match="non-zero exit"):
+            html_overlay.render_overlay_layer(
+                comp_html_path=comp_html,
+                output_path=tmp_path / "out.mov",
+                render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path),
+            )
+
+
+def test_render_overlay_layer_rejects_missing_output_file(tmp_path):
+    """returncode == 0 but output file missing/empty → OverlayRenderError."""
+    comp_html = tmp_path / "x.html"
+    comp_html.write_text("<html></html>")
+    out = tmp_path / "out.mov"
+    # Do not create `out`; it is missing.
+    popen_inst = _make_popen_mock(returncode=0)
+    with mock.patch("subprocess.Popen", return_value=popen_inst):
+        with pytest.raises(html_overlay.OverlayRenderError, match="output file is missing or empty"):
+            html_overlay.render_overlay_layer(
+                comp_html_path=comp_html,
+                output_path=out,
+                render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path),
+            )
+
+
+class _SlowPopen:
+    """Fake Popen that stays alive until kill() is called."""
+
+    def __init__(self, cmd, **kwargs):
+        self.cmd = cmd
+        self._killed = threading.Event()
+        self.returncode = None
+
+    def communicate(self, timeout=None):
+        if not self._killed.wait(timeout=timeout):
+            raise subprocess.TimeoutExpired(self.cmd, timeout)
+        self.returncode = -9
+        return "", ""
+
+    def poll(self):
+        return None if not self._killed.is_set() else -9
+
+    def kill(self):
+        self._killed.set()
+
+
+def test_render_overlay_layer_cancellation_kills_subprocess(tmp_path):
+    """Cancellation during the render calls kill() and raises OverlayRenderError."""
+    comp_html = tmp_path / "overlay.html"
+    comp_html.write_text("<html></html>")
+    out = tmp_path / "out.mov"
+    out.write_bytes(b"x")
+    cancel_flag = {"cancel": False}
+
+    def should_cancel():
+        return cancel_flag["cancel"]
+
+    def trigger_cancel():
+        time.sleep(0.1)
+        cancel_flag["cancel"] = True
+
+    threading.Thread(target=trigger_cancel).start()
+    with mock.patch("subprocess.Popen", side_effect=lambda cmd, **kw: _SlowPopen(cmd)):
+        with pytest.raises(html_overlay.OverlayRenderError, match="cancelled during overlay render"):
+            html_overlay.render_overlay_layer(
+                comp_html_path=comp_html,
+                output_path=out,
+                render_spec=_render_spec(
+                    hyperframes_bin="/usr/local/bin/hyperframes",
+                    tmpdir=tmp_path,
+                    hyperframes_timeout_s=10,
+                ),
+                should_cancel=should_cancel,
+            )
+
+
+def test_composite_with_background_cancellation_kills_subprocess(tmp_path):
+    """Cancellation during ffmpeg calls kill() and raises OverlayRenderError."""
+    bg = tmp_path / "bg.mp4"
+    overlay = tmp_path / "overlay.mov"
+    out = tmp_path / "final.mp4"
+    out.write_bytes(b"x")
+    cancel_flag = {"cancel": False}
+
+    def should_cancel():
+        return cancel_flag["cancel"]
+
+    def trigger_cancel():
+        time.sleep(0.1)
+        cancel_flag["cancel"] = True
+
+    threading.Thread(target=trigger_cancel).start()
+    with mock.patch("subprocess.Popen", side_effect=lambda cmd, **kw: _SlowPopen(cmd)):
+        with pytest.raises(html_overlay.OverlayRenderError, match="cancelled during ffmpeg composite"):
+            html_overlay.composite_with_background(
+                bg_path=bg, overlay_path=overlay, output_path=out,
+                render_spec=_render_spec(hyperframes_timeout_s=10),
+                should_cancel=should_cancel,
+            )
+
+
+def test_composite_with_background_uses_explicit_audio_map(tmp_path):
+    """Test 27: ffmpeg argv contains '-map 0:a -map [outv] -c:a copy'."""
+    bg = tmp_path / "bg.mp4"
+    bg.write_bytes(b"x" * 100)
+    overlay = tmp_path / "overlay.mov"
+    overlay.write_bytes(b"x" * 100)
+    out = tmp_path / "final.mp4"
+    out.write_bytes(b"x")
+    popen_inst = _make_popen_mock()
+    with mock.patch("subprocess.Popen", return_value=popen_inst) as popen_mock:
+        html_overlay.composite_with_background(
+            bg_path=bg, overlay_path=overlay, output_path=out,
+            render_spec=_render_spec(),
+        )
+    argv = _argv_of(popen_mock.call_args)
+    # The 4 critical flags in order: -map 0:a ... -map [outv] ... -c:a copy
+    assert "-map" in argv
+    map_indices = [i for i, a in enumerate(argv) if a == "-map"]
+    assert len(map_indices) >= 2
+    assert argv[map_indices[0] + 1] == "0:a"
+    assert argv[map_indices[1] + 1] == "[outv]"
+    assert "-c:a" in argv
+    ca_idx = argv.index("-c:a")
+    assert argv[ca_idx + 1] == "copy"
+
+
+def test_composite_with_background_filter_includes_eof_action_pass(tmp_path):
+    """Test 28: ffmpeg filter_complex includes 'overlay=eof_action=pass'."""
+    bg = tmp_path / "bg.mp4"
+    overlay = tmp_path / "overlay.mov"
+    out = tmp_path / "final.mp4"
+    out.write_bytes(b"x")
+    popen_inst = _make_popen_mock()
+    with mock.patch("subprocess.Popen", return_value=popen_inst) as popen_mock:
+        html_overlay.composite_with_background(
+            bg_path=bg, overlay_path=overlay, output_path=out,
+            render_spec=_render_spec(),
+        )
+    argv = _argv_of(popen_mock.call_args)
+    fc_idx = argv.index("-filter_complex")
+    filter_str = argv[fc_idx + 1]
+    assert "overlay=eof_action=pass" in filter_str
+
+
+def test_composite_with_background_translates_ffmpeg_errors(tmp_path):
+    """Test 29: ffmpeg non-zero exit → OverlayRenderError."""
+    bg = tmp_path / "bg.mp4"
+    overlay = tmp_path / "overlay.mov"
+    out = tmp_path / "final.mp4"
+    popen_inst = _make_popen_mock(returncode=1, stderr="ffmpeg: Invalid data found")
+    with mock.patch("subprocess.Popen", return_value=popen_inst):
+        with pytest.raises(html_overlay.OverlayRenderError, match="ffmpeg failed"):
+            html_overlay.composite_with_background(
+                bg_path=bg, overlay_path=overlay, output_path=out,
+                render_spec=_render_spec(),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Disk-footprint preflight (Task 3 — tests 33, 34 in spec §10)
+# ---------------------------------------------------------------------------
+
+def test_disk_footprint_preflight_warns_at_500mb(tmp_path, caplog):
+    """Test 33: 600 MB estimate → WARNING logged, render proceeds (no exception)."""
+    # 600s of overlay at 1 MB/s = 600 MB. Use a single overlay spanning 10 minutes.
+    timeline = _timeline([_overlay(position_sec=0, duration_sec=600.0)])
+    import logging
+    with caplog.at_level(logging.WARNING, logger="open_edit.serve.html_overlay"):
+        html_overlay._disk_footprint_check(estimated_mb=600, tmpdir=tmp_path)
+    assert any("overlay estimated" in r.message and "~600 MB" in r.message
+               for r in caplog.records)
+
+
+def test_disk_footprint_preflight_raises_overlay_render_error_at_2gb(tmp_path):
+    """Test 34: 3 GB estimate → OverlayRenderError (no subprocess spawned)."""
+    with pytest.raises(html_overlay.OverlayRenderError, match="overlay_render_too_large"):
+        html_overlay._disk_footprint_check(estimated_mb=3000, tmpdir=tmp_path)
+
+
+def test_estimate_overlay_size_mb_heuristic(tmp_path):
+    """Direct coverage for _estimate_overlay_size_mb: 1 MB/s rounded."""
+    timeline = _timeline([
+        _overlay(position_sec=0, duration_sec=2.5),
+        _overlay(position_sec=3.0, duration_sec=4.5),
+    ])
+    assert html_overlay._estimate_overlay_size_mb(timeline) == 7
