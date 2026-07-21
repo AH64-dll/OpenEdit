@@ -268,3 +268,57 @@ async def test_system_prompt_is_deterministic(patched_agent):
     assert "## Available tools" in prompt1
     assert "list_assets" in prompt1
     assert "trigger_render" in prompt1
+
+
+# ---------------------------------------------------------------------------
+# v1.6 V4 bugfix: in-process trigger_render must return the same
+# structured shape as the pi subprocess path ({output_path, mode,
+# duration_s, render_id}). The verification stage reads
+# ``result.get("render_id", ...)``; without these fields, the in-process
+# path always falls back to "render_unknown" and breaks observability.
+# ---------------------------------------------------------------------------
+
+
+def test_execute_trigger_render_in_process_returns_structured_shape(tmp_path):
+    """V4: ``_execute_trigger_render`` (in-process agent path) must
+    return a dict with ``render_id`` and ``duration_s`` for non-overlay
+    modes, matching the pi subprocess path. The verification stage
+    reads these fields via ``result.get('render_id', ...)``."""
+    from open_edit.serve import agent
+
+    renders = tmp_path / ".open_edit" / "renders"
+    renders.mkdir(parents=True, exist_ok=True)
+    fake = renders / "project_aaa.mp4"
+    fake.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+    proc = mock.Mock(returncode=0, stdout=f"{fake}\n", stderr="")
+
+    with mock.patch("subprocess.run", return_value=proc), \
+         mock.patch("open_edit.serve.agent._probe_duration", return_value=10.5):
+        out = agent._execute_trigger_render({"mode": "proxy"}, tmp_path)
+
+    # Required structured fields (must match pi subprocess shape)
+    assert "output_path" in out
+    assert out["output_path"] == str(fake)
+    assert "mode" in out
+    assert out["mode"] == "proxy"
+    assert "render_id" in out
+    assert out["render_id"].startswith("render_")
+    assert "duration_s" in out
+    assert out["duration_s"] == 10.5
+
+
+def test_execute_trigger_render_in_process_duration_zero_on_missing_file(tmp_path):
+    """V4: when the output file doesn't exist (parse fallback path),
+    ``duration_s`` is 0.0 (not raised) and ``render_id`` is present.
+    The verification stage must always see a render_id."""
+    from open_edit.serve import agent
+
+    # Subprocess returns stdout that doesn't look like a path → no file
+    proc = mock.Mock(returncode=0, stdout="not a path\n", stderr="")
+    with mock.patch("subprocess.run", return_value=proc):
+        out = agent._execute_trigger_render({"mode": "final"}, tmp_path)
+
+    assert out["mode"] == "final"
+    assert out["output_path"] == ""
+    assert out["render_id"].startswith("render_")
+    assert out["duration_s"] == 0.0

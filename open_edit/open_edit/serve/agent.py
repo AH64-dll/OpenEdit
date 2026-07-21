@@ -34,7 +34,7 @@ from . import visual_verify
 from .llm import stream_chat
 from .pi_bridge import _probe_duration
 from .project_meta import is_verify_disabled
-from .serve_env import get_visual_verify_config
+from .serve_env import RENDER_TIMEOUT_S, get_visual_verify_config
 from .tool_schemas import (
     IR_MODEL_SUMMARY,
     TOOL_SCHEMAS,
@@ -284,6 +284,12 @@ def _execute_trigger_render(args: dict[str, Any], project_path: Path) -> dict[st
     v1.6: ``mode=="overlay"`` is the composited HTML-overlay path. We
     delegate to ``pi_bridge._run_trigger_render`` so the in-process
     agent loop and the TS extension see identical behavior.
+
+    v1.6 V4: the returned dict must use the same structured shape as
+    the pi subprocess path (``{output_path, mode, duration_s, render_id}``)
+    so the verification stage's ``result.get("render_id", ...)`` always
+    sees a real render id (not "render_unknown") regardless of which
+    path was taken.
     """
     mode = (args.get("mode") or "proxy").lower()
     if mode == "overlay":
@@ -292,6 +298,8 @@ def _execute_trigger_render(args: dict[str, Any], project_path: Path) -> dict[st
     if mode not in ("proxy", "final"):
         mode = "proxy"
 
+    render_id = f"render_{os.urandom(6).hex()}"
+
     try:
         proc = subprocess.run(
             ["open_edit", "render", "--mode", mode],
@@ -299,7 +307,7 @@ def _execute_trigger_render(args: dict[str, Any], project_path: Path) -> dict[st
             check=True,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=RENDER_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
         raise RuntimeError("`open_edit` CLI not found on PATH.") from exc
@@ -327,9 +335,21 @@ def _execute_trigger_render(args: dict[str, Any], project_path: Path) -> dict[st
             if mp4s:
                 output_path = str(mp4s[0])
 
+    # Probe duration if we have a real file; 0.0 on missing/invalid.
+    duration_s = 0.0
+    if output_path:
+        mp4_path = Path(output_path)
+        if mp4_path.exists() and mp4_path.stat().st_size > 0:
+            try:
+                duration_s = _probe_duration(mp4_path)
+            except RuntimeError:
+                duration_s = 0.0
+
     return {
         "mode": mode,
         "output_path": output_path,
+        "duration_s": duration_s,
+        "render_id": render_id,
         "stdout": proc.stdout,
         "stderr": proc.stderr,
     }

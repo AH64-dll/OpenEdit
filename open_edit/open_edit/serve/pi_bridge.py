@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -30,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from open_edit.serve import html_overlay  # noqa: E402
-from open_edit.serve.serve_env import get_overlay_config  # noqa: E402
+from open_edit.serve.serve_env import RENDER_TIMEOUT_S, get_overlay_config  # noqa: E402
 from open_edit.serve.visual_verify import build_failure_tool_result
 
 _LOG = logging.getLogger("open_edit.serve.pi_bridge")
@@ -205,6 +206,11 @@ def _build_render_spec(project_path: Path, mode: str, hyperframes_timeout: int) 
     """Build the RenderSpec TypedDict for one render."""
     overlay_cfg = get_overlay_config()
     profile = _read_mlt_profile(project_path)
+    # ``overlay_cfg["hyperframes_bin"]`` is ``None`` when the env var is
+    # unset (see serve_env.get_overlay_config); the ``or`` short-circuit
+    # falls back to the runtime resolver in that case. The contract is
+    # the same as for the previous ``""`` sentinel: any falsy value
+    # triggers the auto-resolve. The resolver honours env > pinned > npx.
     return {
         "width": profile["width"],
         "height": profile["height"],
@@ -237,7 +243,7 @@ def _run_mlt_only_render(args: dict[str, Any], project_path: Path) -> dict[str, 
             check=False,
             capture_output=True,
             text=True,
-            timeout=1800,
+            timeout=RENDER_TIMEOUT_S,
             shell=False,
         )
     except FileNotFoundError:
@@ -290,18 +296,36 @@ def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, A
     v1.6: when args['mode'] == 'overlay' AND the project has overlays,
     run the composited pipeline (bg + hyperframes + ffmpeg). Otherwise
     the existing v1.5 path runs unchanged.
+
+    When invoked from the in-process agent loop (a running event loop),
+    we can't call ``asyncio.run`` directly; the bug it would raise is
+    ``RuntimeError: asyncio.run() cannot be called from a running
+    event loop``. We detect the running loop and dispatch the coroutine
+    to a worker thread so it blocks waiting for its result.
     """
     mode = (args.get("mode") or "proxy").lower()
+    if mode not in ("proxy", "final", "overlay"):
+        mode = "proxy"
     render_spec = _build_render_spec(project_path, mode, get_overlay_config()["hyperframes_timeout_s"])
     if _should_use_composited(args, project_path, render_spec):
+        coro = html_overlay.render_composited(
+            timeline=_load_timeline(project_path),
+            project_workdir=project_path,
+            render_spec=render_spec,
+            bg_renderer=lambda: _run_mlt_only_render({"mode": mode}, project_path)["output_path"],
+            should_cancel=_make_should_cancel(),
+        )
         try:
-            return asyncio.run(html_overlay.render_composited(
-                timeline=_load_timeline(project_path),
-                project_workdir=project_path,
-                render_spec=render_spec,
-                bg_renderer=lambda: _run_mlt_only_render({"mode": mode}, project_path)["output_path"],
-                should_cancel=_make_should_cancel(),
-            ))
+            asyncio.get_running_loop()
+            in_loop = True
+        except RuntimeError:
+            in_loop = False
+        try:
+            if in_loop:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    result_path = ex.submit(asyncio.run, coro).result()
+            else:
+                result_path = asyncio.run(coro)
         except html_overlay.OverlayRenderError as exc:
             _LOG.warning(
                 "overlay render failed, returning %s: %s",
@@ -309,8 +333,22 @@ def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, A
                 exc,
             )
             if exc.bg_path:
-                return {"output_path": str(exc.bg_path), "mode": mode, "duration_s": 0.0, "render_id": "render_overlay_fallback"}
-            return _run_mlt_only_render(args, project_path)
+                return {
+                    "output_path": str(exc.bg_path),
+                    "mode": mode,
+                    "duration_s": 0.0,
+                    "render_id": "render_overlay_fallback",
+                }
+            return build_failure_tool_result(
+                "overlay_render_failed", "render_overlay_fallback",
+                detail=str(exc),
+            )
+        return {
+            "output_path": str(result_path),
+            "mode": mode,
+            "duration_s": 0.0,
+            "render_id": f"render_{os.urandom(6).hex()}",
+        }
     return _run_mlt_only_render(args, project_path)
 
 

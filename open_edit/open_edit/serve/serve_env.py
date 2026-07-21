@@ -18,6 +18,13 @@ from pathlib import Path
 from typing import Any
 
 
+# Single source of truth for the render subprocess timeout. Both
+# ``pi_bridge._run_mlt_only_render`` (subprocess path) and
+# ``agent._execute_trigger_render`` (in-process path) must use this
+# same value so the two paths time out consistently.
+RENDER_TIMEOUT_S = 1800
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None or raw == "":
@@ -71,18 +78,23 @@ def get_overlay_config() -> dict[str, Any]:
 
     Returns:
         {
-            "hyperframes_bin": str,        # path to the hyperframes binary (or "npx hyperframes")
+            "hyperframes_bin": str | None, # path to the hyperframes binary; None = auto-resolve at call time
             "hyperframes_timeout_s": int,  # subprocess timeout in seconds
             "overlay_tmpdir": Path | None, # base dir for per-render intermediate files; None = project-scoped default
         }
+
+    Contract: when the env var is unset, ``hyperframes_bin`` is ``None``
+    (not ``""``), so consumers can use ``or`` to short-circuit to the
+    resolver. The sibling field ``overlay_tmpdir`` uses the same
+    ``None`` sentinel for its "unset" case.
     """
     overlay_tmpdir_str = _env_str("OPEN_EDIT_OVERLAY_TMPDIR", "") or ""
     return {
         "hyperframes_bin": (
+            # None when OPEN_EDIT_HYPERFRAMES_BIN is unset; the consumer
+            # (pi_bridge._build_render_spec) falls back to
+            # html_overlay._resolve_hyperframes_bin() in that case.
             _env_str("OPEN_EDIT_HYPERFRAMES_BIN", None)
-            # _resolve_hyperframes_bin() handles the auto-resolution at call time
-            # (env var > pinned > npx fallback); we don't pre-resolve here.
-            or ""  # sentinel: empty string means "auto-resolve"
         ),
         "hyperframes_timeout_s": _env_int("OPEN_EDIT_HYPERFRAMES_TIMEOUT_SECONDS", 120),
         "overlay_tmpdir": Path(overlay_tmpdir_str).resolve() if overlay_tmpdir_str else None,
