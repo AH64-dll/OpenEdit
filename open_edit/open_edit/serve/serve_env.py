@@ -61,3 +61,32 @@ def get_visual_verify_config() -> dict[str, Any]:
         "allow_no_change_skip": _env_bool("OPEN_EDIT_VERIFY_ALLOW_NO_CHANGE_SKIP", True),
         "persist_history": _env_bool("OPEN_EDIT_VERIFY_PERSIST_HISTORY", True),
     }
+
+
+def get_overlay_config() -> dict[str, Any]:
+    """Return the typed config for the v1.6 HTML overlay pipeline.
+
+    All values are real Python types (not raw strings); this is the only
+    function any consumer should call. Tests rely on this contract.
+
+    Returns:
+        {
+            "hyperframes_bin": str,        # path to the hyperframes binary (or "npx hyperframes")
+            "hyperframes_timeout_s": int,  # subprocess timeout in seconds
+            "overlay_tmpdir": Path | None, # base dir for per-render intermediate files; None = project-scoped default
+        }
+    """
+    return {
+        "hyperframes_bin": (
+            _env_str("OPEN_EDIT_HYPERFRAMES_BIN", None)
+            # _resolve_hyperframes_bin() handles the auto-resolution at call time
+            # (env var > pinned > npx fallback); we don't pre-resolve here.
+            or ""  # sentinel: empty string means "auto-resolve"
+        ),
+        "hyperframes_timeout_s": _env_int("OPEN_EDIT_HYPERFRAMES_TIMEOUT_SECONDS", 120),
+        "overlay_tmpdir": (
+            Path(_env_str("OPEN_EDIT_OVERLAY_TMPDIR", "") or ".").resolve()
+            if _env_str("OPEN_EDIT_OVERLAY_TMPDIR", "")
+            else None
+        ),
+    }

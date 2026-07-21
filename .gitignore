@@ -47,3 +47,6 @@ projects/*/final.mp4.lck
 
 # Git worktrees (transient, not source)
 .worktrees/
+
+# Node.js (v1.6 hyperframes binary)
+node_modules/
