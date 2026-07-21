@@ -80,6 +80,11 @@ class AssetInfo(BaseModel):
     codec: str = ""
     has_audio: bool = False
     type: str = "video"  # "video" | "audio" | "image"
+    # Server-relative URL the frontend can use as ``<video src>`` /
+    # ``<img src>``. Set by ``_asset_to_info`` (asset list) and by the
+    # upload endpoint (ingest response). See
+    # ``GET /api/projects/{id}/assets/{hash}/file`` in app.py.
+    url: str = ""
 
 
 class EffectInfo(BaseModel):
@@ -192,7 +197,7 @@ def _list_assets_from_disk(project_path: Path) -> list[Asset]:
     return out
 
 
-def _asset_to_info(asset: Asset) -> AssetInfo:
+def _asset_to_info(asset: Asset, project_id: str = "") -> AssetInfo:
     """Convert the real ``Asset`` Pydantic model to the API ``AssetInfo``."""
     return AssetInfo(
         hash=asset.asset_hash,
@@ -204,7 +209,18 @@ def _asset_to_info(asset: Asset) -> AssetInfo:
         codec=asset.codec or "",
         has_audio=asset.has_audio,
         type=asset.type,
+        url=asset_stream_url(project_id, asset.asset_hash) if project_id else "",
     )
+
+
+def asset_stream_url(project_id: str, asset_hash: str) -> str:
+    """Return the server-relative URL for streaming an asset's bytes.
+
+    Centralised so the upload response and the asset-list response
+    agree on the URL shape (v1.4 P0-2). Used by
+    ``app.post_ingest`` and ``app.get_asset_file``.
+    """
+    return f"/api/projects/{project_id}/assets/{asset_hash}/file"
 
 
 def _ops_to_info(ops: list) -> list[OpInfo]:
@@ -314,7 +330,7 @@ async def get_project_state(project_id: str) -> ProjectState:
 
         # Assets: from filesystem via AssetStore
         asset_models = _list_assets_from_disk(path)
-        asset_infos = [_asset_to_info(a) for a in asset_models]
+        asset_infos = [_asset_to_info(a, project_id) for a in asset_models]
 
         # Edits: from edit_graph.db via EditGraphStore
         db_path = path / ".open_edit" / "edit_graph.db"

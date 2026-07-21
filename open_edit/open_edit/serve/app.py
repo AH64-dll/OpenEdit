@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -193,42 +194,65 @@ async def post_ingest(
     project_id: str,
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
-    """Upload a media file into the project and re-run ``open_edit init``."""
+    """Upload a media file into the project and ingest it via ``AssetStore``.
+
+    The file is written to the project root (so it matches the layout
+    ``open_edit init`` expects) and then ingested into the CAS
+    (``<project>/.open_edit/assets/<prefix>/<hash>`` + sidecar) via
+    ``AssetStore.ingest``. The response carries the new asset's identity
+    (including a servable ``url``) so the frontend can play the file
+    immediately without an extra round trip.
+
+    v1.4 P0-2: the previous implementation saved to ``.open_edit/inbox/``
+    and re-ran ``open_edit init`` — but ``cmd_init`` only scans the
+    project root, so the inbox file never reached the CAS and the
+    preview player had nothing to play.
+    """
     state = await _require_project(project_id)
     project_path = Path(state.path)
 
-    # Save the uploaded file to the project's inbox folder.
-    inbox = project_path / ".open_edit" / "inbox"
-    inbox.mkdir(parents=True, exist_ok=True)
-    dest = inbox / Path(file.filename or "upload.bin").name
-    with dest.open("wb") as fh:
-        shutil.copyfileobj(file.file, fh)
-
-    # Re-run `open_edit init` to ingest the new file.
+    # Save the uploaded file to a stable path (project root). The
+    # ``Asset`` model records this as ``original_path`` so the
+    # streaming route can pick the right mime type from the
+    # filename extension.
+    safe_name = Path(file.filename or "upload.bin").name or "upload.bin"
+    dest = project_path / safe_name
     try:
-        await asyncio.to_thread(
-            subprocess.run,
-            ["open_edit", "init"],
-            cwd=str(project_path),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=500, detail="`open_edit` CLI not found on PATH.") from exc
-    except subprocess.CalledProcessError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"`open_edit init` failed: {exc.stderr.strip() or exc.stdout.strip()}",
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail="ingest timed out") from exc
+        with dest.open("wb") as fh:
+            shutil.copyfileobj(file.file, fh)
+
+        # Ingest via the real storage class. ``AssetStore.ingest``
+        # computes the SHA-256, copies the bytes into the CAS, and
+        # writes the sidecar JSON. If the file isn't valid media,
+        # ffprobe inside ``ingest`` will fail — surface that as a
+        # 400 (the client sent something we can't use) rather than
+        # a generic 500.
+        from open_edit.storage.assets import AssetStore
+
+        assets_dir = project_path / ".open_edit" / "assets"
+        store = AssetStore(assets_dir)
+        try:
+            asset = await asyncio.to_thread(store.ingest, str(dest))
+        except subprocess.CalledProcessError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ffprobe failed on {safe_name!r}: not a recognised media file",
+            ) from exc
+    finally:
+        # Clean up the project-root copy: the CAS now has the bytes
+        # and the sidecar carries the original filename, so the root
+        # file is redundant. Leaving it behind would mean a re-run of
+        # ``open_edit init`` re-ingests it (doubling the work).
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     return {
         "project_id": project_id,
-        "filename": dest.name,
+        "filename": safe_name,
         "status": "ingested",
+        "asset": projects_mod._asset_to_info(asset, project_id).model_dump(mode="json"),
     }
 
 
@@ -274,6 +298,83 @@ async def get_thumbnail(project_id: str) -> Any:
         if f.exists():
             return FileResponse(str(f))
     raise HTTPException(status_code=404, detail="no thumbnail available")
+
+
+# ---------------------------------------------------------------------------
+# Asset streaming (v1.4 P0-2)
+# ---------------------------------------------------------------------------
+
+_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+@app.get("/api/projects/{project_id}/assets/{asset_hash}/file")
+async def get_asset_file(project_id: str, asset_hash: str) -> FileResponse:
+    """Stream an asset's bytes for the preview player.
+
+    v1.4 P0-2: without this route, the frontend has nothing to set
+    ``<video src>`` to and the preview modal is empty. The route
+    serves the CAS file with the right ``Content-Type`` (so the
+    browser actually plays the response) and supports HTTP Range
+    requests (so ``<video>`` can seek — without 206 support, some
+    browsers refuse to play).
+
+    The asset hash is validated as a 64-char lowercase hex string
+    before being used in a filesystem path so this route can't be
+    abused to probe arbitrary files.
+    """
+    if not _HASH_RE.fullmatch(asset_hash):
+        raise HTTPException(status_code=400, detail="invalid asset hash")
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+
+    from open_edit.ir.types import Asset
+    from open_edit.storage.assets import AssetStore
+
+    assets_dir = project_path / ".open_edit" / "assets"
+    store = AssetStore(assets_dir)
+    asset = store.get(asset_hash)
+    if asset is None:
+        raise HTTPException(
+            status_code=404, detail=f"asset not found: {asset_hash[:12]}"
+        )
+    cas_path = Path(asset.stored_path)
+    if not cas_path.exists():
+        raise HTTPException(
+            status_code=404, detail=f"asset bytes missing: {asset_hash[:12]}"
+        )
+
+    # Pick the mime type from the original filename's extension. The
+    # CAS file itself has no extension (it's stored under
+    # ``<prefix>/<hash>``), so ``mimetypes.guess_type`` from a bare
+    # ``Path("13957...").suffix`` returns ``None``. The original
+    # filename (e.g. ``clip_short.mp4``) is preserved in the sidecar.
+    media_type = _guess_mime_type(asset)
+
+    return FileResponse(
+        str(cas_path),
+        media_type=media_type,
+        # ``Accept-Ranges: bytes`` is set automatically by Starlette's
+        # ``FileResponse`` when the client sends a Range header (it
+        # replies with 206 Partial Content). We also set it
+        # unconditionally so the browser knows it can ask for a Range
+        # up front.
+        headers={"Accept-Ranges": "bytes"},
+    )
+
+
+def _guess_mime_type(asset: Asset) -> str:
+    """Best-effort mime type for a streamed asset.
+
+    Prefers the original filename's extension (``clip_short.mp4`` →
+    ``video/mp4``); falls back to ``application/octet-stream`` for
+    types we don't know. The stdlib ``mimetypes`` is enough for the
+    common formats — we don't need ``python-magic``.
+    """
+    import mimetypes
+
+    name = asset.original_path or asset.stored_path
+    guess, _ = mimetypes.guess_type(name)
+    return guess or "application/octet-stream"
 
 
 # ---------------------------------------------------------------------------

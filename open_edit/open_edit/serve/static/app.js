@@ -203,6 +203,12 @@ function normalizeAssets(rawAssets) {
     height: a.height || 0,
     codec: a.codec || '',
     has_audio: a.has_audio ?? false,
+    // Servable URL the preview can set as ``<video src>``. v1.4 P0-2:
+    // the backend's ``AssetInfo`` and the upload response both carry
+    // this field (see ``GET /api/projects/{id}/assets/{hash}/file``).
+    // Legacy shapes (no url) get an empty string so the preview
+    // shows a clear "no preview available" state instead of crashing.
+    url: a.url || a.stream_url || '',
     extra: a,
   }));
 }
@@ -477,11 +483,19 @@ async function refreshRendersList() {
 function openAssetPreview(asset) {
   $('#asset-preview-title').textContent = asset.filename;
   const video = $('#asset-preview-video');
-  // We don't have a direct asset URL; clear any previous source.
-  video.removeAttribute('src');
+  // v1.4 P0-2: the backend's ``AssetInfo.url`` is a servable route
+  // (e.g. ``/api/projects/abc/assets/13957.../file``) that streams the
+  // asset bytes with the right ``Content-Type`` and Range support.
+  // Set it as the ``<video>`` src so the browser actually plays it.
+  if (asset.url) {
+    video.src = asset.url;
+  } else {
+    // No URL — clear any previous source and show a hint in the title
+    // so the user knows why the player is blank (instead of staring
+    // at an empty modal wondering if it's broken).
+    video.removeAttribute('src');
+  }
   video.load();
-  // If the asset has a thumbnail URL or a streamable URL, set it here.
-  // For now, just show the modal with metadata.
   showModal('modal-asset-preview');
 }
 
