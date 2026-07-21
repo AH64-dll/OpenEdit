@@ -416,6 +416,89 @@ function statusLabel(s, toolName) {
 }
 
 // ----------------------------------------------------------
+// Verification chip (v1.5)
+// ----------------------------------------------------------
+// Surfaces the v1.5 visual-verify stage progress to the user. The
+// chip sits near the chat-status indicator and shows one of:
+//   "Checking render N/M…", "Render verified", "Render failed
+//   verification", "Verification skipped", "Render loop capped".
+// Hidden when idle so it doesn't show a stale label between turns.
+//
+// States: idle | checking | verified | failed | skipped | capped.
+// Driven by the v1.5 agent loop's ``verification_started`` and
+// ``verification_result`` WS events (see spec §5). Resets to
+// ``idle`` on ``done`` and ``error`` so the next turn starts clean.
+export function createVerifyChip(element) {
+  let currentState = 'idle';
+  let currentRenderCount = 0;
+  let currentMaxRenders = 3;
+  const labelEl = element && element.querySelector
+    ? element.querySelector('.verify-chip-text')
+    : null;
+
+  function setState(next, payload) {
+    currentState = next;
+    if (payload) {
+      if (typeof payload.frame_count === 'number') currentRenderCount = payload.frame_count;
+      if (typeof payload.render_count === 'number') currentRenderCount = payload.render_count;
+      if (typeof payload.max_renders === 'number') currentMaxRenders = payload.max_renders;
+    }
+    if (!element) return;
+    element.setAttribute('data-state', next);
+    if (next === 'idle') {
+      element.classList.add('hidden');
+    } else {
+      element.classList.remove('hidden');
+    }
+    if (labelEl) labelEl.textContent = verifyStatusLabel(next, currentRenderCount, currentMaxRenders);
+  }
+
+  setState('idle');
+
+  return {
+    onEvent(ev) {
+      if (!ev || typeof ev.type !== 'string') return;
+      switch (ev.type) {
+        case 'verification_started':
+          setState('checking', {
+            render_count: currentRenderCount + 1,
+            max_renders: (typeof ev.max_renders === 'number' ? ev.max_renders : currentMaxRenders),
+          });
+          break;
+        case 'verification_result':
+          if (typeof ev.render_count === 'number') currentRenderCount = ev.render_count;
+          if (typeof ev.max_renders === 'number') currentMaxRenders = ev.max_renders;
+          if (ev.outcome === 'pass') setState('verified');
+          else if (ev.outcome === 'iterate') setState('verified');
+          else if (ev.outcome === 'capped') setState('capped');
+          else if (ev.outcome === 'skipped') setState('skipped');
+          else setState('failed');
+          break;
+        case 'done':
+        case 'error':
+          setState('idle');
+          break;
+        default:
+          break;
+      }
+    },
+    reset() { setState('idle'); },
+    getState() {
+      return { state: currentState, renderCount: currentRenderCount, maxRenders: currentMaxRenders };
+    },
+  };
+}
+
+function verifyStatusLabel(s, renderCount, maxRenders) {
+  if (s === 'checking') return `Checking render ${renderCount}/${maxRenders}…`;
+  if (s === 'verified') return 'Render verified';
+  if (s === 'failed') return 'Render failed verification';
+  if (s === 'skipped') return 'Verification skipped';
+  if (s === 'capped') return 'Render loop capped';
+  return '';
+}
+
+// ----------------------------------------------------------
 // Cost badge (v1.4 P1-3)
 // ----------------------------------------------------------
 // A small monospace pill that displays the per-turn + cumulative
