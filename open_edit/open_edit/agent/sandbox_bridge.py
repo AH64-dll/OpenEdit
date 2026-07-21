@@ -36,6 +36,8 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
+import os
 import platform
 import shutil
 import subprocess
@@ -73,6 +75,13 @@ EXPECTED_PY_VERSION = '.'.join(platform.python_version().split('.')[:2])
 MAX_FREEFORM_TIMEOUT_SEC = 300
 MAX_FREEFORM_MEM_MB = 4096
 
+# Max length for stderr/stdout fragments echoed into result detail (5b).
+# Keeps the LLM-facing error short (no prompt-injection surface) while still
+# giving a hint about what went wrong.
+_DETAIL_MAX_LEN = 200
+
+logger = logging.getLogger(__name__)
+
 
 class _FlushingBuffer(list):
     """A list that writes each appended op to disk before keeping it.
@@ -90,9 +99,117 @@ class _FlushingBuffer(list):
         super().append(op)
 
 
-def _resolve_sandbox_bin() -> str | None:
-    """H5: resolve at call time, not at module import."""
-    return shutil.which("open-edit-sandbox")
+def _resolve_sandbox_bin() -> str:
+    """H5: resolve at call time, not at module import.
+
+    P8: resolve via an absolute allow-list, not $PATH. shutil.which trusts
+    the user's PATH, so a hostile 'open-edit-sandbox' earlier in PATH
+    would win over the legitimate one. The allow-list is three fixed
+    absolute locations matching the install conventions in the README:
+
+      1. ~/.local/bin (user-local pip-style install)
+      2. /usr/local/bin (system install)
+      3. <repo>/sandbox/target/release (dev workflow)
+
+    Raises FileNotFoundError if no allow-listed binary exists. Callers
+    map that to FreeFormResult.fail('sandbox_binary_missing', ...).
+    """
+    candidates = [
+        Path.home() / ".local" / "bin" / "open-edit-sandbox",
+        Path("/usr/local/bin/open-edit-sandbox"),
+        Path(__file__).parent.parent.parent
+        / "sandbox" / "target" / "release" / "open-edit-sandbox",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    raise FileNotFoundError(
+        "open-edit-sandbox binary not found in any allow-listed location "
+        f"(tried: {', '.join(str(c) for c in candidates)})"
+    )
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    """Return True if `path` equals or is a sub-path of `root`."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _get_allowed_roots() -> list[Path]:
+    """P9: return the list of allowed project-root directories.
+
+    Source: $OPEN_EDIT_PROJECTS_ROOT (os.pathsep-separated). If unset or
+    empty, fall back to the process's current working directory. Callers
+    may override the env per-test (monkeypatch.setenv) to narrow the root.
+    """
+    env = os.environ.get("OPEN_EDIT_PROJECTS_ROOT", "")
+    roots: list[Path] = []
+    for raw in env.split(os.pathsep):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            roots.append(Path(raw).resolve())
+        except (OSError, ValueError):
+            continue
+    if roots:
+        return roots
+    return [Path.cwd().resolve()]
+
+
+def _validate_workdir(workdir: Path) -> Path:
+    """P9: resolve and validate a caller-supplied workdir.
+
+    Rules (all must hold):
+      1. Resolved absolute path lives under one of the allowed roots
+         ($OPEN_EDIT_PROJECTS_ROOT, falling back to cwd).
+      2. The path is an existing directory.
+      3. The path contains `edit_graph.db` (a real project).
+
+    On any failure, raise ValueError with a clear message. The caller
+    catches it and returns the appropriate FreeFormResult / RenderResult.
+    Returns the resolved absolute Path on success.
+    """
+    workdir = Path(workdir).resolve()
+    allowed = _get_allowed_roots()
+    if not any(_is_under(workdir, root) for root in allowed):
+        allowed_repr = ", ".join(str(r) for r in allowed)
+        raise ValueError(
+            f"workdir {workdir} is not under any allowed project root "
+            f"({allowed_repr})"
+        )
+    if not workdir.is_dir():
+        raise ValueError(f"workdir {workdir} is not a directory")
+    if not (workdir / "edit_graph.db").exists():
+        raise ValueError(
+            f"workdir {workdir} is not a valid project directory "
+            f"(missing edit_graph.db)"
+        )
+    return workdir
+
+
+def _sanitize_for_detail(s: str, max_len: int = _DETAIL_MAX_LEN) -> str:
+    """5b: make a string safe to surface in a result detail.
+
+    - Take only the first line (drop everything after \\n).
+    - Strip control characters (NUL, BEL, escape sequences, etc.).
+    - Truncate to `max_len` characters with an ellipsis suffix.
+    - Empty / non-string input returns "".
+
+    The raw value is meant to be logged server-side, not echoed back to
+    the LLM (it could contain absolute paths, tokens, or prompt-injection
+    payloads from a misbehaving child process).
+    """
+    if not s:
+        return ""
+    s = s.split("\n", 1)[0]
+    s = "".join(c for c in s if c.isprintable() or c in " \t")
+    if len(s) > max_len:
+        s = s[:max_len] + "..."
+    return s
 
 
 def run_free_form(
@@ -114,6 +231,11 @@ def run_free_form(
     timeout = min(int(timeout), MAX_FREEFORM_TIMEOUT_SEC)
     mem_mb = min(int(mem_mb), MAX_FREEFORM_MEM_MB)
     try:
+        # P9: validate workdir FIRST, before any other I/O. A hostile
+        # tool call with project_path="/etc" must NOT cause code.py /
+        # _render_code.py / bootstrap.py to be staged on the host.
+        workdir = _validate_workdir(workdir)
+
         # 1. Preflight
         try:
             declared_version, declared_libs = parse_header(code)
@@ -132,10 +254,6 @@ def run_free_form(
         # 2. JobLock (need EditGraphStore; create lazily to fail preflight
         # without touching the db if header is bad).
         db_path = workdir / "edit_graph.db"
-        if not db_path.exists():
-            return FreeFormResult.fail(
-                "preflight_failed", f"edit_graph.db not found in {workdir}"
-            )
         store = EditGraphStore(db_path)
         lock = JobLock(store)
         job_id = lock.try_acquire('free_form_python')
@@ -148,105 +266,135 @@ def run_free_form(
             )
         finally:
             lock.release(job_id, "completed")
+    except ValueError as e:
+        # P9: workdir failed validation.
+        return FreeFormResult.fail("invalid_argument", str(e))
     except subprocess.TimeoutExpired:
         return FreeFormResult.fail(
             "parent_watchdog_timeout",
             "sandbox did not exit within timeout+10s",
         )
     except Exception as e:
-        # C7: never-raises safety net.
-        return FreeFormResult.fail("internal_error", repr(e))
+        # 5a: never-raises safety net. Log the full repr server-side
+        # (so on-call has the real stack) but only return the class
+        # name + a constant placeholder to the LLM. The previous
+        # `repr(e)` echoed absolute paths and exception args back to
+        # the caller, which is mild info disclosure and a usable
+        # prompt-injection surface.
+        logger.exception("run_free_form internal error")
+        return FreeFormResult.fail(
+            "internal_error",
+            f"{type(e).__name__}: <sanitized>",
+        )
 
 
 def _run_sandboxed(
     code, workdir, project_id, parent_op_id,
     timeout, mem_mb, cpu_sec, originating_note_id,
 ):
-    sandbox_bin = _resolve_sandbox_bin()
-    if sandbox_bin is None:
-        return FreeFormResult.fail(
-            "sandbox_binary_missing",
-            "'open-edit-sandbox' not found on PATH; build with "
-            "'cd open_edit/sandbox && cargo build --release' and install to $PATH",
-        )
+    try:
+        sandbox_bin = _resolve_sandbox_bin()
+    except FileNotFoundError as e:
+        return FreeFormResult.fail("sandbox_binary_missing", str(e))
 
     run_id = new_id()
     scratch = workdir / '.sandbox' / f'run_{run_id}'
-    scratch.mkdir(parents=True, exist_ok=True)
-    code_path = scratch / 'code.py'
-    ops_path = scratch / 'ops.jsonl'
-    bootstrap_path = scratch / '_bootstrap.py'
-
-    code_path.write_text(code)
-    bootstrap_path.write_text(_render_bootstrap(
-        project_id, parent_op_id, originating_note_id,
-    ))
-
-    assets_dir = workdir / 'assets'
-    source_dirs = sorted(p for p in assets_dir.iterdir() if p.is_dir()) if assets_dir.exists() else []
-    meta_file = workdir / 'edit_graph.db'
-
-    proc = subprocess.run(
-        [sandbox_bin,
-         '--scratch', str(scratch),
-         '--ops-output', str(ops_path),
-         '--python-bin', PINNED_PYTHON_BIN,
-         '--expected-py-version', EXPECTED_PY_VERSION,
-         '--timeout', str(timeout),
-         '--mem', str(mem_mb),
-         '--cpu', str(cpu_sec or timeout),
-         '--json',
-         *(arg for src in source_dirs for arg in ('--source-ro', str(src))),
-         '--project-meta', str(meta_file),
-        ],
-        capture_output=True, text=True, timeout=timeout + 10,
-    )
-
     try:
+        scratch.mkdir(parents=True, exist_ok=True)
+        code_path = scratch / 'code.py'
+        ops_path = scratch / 'ops.jsonl'
+        bootstrap_path = scratch / '_bootstrap.py'
+
+        code_path.write_text(code)
+        bootstrap_path.write_text(_render_bootstrap(
+            project_id, parent_op_id, originating_note_id,
+        ))
+
+        assets_dir = workdir / 'assets'
+        source_dirs = sorted(p for p in assets_dir.iterdir() if p.is_dir()) if assets_dir.exists() else []
+        meta_file = workdir / 'edit_graph.db'
+
+        proc = subprocess.run(
+            [sandbox_bin,
+             '--scratch', str(scratch),
+             '--ops-output', str(ops_path),
+             '--python-bin', PINNED_PYTHON_BIN,
+             '--expected-py-version', EXPECTED_PY_VERSION,
+             '--timeout', str(timeout),
+             '--mem', str(mem_mb),
+             '--cpu', str(cpu_sec or timeout),
+             '--json',
+             *(arg for src in source_dirs for arg in ('--source-ro', str(src))),
+             '--project-meta', str(meta_file),
+            ],
+            capture_output=True, text=True, timeout=timeout + 10,
+        )
+
         # M1 (v1.1): the Rust binary's stdout may have noise before the
-        # final protocol JSON line (e.g. from a transitional bug, or
-        # diagnostic output added in the future). Scan for the LAST line
-        # that starts with '{' and parse that. The Rust binary itself
-        # fixes the upstream source of noise (pipes bwrap's child stdout
-        # so print() calls don't reach the protocol JSON), but the wrapper
-        # is defensively robust to any noise that does slip through.
+        # final protocol JSON line. Scan for the LAST line that starts with
+        # '{' and parse that. See the long-form comment in commit history.
         json_line = None
         for line in proc.stdout.splitlines():
             if line.startswith("{"):
                 json_line = line
-        rust = json.loads(json_line) if json_line else None
-    except (json.JSONDecodeError, TypeError):
-        ops_path.unlink(missing_ok=True)
-        return FreeFormResult.fail("sandbox_protocol_error",
-                                   f"invalid JSON: {proc.stdout[:200]}")
+        try:
+            rust = json.loads(json_line) if json_line else None
+        except (json.JSONDecodeError, TypeError):
+            # 5b: log raw stdout/stderr; return only a sanitized hint.
+            logger.warning(
+                "sandbox returned invalid JSON; raw stdout=%r raw stderr=%r",
+                proc.stdout, proc.stderr,
+            )
+            return FreeFormResult.fail(
+                "sandbox_protocol_error",
+                _sanitize_for_detail(f"invalid JSON: {proc.stdout}"),
+            )
 
-    # Defense in depth: if the Rust binary returned with no JSON on stdout
-    # (e.g. failed with a usage error before producing protocol output),
-    # surface a clear error instead of crashing on `rust.get('ok')`.
-    if rust is None:
-        ops_path.unlink(missing_ok=True)
-        return FreeFormResult.fail(
-            "sandbox_protocol_error",
-            f"no protocol JSON in sandbox stdout: {proc.stdout[:200]!r} "
-            f"stderr: {proc.stderr[:200]!r}",
-        )
+        # Defense in depth: if the Rust binary returned with no JSON on stdout
+        # (e.g. failed with a usage error before producing protocol output),
+        # surface a clear error instead of crashing on `rust.get('ok')`.
+        if rust is None:
+            # 5b: log raw stderr; surface only a sanitized hint.
+            logger.warning(
+                "sandbox produced no protocol JSON; raw stdout=%r raw stderr=%r",
+                proc.stdout, proc.stderr,
+            )
+            return FreeFormResult.fail(
+                "sandbox_protocol_error",
+                _sanitize_for_detail(
+                    f"no protocol JSON in sandbox stdout: {proc.stdout} "
+                    f"stderr: {proc.stderr}"
+                ),
+            )
 
-    if not rust.get('ok'):
-        ops_path.unlink(missing_ok=True)
-        return FreeFormResult.fail(rust.get('reason', 'unknown'),
-                                   rust.get('stderr', ''))
+        if not rust.get('ok'):
+            # 5b: log raw stderr from the child; return only a sanitized hint.
+            raw_stderr = rust.get('stderr', '') or ''
+            logger.warning(
+                "sandbox returned ok=false reason=%r stderr=%r",
+                rust.get('reason', 'unknown'), raw_stderr,
+            )
+            return FreeFormResult.fail(
+                rust.get('reason', 'unknown'),
+                _sanitize_for_detail(raw_stderr),
+            )
 
-    if not ops_path.exists():
-        return FreeFormResult.fail("ops_missing",
-                                   "sandbox ok but ops.jsonl is missing")
+        if not ops_path.exists():
+            return FreeFormResult.fail(
+                "ops_missing", "sandbox ok but ops.jsonl is missing",
+            )
 
-    try:
-        ops, _ = _validate_ops_incrementally(ops_path, workdir)
-    except _ValidationError as e:
-        ops_path.unlink(missing_ok=True)
-        return FreeFormResult.fail("invalid_op", str(e))
+        try:
+            ops, _ = _validate_ops_incrementally(ops_path, workdir)
+        except _ValidationError as e:
+            return FreeFormResult.fail("invalid_op", str(e))
 
-    return FreeFormResult.ok(ops=ops, duration_s=rust.get('duration_s', 0.0))
+        return FreeFormResult.ok(ops=ops, duration_s=rust.get('duration_s', 0.0))
+    finally:
+        # 6a: remove the scratch dir on every code path. Each successful
+        # free-form run otherwise leaves ~3 staged files (code.py,
+        # _bootstrap.py, ops.jsonl) on disk forever under <workdir>/.sandbox/.
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _validate_ops_incrementally(ops_path: Path, workdir: Path) -> tuple[list, object]:
@@ -621,6 +769,18 @@ def run_render(
     """
     workdir = Path(workdir)
     output_path = Path(output_path)
+    # P9: validate workdir FIRST, before any host-side staging
+    # (_render_code.py is written to <workdir>/_render_code.py). A hostile
+    # tool call with project_path="/etc" must NOT cause _render_code.py to
+    # be staged on the host.
+    try:
+        workdir = _validate_workdir(workdir)
+    except ValueError:
+        # 5b: do not echo the validation message verbatim either — a path
+        # like /etc in the message would leak. The coarse reason tells the
+        # caller (engine.generate_visual) the input was rejected; the
+        # detailed message is in the logs.
+        return RenderResult(path=output_path, ok=False, detail="invalid_argument")
     if workdir not in output_path.resolve().parents and output_path.resolve().parent != workdir:
         # The Rust binary mounts `workdir` at /workdir; the output path must
         # live under the workdir so the rebind exposes it inside the sandbox.
@@ -660,12 +820,16 @@ def run_render(
                 detail=f"render sandbox timed out after {timeout_sec + 30}s",
             )
         if result.returncode != 0:
+            # 5b: log the raw stderr/stdout server-side, but DO NOT echo
+            # them into the result detail. Child stderr can contain
+            # absolute paths, tokens, or prompt-injection payloads.
+            logger.error(
+                "render sandbox failed: exit=%d stderr=%r stdout=%r",
+                result.returncode, result.stderr, result.stdout,
+            )
             return RenderResult(
                 path=output_path, ok=False,
-                detail=(
-                    f"render sandbox failed (exit {result.returncode}): "
-                    f"{result.stderr.strip() or result.stdout.strip()}"
-                ),
+                detail=f"render sandbox failed (exit {result.returncode})",
             )
         if not output_path.exists():
             return RenderResult(

@@ -21,6 +21,19 @@ from open_edit.agent.sandbox_bridge import (
 from open_edit.agent.exceptions import FreeFormResult
 
 
+@pytest.fixture(autouse=True)
+def _allow_tmp_workdir(tmp_path, monkeypatch):
+    """P9: permit workdirs under the test's tmp_path by default.
+
+    Most tests use `tmp_path / "proj"` as the workdir. Without this fixture,
+    the new workdir validation would reject those tests because they live
+    under /tmp/.../..., not under the process's cwd. Tests that need a
+    NARROWER allowed root override this by calling monkeypatch.setenv
+    themselves; pytest gives them the same monkeypatch instance.
+    """
+    monkeypatch.setenv("OPEN_EDIT_PROJECTS_ROOT", str(tmp_path))
+
+
 def test_flushing_buffer_writes_first_then_appends(tmp_path):
     """H10: write first, then append; failed write raises."""
     ops_file = tmp_path / "ops.jsonl"
@@ -260,12 +273,20 @@ def test_mem_mb_clamped_to_max(mock_run, tmp_path):
 
 
 def test_run_free_form_sandbox_binary_missing(tmp_path):
-    """H5: SANDBOX_BIN not on PATH → FreeFormResult.fail('sandbox_binary_missing')."""
+    """P8: no allow-listed binary → FreeFormResult.fail('sandbox_binary_missing').
+
+    The resolver must consult an absolute allow-list, not $PATH; if no
+    candidate exists it raises FileNotFoundError and the bridge maps that
+    to a sandbox_binary_missing result.
+    """
     from open_edit.agent.sandbox_bridge import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
-    with patch("open_edit.agent.sandbox_bridge._resolve_sandbox_bin", return_value=None):
+    with patch(
+        "open_edit.agent.sandbox_bridge._resolve_sandbox_bin",
+        side_effect=FileNotFoundError("not in any known location"),
+    ):
         result = run_free_form(
             code="# ir_api_version: 0.1; libs: {}",
             workdir=workdir,
@@ -274,6 +295,306 @@ def test_run_free_form_sandbox_binary_missing(tmp_path):
         )
     assert not result.success
     assert result.reason == "sandbox_binary_missing"
+
+
+def test_resolve_sandbox_bin_ignores_path(monkeypatch, tmp_path):
+    """P8: a hostile 'open-edit-sandbox' on $PATH must NOT be picked up.
+
+    The new resolver looks only at an absolute allow-list (~/.local/bin,
+    /usr/local/bin, the repo's target/release). It never consults $PATH
+    via shutil.which, so a planted attacker binary on PATH cannot win
+    even if it appears earlier than the legitimate one.
+    """
+    from open_edit.agent.sandbox_bridge import _resolve_sandbox_bin
+
+    hostile_dir = tmp_path / "hostile_dir"
+    hostile_dir.mkdir()
+    hostile_bin = hostile_dir / "open-edit-sandbox"
+    hostile_bin.write_text("#!/bin/sh\necho hostile\n")
+    hostile_bin.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{hostile_dir}:")
+
+    # Make every allow-list candidate's .exists() return False so the
+    # resolver finds nothing. If the implementation falls back to
+    # shutil.which/PATH, it would find the hostile binary and return
+    # its path instead of raising.
+    with patch.object(Path, "exists", return_value=False):
+        with pytest.raises(FileNotFoundError):
+            _resolve_sandbox_bin()
+
+
+def test_resolve_sandbox_bin_finds_allowlisted(monkeypatch, tmp_path):
+    """P8: a binary at ~/.local/bin/open-edit-sandbox IS found (allow-list
+    member, not a PATH hit).
+    """
+    from open_edit.agent.sandbox_bridge import _resolve_sandbox_bin
+
+    fake = tmp_path / ".local" / "bin" / "open-edit-sandbox"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("#!/bin/sh\necho legit\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    found = _resolve_sandbox_bin()
+    assert found is not None
+    assert Path(found).resolve() == fake.resolve()
+
+
+# =========================================================================
+# P9: workdir must be validated against an allowed-root allow-list before
+# any host-side staging (code.py, _render_code.py, bootstrap.py).
+# A tool call with project_path="/etc" must NOT write into /etc.
+# =========================================================================
+
+def test_run_free_form_rejects_workdir_outside_allowed_root(tmp_path, monkeypatch):
+    """P9: a workdir that LOOKS like a real project (has edit_graph.db) but
+    lives outside OPEN_EDIT_PROJECTS_ROOT must be rejected with
+    reason='invalid_argument' and produce no host-side staging files.
+    """
+    from open_edit.agent.sandbox_bridge import run_free_form
+
+    # Narrow the allowed root to a sub-dir of tmp_path; the test then
+    # creates the workdir as a SIBLING of that sub-dir.
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.setenv("OPEN_EDIT_PROJECTS_ROOT", str(allowed))
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "edit_graph.db").touch()
+
+    result = run_free_form(
+        code="# ir_api_version: 0.1; libs: {}",
+        workdir=outside,
+        project_id="p1",
+        parent_op_id="e1",
+    )
+    assert not result.success
+    assert result.reason == "invalid_argument"
+    # Critical: no .sandbox scratch dir was created in the rejected workdir.
+    assert not (outside / ".sandbox").exists(), (
+        "scratch dir was created in a rejected workdir — host-side "
+        "staging happened before validation"
+    )
+
+
+def test_run_free_form_rejects_nonexistent_workdir(tmp_path):
+    """P9: a workdir that doesn't exist (or has no edit_graph.db) is rejected."""
+    from open_edit.agent.sandbox_bridge import run_free_form
+
+    workdir = tmp_path / "does_not_exist"
+    # don't create it
+    result = run_free_form(
+        code="# ir_api_version: 0.1; libs: {}",
+        workdir=workdir,
+        project_id="p1",
+        parent_op_id="e1",
+    )
+    assert not result.success
+    assert result.reason == "invalid_argument"
+
+
+def test_run_render_rejects_workdir_outside_allowed_root(tmp_path, monkeypatch):
+    """P9: run_render also validates workdir. A workdir outside the allowed
+    root returns RenderResult(ok=False, detail='invalid_argument') and does
+    NOT stage _render_code.py on the host.
+    """
+    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.exceptions import RenderResult
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    monkeypatch.setenv("OPEN_EDIT_PROJECTS_ROOT", str(allowed))
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    output_path = outside / "out.mp4"
+
+    result = run_render(
+        code="pass",
+        workdir=outside,
+        output_path=output_path,
+    )
+    assert isinstance(result, RenderResult)
+    assert result.ok is False
+    assert result.detail == "invalid_argument"
+    # No _render_code.py was written into the rejected workdir.
+    assert not (outside / "_render_code.py").exists(), (
+        "_render_code.py was written into a rejected workdir — host-side "
+        "staging happened before validation"
+    )
+
+
+# =========================================================================
+# 5a: top-level safety net must not echo repr(e) (which leaks absolute
+# paths and exception args) back to the LLM.
+# =========================================================================
+
+def test_run_free_form_internal_error_does_not_leak_paths(tmp_path):
+    """5a: a top-level exception in the run path must not include the
+    absolute path / secret args of the original exception in result.detail.
+    """
+    from open_edit.agent.sandbox_bridge import run_free_form
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    secret = "/this/path/should/never/leak/to/the/llm/abc123"
+
+    def _raise(*a, **k):
+        raise RuntimeError(f"database error at {secret}")
+
+    with patch(
+        "open_edit.agent.sandbox_bridge._resolve_sandbox_bin",
+        side_effect=_raise,
+    ):
+        result = run_free_form(
+            code="# ir_api_version: 0.1; libs: {}",
+            workdir=workdir,
+            project_id="p1",
+            parent_op_id="e1",
+        )
+
+    assert not result.success
+    assert result.reason == "internal_error"
+    assert secret not in result.detail, (
+        f"detail leaked secret path: {result.detail!r}"
+    )
+    # The exception class name is fine to surface (it tells the LLM what
+    # kind of failure happened without leaking data).
+    assert "RuntimeError" in result.detail
+
+
+# =========================================================================
+# 5b: child stderr/stdout in result.detail must be a single line with no
+# control characters, bounded length. For render, the child stderr is NOT
+# surfaced in detail at all (only a coarse reason).
+# =========================================================================
+
+def test_run_free_form_sandbox_error_stderr_sanitized(tmp_path):
+    """5b: when the Rust binary returns ok=false with a multi-line,
+    control-char-laden stderr, the wrapper's result detail is one line,
+    no control chars, bounded length.
+    """
+    from open_edit.agent.sandbox_bridge import run_free_form
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    long_stderr = "line1\nline2\nline3" + "\x00\x01\x02" + ("x" * 1000)
+    mock_run = MagicMock(
+        returncode=0,
+        stdout=json.dumps({
+            "ok": False,
+            "reason": "sandbox_failed",
+            "stderr": long_stderr,
+        }) + "\n",
+    )
+    with patch(
+        "open_edit.agent.sandbox_bridge.subprocess.run",
+        return_value=mock_run,
+    ):
+        result = run_free_form(
+            code="# ir_api_version: 0.1; libs: {}",
+            workdir=workdir,
+            project_id="p1",
+            parent_op_id="e1",
+        )
+
+    assert not result.success
+    assert result.reason == "sandbox_failed"
+    detail = result.detail
+    assert "\n" not in detail, f"detail has newlines: {detail!r}"
+    assert "\r" not in detail, f"detail has CR: {detail!r}"
+    assert "\x00" not in detail, f"detail has NUL: {detail!r}"
+    assert len(detail) <= 300, f"detail too long ({len(detail)}): {detail!r}"
+
+
+def test_run_render_stderr_not_in_detail(tmp_path):
+    """5b: render sandbox stderr/stdout is logged server-side but NOT
+    surfaced in result.detail — only a coarse reason.
+    """
+    from open_edit.agent.sandbox_bridge import run_render
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+    output_path = workdir / "out.mp4"
+
+    fake_proc = MagicMock()
+    fake_proc.returncode = 1
+    fake_proc.stdout = "stdout-secret"
+    fake_proc.stderr = "stderr-secret /etc/passwd token123"
+
+    with patch(
+        "open_edit.agent.sandbox_bridge._resolve_render_binary",
+        return_value="/fake/binary",
+    ), patch(
+        "open_edit.agent.sandbox_bridge.subprocess.run",
+        return_value=fake_proc,
+    ):
+        result = run_render(
+            code="pass",
+            workdir=workdir,
+            output_path=output_path,
+        )
+
+    assert result.ok is False
+    for needle in ("stderr-secret", "/etc/passwd", "token123", "stdout-secret"):
+        assert needle not in result.detail, (
+            f"detail leaked {needle!r}: {result.detail!r}"
+        )
+
+
+# =========================================================================
+# 6a: scratch dir under workdir/.sandbox/run_<id> must be removed on
+# success — otherwise each successful free-form run leaves ~3 staged files
+# on disk forever.
+# =========================================================================
+
+@patch("open_edit.agent.sandbox_bridge._validate_ops_incrementally")
+@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+def test_run_free_form_removes_scratch_dir_on_success(
+    mock_run, mock_validate, tmp_path,
+):
+    """6a: scratch dir is removed on success."""
+    from open_edit.agent.sandbox_bridge import run_free_form
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    def _fake_run(cmd, **kwargs):
+        ops_idx = cmd.index("--ops-output")
+        ops_path = Path(cmd[ops_idx + 1])
+        ops_path.parent.mkdir(parents=True, exist_ok=True)
+        ops_path.write_text("{}\n")
+        return MagicMock(
+            returncode=0,
+            stdout=json.dumps({"ok": True, "duration_s": 0.1}) + "\n",
+        )
+
+    mock_run.side_effect = _fake_run
+    mock_validate.return_value = ([], None)
+
+    result = run_free_form(
+        code="# ir_api_version: 0.1; libs: {}",
+        workdir=workdir,
+        project_id="p1",
+        parent_op_id="e1",
+    )
+    assert result.success, (
+        f"expected success, got: {result.reason} {result.detail!r}"
+    )
+
+    sandbox_dir = workdir / ".sandbox"
+    if sandbox_dir.exists():
+        leftovers = list(sandbox_dir.iterdir())
+        assert not leftovers, (
+            f"scratch dir not cleaned on success: {leftovers}"
+        )
 
 
 @patch("open_edit.agent.sandbox_bridge.subprocess.run")
@@ -422,6 +743,7 @@ def test_run_render_binary_missing_returns_failed_result(tmp_path):
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
     output_path = workdir / "out.mp4"
 
     # Force _resolve_render_binary to raise (no binary in any known location).
@@ -441,18 +763,25 @@ def test_run_render_binary_missing_returns_failed_result(tmp_path):
 
 
 def test_run_render_nonzero_exit_returns_failed_result(tmp_path):
-    """I1: render binary exits non-zero → RenderResult(ok=False), no exception."""
+    """I1: render binary exits non-zero → RenderResult(ok=False), no exception.
+
+    5b: the raw child stderr is no longer surfaced in result.detail (it
+    could contain internal paths, tokens, or prompt-injection payloads).
+    The detail carries a coarse reason (the exit code) and the full
+    stderr is logged server-side instead.
+    """
     from open_edit.agent.sandbox_bridge import run_render
     from open_edit.agent.exceptions import RenderResult
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
     output_path = workdir / "out.mp4"
 
     fake_proc = MagicMock()
     fake_proc.returncode = 1
     fake_proc.stdout = ""
-    fake_proc.stderr = "render crashed"
+    fake_proc.stderr = "render crashed with internal stack trace"
 
     with patch(
         "open_edit.agent.sandbox_bridge._resolve_render_binary",
@@ -469,7 +798,10 @@ def test_run_render_nonzero_exit_returns_failed_result(tmp_path):
 
     assert isinstance(result, RenderResult)
     assert result.ok is False
-    assert "render crashed" in result.detail
+    # The detail carries the exit code (coarse reason) but NOT the raw stderr.
+    assert "1" in result.detail  # exit code appears in the detail
+    assert "render crashed" not in result.detail
+    assert "stack trace" not in result.detail
 
 
 def test_run_render_missing_output_returns_failed_result(tmp_path):
@@ -479,6 +811,7 @@ def test_run_render_missing_output_returns_failed_result(tmp_path):
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
     output_path = workdir / "out.mp4"  # never created
 
     fake_proc = MagicMock()
@@ -512,6 +845,7 @@ def test_run_render_timeout_returns_failed_result(tmp_path):
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
     output_path = workdir / "out.mp4"
 
     with patch(
@@ -539,6 +873,7 @@ def test_run_render_success_returns_ok_result(tmp_path):
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
     output_path = workdir / "out.mp4"
 
     fake_proc = MagicMock()
