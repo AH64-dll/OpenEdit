@@ -28,6 +28,9 @@ const state = {
   // Tracks the in-flight assistant message + its tool cards by conv turn
   pendingAssistantMsg: null,
   pendingToolCards: new Map(), // tool_use_id -> DOM element
+  // v1.4 P1-2: chat-status indicator state machine. Set in ``boot()``
+  // once the DOM is ready. Driven by the WS event stream.
+  chatStatus: null,
 };
 
 // ----------------------------------------------------------
@@ -696,6 +699,101 @@ function scrollChatToBottom() {
 }
 
 // ----------------------------------------------------------
+// Chat status indicator (v1.4 P1-2)
+// ----------------------------------------------------------
+// A small state machine that surfaces "AI is running" / "Running
+// <tool>…" / "AI error" feedback near the chat input. The state is
+// driven by the same WS events the chat log already consumes (see
+// ``handleWsEvent``). Exposed as ``createChatStatus`` so Node-sandbox
+// tests can drive it without a real DOM (see
+// ``tests/test_serve_chat_status.py``).
+//
+// States: ``idle`` | ``thinking`` | ``tool_running`` | ``error``.
+// ``idle`` is the resting state (no in-flight turn). ``thinking`` is
+// entered immediately on ``send()`` and on a ``text`` event. A
+// ``tool_start`` event transitions to ``tool_running`` (with the tool
+// name carried in the label) and stays there until ``tool_result``,
+// which goes back to ``thinking`` so the user sees the model is
+// still alive. A turn-level ``error`` switches to ``error``; the
+// following ``done`` (which the backend always sends, see
+// ``app.py:471``) returns the indicator to ``idle``.
+function createChatStatus(element) {
+  let currentState = 'idle';
+  let currentToolName = null;
+  const labelEl = element && element.querySelector
+    ? element.querySelector('.chat-status-text')
+    : null;
+
+  function setState(next, payload) {
+    currentState = next;
+    currentToolName = (payload && payload.name) || null;
+    if (!element) return;
+    // Use setAttribute rather than ``element.dataset.state`` so the
+    // same code path is exercised by the Node-sandbox test stubs
+    // (which intercept setAttribute but don't proxy property writes
+    // to the ``dataset`` object).
+    element.setAttribute('data-state', next);
+    if (next === 'idle') {
+      element.classList.add('hidden');
+    } else {
+      element.classList.remove('hidden');
+    }
+    if (labelEl) labelEl.textContent = statusLabel(next, currentToolName);
+  }
+
+  // Set the initial state explicitly so the DOM attribute, the
+  // ``hidden`` class, and the label are all in sync — and so test
+  // stubs that start in an ``unset`` state see the same first write
+  // a real browser would.
+  setState('idle');
+
+  return {
+    send() {
+      // User just clicked Send — show the indicator immediately, even
+      // before the first WS event arrives. This is the "no visual
+      // indication of what the AI is doing" gap the brief calls out.
+      setState('thinking');
+    },
+    onEvent(ev) {
+      if (!ev || typeof ev.type !== 'string') return;
+      switch (ev.type) {
+        case 'text':
+          // First text delta confirms the model is responding. If a
+          // tool is running we leave it alone (the tool label is more
+          // useful); otherwise switch to thinking.
+          if (currentState !== 'tool_running') setState('thinking');
+          break;
+        case 'tool_start':
+          setState('tool_running', { name: ev.name });
+          break;
+        case 'tool_result':
+          // Tool finished — the model will either emit more text or
+          // ``done`` next. Either way we're back to "thinking" until
+          // the turn ends.
+          if (currentState === 'tool_running') setState('thinking');
+          break;
+        case 'error':
+          setState('error');
+          break;
+        case 'done':
+          setState('idle');
+          break;
+        // ``ready`` and ``render`` don't change chat-status state.
+      }
+    },
+    reset() { setState('idle'); },
+    getState() { return { state: currentState, toolName: currentToolName }; },
+  };
+}
+
+function statusLabel(s, toolName) {
+  if (s === 'thinking') return 'AI thinking…';
+  if (s === 'tool_running') return `Running ${toolName || 'tool'}…`;
+  if (s === 'error') return 'AI error';
+  return '';
+}
+
+// ----------------------------------------------------------
 // WebSocket client
 // ----------------------------------------------------------
 function setWsState(s) {
@@ -766,6 +864,7 @@ function scheduleReconnect() {
 }
 
 function handleWsEvent(ev) {
+  if (state.chatStatus) state.chatStatus.onEvent(ev);
   switch (ev.type) {
     case 'ready':
       // Server ack; nothing to render.
@@ -850,6 +949,7 @@ function handleSend() {
     appendUserMessage(text);
     input.value = '';
     autoGrowInput();
+    if (state.chatStatus) state.chatStatus.send();
   }
 }
 
@@ -1081,6 +1181,11 @@ function bindEvents() {
 // ----------------------------------------------------------
 async function boot() {
   bindEvents();
+  // v1.4 P1-2: chat-status indicator. Lives in the DOM between the
+  // chat log and the input row; ``createChatStatus`` keeps it in sync
+  // with the WS event stream.
+  const statusEl = document.querySelector('#chat-status');
+  if (statusEl) state.chatStatus = createChatStatus(statusEl);
   await refreshProjects();
   if (state.currentProjectId) {
     await loadProjectState();
@@ -1114,6 +1219,10 @@ window.OpenEdit = {
     normalizeRenders,
     normalizeNotes,
     openAssetPreview,
+    // v1.4 P1-2: chat-status state machine. Exposed so Node-sandbox
+    // tests can drive it through a synthetic WS event sequence
+    // without a real DOM (see ``tests/test_serve_chat_status.py``).
+    createChatStatus,
   },
 };
 

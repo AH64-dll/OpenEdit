@@ -347,6 +347,61 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
 .render-card .render-path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--text-muted); }
 
 /* ---------- Chat input ---------- */
+
+/* ---------- Chat status indicator (P1-2) ---------- */
+/* A small pill above the chat input that shows "AI is running" / */
+/* "Running <tool>…" / "AI error" feedback while a chat turn is in */
+/* flight. The state is driven by the WS event stream (see */
+/* ``createChatStatus`` in app.js). The dot blinks (CRT-REC vibe) to */
+/* match the connection-status indicator at the top of the page. */
+.chat-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-muted);
+}
+.chat-status.hidden { display: none; }
+.chat-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.chat-status-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.chat-status[data-state="thinking"] {
+  color: var(--yellow);
+}
+.chat-status[data-state="thinking"] .chat-status-dot {
+  animation: pulse 1.0s ease-in-out infinite;
+}
+.chat-status[data-state="tool_running"] {
+  color: var(--yellow);
+  background: rgba(210, 153, 34, 0.08);
+}
+.chat-status[data-state="tool_running"] .chat-status-dot {
+  animation: pulse 0.55s ease-in-out infinite;
+}
+.chat-status[data-state="error"] {
+  color: var(--red);
+  background: rgba(248, 81, 73, 0.08);
+}
+.chat-status[data-state="error"] .chat-status-dot {
+  animation: pulse 0.35s ease-in-out infinite;
+}
+
 .chat-input-row {
   display: flex;
   gap: 8px;

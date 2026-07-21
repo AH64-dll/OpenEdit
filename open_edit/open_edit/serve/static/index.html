@@ -64,6 +64,10 @@
       <div id="chat-log" class="chat-log">
         <div class="empty-state">Select a project to start chatting.</div>
       </div>
+      <div id="chat-status" class="chat-status hidden" data-state="idle" aria-live="polite">
+        <span class="chat-status-dot"></span>
+        <span class="chat-status-text"></span>
+      </div>
       <div class="chat-input-row">
         <textarea id="chat-input" class="chat-input" placeholder="Type a message… (Enter to send, Shift+Enter for newline)" rows="1" disabled></textarea>
         <button id="btn-send" class="btn btn-primary" disabled>Send</button>
