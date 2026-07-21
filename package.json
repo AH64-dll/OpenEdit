@@ -1,0 +1,12 @@
+{
+  "name": "open-edit-monorepo",
+  "version": "1.6.0",
+  "private": true,
+  "description": "Open Edit monorepo root — pins @hyperframes/engine for v1.6 HTML overlay rendering.",
+  "devDependencies": {
+    "hyperframes": "0.7.65"
+  },
+  "scripts": {
+    "postinstall": "echo 'hyperframes installed at node_modules/.bin/hyperframes'"
+  }
+}

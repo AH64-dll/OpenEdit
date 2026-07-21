@@ -7,6 +7,14 @@ Autonomous video-editing pipeline. Raw footage → Kdenlive-editable `project.ml
 - **Spec:** [`docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md`](docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md)
 - **Plan:** [`docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md`](docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md)
 
+## Setup (v1.6+)
+
+1. `pip install -e open_edit/` (Python deps)
+2. `npm install` at the repo root — installs `hyperframes@0.7.65` (pinned
+   exactly in `package.json`). The binary lives at
+   `node_modules/.bin/hyperframes`; if it's missing, the overlay pipeline
+   falls back to bare `npx hyperframes` with a WARNING.
+
 ## Dependencies
 
 - Go 1.22+
