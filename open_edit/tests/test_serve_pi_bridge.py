@@ -371,3 +371,63 @@ def test_bridge_can_dispatch_every_advertised_tool():
         f"Fix: add `from open_edit.agent.tools.pyagent_<name> import <name>` "
         f"to open_edit/agent/tools/__init__.py."
     )
+
+
+# ---------------------------------------------------------------------------
+# v1.5: structured trigger_render result shapes
+# ---------------------------------------------------------------------------
+
+def test_run_trigger_render_returns_structured_dict(tmp_path):
+    """Happy path returns {output_path, mode, duration_s, render_id}."""
+    from open_edit.serve import pi_bridge
+    renders = tmp_path / ".open_edit" / "renders"
+    renders.mkdir(parents=True, exist_ok=True)
+    fake = renders / "project_aaa.mp4"
+    fake.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+    proc = mock.Mock(returncode=0, stdout=f"{fake}\n", stderr="")
+    with mock.patch("subprocess.run", return_value=proc), \
+         mock.patch("open_edit.serve.pi_bridge._probe_duration", return_value=10.5):
+        out = pi_bridge._run_trigger_render({}, tmp_path)
+    assert out["output_path"] == str(fake)
+    assert out["mode"] == "proxy"
+    assert out["duration_s"] == 10.5
+    assert out["render_id"].startswith("render_")
+
+
+def test_run_trigger_render_returns_render_failed_on_nonzero_exit(tmp_path):
+    """Subprocess returns exit 1 → ``error: render_failed: ...``."""
+    from open_edit.serve import pi_bridge
+    proc = mock.Mock(returncode=1, stdout="", stderr="ffmpeg crashed")
+    with mock.patch("subprocess.run", return_value=proc):
+        out = pi_bridge._run_trigger_render({}, tmp_path)
+    assert "error" in out
+    assert "render_failed" in out["error"]
+    assert "render_id" in out
+
+
+def test_run_trigger_render_returns_render_invalid_on_empty_mp4(tmp_path):
+    """Output file is 0 bytes → ``error: render_invalid``."""
+    from open_edit.serve import pi_bridge
+    renders = tmp_path / ".open_edit" / "renders"
+    renders.mkdir(parents=True, exist_ok=True)
+    (renders / "empty.mp4").write_bytes(b"")
+    proc = mock.Mock(returncode=0, stdout="empty.mp4\n", stderr="")
+    with mock.patch("subprocess.run", return_value=proc):
+        out = pi_bridge._run_trigger_render({}, tmp_path)
+    assert "error" in out
+    assert "render_invalid" in out["error"] or "empty_render" in out["error"]
+
+
+def test_run_trigger_render_returns_no_video_stream(tmp_path):
+    """ffprobe finds no video stream → ``error: no_video_stream``."""
+    from open_edit.serve import pi_bridge
+    renders = tmp_path / ".open_edit" / "renders"
+    renders.mkdir(parents=True, exist_ok=True)
+    (renders / "x.mp4").write_bytes(b"\x00" * 100)
+    proc = mock.Mock(returncode=0, stdout="x.mp4\n", stderr="")
+    with mock.patch("subprocess.run", return_value=proc), \
+         mock.patch("open_edit.serve.pi_bridge._probe_duration",
+                    side_effect=RuntimeError("no video stream")):
+        out = pi_bridge._run_trigger_render({}, tmp_path)
+    assert "error" in out
+    assert "no_video_stream" in out["error"]
