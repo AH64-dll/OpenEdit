@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mlt version="7.40.0" title="manual_baseline" producer="main_bin" root="/home/ah64/apps/mlt-pipeline">
+  <profile width="1920" height="1080" progressive="1" sample_aspect_num="1" sample_aspect_den="1" frame_rate_num="30" frame_rate_den="1" colorspace="709"/>
+  <producer id="producer0" in="00:00:00.000" out="00:00:10.000">
+    <property name="length">300</property>
+    <property name="eof">pause</property>
+    <property name="resource">/home/ah64/apps/mlt-pipeline/testdata/clip_short.mp4</property>
+    <property name="mlt_service">avformat</property>
+    <property name="seekable">1</property>
+    <property name="meta.media.width">1920</property>
+    <property name="meta.media.height">1080</property>
+    <property name="meta.media.frame_rate_num">30</property>
+    <property name="meta.media.frame_rate_den">1</property>
+    <property name="meta.media.colorspace">709</property>
+    <property name="meta.media.color_trc">bt709</property>
+    <property name="meta.media.color_range">tv</property>
+    <property name="meta.media.has_audio">0</property>
+    <property name="meta.media.nb_streams">1</property>
+    <property name="meta.media.sample_aspect_num">1</property>
+    <property name="meta.media.sample_aspect_den">1</property>
+    <property name="meta.media.top_field_first">0</property>
+    <property name="kdenlive:clipname">clip_short</property>
+    <property name="kdenlive:duration">00:00:10.000</property>
+    <property name="kdenlive:file_hash">bdd0bfb6c1c7d2f7a3b8c2e6a4f9e1d3</property>
+    <property name="kdenlive:folderid">-1</property>
+    <property name="kdenlive:binType">std</property>
+    <property name="kdenlive:docproperties.uuid">a1b2c3d4-e5f6-4789-9abc-def012345678</property>
+    <property name="kdenlive:clip_type">0</property>
+  </producer>
+  <playlist id="main_bin">
+    <entry producer="producer0" in="00:00:00.000" out="00:00:10.000"/>
+  </playlist>
+  <playlist id="video_track">
+    <entry producer="producer0" in="00:00:00.000" out="00:00:04.000"/>
+    <entry producer="producer0" in="00:00:04.000" out="00:00:10.000"/>
+  </playlist>
+  <tractor id="main_tractor" in="00:00:00.000" out="00:00:10.000">
+    <multitrack>
+      <track producer="video_track"/>
+    </multitrack>
+    <producer id="main_bin"/>
+  </tractor>
+  <tractor id="tractor0" in="00:00:00.000" out="00:00:10.000">
+    <multitrack>
+      <track producer="main_tractor"/>
+    </multitrack>
+  </tractor>
+</mlt>

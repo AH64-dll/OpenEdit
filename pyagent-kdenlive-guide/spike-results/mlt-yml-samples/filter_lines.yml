@@ -1,0 +1,78 @@
+schema_version: 7.2
+type: filter # consumer, filter, producer, or transition
+identifier: lines
+title: Scratchlines
+version: 1
+copyright: Copyright (C) 2008 Marco Gittler
+license: GPL
+language: en
+creator: Marco Gittler
+tags:
+  - Video # this may produce video
+description: Scratchlines over the Picture
+icon:
+  filename: oldfilm/lines.svg # relative to $MLT_DATA/modules/
+  content-type: image/svg
+
+notes: Implementation or additional usage notes go here.
+bugs: # this can be just for documentation, or the tool may disclose it to help user avoid pitfalls
+  - need to do some speed improvement.
+
+image_formats:
+  - yuv422
+parameters:
+  - identifier: line_width
+    title: Width of line
+    type: integer
+    description: Linewidth in picture
+    readonly: no
+    required: yes
+    minimum: 0
+    maximum: 100
+    default: 2
+    mutable: yes
+    animation: yes
+    widget: spinner
+    unit: pixel
+
+  - identifier: num
+    title: Max number of lines
+    type: integer
+    description: Maximal number of lines in picture
+    readonly: no
+    required: yes
+    minimum: 0
+    maximum: 100
+    default: 5
+    mutable: yes
+    animation: yes
+    widget: spinner
+    unit: lines
+
+  - identifier: darker
+    title: Max darker
+    type: integer
+    description: Make image up to n values darker behind line
+    readonly: no
+    required: yes
+    minimum: 0
+    maximum: 100
+    default: 40
+    mutable: yes
+    animation: yes
+    widget: spinner
+
+  - identifier: lighter
+    title: Max lighter
+    type: integer
+    description: Make image up to n values lighter behind line
+    readonly: no
+    required: yes
+    minimum: 0
+    maximum: 100
+    default: 40
+    mutable: yes
+    animation: yes
+    widget: spinner
+
+

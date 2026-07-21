@@ -1,8 +1,9 @@
 """Phase 4 Task 5: RenderSnapshotStore + max-versions cap + status states."""
 import json
-import pytest
-from pathlib import Path
+import tempfile
+import unittest
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from open_edit.storage.render_snapshots import (
     RenderSnapshot, RenderSnapshotStore, RenderStatus,
@@ -21,77 +22,77 @@ def _make_snapshot(project_id: str = "p1", status: RenderStatus = RenderStatus.r
     )
 
 
-def test_append_and_list(tmp_path):
-    store = RenderSnapshotStore(tmp_path / "snapshots.db")
-    snap = _make_snapshot()
-    store.append(snap)
-    snaps = store.list_for_project("p1")
-    assert len(snaps) == 1
-    assert snaps[0].version_id == snap.version_id
+class TestRenderSnapshotStore(unittest.TestCase):
+    """Unit tests for RenderSnapshotStore."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_append_and_list(self) -> None:
+        store = RenderSnapshotStore(self.tmp_path / "snapshots.db")
+        snap = _make_snapshot()
+        store.append(snap)
+        snaps = store.list_for_project("p1")
+        self.assertEqual(len(snaps), 1)
+        self.assertEqual(snaps[0].version_id, snap.version_id)
+
+    def test_latest_ready(self) -> None:
+        store = RenderSnapshotStore(self.tmp_path / "snapshots.db")
+        store.append(_make_snapshot(status=RenderStatus.rendering, age_days=2))
+        store.append(_make_snapshot(status=RenderStatus.ready, age_days=1))
+        latest = store.latest_ready("p1")
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.label, "v1")
+
+    def test_evict_oldest_ready(self) -> None:
+        store = RenderSnapshotStore(self.tmp_path / "snapshots.db")
+        store.append(_make_snapshot(status=RenderStatus.rendering, age_days=100))
+        for i in range(25):
+            store.append(_make_snapshot(age_days=i))
+        store.evict_oldest_ready(max_versions=20)
+        snaps = store.list_for_project("p1")
+        self.assertEqual(len(snaps), 21)
+        rendering = [s for s in snaps if s.status == RenderStatus.rendering]
+        self.assertEqual(len(rendering), 1)
+        ready = [s for s in snaps if s.status == RenderStatus.ready]
+        self.assertEqual(len(ready), 20)
+
+    def test_status_transitions(self) -> None:
+        store = RenderSnapshotStore(self.tmp_path / "snapshots.db")
+        snap = _make_snapshot(status=RenderStatus.rendering)
+        store.append(snap)
+        store.update_status(snap.version_id, RenderStatus.ready)
+        latest = store.latest_ready("p1")
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.status, RenderStatus.ready)
+
+    def test_failed_not_evicted(self) -> None:
+        store = RenderSnapshotStore(self.tmp_path / "snapshots.db")
+        for i in range(25):
+            store.append(_make_snapshot(age_days=i, status=RenderStatus.failed))
+        store.evict_oldest_ready(max_versions=5)
+        snaps = store.list_for_project("p1")
+        self.assertEqual(len(snaps), 25)
+
+    def test_latest_for_project_returns_newest_any_status(self) -> None:
+        store = RenderSnapshotStore(self.tmp_path / "snapshots.db")
+        store.append(_make_snapshot(status=RenderStatus.ready, age_days=2))
+        store.append(_make_snapshot(status=RenderStatus.failed, age_days=0))
+        latest = store.latest_for_project("p1")
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.status, RenderStatus.failed)
+        ready = store.latest_ready("p1")
+        self.assertIsNotNone(ready)
+        self.assertEqual(ready.status, RenderStatus.ready)
+
+    def test_latest_for_project_empty_returns_none(self) -> None:
+        store = RenderSnapshotStore(self.tmp_path / "snapshots.db")
+        self.assertIsNone(store.latest_for_project("p1"))
 
 
-def test_latest_ready(tmp_path):
-    store = RenderSnapshotStore(tmp_path / "snapshots.db")
-    store.append(_make_snapshot(status=RenderStatus.rendering, age_days=2))
-    store.append(_make_snapshot(status=RenderStatus.ready, age_days=1))
-    latest = store.latest_ready("p1")
-    assert latest.label == "v1"
-
-
-def test_evict_oldest_ready(tmp_path):
-    """Per audit M1: max-versions cap; evict oldest status=ready; never evict rendering/failed."""
-    store = RenderSnapshotStore(tmp_path / "snapshots.db")
-    store.append(_make_snapshot(status=RenderStatus.rendering, age_days=100))
-    for i in range(25):
-        store.append(_make_snapshot(age_days=i))
-    store.evict_oldest_ready(max_versions=20)
-    snaps = store.list_for_project("p1")
-    # 25 + 1 rendering = 26; evict 5 oldest ready; keep 20 ready + 1 rendering
-    assert len(snaps) == 21
-    rendering = [s for s in snaps if s.status == RenderStatus.rendering]
-    assert len(rendering) == 1
-    ready = [s for s in snaps if s.status == RenderStatus.ready]
-    assert len(ready) == 20
-
-
-def test_status_transitions(tmp_path):
-    store = RenderSnapshotStore(tmp_path / "snapshots.db")
-    snap = _make_snapshot(status=RenderStatus.rendering)
-    store.append(snap)
-    store.update_status(snap.version_id, RenderStatus.ready)
-    latest = store.latest_ready("p1")
-    assert latest is not None
-    assert latest.status == RenderStatus.ready
-
-
-def test_failed_not_evicted(tmp_path):
-    store = RenderSnapshotStore(tmp_path / "snapshots.db")
-    for i in range(25):
-        store.append(_make_snapshot(age_days=i, status=RenderStatus.failed))
-    store.evict_oldest_ready(max_versions=5)
-    snaps = store.list_for_project("p1")
-    # All 25 failed; evict only if status==ready
-    assert len(snaps) == 25
-
-
-def test_latest_for_project_returns_newest_any_status(tmp_path):
-    """Per fix M3: latest_for_project returns the most recent snapshot
-    regardless of status (unlike `latest_ready` which filters by ready).
-    The chat UI's commit_feedback handler uses this to broadcast
-    `version_ready` for any new snapshot, including failed renders."""
-    store = RenderSnapshotStore(tmp_path / "snapshots.db")
-    # Older ready + newer failed: latest_for_project returns the failed one.
-    store.append(_make_snapshot(status=RenderStatus.ready, age_days=2))
-    store.append(_make_snapshot(status=RenderStatus.failed, age_days=0))
-    latest = store.latest_for_project("p1")
-    assert latest is not None
-    assert latest.status == RenderStatus.failed
-    # latest_ready still returns the ready one.
-    ready = store.latest_ready("p1")
-    assert ready is not None
-    assert ready.status == RenderStatus.ready
-
-
-def test_latest_for_project_empty_returns_none(tmp_path):
-    store = RenderSnapshotStore(tmp_path / "snapshots.db")
-    assert store.latest_for_project("p1") is None
+if __name__ == "__main__":
+    unittest.main()

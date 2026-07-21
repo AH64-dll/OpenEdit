@@ -509,6 +509,7 @@ def _render_bootstrap(
         "SetAudioGainOp", "NormalizeAudioOp",
         "GroupEditsOp", "UngroupEditsOp",
         "RawMltXmlOp", "FreeFormCodeOp",
+        "AddHtmlOverlayOp", "RemoveHtmlOverlayOp",
     ]
     op_sources = [inspect.getsource(getattr(_types, name)) for name in op_types]
     new_id_source = inspect.getsource(_types.new_id)

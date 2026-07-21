@@ -50,8 +50,23 @@ class Track(BaseModel):
     effects: list[Effect] = Field(default_factory=list)
 
 
+class HtmlOverlay(BaseModel):
+    """A rendered HTML/CSS/JS overlay composited on top of the video track.
+
+    Produced by ``AddHtmlOverlayOp``. The overlay renders via headless
+    Chromium (HyperFrames-style frame-stepping) and is merged by FFmpeg
+    in the final render pass.
+    """
+    overlay_id: str
+    template_path: str
+    variables: dict[str, Any] = Field(default_factory=dict)
+    position_sec: float
+    duration_sec: float
+
+
 class Timeline(BaseModel):
     tracks: list[Track] = Field(default_factory=list)
+    overlays: list[HtmlOverlay] = Field(default_factory=list)
     duration_sec: float = 0.0
 
 
@@ -260,6 +275,29 @@ class FreeFormCodeOp(Operation):
     label: Optional[str] = None
 
 
+class AddHtmlOverlayOp(Operation):
+    """Add an HTML/CSS/JS overlay (e.g. lower-third, title card, caption) that
+    will be composited on top of the MLT background video frame-by-frame via
+    headless Chromium during the final render pass (HyperFrames-style).
+
+    ``template_path`` is a path relative to the project workdir pointing to
+    an HTML file.  ``variables`` are JSON-serialisable values passed to the
+    template at render time via ``window.__open_edit_vars``.
+    """
+    kind: Literal["add_html_overlay"] = "add_html_overlay"
+    template_path: str           # e.g. "templates/lower_third.html"
+    variables: dict[str, Any] = Field(default_factory=dict)
+    position_sec: float
+    duration_sec: float
+    overlay_id: str = Field(default_factory=new_id)
+
+
+class RemoveHtmlOverlayOp(Operation):
+    """Remove a previously added HTML overlay by its overlay_id."""
+    kind: Literal["remove_html_overlay"] = "remove_html_overlay"
+    overlay_id: str
+
+
 OperationUnion = Annotated[
     Union[
         AddClipOp, RemoveClipOp, MoveClipOp, TrimClipOp,
@@ -271,6 +309,7 @@ OperationUnion = Annotated[
         SetAudioGainOp, NormalizeAudioOp,
         GroupEditsOp, UngroupEditsOp,
         RawMltXmlOp, FreeFormCodeOp,
+        AddHtmlOverlayOp, RemoveHtmlOverlayOp,
     ],
     Field(discriminator="kind"),
 ]

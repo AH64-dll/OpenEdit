@@ -158,6 +158,10 @@ export async function loadProjectState() {
     const inlineRenders = normalizeRenders(s);
     if (inlineRenders) renderRendersList(inlineRenders);
     else refreshRendersList();
+    // Render the timeline panel if full timeline data is included
+    if (s.timeline_full ?? s.timeline) {
+      renderTimeline(s.timeline_full ?? s.timeline);
+    }
   } catch (e) {
     // The fetch failed — clear the loading state so the list isn't
     // stuck on a spinner, and toast the actual reason. The user gets
@@ -553,8 +557,8 @@ async function boot() {
   // keeps ws.js free of any dependency on the project-state loader
   // (avoids a circular import), while still letting the WS layer
   // call back into the UI when a turn ends.
-  setOnTurnDone(() => {
-    loadProjectState();
+  setOnTurnDone(async () => {
+    await loadProjectState();
     refreshRendersList();
   });
 
@@ -605,3 +609,150 @@ window.OpenEdit = {
     handleSend,
   },
 };
+
+// ============================================================
+// Timeline Panel (added: HTML Overlay support)
+// ============================================================
+
+/** Pixels per second at zoom=1 */
+const TL_BASE_PPS = 60;
+let tlZoom = 1.0;
+let tlDurationSec = 0;
+let tlCurrentData = null;
+
+/** Convert seconds to pixels using current zoom level */
+function secToPx(sec) { return sec * TL_BASE_PPS * tlZoom; }
+
+/** Draw the seconds ruler */
+function renderRuler(durationSec) {
+  const ruler = $('#timeline-ruler');
+  if (!ruler) return;
+  ruler.innerHTML = '';
+  const step = tlZoom < 0.5 ? 10 : tlZoom < 1.5 ? 5 : 2;
+  const totalSec = Math.max(durationSec, 10);
+  ruler.style.width = secToPx(totalSec) + 'px';
+  for (let t = 0; t <= totalSec; t += step) {
+    const tick = el('div', {
+      class: 'timeline-ruler-tick',
+      style: `left:${secToPx(t)}px`,
+    }, [
+      el('div', { class: 'timeline-ruler-tick-line' }),
+      el('div', { class: 'timeline-ruler-tick-label' }, [`${t}s`]),
+    ]);
+    ruler.appendChild(tick);
+  }
+}
+
+/** Main render function — draws tracks, clips, and overlay markers */
+export function renderTimeline(timelineData) {
+  tlCurrentData = timelineData;
+  const labelsCol = $('#timeline-track-labels');
+  const tracksArea = $('#timeline-tracks-area');
+  const emptyMsg = $('#timeline-empty-msg');
+  const durationLabel = $('#timeline-duration-label');
+  if (!labelsCol || !tracksArea) return;
+
+  const tracks = timelineData?.tracks ?? [];
+  const overlays = timelineData?.overlays ?? [];
+  const durationSec = timelineData?.duration_sec ?? 0;
+  tlDurationSec = durationSec;
+
+  if (durationLabel) {
+    durationLabel.textContent = durationSec > 0
+      ? `${durationSec.toFixed(1)}s`
+      : '—';
+  }
+
+  // Clear previous content (keep the ruler header placeholder in labels)
+  labelsCol.innerHTML = '<div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>';
+  tracksArea.innerHTML = '';
+
+  if (tracks.length === 0) {
+    if (emptyMsg) tracksArea.appendChild(emptyMsg);
+    emptyMsg && (emptyMsg.style.display = '');
+    renderRuler(10);
+    return;
+  }
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  renderRuler(Math.max(durationSec, 10));
+
+  // Calculate total overlay height (one row per overlay track in the future;
+  // for now, overlay markers live on top of all tracks)
+  const totalWidth = secToPx(Math.max(durationSec, 10));
+
+  tracks.forEach((track) => {
+    // Label
+    const kindBadge = el('span', {
+      class: `track-kind-badge ${track.kind ?? 'video'}`,
+    }, [track.kind === 'audio' ? '♪' : '▶']);
+    const labelRow = el('div', { class: 'timeline-track-label-row' }, [
+      kindBadge,
+      document.createTextNode(track.track_id ?? ''),
+    ]);
+    labelsCol.appendChild(labelRow);
+
+    // Track row
+    const trackRow = el('div', { class: 'timeline-track-row', style: `min-width:${totalWidth}px` });
+
+    // Clips
+    (track.clips ?? []).forEach((clip) => {
+      const clipDur = (clip.out_point_sec ?? 0) - (clip.in_point_sec ?? 0);
+      const left = secToPx(clip.position_sec ?? 0);
+      const width = Math.max(secToPx(clipDur), 4);
+      const hashShort = (clip.asset_hash ?? '').slice(0, 8);
+      const clipKind = track.kind === 'audio' ? 'audio-clip' : 'video-clip';
+      const clipEl = el('div', {
+        class: `timeline-clip ${clipKind}`,
+        style: `left:${left}px;width:${width}px`,
+        title: `${clip.clip_id ?? ''}\n${clip.asset_hash ?? ''}\n${clip.position_sec?.toFixed(2)}s → ${(clip.position_sec + clipDur).toFixed(2)}s`,
+      }, [hashShort]);
+      trackRow.appendChild(clipEl);
+    });
+
+    // Overlay markers on each track row
+    overlays.forEach((ov) => {
+      const left = secToPx(ov.position_sec ?? 0);
+      const width = Math.max(secToPx(ov.duration_sec ?? 0), 4);
+      const marker = el('div', {
+        class: 'timeline-overlay-marker',
+        style: `left:${left}px;width:${width}px`,
+        title: `HTML Overlay: ${ov.template_path ?? ''}\n${JSON.stringify(ov.variables ?? {})}`,
+      });
+      trackRow.appendChild(marker);
+    });
+
+    tracksArea.appendChild(trackRow);
+  });
+}
+
+// ---- Zoom controls ----
+$('#btn-timeline-zoom-in')?.addEventListener('click', () => {
+  tlZoom = Math.min(tlZoom * 1.5, 8);
+  if (tlCurrentData) renderTimeline(tlCurrentData);
+});
+$('#btn-timeline-zoom-out')?.addEventListener('click', () => {
+  tlZoom = Math.max(tlZoom / 1.5, 0.1);
+  if (tlCurrentData) renderTimeline(tlCurrentData);
+});
+$('#btn-timeline-fit')?.addEventListener('click', () => {
+  const col = $('#timeline-ruler-col');
+  if (!col || !tlDurationSec) return;
+  const availWidth = col.clientWidth - 20;
+  tlZoom = availWidth / (tlDurationSec * TL_BASE_PPS);
+  tlZoom = Math.max(0.05, Math.min(tlZoom, 8));
+  if (tlCurrentData) renderTimeline(tlCurrentData);
+});
+
+// ---- Hook into loadProjectState ----
+// Patch the existing loadProjectState to also call renderTimeline.
+// We do this by wrapping the exported reference after initial load.
+const _origLoadProjectState = loadProjectState;
+window.__renderTimeline = renderTimeline;
+
+// Called by WS messages or after state loads to refresh the timeline panel
+export function refreshTimeline(rawState) {
+  if (!rawState) return;
+  const tl = rawState.timeline_full ?? rawState.timeline ?? null;
+  if (tl) renderTimeline(tl);
+}

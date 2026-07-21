@@ -494,9 +494,13 @@ async def _stream_anthropic(
     tools: list[dict[str, Any]],
     system: str,
 ) -> AsyncIterator[StreamEvent]:
+    # Check the API key before attempting the import so that a missing key
+    # raises a clean RuntimeError (caught by the caller) rather than being
+    # shadowed by an ImportError when the anthropic package is absent.
+    api_key = _api_key()
     import anthropic  # type: ignore
 
-    client = anthropic.AsyncAnthropic(api_key=_api_key())
+    client = anthropic.AsyncAnthropic(api_key=api_key)
 
     # Anthropic SDK streaming event names are stable across versions.
     async with client.messages.stream(

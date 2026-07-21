@@ -4,9 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Open Edit</title>
+  <meta name="description" content="Open Edit — AI-native headless video editing engine. Chat with an AI agent to edit your video timeline directly.">
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="has-timeline">
+  <div class="site-wrapper">
+
   <!-- =================== Top bar =================== -->
   <header class="topbar">
     <div class="topbar-left">
@@ -110,6 +113,34 @@
       </div>
     </aside>
   </main>
+
+  <!-- =================== Timeline Panel =================== -->
+  <section id="timeline-panel" class="timeline-panel" aria-label="Timeline">
+    <div class="timeline-panel-header">
+      <span>Timeline</span>
+      <div class="timeline-panel-controls">
+        <span class="timeline-zoom-label" id="timeline-duration-label">—</span>
+        <button id="btn-timeline-zoom-in"  class="btn btn-ghost btn-xs" title="Zoom in">+</button>
+        <button id="btn-timeline-zoom-out" class="btn btn-ghost btn-xs" title="Zoom out">−</button>
+        <button id="btn-timeline-fit"      class="btn btn-ghost btn-xs" title="Fit to window">Fit</button>
+      </div>
+    </div>
+    <div class="timeline-body">
+      <!-- Track labels column -->
+      <div class="timeline-track-labels" id="timeline-track-labels">
+        <div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>
+      </div>
+      <!-- Ruler + tracks area -->
+      <div class="timeline-ruler-col" id="timeline-ruler-col">
+        <div class="timeline-ruler" id="timeline-ruler"></div>
+        <div class="timeline-tracks-area" id="timeline-tracks-area">
+          <div class="timeline-empty-state" id="timeline-empty-msg">No clips yet — ask the agent to add some.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </div><!-- /.site-wrapper -->
 
   <!-- =================== Modals =================== -->
   <div id="modal-new-project" class="modal hidden" role="dialog" aria-modal="true">

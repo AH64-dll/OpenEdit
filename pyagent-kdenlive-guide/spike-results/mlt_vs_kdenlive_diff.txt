@@ -1,0 +1,136 @@
+# mlt_vs_kdenlive_diff.txt — generated
+
+**Run:**
+```sh
+diff -u \
+  /home/ah64/apps/mlt-pipeline/projects/test-run/project.mlt \
+  /home/ah64/apps/mlt-pipeline/pyagent-kdenlive-guide/spike-results/fixtures/manual_baseline.kdenlive \
+  | head -200
+```
+
+## Bare `.mlt` produced by `mlt-pipeline` (`projects/test-run/project.mlt`)
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<mlt version="7.0.0" title="auto_edit" producer="main_bin">
+  <profile width="1920" height="1080" progressive="1" sample_aspect_num="1" sample_aspect_den="1" frame_rate_num="30" frame_rate_den="1" colorspace="709"/>
+  <producer id="producer0">
+    <property name="resource">footage/clip_short.mp4</property>
+  </producer>
+  <producer id="producer1">
+    <property name="resource">footage/clip_short.mp4</property>
+  </producer>
+  <playlist id="video_track">
+    <entry producer="producer0" in="00:00:00.000" out="00:00:04.000"/>
+    <entry producer="producer1" in="00:00:04.000" out="00:00:10.000"/>
+  </playlist>
+  <tractor id="main_tractor">
+    <track producer="video_track"/>
+  </tractor>
+</mlt>
+```
+
+→ 0 lines contain `kdenlive:`. Confirmed by `grep -c kdenlive: … = 0`.
+
+## Real `.kdenlive` saved by Kdenlive (full first ~80 lines)
+
+```xml
+<?xml version='1.0' encoding='utf-8'?>
+<mlt LC_NUMERIC="C" producer="main_bin" root="/home/ah64/apps/mlt-pipeline/pyagent-kdenlive-guide/spike-results/fixtures" version="7.40.0">
+ <profile colorspace="601" description="624x356 30.00fps" display_aspect_den="89" display_aspect_num="156" frame_rate_den="1" frame_rate_num="30" height="356" progressive="1" sample_aspect_den="1" sample_aspect_num="1" width="624"/>
+ <producer id="producer0" in="00:00:00.000" out="00:05:34.300">
+  <property name="length">2147483647</property>
+  <property name="eof">continue</property>
+  <property name="resource">black</property>
+  …
+  <property name="kdenlive:playlistid">black_track</property>
+  …
+```
+
+Differences in the *header* (root `<mlt>` attributes):
+
+| Attribute | bare `.mlt` | real `.kdenlive` |
+|---|---|---|
+| `version` | `7.0.0` | `7.40.0` (matches installed melt) |
+| `title` | `auto_edit` | (absent) |
+| `producer` | `main_bin` | `main_bin` |
+| `root` | (absent) | `/home/ah64/.../fixtures` |
+| `LC_NUMERIC` | (absent) | `C` |
+
+Differences in the *profile*:
+
+- `description`, `display_aspect_*` are added by Kdenlive.
+- `colorspace` is `601` in the real file (vs `709` in the bare `.mlt`)
+  — Kdenlive picked this when the user accepted the "create new
+  profile" prompt for the 624×356@30 clip.
+
+Differences in the *producers* (the "Untitled" cause):
+
+The bare `.mlt` producer has 1 property: `resource`. The real
+`.kdenlive` producer has **20+** properties, of which the
+`kdenlive:*`-namespaced ones are the load-bearing ones for
+"looks like a real project":
+
+```
+kdenlive:clipname           (e.g. "clip_short" or the source filename)
+kdenlive:duration           (e.g. "00:00:10.000")
+kdenlive:file_hash          (md5 of the source file)
+kdenlive:file_size          (bytes)
+kdenlive:folderid           ("-1" for top-level bin)
+kdenlive:id                 (numeric, e.g. "5")
+kdenlive:clip_type          (0 = AV clip, etc.)
+kdenlive:binType            ("std" for standard)
+kdenlive:playlistid         (for the black-track producer)
+kdenlive:control_uuid       (UUID; matches the timeline's tractor)
+kdenlive:docproperties.uuid (on a higher-level property)
+kdenlive:docproperties.author / .modified / .created / .version
+```
+
+Plus a *huge* set of `meta.media.*` properties (width, height, fps,
+codec, etc.) that `analyze`/`ffprobe` already produces — meaning
+`mlt-pipeline` could populate most of these *for free* if its Go code
+included them in the producer.
+
+## Minimum checklist to stop being "Untitled"
+
+For Phase 2 to emit a file Kdenlive opens as a real project (not
+"Untitled"), the producer for each clip must include at least:
+
+1. **`kdenlive:clipname`** — the human-readable name shown in the bin.
+2. **`kdenlive:duration`** — must match the clip's real duration; Kdenlive uses it for bin display.
+3. **`kdenlive:file_hash`** — md5 of the source file, used for "has the source changed?" detection.
+4. **`kdenlive:file_size`** — bytes, paired with the hash.
+5. **`kdenlive:folderid`** — `-1` for the top-level bin (no subfolders).
+6. **`kdenlive:binType`** — `std` for AV clips.
+7. **`kdenlive:clip_type`** — `0` for AV, `1` for image, `2` for audio, etc.
+
+And on the project root (`<mlt>`):
+
+8. **`kdenlive:docproperties.uuid`** somewhere (Kdenlive adds it as
+   `<property name="kdenlive:docproperties.uuid">...</property>` on the
+   *root* producer — i.e. on `<producer id="main_bin"/>`).
+9. **`kdenlive:docproperties.version`** = `1.1` (or whatever the
+   current Kdenlive writes).
+10. **`kdenlive:docproperties.author`**, `.modified`, `.created` —
+    optional but make the project's "Properties" dialog look real.
+
+The profile itself does **not** need any `kdenlive:` properties; the
+"Untitled" issue is on the *bin/producer* metadata, not the profile.
+
+## What this means for Phase 2
+
+Phase 2's project engine should:
+
+1. Take the bare `<mlt>` the Go pipeline produces (or its own MLT
+   output) and **add the `kdenlive:` properties on top**, by reading
+   the source files (for `file_hash`, `file_size`) and the project
+   state (for `clipname`, `folderid`, `docproperties.uuid`).
+2. Generate a fresh `kdenlive:docproperties.uuid` if the project is
+   new; reuse the existing one on round-trip edits.
+3. Not touch the existing `mlt-pipeline` Go code; the Python engine
+   reads what Go produced, decorates it, writes the `.kdenlive`.
+
+This means `mlt-pipeline`'s "opens as Untitled" limitation is fixable
+entirely in Python, without touching the Go pipeline. That's the
+**ideal split of responsibilities**: Go = batch MLT generation, Python
+= Kdenlive-aware wrapping.

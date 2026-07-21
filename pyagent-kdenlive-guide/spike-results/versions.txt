@@ -1,0 +1,43 @@
+Tool versions on this EndeavourOS machine (date stamp: see git commit):
+recorded by running each command in a shell.
+
+## kdenlive --version
+kdenlive 26.04.3
+
+## melt --version
+melt 7.40.0
+Copyright (C) 2002-2026 Meltytech, LLC
+<https://www.mltframework.org/>
+
+## ffprobe -version
+ffprobe version n8.1.1 Copyright (c) 2007-2026 the FFmpeg developers
+built with gcc 16.1.1 (GCC) 20260430
+configuration: --prefix=/usr ... --enable-libx264 --enable-libx265 ... (long list)
+
+## melt -query modules (filtered for the non-noise part)
+consumers include: qglsl, multi, null, sdl2, sdl2_audio, jack
+producers include: ... frei0r.test_pat_*, decklink ...
+(modules also exist: avformat, decklink, core, frei0r, gdk, glaxnimate-qt6,
+ jackrack, kdenlive, movit, normalize, oldfilm, opencv, plus, plusgpl, qt6,
+ resample, rnnoise, rtaudio, rubberband, sdl2, sox, vid.stab, vorbis, xine, xml)
+
+## DLOPEN warnings observed (informational, not fatal)
+mlt_repository_init: failed to dlopen /usr/lib/mlt-7/libmltsox.so
+mlt_repository_init: failed to dlopen /usr/lib/mlt-7/libmltrtaudio.so
+mlt_repository_init: failed to dlopen /usr/lib/mlt-7/libmltopencv.so
+mlt_repository_init: failed to dlopen /usr/lib/mlt-7/libmltgdk.so
+mlt_repository_init: failed to dlopen /usr/lib/mlt-7/libmltrnnoise.so
+mlt_repository_init: failed to dlopen /usr/lib/mlt-7/libmltmovit.so
+
+These six `libmlt*.so` modules failed to load because of missing system
+libraries (libsox_ng.so.3, librtaudio.so.7, libopencv_tracking.so.500,
+libexif.so.12, librnnoise.so.0, libmovit.so.8). They are optional MLT
+modules; melt/kdenlive still load and run. Documented here because
+PyAgent (and mlt-pipeline) does not need any of them for the core ask.
+
+## Key paths
+- MLT data dir (YAML metadata):     /usr/share/mlt-7/
+- MLT library dir (compiled mods):  /usr/lib/mlt-7/
+- Kdenlive effect XMLs:             /usr/share/kdenlive/effects/
+- Kdenlive user config:             /home/ah64/.config/kdenlive/
+- Kdenlive user titles:             /home/ah64/.local/share/kdenlive/titles/

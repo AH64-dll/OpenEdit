@@ -841,3 +841,248 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
   margin-top: 6px;
   align-self: flex-start;
 }
+
+/* ============================================================
+   Timeline Panel
+   ============================================================ */
+
+.timeline-panel {
+  height: 200px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.timeline-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  height: 28px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.timeline-panel-header span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.timeline-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-zoom-label {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.timeline-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.timeline-track-labels {
+  width: 110px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elev-2);
+}
+
+.timeline-ruler-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+}
+
+.timeline-ruler {
+  height: 20px;
+  flex-shrink: 0;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+
+.timeline-ruler-tick {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.timeline-ruler-tick-line {
+  width: 1px;
+  height: 8px;
+  background: var(--border);
+}
+
+.timeline-ruler-tick-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  padding-left: 2px;
+  white-space: nowrap;
+}
+
+.timeline-tracks-area {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.timeline-track-row {
+  height: 36px;
+  position: relative;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+}
+
+.timeline-track-label-row {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.timeline-track-label-row .track-kind-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-right: 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.track-kind-badge.video {
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+}
+
+.track-kind-badge.audio {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--green);
+}
+
+.timeline-clip {
+  position: absolute;
+  top: 4px;
+  height: 28px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: filter 120ms ease;
+  border: 1px solid transparent;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.timeline-clip:hover {
+  filter: brightness(1.2);
+}
+
+.timeline-clip.video-clip {
+  background: rgba(88, 166, 255, 0.30);
+  border-color: rgba(88, 166, 255, 0.55);
+  color: var(--accent);
+}
+
+.timeline-clip.audio-clip {
+  background: rgba(63, 185, 80, 0.25);
+  border-color: rgba(63, 185, 80, 0.50);
+  color: var(--green);
+}
+
+.timeline-overlay-marker {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-left: 2px solid var(--yellow);
+  background: rgba(210, 153, 34, 0.10);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.timeline-overlay-marker::after {
+  content: "HTML";
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 8px;
+  color: var(--yellow);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  background: var(--red);
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+  transition: left 80ms linear;
+}
+
+.timeline-playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 8px solid var(--red);
+}
+
+.timeline-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* When the body layout has a timeline, switch the main to a column */
+body.has-timeline .site-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+body.has-timeline main.layout {
+  flex: 1;
+  min-height: 0;
+}
+

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=PyAgent Chat UI
+Comment=Launch the PyAgent Kdenlive editing chat UI
+Exec=/home/ah64/apps/mlt-pipeline/pyagent-kdenlive-guide/pyagent-launch.sh %f
+Icon=video-x-generic
+Terminal=false
+Categories=Development;AudioVideo;
+MimeType=application/x-kdenlive;
+StartupNotify=true

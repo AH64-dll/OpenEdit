@@ -1,0 +1,13 @@
+{
+  "asset_hash": "13957cbb7b944f102224c3671adaa79f2adb5274a7d372f6b2b016b724aaa85c",
+  "original_path": "/home/ah64/apps/mlt-pipeline/testdata/clip_short.mp4",
+  "stored_path": "/home/ah64/apps/mlt-pipeline/testdata/.open_edit/assets/13/13957cbb7b944f102224c3671adaa79f2adb5274a7d372f6b2b016b724aaa85c",
+  "type": "video",
+  "duration_sec": 10.0,
+  "fps": 30.0,
+  "width": 1920,
+  "height": 1080,
+  "codec": "h264",
+  "has_audio": false,
+  "alignment": []
+}

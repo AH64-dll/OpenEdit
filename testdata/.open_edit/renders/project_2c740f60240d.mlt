@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mlt LC_NUMERIC="C" version="7.22.0">
+  <profile width="1280" height="720" frame_rate_num="30" frame_rate_den="1" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="1280" display_aspect_den="720" colorspace="709"/>
+  <producer id="producer_13957cbb7b944f102224c3671adaa79f2adb5274a7d372f6b2b016b724aaa85c" resource="/home/ah64/apps/mlt-pipeline/testdata/.open_edit/assets/13/13957cbb7b944f102224c3671adaa79f2adb5274a7d372f6b2b016b724aaa85c"/>
+  <tractor id="tractor0" out="300">
+    <multitrack>
+      <track producer="playlist_video_main"/>
+    </multitrack>
+  </tractor>
+  <playlist id="playlist_video_main">
+    <entry producer="producer_13957cbb7b944f102224c3671adaa79f2adb5274a7d372f6b2b016b724aaa85c" in="0" out="300">
+      <filter id="409b3c14-4c54-4cf1-862f-55fba3af972c" service="fade_out">
+        <property name="duration_sec">2.0</property>
+      </filter>
+    </entry>
+  </playlist>
+</mlt>
