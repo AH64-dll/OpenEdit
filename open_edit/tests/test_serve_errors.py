@@ -325,3 +325,63 @@ def test_unhandled_exception_does_not_leak_exc_to_client(projects_root_tmp):
     assert r.json() == {"error": "internal server error"}
     # The unique exception string is nowhere in the response.
     assert secret not in r.text
+
+
+# ---------------------------------------------------------------------------
+# v1.4 final-review fix: the global Exception handler must NOT swallow
+# ``WebSocketDisconnect`` (a subclass of ``Exception``).
+#
+# Background: when a WS client disconnects, Starlette raises
+# ``WebSocketDisconnect``. Our global ``@app.exception_handler(Exception)``
+# also catches it, runs ``traceback.print_exc()`` to stderr, and tries to
+# return a 500 — but a WS isn't an HTTP request, so the JSON response is
+# meaningless. Worse, every normal tab close prints a fake traceback to
+# the operator log, making real failures hard to spot.
+#
+# The fix re-raises ``WebSocketDisconnect`` from the handler so Starlette
+# handles it normally (a clean WS close with no operator noise).
+# ---------------------------------------------------------------------------
+
+def test_unhandled_exception_handler_does_not_swallow_websocket_disconnect(
+    projects_root_tmp,
+):
+    """A ``WebSocketDisconnect`` must NOT go through the global Exception
+    handler. The handler must re-raise so Starlette handles the WS close
+    normally — no operator-log traceback, no 500 JSON response (the
+    response is meaningless for a WS, and printing a traceback makes
+    real failures hard to spot).
+    """
+    from fastapi import WebSocketDisconnect
+    import traceback as _traceback
+
+    handler = app_mod.app.exception_handlers[Exception]
+
+    with mock.patch.object(_traceback, "print_exc") as print_exc_mock:
+        with pytest.raises(WebSocketDisconnect):
+            # The handler is an async coroutine; the test is sync so we
+            # just call it — the ``raise`` inside the handler propagates
+            # as a synchronous exception because we're not awaiting it.
+            # That's fine: the contract is "the handler must re-raise",
+            # not "the handler returns nothing on WebSocketDisconnect".
+            asyncio.run(handler(object(), WebSocketDisconnect(code=1000)))
+
+        # The traceback must NOT have been printed — that's the whole
+        # point of the fix. A user closing a tab is not an error.
+        print_exc_mock.assert_not_called()
+
+
+def test_unhandled_exception_handler_still_handles_regular_exceptions(
+    projects_root_tmp,
+):
+    """Regression guard: a regular ``Exception`` (other than
+    ``WebSocketDisconnect``) MUST still go through the handler and
+    produce the constant ``{"error": "internal server error"}`` body.
+    Without this guard, an over-eager fix could swallow all exceptions.
+    """
+    handler = app_mod.app.exception_handlers[Exception]
+    response = asyncio.run(handler(object(), RuntimeError("boom")))
+    assert response.status_code == 500
+    # The body is exactly the constant — no detail leaks.
+    import json as _json
+    body = _json.loads(response.body)
+    assert body == {"error": "internal server error"}

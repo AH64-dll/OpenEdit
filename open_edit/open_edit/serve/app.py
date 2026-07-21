@@ -150,6 +150,13 @@ async def _http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
 
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse:
+    # ``WebSocketDisconnect`` is a subclass of ``Exception`` raised by
+    # Starlette when a WS client disconnects. It's not an error — every
+    # normal tab close triggers it. Re-raise so Starlette handles the
+    # close cleanly, with no fake traceback polluting the operator log
+    # and no meaningless 500 JSON response (the WS has no HTTP body).
+    if isinstance(exc, WebSocketDisconnect):
+        raise exc
     # Log so the server operator can see it; return a constant generic
     # message so we don't leak internals (paths, SQL fragments, etc.)
     # to the client. The traceback goes to stderr; the client only sees
