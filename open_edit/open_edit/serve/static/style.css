@@ -329,6 +329,29 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------- Loading state (v1.4 P2) ---------- */
+/* A centered spinner + label that the asset list (and the rest */
+/* of the project-state UI) shows while ``loadProjectState`` is */
+/* in flight. The point is to replace the "No assets yet" flash */
+/* (or the stale old-project data flash) with a clear "data is  */
+/* on its way" signal. Reuses the existing ``.spinner`` ring;   */
+/* the row layout keeps the spinner and label baseline-aligned. */
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  min-height: 60px;
+}
+.loading-state .spinner {
+  width: 14px;
+  height: 14px;
+}
+
 /* ---------- Render card (in chat) ---------- */
 .render-card {
   align-self: center;

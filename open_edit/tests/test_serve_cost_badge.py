@@ -12,6 +12,10 @@ The badge is driven by the ``cost_update`` WS event:
 
 The wire shape and label conventions are pinned by these tests so
 the UI doesn't drift from the spec.
+
+As of v1.4 P2 the frontend is an ES module. The harness in
+``tests/_node_harness.py`` loads it via ``import()`` instead of
+the old ``vm.runInContext`` pattern.
 """
 from __future__ import annotations
 
@@ -24,115 +28,16 @@ from pathlib import Path
 
 import pytest
 
+# Allow ``from _node_harness import ...`` from the tests/ dir.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node_harness import (  # noqa: E402
+    app_js_path,
+    harness as _harness,
+    run_node_script as _run_node_script,
+)
 
-_THIS_DIR = Path(__file__).resolve()
-_REPO_ROOT = _THIS_DIR.parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-APP_JS = (
-    _REPO_ROOT
-    / "open_edit"
-    / "open_edit"
-    / "serve"
-    / "static"
-    / "app.js"
-)
-INDEX_HTML = (
-    _REPO_ROOT
-    / "open_edit"
-    / "open_edit"
-    / "serve"
-    / "static"
-    / "index.html"
-)
-STYLE_CSS = (
-    _REPO_ROOT
-    / "open_edit"
-    / "open_edit"
-    / "serve"
-    / "static"
-    / "style.css"
-)
+APP_JS = app_js_path()
 assert APP_JS.exists(), f"missing {APP_JS}"
-assert INDEX_HTML.exists(), f"missing {INDEX_HTML}"
-assert STYLE_CSS.exists(), f"missing {STYLE_CSS}"
-
-
-# ---------------------------------------------------------------------------
-# Harness factory (same pattern as test_serve_chat_status.py)
-# ---------------------------------------------------------------------------
-
-def _harness(script_body: str) -> str:
-    """Write a tiny Node script that loads app.js into a stubbed
-    browser environment, then runs ``script_body``."""
-    harness = r"""
-'use strict';
-const fs = require('fs');
-const vm = require('vm');
-
-const code = fs.readFileSync(process.argv[2], 'utf-8');
-
-const stubElement = () => ({
-  appendChild: () => {},
-  setAttribute: () => {},
-  addEventListener: () => {},
-  classList: { add: () => {}, remove: () => {}, toggle: () => {} },
-  dataset: {},
-  style: {},
-  children: [],
-  textContent: '',
-  innerHTML: '',
-  value: '',
-  removeAttribute: () => {},
-  load: () => {},
-  focus: () => {},
-  click: () => {},
-  replaceWith: () => {},
-  remove: () => {},
-});
-const sandbox = {
-  document: {
-    createElement: () => stubElement(),
-    createTextNode: (t) => ({ nodeType: 3, textContent: t }),
-    addEventListener: () => {},
-    querySelector: () => stubElement(),
-    querySelectorAll: () => [],
-  },
-  window: { addEventListener: () => {} },
-  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-  WebSocket: function () { this.close = () => {}; },
-  crypto: { randomUUID: () => 'test-uuid' },
-  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
-  navigator: { clipboard: { writeText: () => Promise.resolve() } },
-  Response: function () {},
-  setTimeout: (fn) => fn && fn(),
-  clearTimeout: () => {},
-  Node: { TEXT_NODE: 3 },
-  console: { warn: () => {}, error: () => {}, log: () => {} },
-  location: { protocol: 'http:', host: 'localhost' },
-};
-sandbox.self = sandbox;
-sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
-vm.runInContext(code, sandbox);
-""" + script_body
-    return harness
-
-
-def _run_node_script(script: str) -> tuple[int, str, str]:
-    """Write ``script`` to a temp file and run it with Node."""
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        path = fh.name
-    try:
-        proc = subprocess.run(
-            ["node", path, str(APP_JS)],
-            capture_output=True, text=True, timeout=30,
-        )
-        return proc.returncode, proc.stdout, proc.stderr
-    finally:
-        os.unlink(path)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +48,10 @@ def test_cost_badge_present_in_html():
     """The cost badge element must be in index.html, sitting next
     to the chat-status pill (P1-2). The wire shape requires a
     stable id we can target from the JS."""
+    INDEX_HTML = (
+        Path(__file__).resolve().parents[2]
+        / "open_edit" / "open_edit" / "serve" / "static" / "index.html"
+    )
     html = INDEX_HTML.read_text()
     # The badge needs an id we can target from app.js.
     assert 'id="cost-badge"' in html, (
@@ -169,7 +78,7 @@ def test_cost_badge_is_exposed_on_test_hooks():
     """The cost-badge factory must be exposed on the test hooks so
     Node-sandbox tests can drive the badge without a real DOM."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit && sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit && globalThis.OpenEdit.__testHooks;
 if (!hooks) { console.error('NO_HOOKS'); process.exit(2); }
 if (typeof hooks.createCostBadge !== 'function') {
   console.error('NO_CREATE_COST_BADGE');
@@ -177,7 +86,7 @@ if (typeof hooks.createCostBadge !== 'function') {
 }
 console.log('OK');
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     assert out.strip().splitlines()[-1] == "OK", (
         f"expected OK, got {out!r} stderr={err!r}"
@@ -191,7 +100,7 @@ console.log('OK');
 def test_cost_badge_renders_pi_source_label():
     """Source=pi: render the per-turn + session cost in dollars."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 const textHistory = [];
 const stubEl = {
   classList: { add: () => {}, remove: () => {}, toggle: () => {} },
@@ -217,7 +126,7 @@ badge.onEvent({
 });
 console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     payload = json.loads(out.strip().splitlines()[-1])
     text = payload["text"]
@@ -246,7 +155,7 @@ def test_cost_badge_renders_computed_source_label():
     as pi. The source field is for the JS state machine, not the
     user-visible label."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 const textHistory = [];
 const stubEl = {
   classList: { add: () => {}, remove: () => {}, toggle: () => {} },
@@ -272,7 +181,7 @@ badge.onEvent({
 });
 console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     payload = json.loads(out.strip().splitlines()[-1])
     text = payload["text"]
@@ -286,7 +195,7 @@ def test_cost_badge_renders_unavailable_source_label():
     instead of a fake $0.00. The brief is explicit: don't fake
     the cost when we don't have real numbers."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 const textHistory = [];
 const stubEl = {
   classList: { add: () => {}, remove: () => {}, toggle: () => {} },
@@ -312,7 +221,7 @@ badge.onEvent({
 });
 console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     payload = json.loads(out.strip().splitlines()[-1])
     text = payload["text"]
@@ -344,7 +253,7 @@ def test_cost_badge_handles_only_cost_update_event():
     post-construction to post-events so that initial write
     doesn't pollute the count."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 let setAttrCalls = 0;
 const stubEl = {
   classList: { add: () => {}, remove: () => {}, toggle: () => {} },
@@ -366,7 +275,7 @@ badge.onEvent({ type: 'done', stop_reason: 'end_turn' });
 badge.onEvent({ type: 'error', message: 'boom' });
 console.log(JSON.stringify({ setAttrCalls }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     payload = json.loads(out.strip().splitlines()[-1])
     # Non-cost_update events should not change data-state or
@@ -385,19 +294,14 @@ def test_handle_ws_event_dispatches_cost_update():
     """The chat log's ``handleWsEvent`` must route ``cost_update``
     events to the cost badge. This test exercises the same
     dispatch path the browser will use."""
-    # We can't easily call handleWsEvent in isolation (it's an
-    # internal function), but we can verify the badge is wired
-    # into the chat-status state machine: the test hooks for the
-    # existing chat-status are exposed, so we can check that the
-    # cost badge factory is registered too.
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 const expected = ['createChatStatus', 'createCostBadge'];
 const missing = expected.filter(k => typeof hooks[k] !== 'function');
 if (missing.length) { console.error('MISSING:' + missing.join(',')); process.exit(2); }
 console.log('OK');
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     assert out.strip().splitlines()[-1] == "OK", (
         f"expected OK, got {out!r} stderr={err!r}"
@@ -414,7 +318,7 @@ def test_cost_badge_uses_dollar_sign_for_dollar_amounts():
     and providers (operators reading the UI shouldn't have to
     guess whether the number is dollars, tokens, or a percent)."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 const textHistory = [];
 const stubEl = {
   classList: { add: () => {}, remove: () => {}, toggle: () => {} },
@@ -440,7 +344,7 @@ badge.onEvent({
 });
 console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     payload = json.loads(out.strip().splitlines()[-1])
     assert "$" in payload["text"], (
@@ -454,7 +358,7 @@ def test_cost_badge_hides_when_no_cost_update_yet():
     too; both share the convention 'no event = no pill' so the
     user doesn't see a stale label."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 const classHistory = new Set();
 const stubEl = {
   classList: {
@@ -472,7 +376,7 @@ const stubEl = {
 const badge = hooks.createCostBadge(stubEl);
 console.log(JSON.stringify({ hidden: classHistory.has('hidden') }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     payload = json.loads(out.strip().splitlines()[-1])
     assert payload["hidden"] is True, (

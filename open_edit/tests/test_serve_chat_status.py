@@ -9,8 +9,11 @@ must be in the right state at every transition.
 
 The state machine is exposed as
 ``window.OpenEdit.__testHooks.createChatStatus(element)`` so Node-sandbox
-tests can drive it without a real DOM (the existing pattern in
-``test_serve_asset_stream.py``).
+tests can drive it without a real DOM.
+
+The frontend is an ES module as of v1.4 P2 — the harness in
+``tests/_node_harness.py`` loads it via ``import()`` instead of the
+old ``vm.runInContext`` pattern.
 """
 from __future__ import annotations
 
@@ -23,100 +26,14 @@ from pathlib import Path
 
 import pytest
 
+# Allow ``from _node_harness import ...`` from the tests/ dir.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node_harness import harness as _harness  # noqa: E402
+from _node_harness import run_node_script as _run_node_script  # noqa: E402
+from _node_harness import app_js_path as _app_js_path  # noqa: E402
 
-_THIS_DIR = Path(__file__).resolve()
-_REPO_ROOT = _THIS_DIR.parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-APP_JS = (
-    _REPO_ROOT
-    / "open_edit"
-    / "open_edit"
-    / "serve"
-    / "static"
-    / "app.js"
-)
+APP_JS = _app_js_path()
 assert APP_JS.exists(), f"missing {APP_JS}"
-
-
-# ---------------------------------------------------------------------------
-# Harness factory
-# ---------------------------------------------------------------------------
-
-def _harness(script_body: str) -> tuple[str, str]:
-    """Write a tiny Node script that loads app.js into a stubbed browser
-    environment, then runs ``script_body``. Returns ``(script_text, path)``.
-    """
-    harness = r"""
-'use strict';
-const fs = require('fs');
-const vm = require('vm');
-
-const code = fs.readFileSync(process.argv[2], 'utf-8');
-
-const stubElement = () => ({
-  appendChild: () => {},
-  setAttribute: () => {},
-  addEventListener: () => {},
-  classList: { add: () => {}, remove: () => {}, toggle: () => {} },
-  dataset: {},
-  style: {},
-  children: [],
-  textContent: '',
-  innerHTML: '',
-  value: '',
-  removeAttribute: () => {},
-  load: () => {},
-  focus: () => {},
-  click: () => {},
-  replaceWith: () => {},
-  remove: () => {},
-});
-const sandbox = {
-  document: {
-    createElement: () => stubElement(),
-    createTextNode: (t) => ({ nodeType: 3, textContent: t }),
-    addEventListener: () => {},
-    querySelector: () => stubElement(),
-    querySelectorAll: () => [],
-  },
-  window: { addEventListener: () => {} },
-  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-  WebSocket: function () { this.close = () => {}; },
-  crypto: { randomUUID: () => 'test-uuid' },
-  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
-  navigator: { clipboard: { writeText: () => Promise.resolve() } },
-  Response: function () {},
-  setTimeout: (fn) => fn && fn(),
-  clearTimeout: () => {},
-  Node: { TEXT_NODE: 3 },
-  console: { warn: () => {}, error: () => {}, log: () => {} },
-  location: { protocol: 'http:', host: 'localhost' },
-};
-sandbox.self = sandbox;
-sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
-vm.runInContext(code, sandbox);
-""" + script_body
-    return harness
-
-
-def _run_node_script(script: str) -> tuple[int, str, str]:
-    """Write ``script`` to a temp file and run it with Node. The script
-    receives the path to app.js as ``argv[2]``. Returns ``(returncode, stdout, stderr)``.
-    """
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        path = fh.name
-    try:
-        proc = subprocess.run(
-            ["node", path, str(APP_JS)],
-            capture_output=True, text=True, timeout=30,
-        )
-        return proc.returncode, proc.stdout, proc.stderr
-    finally:
-        os.unlink(path)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +45,7 @@ def test_create_chat_status_is_exposed_on_test_hooks():
     tests can drive the state machine. Without this hook the indicator
     would be untestable without spinning up a real browser."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit && sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit && globalThis.OpenEdit.__testHooks;
 if (!hooks) { console.error('NO_HOOKS'); process.exit(2); }
 if (typeof hooks.createChatStatus !== 'function') {
   console.error('NO_CREATE_CHAT_STATUS');
@@ -136,7 +53,7 @@ if (typeof hooks.createChatStatus !== 'function') {
 }
 console.log('OK');
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     assert out.strip().splitlines()[-1] == "OK", (
         f"expected OK, got {out!r} stderr={err!r}"
@@ -160,7 +77,7 @@ def test_chat_status_full_turn_lifecycle():
 
     The indicator must reflect each of these transitions."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 
 // A stub element that records the state attribute and class changes.
 let currentDataState = 'unset';
@@ -225,7 +142,7 @@ snap('after_done');
 
 console.log(JSON.stringify(log));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     log = json.loads(out.strip().splitlines()[-1])
 
@@ -276,7 +193,7 @@ def test_chat_status_label_contains_tool_name_in_tool_running_state():
     doing. The state machine updates a child text node — the test
     inspects the textContent of that node after each transition."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 
 const textNodes = new Map();
 const stubEl = {
@@ -302,7 +219,7 @@ const afterLabel = textNodes.get('.chat-status-text').textContent;
 
 console.log(JSON.stringify({ thinkLabel, toolLabel, afterLabel }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     labels = json.loads(out.strip().splitlines()[-1])
 
@@ -335,7 +252,7 @@ def test_chat_status_error_then_done_clears():
     ``error`` event the indicator is hidden and ``data-state`` is
     ``idle``."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 let currentDataState = 'unset';
 const classHistory = [];
 const stubEl = {
@@ -359,7 +276,7 @@ status.onEvent({ type: 'done', stop_reason: 'error' });
 log.push({ at: 'done', state: status.getState().state, dataState: currentDataState, hidden: classHistory.includes('hidden') });
 console.log(JSON.stringify(log));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     log = json.loads(out.strip().splitlines()[-1])
     by_at = {entry["at"]: entry for entry in log}
@@ -398,7 +315,7 @@ def test_chat_status_rapid_back_to_back_sends_dont_get_stuck():
     must NOT get stuck in ``tool_running`` or ``error`` from a prior
     turn, and must NOT get stuck visible after a previous ``done``."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 let currentDataState = 'unset';
 const classHistory = [];
 const stubEl = {
@@ -439,7 +356,7 @@ snap('turn3.done');
 
 console.log(JSON.stringify(log));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     log = json.loads(out.strip().splitlines()[-1])
     by = {entry["label"]: entry for entry in log}

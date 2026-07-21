@@ -11,8 +11,11 @@ result, the chat log must render a results panel with:
   re-fetch or re-shape the data — it renders what the LLM saw).
 
 The panel is exposed as ``window.OpenEdit.__testHooks.appendSearchResults``
-so Node-sandbox tests can drive it without a real DOM (the same
-pattern as ``createChatStatus``).
+so Node-sandbox tests can drive it without a real DOM.
+
+As of v1.4 P2 the frontend is an ES module. The harness in
+``tests/_node_harness.py`` loads it via ``import()`` instead of
+the old ``vm.runInContext`` pattern.
 """
 from __future__ import annotations
 
@@ -25,86 +28,16 @@ from pathlib import Path
 
 import pytest
 
-
-_APP_JS = (
-    Path(__file__).resolve().parents[2]
-    / "open_edit" / "open_edit" / "serve" / "static" / "app.js"
+# Allow ``from _node_harness import ...`` from the tests/ dir.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node_harness import (  # noqa: E402
+    app_js_path,
+    harness as _harness,
+    run_node_script as _run_node_script,
 )
-assert _APP_JS.exists(), f"missing {_APP_JS}"
 
-
-# ---------------------------------------------------------------------------
-# Harness (same pattern as test_serve_chat_status.py)
-# ---------------------------------------------------------------------------
-
-def _harness(script_body: str) -> str:
-    return r"""
-'use strict';
-const fs = require('fs');
-const vm = require('vm');
-
-const code = fs.readFileSync(process.argv[2], 'utf-8');
-
-const stubElement = () => ({
-  appendChild: () => {},
-  setAttribute: () => {},
-  addEventListener: () => {},
-  classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
-  dataset: {},
-  style: {},
-  children: [],
-  textContent: '',
-  innerHTML: '',
-  value: '',
-  removeAttribute: () => {},
-  load: () => {},
-  focus: () => {},
-  click: () => {},
-  replaceWith: () => {},
-  remove: () => {},
-  querySelector: () => stubElement(),
-  querySelectorAll: () => [],
-});
-const sandbox = {
-  document: {
-    createElement: () => stubElement(),
-    createTextNode: (t) => ({ nodeType: 3, textContent: t }),
-    addEventListener: () => {},
-    querySelector: () => stubElement(),
-    querySelectorAll: () => [],
-  },
-  window: { addEventListener: () => {} },
-  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-  WebSocket: function () { this.close = () => {}; this.readyState = 1; this.send = () => {}; },
-  crypto: { randomUUID: () => 'test-uuid' },
-  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
-  navigator: { clipboard: { writeText: () => Promise.resolve() } },
-  Response: function () {},
-  setTimeout: (fn) => fn && fn(),
-  clearTimeout: () => {},
-  Node: { TEXT_NODE: 3 },
-  console: { warn: () => {}, error: () => {}, log: () => {} },
-  location: { protocol: 'http:', host: 'localhost' },
-};
-sandbox.self = sandbox;
-sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
-vm.runInContext(code, sandbox);
-""" + script_body
-
-
-def _run_node_script(script: str) -> tuple[int, str, str]:
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        path = fh.name
-    try:
-        proc = subprocess.run(
-            ["node", path, str(_APP_JS)],
-            capture_output=True, text=True, timeout=30,
-        )
-        return proc.returncode, proc.stdout, proc.stderr
-    finally:
-        os.unlink(path)
+APP_JS = app_js_path()
+assert APP_JS.exists(), f"missing {APP_JS}"
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +113,7 @@ def test_append_search_results_is_exposed_on_test_hooks():
     """``window.OpenEdit.__testHooks.appendSearchResults`` must exist so
     tests can render the panel without a real DOM."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit && sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit && globalThis.OpenEdit.__testHooks;
 if (!hooks) { console.error('NO_HOOKS'); process.exit(2); }
 if (typeof hooks.appendSearchResults !== 'function') {
   console.error('NO_APPEND_SEARCH_RESULTS');
@@ -188,7 +121,7 @@ if (typeof hooks.appendSearchResults !== 'function') {
 }
 console.log('OK');
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     assert out.strip().splitlines()[-1] == "OK", f"got: {out!r}"
 
@@ -201,15 +134,14 @@ def test_append_search_results_renders_one_card_per_result():
     """The panel must produce one card per result, with the license
     badge and "Add to project" button visible on each."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 
 // Simple stub: every createElement returns a record that tracks its
 // own className (joined with spaces) and accumulated text. This is
 // enough for the renderer to work without errors and for the test
 // to walk the resulting tree.
-const sandboxDoc = sandbox.document;
 let nodeCounter = 0;
-sandboxDoc.createElement = (tag) => {
+globalThis.document.createElement = (tag) => {
   const id = ++nodeCounter;
   const node = {
     _id: id,
@@ -234,9 +166,6 @@ sandboxDoc.createElement = (tag) => {
     },
     remove() {},
     replaceWith(c) {},
-    classList: {
-      add: function(c) { if (!this._classParts.includes(c)) this._classParts.push(c); }.bind({_classParts: undefined}),
-    },
     querySelector: () => null,
     querySelectorAll: () => [],
     src: '',
@@ -283,7 +212,7 @@ console.log(JSON.stringify({
   text,
 }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     res = json.loads(out.strip().splitlines()[-1])
     assert "search-results" in res["panelClass"], res
@@ -295,11 +224,10 @@ def test_append_search_results_renders_license_per_result():
     """Each card must surface the license string verbatim so the user
     knows the terms before importing (Freesound especially)."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 
-const sandboxDoc = sandbox.document;
 let nodeCounter = 0;
-sandboxDoc.createElement = (tag) => {
+globalThis.document.createElement = (tag) => {
   const id = ++nodeCounter;
   const node = {
     _id: id, tag,
@@ -312,7 +240,7 @@ sandboxDoc.createElement = (tag) => {
     get() { return node._textParts.join(''); },
   });
   Object.defineProperty(node, 'className', {
-    get() { return node._classParts.join(' '); },
+    get() { return this._classParts.join(' '); },
     set(v) { node._classParts = String(v).split(/\s+/).filter(Boolean); },
   });
   Object.defineProperty(node, 'src', {
@@ -395,7 +323,7 @@ console.log(JSON.stringify({
   cardCount,
 }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     res = json.loads(out.strip().splitlines()[-1])
     assert "Pexels License" in res["text"], res
@@ -415,11 +343,10 @@ def test_append_search_results_shows_error_message():
     the error (not render an empty grid) so the user can fix the
     missing API key and retry."""
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 
-const sandboxDoc = sandbox.document;
 let nodeCounter = 0;
-sandboxDoc.createElement = (tag) => {
+globalThis.document.createElement = (tag) => {
   const id = ++nodeCounter;
   const node = {
     _id: id, tag,
@@ -431,12 +358,15 @@ sandboxDoc.createElement = (tag) => {
     get() { return node._textParts.join(''); },
   });
   Object.defineProperty(node, 'className', {
-    get() { return node._classParts.join(' '); },
+    get() { return this._classParts.join(' '); },
     set(v) { node._classParts = String(v).split(/\s+/).filter(Boolean); },
   });
   node.setAttribute = (k, v) => { node._attrs[k] = String(v); };
   node.appendChild = (c) => { node._children.push(c); return c; };
-  node.removeChild = (c) => { const i = node._children.indexOf(c); if (i >= 0) node._children.splice(i, 1); };
+  node.removeChild = (c) => {
+    const i = node._children.indexOf(c);
+    if (i >= 0) node._children.splice(i, 1);
+  };
   node.addEventListener = () => {};
   node.remove = () => {};
   node.replaceWith = () => {};
@@ -480,7 +410,7 @@ console.log(JSON.stringify({
   errorClassNames: errorNode ? errorNode._classParts : [],
 }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     res = json.loads(out.strip().splitlines()[-1])
     assert "OPEN_EDIT_PEXELS_API_KEY" in res["text"], res
@@ -515,11 +445,10 @@ def test_append_search_results_add_button_fires_import():
        and checking the side-effect path used for the import).
     """
     script = _harness(r"""
-const hooks = sandbox.window.OpenEdit.__testHooks;
+const hooks = globalThis.OpenEdit.__testHooks;
 
-const sandboxDoc = sandbox.document;
 let nodeCounter = 0;
-sandboxDoc.createElement = (tag) => {
+globalThis.document.createElement = (tag) => {
   const id = ++nodeCounter;
   const node = {
     _id: id, tag,
@@ -531,12 +460,15 @@ sandboxDoc.createElement = (tag) => {
     get() { return node._textParts.join(''); },
   });
   Object.defineProperty(node, 'className', {
-    get() { return node._classParts.join(' '); },
+    get() { return this._classParts.join(' '); },
     set(v) { node._classParts = String(v).split(/\s+/).filter(Boolean); },
   });
   node.setAttribute = (k, v) => { node._attrs[k] = String(v); };
   node.appendChild = (c) => { node._children.push(c); return c; };
-  node.removeChild = (c) => { const i = node._children.indexOf(c); if (i >= 0) node._children.splice(i, 1); };
+  node.removeChild = (c) => {
+    const i = node._children.indexOf(c);
+    if (i >= 0) node._children.splice(i, 1);
+  };
   node.addEventListener = (ev, fn) => { node._listeners[ev] = fn; };
   node.remove = () => {};
   node.replaceWith = () => {};
@@ -614,7 +546,7 @@ console.log(JSON.stringify({
   btnText,
 }));
 """)
-    rc, out, err = _run_node_script(script)
+    rc, out, err = _run_node_script(script, APP_JS)
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     res = json.loads(out.strip().splitlines()[-1])
     assert res["cardFound"], f"no card found: {res!r}"

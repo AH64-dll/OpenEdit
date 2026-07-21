@@ -35,20 +35,30 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-_THIS_DIR = Path(__file__).resolve()
-_PKG_ROOT = _THIS_DIR.parents[1]
-if str(_PKG_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PKG_ROOT))
+# Allow ``from _node_harness import ...`` from the tests/ dir.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node_harness import (  # noqa: E402
+    app_js_path,
+    harness,
+    run_node_script,
+)
+
+_TPKG_ROOT = Path(__file__).resolve().parents[1]
+if str(_TPKG_ROOT) not in sys.path:
+    sys.path.insert(0, str(_TPKG_ROOT))
 
 from open_edit.serve import app as app_mod  # noqa: E402
 from open_edit.serve import projects as projects_mod  # noqa: E402
+
+APP_JS = app_js_path()
+assert APP_JS.exists(), f"missing {APP_JS}"
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = _THIS_DIR.parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 TESTDATA_MP4 = REPO_ROOT / "testdata" / "clip_short.mp4"
 
 
@@ -470,81 +480,19 @@ def test_frontend_normalize_assets_passes_through_url():
     We run the file in a Node sandbox with stubbed browser APIs and
     call the real ``normalizeAssets`` via the test export
     (``window.OpenEdit.__testHooks.normalizeAssets``). The export
-    exists so tests can exercise the function in its real IIFE
+    exists so tests can exercise the function in its real module
     closure — extracting the function body via regex and re-evaluating
     it in a fresh ``Function`` would let typos in field names slip
     through (the extracted copy has no closure state, so refactors
     that introduce cross-references between normalizers would not
     be caught by tests).
+
+    As of v1.4 P2 the frontend is an ES module. The harness in
+    ``tests/_node_harness.py`` loads it via ``import()`` instead of
+    the old ``vm.runInContext`` pattern.
     """
-    import subprocess
-    import tempfile
-
-    app_js = REPO_ROOT / "open_edit" / "open_edit" / "serve" / "static" / "app.js"
-    assert app_js.exists(), f"missing {app_js}"
-
-    # A tiny Node harness that loads app.js into a stubbed global
-    # environment, then calls the real ``normalizeAssets`` via
-    # ``window.OpenEdit.__testHooks.normalizeAssets`` and prints the
-    # result as JSON.
-    harness = r"""
-'use strict';
-const fs = require('fs');
-const vm = require('vm');
-
-const code = fs.readFileSync(process.argv[2], 'utf-8');
-
-// Minimal browser stubs.
-const stubElement = () => ({
-  appendChild: () => {},
-  setAttribute: () => {},
-  addEventListener: () => {},
-  classList: { add: () => {}, remove: () => {}, toggle: () => {} },
-  querySelector: () => stubElement(),
-  querySelectorAll: () => [],
-  dataset: {},
-  style: {},
-  children: [],
-  textContent: '',
-  innerHTML: '',
-  value: '',
-  files: [],
-  scrollTop: 0,
-  scrollHeight: 0,
-  removeAttribute: () => {},
-  load: () => {},
-  focus: () => {},
-  click: () => {},
-  replaceWith: () => {},
-  remove: () => {},
-});
-const sandbox = {
-  document: {
-    createElement: () => stubElement(),
-    createTextNode: (t) => ({ nodeType: 3, textContent: t }),
-    addEventListener: () => {},
-    querySelector: () => stubElement(),
-    querySelectorAll: () => [],
-  },
-  window: { addEventListener: () => {} },
-  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-  WebSocket: function () { this.close = () => {}; },
-  crypto: { randomUUID: () => 'test-uuid' },
-  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
-  navigator: { clipboard: { writeText: () => Promise.resolve() } },
-  Response: function () {},
-  setTimeout: (fn) => fn && fn(),
-  clearTimeout: () => {},
-  Node: { TEXT_NODE: 3 },
-  console: { warn: () => {}, error: () => {}, log: () => {} },
-  location: { protocol: 'http:', host: 'localhost' },
-};
-sandbox.self = sandbox;
-sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
-vm.runInContext(code, sandbox);
-
-const testHooks = sandbox.window.OpenEdit && sandbox.window.OpenEdit.__testHooks;
+    script = harness(r"""
+const testHooks = globalThis.OpenEdit && globalThis.OpenEdit.__testHooks;
 if (!testHooks || typeof testHooks.normalizeAssets !== 'function') {
   console.error('window.OpenEdit.__testHooks.normalizeAssets not exposed');
   process.exit(2);
@@ -570,22 +518,13 @@ const input = [
 ];
 const out = testHooks.normalizeAssets(input);
 console.log(JSON.stringify(out));
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(harness)
-        harness_path = fh.name
-    try:
-        proc = subprocess.run(
-            ["node", harness_path, str(app_js)],
-            capture_output=True, text=True, timeout=30,
-        )
-        assert proc.returncode == 0, (
-            f"node harness failed (rc={proc.returncode}): "
-            f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
-        )
-        out = json.loads(proc.stdout.strip().splitlines()[-1])
-    finally:
-        os.unlink(harness_path)
+""")
+    rc, out, err = run_node_script(script, APP_JS)
+    assert rc == 0, (
+        f"node harness failed (rc={rc}): "
+        f"stdout={out!r} stderr={err!r}"
+    )
+    out = json.loads(out.strip().splitlines()[-1])
 
     # New-shape asset: url is preserved.
     assert len(out) == 2
@@ -614,42 +553,7 @@ def test_frontend_open_asset_preview_annotates_title_when_no_url():
     which made the no-URL state indistinguishable from a working
     preview that hadn't loaded yet.
     """
-    import subprocess
-    import tempfile
-
-    app_js = REPO_ROOT / "open_edit" / "open_edit" / "serve" / "static" / "app.js"
-    assert app_js.exists(), f"missing {app_js}"
-
-    harness = r"""
-'use strict';
-const fs = require('fs');
-const vm = require('vm');
-
-const code = fs.readFileSync(process.argv[2], 'utf-8');
-
-const stubElement = () => ({
-  appendChild: () => {},
-  setAttribute: () => {},
-  addEventListener: () => {},
-  classList: { add: () => {}, remove: () => {}, toggle: () => {} },
-  querySelector: () => stubElement(),
-  querySelectorAll: () => [],
-  dataset: {},
-  style: {},
-  children: [],
-  textContent: '',
-  innerHTML: '',
-  value: '',
-  files: [],
-  scrollTop: 0,
-  scrollHeight: 0,
-  removeAttribute: () => {},
-  load: () => {},
-  focus: () => {},
-  click: () => {},
-  replaceWith: () => {},
-  remove: () => {},
-});
+    script = harness(r"""
 // Capture the title and video elements so the test can inspect
 // their state after ``openAssetPreview`` runs.
 const titleEl = { textContent: '' };
@@ -664,33 +568,20 @@ const docStubs = new Map([
   ['#asset-preview-video', videoEl],
   ['#modal-asset-preview', modalEl],
 ]);
-const sandbox = {
-  document: {
-    createElement: () => stubElement(),
-    createTextNode: (t) => ({ nodeType: 3, textContent: t }),
-    addEventListener: () => {},
-    querySelector: (sel) => docStubs.get(sel) || stubElement(),
-    querySelectorAll: () => [],
-  },
-  window: { addEventListener: () => {} },
-  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-  WebSocket: function () { this.close = () => {}; },
-  crypto: { randomUUID: () => 'test-uuid' },
-  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
-  navigator: { clipboard: { writeText: () => Promise.resolve() } },
-  Response: function () {},
-  setTimeout: (fn) => fn && fn(),
-  clearTimeout: () => {},
-  Node: { TEXT_NODE: 3 },
-  console: { warn: () => {}, error: () => {}, log: () => {} },
-  location: { protocol: 'http:', host: 'localhost' },
+// Replace the harness's stub ``document.querySelector`` with a
+// targeted map for the three selectors the test cares about. The
+// module code calls ``$('#asset-preview-title')`` etc. at runtime
+// so this swap takes effect immediately.
+globalThis.document.querySelector = (sel) => docStubs.get(sel) || {
+  appendChild: () => {}, setAttribute: () => {}, addEventListener: () => {},
+  classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+  dataset: {}, style: {}, children: [], textContent: '', innerHTML: '',
+  value: '', removeAttribute: () => {}, load: () => {}, focus: () => {},
+  click: () => {}, replaceWith: () => {}, remove: () => {},
+  querySelector: () => null, querySelectorAll: () => [],
 };
-sandbox.self = sandbox;
-sandbox.globalThis = sandbox;
-vm.createContext(sandbox);
-vm.runInContext(code, sandbox);
 
-const testHooks = sandbox.window.OpenEdit && sandbox.window.OpenEdit.__testHooks;
+const testHooks = globalThis.OpenEdit && globalThis.OpenEdit.__testHooks;
 if (!testHooks || typeof testHooks.openAssetPreview !== 'function') {
   console.error('window.OpenEdit.__testHooks.openAssetPreview not exposed');
   process.exit(2);
@@ -719,22 +610,13 @@ console.log(JSON.stringify({
   withUrlTitle,
   withUrlVideoSrc,
 }));
-"""
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(harness)
-        harness_path = fh.name
-    try:
-        proc = subprocess.run(
-            ["node", harness_path, str(app_js)],
-            capture_output=True, text=True, timeout=30,
-        )
-        assert proc.returncode == 0, (
-            f"node harness failed (rc={proc.returncode}): "
-            f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
-        )
-        out = json.loads(proc.stdout.strip().splitlines()[-1])
-    finally:
-        os.unlink(harness_path)
+""")
+    rc, out, err = run_node_script(script, APP_JS)
+    assert rc == 0, (
+        f"node harness failed (rc={rc}): "
+        f"stdout={out!r} stderr={err!r}"
+    )
+    out = json.loads(out.strip().splitlines()[-1])
 
     # No-URL case: title is annotated, video src is empty.
     assert out["noUrlTitle"] != "unset", "openAssetPreview didn't touch the title"
