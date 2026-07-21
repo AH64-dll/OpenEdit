@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -52,6 +53,8 @@ from open_edit.ir.types import Asset
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.notes import NotesStore, NoteStatus
+
+_LOG = logging.getLogger("open_edit.serve.projects")
 
 # ---------------------------------------------------------------------------
 # Config
@@ -193,6 +196,13 @@ def _list_assets_from_disk(project_path: Path) -> list[Asset]:
         try:
             out.append(Asset.model_validate_json(meta_file.read_text()))
         except Exception:
+            # v1.6 P4: a corrupt sidecar used to be silently dropped
+            # (indistinguishable from "no asset here"). Log it so the
+            # operator can see *why* an asset is missing in the UI.
+            _LOG.warning(
+                "failed to parse asset sidecar %s; skipping",
+                meta_file, exc_info=True,
+            )
             continue
     return out
 
@@ -311,7 +321,17 @@ async def create_project(name: str) -> ProjectInfo:
             # proceed; the project folder is created and the user (or a
             # subsequent ingest) can finish setup. The downstream code is
             # defensive about missing DBs.
-            pass
+            #
+            # v1.6 P3: previously this branch was a bare ``pass`` and the
+            # failure was invisible to the operator (and to ``list_projects``,
+            # which filters by ``.open_edit/edit_graph.db``). We now log the
+            # failure with its traceback so the operator can see *why* init
+            # didn't run.
+            _LOG.warning(
+                "open_edit init failed for new project %r at %s; project folder "
+                "left uninitialised and will be invisible to list_projects",
+                name, path, exc_info=True,
+            )
 
         return _scan_project(path)
 
@@ -342,7 +362,13 @@ async def get_project_state(project_id: str) -> ProjectState:
                 ops = store.load_all()
                 project_id_real = store.project_id
             except Exception:
-                pass
+                # v1.6 P4: a corrupt edit_graph.db used to look identical
+                # to "no ops yet". Log the underlying error so the operator
+                # can see the DB is unreadable.
+                _LOG.warning(
+                    "failed to load edit_graph.db at %s; returning empty ops",
+                    db_path, exc_info=True,
+                )
         op_infos = _ops_to_info(ops)
 
         # Notes: from notes.db via NotesStore
@@ -353,7 +379,11 @@ async def get_project_state(project_id: str) -> ProjectState:
                 ns = NotesStore(notes_db)
                 note_models = ns.list_all(project_id_real)
             except Exception:
-                pass
+                # v1.6 P4: same observability fix as for edit_graph.db above.
+                _LOG.warning(
+                    "failed to load notes.db at %s; returning empty notes",
+                    notes_db, exc_info=True,
+                )
         note_infos = [_note_to_info(n) for n in note_models]
         pending_count = sum(
             1 for n in note_models

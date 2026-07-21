@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -345,3 +346,99 @@ def test_agent_reads_verify_disabled_from_project_meta(tmp_path):
     store.set_project_meta_field("verify_disabled", 1)
     from open_edit.serve.project_meta import is_verify_disabled
     assert is_verify_disabled(tmp_path) is True
+
+
+# ---------------------------------------------------------------------------
+# v1.6: observability — swallowed errors should be logged (P3, P4)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_create_project_logs_warning_when_init_fails(projects_root_tmp, caplog):
+    """P3: when ``open_edit init`` raises RuntimeError, log a WARNING
+    with the exception traceback. The folder is still created (no
+    rollback) but the failure is no longer silent.
+    """
+    with mock.patch(
+        "open_edit.serve.projects._run_open_edit",
+        side_effect=RuntimeError("`open_edit` CLI not found on PATH"),
+    ):
+        with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
+            info = await projects_mod.create_project("broken")
+    # The folder is still made; we don't roll back.
+    assert info.name == "broken"
+    assert Path(info.path).is_dir()
+    # A WARNING was emitted with the underlying exception captured.
+    matching = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert matching, "expected a WARNING log when open_edit init fails"
+    assert any("init" in r.getMessage().lower() for r in matching)
+    # exc_info=True → the formatted traceback is attached for debugging.
+    assert any(r.exc_info is not None for r in matching)
+
+
+@pytest.mark.asyncio
+async def test_list_assets_logs_warning_on_corrupt_sidecar(projects_root_tmp, caplog):
+    """P4: a corrupt asset sidecar (invalid JSON) is skipped, but a
+    WARNING is logged so the operator can see *why* the asset is missing.
+    """
+    info = await projects_mod.create_project("p1")
+    project_path = Path(info.path)
+    if not (project_path / ".open_edit" / "edit_graph.db").is_file():
+        _make_real_project(project_path)
+    # Plant a corrupt sidecar JSON in the assets CAS layout.
+    assets_dir = project_path / ".open_edit" / "assets" / "ab"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "abc.meta.json").write_text("{ this is not valid json")
+    with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
+        assets = projects_mod._list_assets_from_disk(project_path)
+    # The corrupt one is dropped; the function does not crash.
+    assert assets == []
+    # And we logged it.
+    matching = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert matching, "expected a WARNING log when an asset sidecar is corrupt"
+    assert any("asset" in r.getMessage().lower() for r in matching)
+    assert any(r.exc_info is not None for r in matching)
+
+
+@pytest.mark.asyncio
+async def test_get_project_state_logs_warning_on_corrupt_edit_db(projects_root_tmp, caplog):
+    """P4: a corrupt ``edit_graph.db`` is skipped, but a WARNING is
+    logged so the operator can see the DB is unreadable.
+    """
+    info = await projects_mod.create_project("p1")
+    project_path = Path(info.path)
+    if not (project_path / ".open_edit" / "edit_graph.db").is_file():
+        _make_real_project(project_path)
+    # Corrupt the DB by overwriting it with non-SQLite bytes.
+    db_path = project_path / ".open_edit" / "edit_graph.db"
+    db_path.write_bytes(b"this is not a valid sqlite database at all")
+    with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
+        state = await projects_mod.get_project_state(info.id)
+    # No crash; the state is returned (with empty ops, since we couldn't read them).
+    assert state.id == info.id
+    assert state.ops == []
+    # And we logged the failure.
+    matching = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert matching, "expected a WARNING log when edit_graph.db is corrupt"
+    assert any("edit_graph" in r.getMessage().lower() or "ops" in r.getMessage().lower() for r in matching)
+    assert any(r.exc_info is not None for r in matching)
+
+
+@pytest.mark.asyncio
+async def test_get_project_state_logs_warning_on_corrupt_notes_db(projects_root_tmp, caplog):
+    """P4: a corrupt ``notes.db`` is skipped, but a WARNING is logged."""
+    info = await projects_mod.create_project("p1")
+    project_path = Path(info.path)
+    if not (project_path / ".open_edit" / "edit_graph.db").is_file():
+        _make_real_project(project_path)
+    # Corrupt the notes DB.
+    notes_db = project_path / "notes.db"
+    notes_db.write_bytes(b"definitely not sqlite")
+    with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
+        state = await projects_mod.get_project_state(info.id)
+    # No crash; notes list is empty.
+    assert state.notes == []
+    # And we logged the failure.
+    matching = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert matching, "expected a WARNING log when notes.db is corrupt"
+    assert any("notes" in r.getMessage().lower() for r in matching)
+    assert any(r.exc_info is not None for r in matching)

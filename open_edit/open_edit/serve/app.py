@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,10 +38,12 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import agent as agent_mod
 from . import projects as projects_mod
+
+_LOG = logging.getLogger("open_edit.serve.app")
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +65,11 @@ class RenderJobResponse(BaseModel):
     status: str  # "queued" | "running" | "complete" | "failed"
     output_path: str | None = None
     error: str | None = None
+    # Set on registration; used by the render-job pruner (P5) to drop
+    # terminal entries (complete/failed) older than ``_RENDER_JOB_TTL_S``.
+    # Not part of the public API contract — kept on the model so the
+    # field survives Pydantic serialization roundtrips in tests.
+    created_at: float = Field(default_factory=time.time)
 
 
 class ChatRequest(BaseModel):
@@ -74,8 +83,44 @@ class ChatRequest(BaseModel):
 
 _RENDER_JOBS: dict[str, RenderJobResponse] = {}
 
+# v1.6 P5: terminal jobs (status in {"complete", "failed"}) older than
+# this many seconds are pruned from ``_RENDER_JOBS`` on every register.
+# In-flight jobs (status in {"queued", "running"}) are never pruned
+# regardless of age. Default 1h matches the spec.
+_RENDER_JOB_TTL_S: float = 3600.0
+
+
+def _prune_render_jobs(now: float | None = None) -> int:
+    """Remove terminal entries older than ``_RENDER_JOB_TTL_S``.
+
+    Only entries with ``status in {"complete", "failed"}`` are eligible;
+    ``queued`` and ``running`` jobs are kept so an in-flight render is
+    never accidentally GC'd while a client is polling for its status.
+
+    Returns the number of entries removed. The ``now`` parameter is
+    injectable so tests can fake the clock without monkey-patching
+    ``time.time``.
+    """
+    if now is None:
+        now = time.time()
+    cutoff = now - _RENDER_JOB_TTL_S
+    terminal = ("complete", "failed")
+    stale_ids = [
+        jid for jid, job in _RENDER_JOBS.items()
+        if job.status in terminal and job.created_at < cutoff
+    ]
+    for jid in stale_ids:
+        _RENDER_JOBS.pop(jid, None)
+    if stale_ids:
+        _LOG.debug("pruned %d terminal render job(s) older than %ss", len(stale_ids), _RENDER_JOB_TTL_S)
+    return len(stale_ids)
+
 
 def _register_job(project_id: str, mode: str) -> RenderJobResponse:
+    # Prune first so the new entry doesn't see its own ``created_at``
+    # checked against a cutoff that excludes it. Cheap; the dict is
+    # small in steady state.
+    _prune_render_jobs()
     job_id = uuid.uuid4().hex[:12]
     job = RenderJobResponse(
         job_id=job_id,
