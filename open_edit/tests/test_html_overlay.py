@@ -966,7 +966,8 @@ def test_end_to_end_overlay_composite(tmp_path):
             timeline=timeline,
             project_workdir=project_dir,
             render_spec=_render_spec(
-                hyperframes_bin="node_modules/.bin/hyperframes",
+                # Use an absolute path so the test works regardless of pytest's CWD.
+                hyperframes_bin=str(_REPO_ROOT / "node_modules" / ".bin" / "hyperframes"),
                 tmpdir=project_dir,
                 duration_sec=1.0,
             ),
