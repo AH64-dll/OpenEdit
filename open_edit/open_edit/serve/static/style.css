@@ -397,6 +397,43 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
   animation: pulse 0.55s ease-in-out infinite;
 }
 
+/* ---------- Cost badge (v1.4 P1-3) ---------- */
+/* A small monospace pill next to the chat-status indicator that */
+/* shows "$0.02 this turn · $0.45 session" or "cost n/a         */
+/* (subscription)" depending on whether the LLM provider reports */
+/* a per-token bill. The pi path (default) reuses pi's own       */
+/* session cost; anthropic/openai compute from SDK usage ×        */
+/* pricing.json. The badge is hidden until the first cost_update */
+/* event arrives so we never show a stale label.                  */
+.cost-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-elev-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-muted);
+  justify-content: flex-end;
+}
+.cost-badge.hidden { display: none; }
+.cost-badge[data-source="unavailable"] {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.cost-badge[data-source="pi"],
+.cost-badge[data-source="computed"] {
+  color: var(--green);
+}
+.cost-badge-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
 .chat-input-row {
   display: flex;
   gap: 8px;

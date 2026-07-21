@@ -18,6 +18,7 @@ per line).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -38,18 +39,34 @@ from .tool_schemas import (
 # Event types
 # ---------------------------------------------------------------------------
 
-class AgentEvent(TypedDict):
+class AgentEvent(TypedDict, total=False):
     """One event yielded by ``run_agent_turn``.
 
     Variants:
     - ``{"type": "text", "text": "..."}``  — assistant text delta
     - ``{"type": "tool_start", "name": "...", "input": {...}}``
     - ``{"type": "tool_result", "name": "...", "result": {...}}``
-    - ``{"type": "render", "path": "...", "mode": "proxy"|"final"}`
-    - ``{"type": "error", "message": "..."}`
-    - ``{"type": "done", "stop_reason": "..."}``  — final event of the turn
+    - ``{"type": "render", "path": "...", "mode": "proxy"|"final"}``
+    - ``{"type": "error", "message": "..."}``
+    - ``{"type": "done", "stop_reason": "..."}``  — terminal event
+    - ``{"type": "cost_update", "turn_tokens", "turn_cost_usd",
+         "session_cost_usd", "source"}``  — v1.4 P1-3, emitted
+      AFTER the terminal ``done`` once per turn.
     """
-    type: Literal["text", "tool_start", "tool_result", "render", "error", "done"]
+    type: Literal[
+        "text", "tool_start", "tool_result", "render",
+        "error", "done", "cost_update",
+    ]
+
+
+# Source-priority for the cost_update event. When a turn has
+# multiple LLM calls with different ``usage.source`` values (e.g.
+# a partial provider switch, or a pi call followed by a
+# misconfigured anthropic call), we report the highest-priority
+# non-"unavailable" source on the cost_update so the UI can show
+# the most informative label. Pi is preferred because the user's
+# default is pi and pi's numbers are authoritative for that path.
+_SOURCE_PRIORITY = {"pi": 0, "computed": 1, "unavailable": 2}
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +111,86 @@ def append_to_conversation(project_id: str, conv_id: str, message: dict[str, Any
 
 def new_conversation_id() -> str:
     return uuid.uuid4().hex
+
+
+# ---------------------------------------------------------------------------
+# Cost sidecar persistence (v1.4 P1-3)
+# ---------------------------------------------------------------------------
+# The cumulative session cost is persisted as a sidecar JSON file
+# at ``<project>/.open_edit/cost.json``, keyed by ``conv_id``. The
+# sidecar is small (one float per conversation) and lazy: we read
+# it at turn start and write it via ``asyncio.to_thread`` so the
+# disk I/O doesn't block the WS event loop. A separate SQLite
+# table alongside ``edit_graph.db`` was an option, but the
+# sidecar keeps ``EditGraphStore``'s schema untouched and keeps
+# cost data trivially inspectable from the command line.
+
+def _cost_sidecar_path(project_path: Path) -> Path:
+    """Path of the per-project cost sidecar JSON."""
+    return project_path / ".open_edit" / "cost.json"
+
+
+def _load_cost_state(project_path: Path) -> dict[str, dict[str, Any]]:
+    """Read the cost sidecar for a project.
+
+    Returns a flat dict ``{conv_id: {session_cost_usd, source, last_turn_cost_usd}}``.
+    Missing/corrupt files return ``{}`` — we never raise on read
+    so a malformed sidecar can't crash the agent loop. The
+    operator can ``rm .open_edit/cost.json`` to reset.
+    """
+    p = _cost_sidecar_path(project_path)
+    if not p.exists():
+        return {}
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def _write_cost_json_sync(path: Path, state: dict[str, dict[str, Any]]) -> None:
+    """Synchronous JSON write — wrapped in ``asyncio.to_thread`` by
+    callers so disk I/O doesn't block the event loop. Atomic via
+    temp file + ``os.replace`` so a crash mid-write can't leave
+    the sidecar in a half-written state."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(state, fh, sort_keys=True, default=str)
+    os.replace(tmp, path)
+
+
+def _save_cost_state(
+    project_path: Path, state: dict[str, dict[str, Any]],
+) -> None:
+    """Synchronous save — tests use this; the agent loop uses
+    ``_save_cost_state_async`` for off-loop writes.
+
+    Merges with the existing sidecar so unrelated conv_ids (other
+    conversations in the same project) are preserved. The merge
+    is in-memory + atomic write: load the existing file, update
+    the entries from ``state``, write back. A sidecar with N
+    conversations is small (a few KB at most) so re-reading it
+    on every save is fine.
+    """
+    existing = _load_cost_state(project_path)
+    existing.update(state)
+    _write_cost_json_sync(_cost_sidecar_path(project_path), existing)
+
+
+async def _save_cost_state_async(
+    project_path: Path, state: dict[str, dict[str, Any]],
+) -> None:
+    """Async save — runs the disk I/O on a thread so the WS loop
+    stays responsive. The brief says cost persistence is
+    'lazy-loaded; don't block turn completion on disk I/O'; this
+    is that."""
+    await asyncio.to_thread(
+        _write_cost_json_sync, _cost_sidecar_path(project_path), state,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +376,30 @@ async def run_agent_turn(
     if conv_id:
         append_to_conversation(project_id, conv_id, user_msg)
 
+    # v1.4 P1-3: cost tracking. The previous session cumulative
+    # cost is loaded from the sidecar JSON once at turn start.
+    # The agent loop aggregates per-call ``usage`` events into a
+    # turn total and emits a single ``cost_update`` after the
+    # final ``done``. Persistence happens off-loop via
+    # ``asyncio.to_thread`` so the WS stays responsive.
+    cost_state = _load_cost_state(project_path) if conv_id else {}
+    previous_session_cost = 0.0
+    if conv_id and conv_id in cost_state:
+        try:
+            previous_session_cost = float(
+                cost_state[conv_id].get("session_cost_usd", 0.0)
+            )
+        except (TypeError, ValueError):
+            previous_session_cost = 0.0
+    turn_tokens = 0
+    turn_cost_usd = 0.0
+    # The source for the cost_update: highest-priority non-"unavailable"
+    # source seen in this turn. Defaults to "unavailable" so a turn
+    # that yields zero ``usage`` events (rare) still produces a
+    # well-formed cost_update.
+    best_source_priority = _SOURCE_PRIORITY["unavailable"]
+    best_source = "unavailable"
+
     # Main loop
     for _ in range(MAX_AGENT_ITERATIONS):
         # Stream the LLM
@@ -323,12 +444,49 @@ async def run_agent_turn(
                     # LLM turn. Keyed by tool name since pi's events
                     # don't always carry the tool_use_id forward.
                     tool_results_by_name[event.get("name", "")] = event.get("result", {})
+                elif etype == "usage":
+                    # v1.4 P1-3: aggregate per-call cost data into
+                    # the turn total. The source priority ranking
+                    # ensures the cost_update reports the most
+                    # informative source when a turn mixes
+                    # providers.
+                    try:
+                        turn_tokens += int(event.get("tokens", 0) or 0)
+                        turn_cost_usd += float(event.get("cost_usd", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        pass
+                    src = event.get("source", "unavailable")
+                    if not isinstance(src, str):
+                        src = "unavailable"
+                    prio = _SOURCE_PRIORITY.get(src, _SOURCE_PRIORITY["unavailable"])
+                    if prio < best_source_priority:
+                        best_source_priority = prio
+                        best_source = src
                 elif etype == "done":
                     stop_reason = event.get("stop_reason", "end_turn")
         except Exception as exc:
-            # LLM/streaming failure — surface and abort.
+            # LLM/streaming failure — surface and abort. Emit a
+            # cost_update with whatever we've accumulated so the
+            # UI doesn't get stuck on a missing event.
             yield {"type": "error", "message": f"LLM stream error: {exc}"}
             yield {"type": "done", "stop_reason": "error"}
+            session_cost_usd = previous_session_cost + turn_cost_usd
+            yield {
+                "type": "cost_update",
+                "turn_tokens": turn_tokens,
+                "turn_cost_usd": round(turn_cost_usd, 9),
+                "session_cost_usd": round(session_cost_usd, 9),
+                "source": best_source,
+            }
+            if conv_id:
+                cost_state[conv_id] = {
+                    "session_cost_usd": session_cost_usd,
+                    "source": best_source,
+                    "last_turn_cost_usd": turn_cost_usd,
+                }
+                asyncio.create_task(
+                    _save_cost_state_async(project_path, dict(cost_state))
+                )
             return
 
         # Build the assistant message
@@ -348,9 +506,33 @@ async def run_agent_turn(
         if conv_id:
             append_to_conversation(project_id, conv_id, assistant_msg)
 
-        # No tool calls -> turn is done
+        # No tool calls -> turn is done. Emit the cost_update
+        # AFTER ``done`` (per the brief) and persist the new
+        # session cumulative to the sidecar JSON (off-loop).
         if not tool_use_blocks:
             yield {"type": "done", "stop_reason": stop_reason}
+            session_cost_usd = previous_session_cost + turn_cost_usd
+            yield {
+                "type": "cost_update",
+                "turn_tokens": turn_tokens,
+                "turn_cost_usd": round(turn_cost_usd, 9),
+                "session_cost_usd": round(session_cost_usd, 9),
+                "source": best_source,
+            }
+            if conv_id:
+                cost_state[conv_id] = {
+                    "session_cost_usd": session_cost_usd,
+                    "source": best_source,
+                    "last_turn_cost_usd": turn_cost_usd,
+                }
+                # Fire-and-forget write; the cost_update has
+                # already been yielded so the user sees the
+                # number immediately. If the write fails the
+                # next turn will reconcile from the in-memory
+                # state we just stashed here.
+                asyncio.create_task(
+                    _save_cost_state_async(project_path, dict(cost_state))
+                )
             return
 
         # Execute each tool call and emit events. If the provider is
@@ -413,8 +595,27 @@ async def run_agent_turn(
         # Loop back: LLM will be called again with the tool results.
 
     # Hit the iteration cap — surface a soft error and stop.
+    # Also emit the cost_update so the user sees how much this
+    # runaway turn cost; persist the cumulative as usual.
     yield {
         "type": "error",
         "message": f"agent hit the {MAX_AGENT_ITERATIONS}-iteration cap without finishing.",
     }
     yield {"type": "done", "stop_reason": "max_iterations"}
+    session_cost_usd = previous_session_cost + turn_cost_usd
+    yield {
+        "type": "cost_update",
+        "turn_tokens": turn_tokens,
+        "turn_cost_usd": round(turn_cost_usd, 9),
+        "session_cost_usd": round(session_cost_usd, 9),
+        "source": best_source,
+    }
+    if conv_id:
+        cost_state[conv_id] = {
+            "session_cost_usd": session_cost_usd,
+            "source": best_source,
+            "last_turn_cost_usd": turn_cost_usd,
+        }
+        asyncio.create_task(
+            _save_cost_state_async(project_path, dict(cost_state))
+        )

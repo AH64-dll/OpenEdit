@@ -151,7 +151,8 @@ async def test_agent_loop_two_turn_with_tool_call(patched_agent):
         "tool_start",   # list_assets
         "tool_result",  # list_assets
         "text",         # "You have 2 assets."
-        "done",
+        "done",         # turn end
+        "cost_update",  # v1.4 P1-3 — cost summary after done
     ]
 
     # Verify text content

@@ -31,6 +31,10 @@ const state = {
   // v1.4 P1-2: chat-status indicator state machine. Set in ``boot()``
   // once the DOM is ready. Driven by the WS event stream.
   chatStatus: null,
+  // v1.4 P1-3: cost badge state machine. Lives next to the
+  // chat-status pill in the DOM; the agent loop's
+  // ``cost_update`` WS event drives the label.
+  costBadge: null,
 };
 
 // ----------------------------------------------------------
@@ -943,6 +947,92 @@ function statusLabel(s, toolName) {
 }
 
 // ----------------------------------------------------------
+// Cost badge (v1.4 P1-3)
+// ----------------------------------------------------------
+// A small monospace pill that displays the per-turn + cumulative
+// session cost, or an honest "cost n/a" state when the LLM
+// provider doesn't report a per-token bill (e.g. the ``pi`` path
+// through opencode-go, which is subscription-billed).
+//
+// Driven by the ``cost_update`` WS event from the agent loop:
+//   {type, turn_tokens, turn_cost_usd, session_cost_usd, source}
+//
+// The badge is intentionally focused: it only reacts to
+// ``cost_update``. Other WS events (text, tool_start, done,
+// error) are handled by the chat-status indicator above it. This
+// separation of concerns is what the brief meant by "the cost
+// badge should not duplicate the chat-status indicator's logic".
+//
+// Exposed as ``window.OpenEdit.__testHooks.createCostBadge`` so
+// Node-sandbox tests can drive the badge without a real DOM
+// (see ``tests/test_serve_cost_badge.py``).
+function createCostBadge(element) {
+  const labelEl = element && element.querySelector
+    ? element.querySelector('.cost-badge-text')
+    : null;
+
+  function setLabel(text) {
+    if (labelEl) labelEl.textContent = text;
+  }
+
+  function setSource(source) {
+    if (!element) return;
+    // Use setAttribute (same pattern as createChatStatus) so the
+    // Node-sandbox test stubs that intercept setAttribute still work.
+    element.setAttribute('data-source', source);
+  }
+
+  function setVisible(visible) {
+    if (!element) return;
+    if (visible) element.classList.remove('hidden');
+    else element.classList.add('hidden');
+  }
+
+  function formatUsd(n) {
+    // 2-4 fraction digits depending on magnitude. Very small
+    // numbers (typical for a single pi turn) get 4 digits so
+    // they don't show as "$0.00" when the user actually did
+    // spend something. Larger numbers get 2 digits for compactness.
+    if (n === 0) return '$0.00';
+    if (n < 0.01) return '$' + n.toFixed(4);
+    return '$' + n.toFixed(2);
+  }
+
+  // Start hidden — the badge appears only when the first
+  // ``cost_update`` arrives, so we never show a stale label.
+  setVisible(false);
+  setSource('unavailable');
+  setLabel('');
+
+  return {
+    onEvent(ev) {
+      if (!ev || ev.type !== 'cost_update') return;
+      const source = (ev.source === 'pi' || ev.source === 'computed')
+        ? ev.source : 'unavailable';
+      setSource(source);
+      setVisible(true);
+      if (source === 'unavailable') {
+        // The brief: "When source == unavailable, show something
+        // honest like 'cost n/a (subscription)' instead of a
+        // fake $0.00." The exact wording is a UX choice; this
+        // is the suggested form. Tests pin that we say "n/a"
+        // and don't show a $0.00 fake.
+        setLabel('cost n/a (subscription)');
+        return;
+      }
+      const turnCost = Number(ev.turn_cost_usd) || 0;
+      const sessionCost = Number(ev.session_cost_usd) || 0;
+      setLabel(`${formatUsd(turnCost)} this turn · ${formatUsd(sessionCost)} session`);
+    },
+    reset() {
+      setVisible(false);
+      setSource('unavailable');
+      setLabel('');
+    },
+  };
+}
+
+// ----------------------------------------------------------
 // WebSocket client
 // ----------------------------------------------------------
 function setWsState(s) {
@@ -1014,6 +1104,11 @@ function scheduleReconnect() {
 
 function handleWsEvent(ev) {
   if (state.chatStatus) state.chatStatus.onEvent(ev);
+  // v1.4 P1-3: route cost_update events to the cost badge.
+  // The badge is focused (it only reacts to its own event
+  // type), so this is a separate dispatch from the chat-status
+  // indicator above.
+  if (state.costBadge) state.costBadge.onEvent(ev);
   switch (ev.type) {
     case 'ready':
       // Server ack; nothing to render.
@@ -1042,6 +1137,12 @@ function handleWsEvent(ev) {
       markTurnDone();
       // Auto-refresh project state so new ops / assets / notes show up.
       loadProjectState();
+      break;
+    case 'cost_update':
+      // The cost badge's onEvent was already invoked above the
+      // switch (see the "v1.4 P1-3: route cost_update events"
+      // comment); the chat-log switch only handles events that
+      // mutate the log itself, so cost_update is a no-op here.
       break;
     default:
       // Unknown event type — ignore silently.
@@ -1335,6 +1436,11 @@ async function boot() {
   // with the WS event stream.
   const statusEl = document.querySelector('#chat-status');
   if (statusEl) state.chatStatus = createChatStatus(statusEl);
+  // v1.4 P1-3: cost badge. Sits next to the chat-status pill;
+  // ``createCostBadge`` keeps the dollar label in sync with the
+  // agent's ``cost_update`` events.
+  const costEl = document.querySelector('#cost-badge');
+  if (costEl) state.costBadge = createCostBadge(costEl);
   await refreshProjects();
   if (state.currentProjectId) {
     await loadProjectState();
@@ -1372,6 +1478,10 @@ window.OpenEdit = {
     // tests can drive it through a synthetic WS event sequence
     // without a real DOM (see ``tests/test_serve_chat_status.py``).
     createChatStatus,
+    // v1.4 P1-3: cost badge state machine. Exposed so Node-sandbox
+    // tests can drive the badge without a real DOM (see
+    // ``tests/test_serve_cost_badge.py``).
+    createCostBadge,
     // v1.4 P1-1: search-assets results panel renderer. Exposed so
     // Node-sandbox tests can drive the panel without a real DOM
     // (see ``tests/test_serve_search_assets.py``).

@@ -1,0 +1,47 @@
+{
+  "_comment": "v1.4 P1-3 — local pricing config for direct-billed API providers (anthropic / openai). The default 'pi' provider does NOT use this file (pi computes its own cost; we reuse that). PRICES GO STALE: re-check against each provider's published rate card periodically and update the entries below. As of 2026-07-21, values reflect per-1M-token USD list prices; cache read/write rates are also per 1M tokens.",
+  "anthropic": {
+    "claude-sonnet-4-5": {
+      "input_per_1m": 3.00,
+      "output_per_1m": 15.00,
+      "cache_read_per_1m": 0.30,
+      "cache_write_per_1m": 3.75
+    },
+    "claude-opus-4-1": {
+      "input_per_1m": 15.00,
+      "output_per_1m": 75.00,
+      "cache_read_per_1m": 1.50,
+      "cache_write_per_1m": 18.75
+    },
+    "claude-3-5-sonnet-latest": {
+      "input_per_1m": 3.00,
+      "output_per_1m": 15.00,
+      "cache_read_per_1m": 0.30,
+      "cache_write_per_1m": 3.75
+    },
+    "claude-3-haiku-20240307": {
+      "input_per_1m": 0.25,
+      "output_per_1m": 1.25,
+      "cache_read_per_1m": 0.03,
+      "cache_write_per_1m": 0.30
+    }
+  },
+  "openai": {
+    "gpt-4o": {
+      "input_per_1m": 2.50,
+      "output_per_1m": 10.00
+    },
+    "gpt-4o-mini": {
+      "input_per_1m": 0.15,
+      "output_per_1m": 0.60
+    },
+    "gpt-4-turbo": {
+      "input_per_1m": 10.00,
+      "output_per_1m": 30.00
+    },
+    "o1": {
+      "input_per_1m": 15.00,
+      "output_per_1m": 60.00
+    }
+  }
+}

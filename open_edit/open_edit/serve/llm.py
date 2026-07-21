@@ -33,6 +33,8 @@ import shutil
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal, TypedDict
 
+from . import cost as cost_mod
+
 # ``anthropic`` is listed as a hard dependency in pyproject.toml. We import
 # lazily inside ``stream_chat`` so the module can still be imported in test
 # environments that mock the SDK away.
@@ -42,7 +44,7 @@ from typing import Any, AsyncIterator, Literal, TypedDict
 # Public types
 # ---------------------------------------------------------------------------
 
-class StreamEvent(TypedDict):
+class StreamEvent(TypedDict, total=False):
     """One event emitted by ``stream_chat``.
 
     Variants:
@@ -50,11 +52,21 @@ class StreamEvent(TypedDict):
       — a chunk of assistant text (already delta-decoded)
     - ``{"type": "tool_use", "id": "...", "name": "...", "input": {...}}``
       — a fully-assembled tool_use block (input JSON already parsed)
+    - ``{"type": "usage", "source": "pi"|"computed"|"unavailable",
+         "tokens": int, "cost_usd": float, "usage": dict}``
+      — per-call token + cost data (v1.4 P1-3). The agent loop
+      aggregates these across one user turn and emits a single
+      ``cost_update`` event after ``done``. ``source`` distinguishes
+      "pi" (read from pi's session JSONL), "computed" (SDK usage ×
+      pricing.json), and "unavailable" (no cost data — UI shows
+      "cost n/a"). For "pi" / "computed", ``tokens`` and
+      ``cost_usd`` are the per-call figures; for "unavailable"
+      both are 0.
     - ``{"type": "done", "stop_reason": "..."}``
       — final event; ``stop_reason`` is the model's stop reason
       (``end_turn`` / ``tool_use`` / ``max_tokens`` / ``stop_sequence``)
     """
-    type: Literal["text_delta", "tool_use", "done"]
+    type: Literal["text_delta", "tool_use", "done", "usage", "error"]
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +264,17 @@ async def _stream_pi(
         }
         return
 
+    # Resolve the session file path before we spawn pi. pi appends
+    # to this file as it runs, so we record its current size and
+    # compute the delta (new bytes → new assistant messages → new
+    # tokens/cost) after the subprocess finishes.
+    sessions_dir = cost_mod.default_pi_sessions_dir()
+    session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
+    if session_path is not None:
+        baseline_size = session_path.stat().st_size
+    else:
+        baseline_size = 0
+
     cmd = [
         _pi_binary(),
         "--provider", _pi_provider_name(),
@@ -314,12 +337,46 @@ async def _stream_pi(
         raise
 
     if proc.returncode != 0 and not saw_text:
-        stderr = (await proc.stderr.read()).decode("utf-8", "replace").strip() if proc.stderr else ""
+        stderr = (await proc.stderr.read()).decode("utf-8", errors="replace").strip() if proc.stderr else ""
         yield {
             "type": "error",
             "message": stderr or f"pi exited {proc.returncode}",
         }
         return
+
+    # Cost extraction (v1.4 P1-3). Pi already computed the per-call
+    # cost and wrote it into the session JSONL; we read the delta
+    # between baseline_size and the current file size and yield a
+    # ``usage`` event. If the file vanished (pi wiped its session
+    # between invocations — unusual but possible) or there's no
+    # session file at all, we surface ``unavailable`` so the UI
+    # shows the honest "cost n/a" state.
+    if session_path is None:
+        # No file at all — try once more in case pi just created it.
+        session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
+    if session_path is None or not session_path.exists():
+        yield {
+            "type": "usage",
+            "source": "unavailable",
+            "tokens": 0,
+            "cost_usd": 0.0,
+            "usage": {},
+        }
+    else:
+        delta = cost_mod.parse_pi_session_usage_delta(
+            session_path, last_size=baseline_size,
+        )
+        # Source is always "pi" when we successfully read the file.
+        # A zero-cost delta means pi made no API call this turn
+        # (rare, but possible — e.g. cached reuse); the UI shows
+        # $0.00 and the operator can investigate if unexpected.
+        yield {
+            "type": "usage",
+            "source": "pi",
+            "tokens": delta["tokens"],
+            "cost_usd": delta["cost_usd"],
+            "usage": {},
+        }
 
     yield {"type": "done", "stop_reason": stop_reason}
 
@@ -503,6 +560,43 @@ async def _stream_anthropic(
 
             elif etype == "message_stop":
                 final = await stream.get_final_message()
+                # v1.4 P1-3: emit a ``usage`` event so the agent
+                # loop can compute and surface per-turn cost. We
+                # compute the cost here from the SDK's usage
+                # object + the pricing config; the agent loop
+                # aggregates across the turn.
+                usage_obj = getattr(final, "usage", None)
+                if usage_obj is not None:
+                    usage_dict = {
+                        "input_tokens": int(getattr(usage_obj, "input_tokens", 0) or 0),
+                        "output_tokens": int(getattr(usage_obj, "output_tokens", 0) or 0),
+                        "cache_creation_input_tokens": int(
+                            getattr(usage_obj, "cache_creation_input_tokens", 0) or 0
+                        ),
+                        "cache_read_input_tokens": int(
+                            getattr(usage_obj, "cache_read_input_tokens", 0) or 0
+                        ),
+                    }
+                    cost_result = cost_mod.compute_anthropic_cost(
+                        usage_dict, _model(),
+                    )
+                    if cost_result is None:
+                        yield {
+                            "type": "usage",
+                            "source": "unavailable",
+                            "tokens": sum(usage_dict.values()),
+                            "cost_usd": 0.0,
+                            "usage": usage_dict,
+                        }
+                    else:
+                        tokens, cost_usd = cost_result
+                        yield {
+                            "type": "usage",
+                            "source": "computed",
+                            "tokens": tokens,
+                            "cost_usd": cost_usd,
+                            "usage": usage_dict,
+                        }
                 yield {
                     "type": "done",
                     "stop_reason": final.stop_reason or "end_turn",
@@ -582,6 +676,11 @@ async def _stream_openai(
     # Accumulate tool calls by index, emit each when the tool_call finishes.
     pending_tools: dict[int, dict[str, Any]] = {}
     finish_reason = "stop"
+    # v1.4 P1-3: the OpenAI SDK only carries the usage object on
+    # the LAST chunk (with finish_reason set). We capture the
+    # latest usage we see, then emit it as a ``usage`` event after
+    # the loop.
+    last_usage: Any = None
 
     async for chunk in stream:
         if not chunk.choices:
@@ -608,6 +707,10 @@ async def _stream_openai(
                     pending_tools[idx]["args_json"] += call.function.arguments
         if choice.finish_reason:
             finish_reason = choice.finish_reason
+        # The usage object lives at chunk.usage, not on the choice.
+        chunk_usage = getattr(chunk, "usage", None)
+        if chunk_usage is not None:
+            last_usage = chunk_usage
 
     # Emit accumulated tool calls
     for idx in sorted(pending_tools.keys()):
@@ -622,6 +725,38 @@ async def _stream_openai(
             "name": tool["name"],
             "input": parsed,
         }
+
+    # v1.4 P1-3: emit a ``usage`` event if the SDK gave us usage
+    # data. The cost math happens here (against pricing.json) so
+    # the agent loop can just aggregate per-call costs.
+    if last_usage is not None:
+        usage_dict = {
+            "prompt_tokens": int(getattr(last_usage, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(last_usage, "completion_tokens", 0) or 0),
+        }
+        details = getattr(last_usage, "prompt_tokens_details", None)
+        if details is not None:
+            usage_dict["prompt_tokens_details"] = {
+                "cached_tokens": int(getattr(details, "cached_tokens", 0) or 0),
+            }
+        cost_result = cost_mod.compute_openai_cost(usage_dict, _model())
+        if cost_result is None:
+            yield {
+                "type": "usage",
+                "source": "unavailable",
+                "tokens": sum(v for k, v in usage_dict.items() if isinstance(v, int)),
+                "cost_usd": 0.0,
+                "usage": usage_dict,
+            }
+        else:
+            tokens, cost_usd = cost_result
+            yield {
+                "type": "usage",
+                "source": "computed",
+                "tokens": tokens,
+                "cost_usd": cost_usd,
+                "usage": usage_dict,
+            }
 
     # Map OpenAI finish_reason -> Anthropic-style stop_reason
     stop_map = {

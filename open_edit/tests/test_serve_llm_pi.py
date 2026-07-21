@@ -223,6 +223,7 @@ def test_stream_chat_uses_fake_pi(monkeypatch, fake_pi):
         "text_delta", "text_delta",  # "Hello " + "world"
         "tool_use",                    # add_marker call
         "tool_result",                 # tool result from pi
+        "usage",                       # cost data (v1.4 P1-3)
         "done",                        # final
     ]
 
