@@ -457,6 +457,43 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
   min-width: 0;
 }
 
+/* v1.5: verification chip — surfaces the visual-verify stage
+   progress (checking/verified/failed/skipped/capped). Sits inline
+   near the chat-status pill so the user can see what the verify
+   loop is doing without scrolling. */
+.verify-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  background: rgba(60, 60, 60, 0.6);
+  color: #ccc;
+  border: 1px solid rgba(150, 150, 150, 0.3);
+  transition: opacity 0.2s;
+}
+.verify-chip.hidden { display: none; }
+.verify-chip[data-state="checking"] {
+  color: #ffd166;
+  border-color: rgba(255, 209, 102, 0.4);
+}
+.verify-chip[data-state="verified"] {
+  color: #06d6a0;
+  border-color: rgba(6, 214, 160, 0.4);
+}
+.verify-chip[data-state="failed"] {
+  color: #ef476f;
+  border-color: rgba(239, 71, 111, 0.4);
+}
+.verify-chip[data-state="skipped"] {
+  color: #888;
+}
+.verify-chip[data-state="capped"] {
+  color: #ef476f;
+}
+
 .chat-input-row {
   display: flex;
   gap: 8px;
