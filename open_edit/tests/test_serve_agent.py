@@ -18,6 +18,7 @@ Expected AgentEvent sequence:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -322,3 +323,67 @@ def test_execute_trigger_render_in_process_duration_zero_on_missing_file(tmp_pat
     assert out["output_path"] == ""
     assert out["render_id"].startswith("render_")
     assert out["duration_s"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# v1.6 polish: ``MAX_AGENT_ITERATIONS`` is module-scope and env-overridable;
+# ``_llm_provider()`` is resolved once per turn (hoisted out of the loop).
+# ---------------------------------------------------------------------------
+
+
+def test_max_agent_iterations_module_scope_default(monkeypatch):
+    """V6-1: ``MAX_AGENT_ITERATIONS`` is exposed at module scope and
+    defaults to 10 when ``OPEN_EDIT_AGENT_MAX_ITERATIONS`` is unset."""
+    monkeypatch.delenv("OPEN_EDIT_AGENT_MAX_ITERATIONS", raising=False)
+    importlib.reload(agent_mod)
+    try:
+        assert hasattr(agent_mod, "MAX_AGENT_ITERATIONS")
+        assert agent_mod.MAX_AGENT_ITERATIONS == 10
+    finally:
+        # Restore the module to its on-import state so we don't leak
+        # the reloaded constant into other tests in this process.
+        importlib.reload(agent_mod)
+
+
+def test_max_agent_iterations_env_override(monkeypatch):
+    """V6-1: ``OPEN_EDIT_AGENT_MAX_ITERATIONS`` overrides the default
+    cap at import time. Operators can tune the safety cap without
+    editing code."""
+    monkeypatch.setenv("OPEN_EDIT_AGENT_MAX_ITERATIONS", "7")
+    importlib.reload(agent_mod)
+    try:
+        assert agent_mod.MAX_AGENT_ITERATIONS == 7
+    finally:
+        importlib.reload(agent_mod)
+
+
+@pytest.mark.asyncio
+async def test_provider_does_tool_exec_resolved_once_per_turn(patched_agent, monkeypatch):
+    """V6-2: ``_llm_provider()`` is hoisted out of the per-iteration
+    loop. Provider doesn't change between iterations of the same turn,
+    so resolving it once is enough. The canned ``_mock_stream_chat``
+    yields a 2-turn conversation, which means the loop runs twice;
+    before the fix the provider resolver was called once per iteration
+    (2 times), after the fix it's called once per turn (1 time)."""
+    call_count = {"n": 0}
+
+    def counting_provider() -> str:
+        call_count["n"] += 1
+        return "anthropic"
+
+    # Patch the module-scope alias (after the fix) AND the underlying
+    # llm._provider (in case any code path re-imports it).
+    monkeypatch.setattr(agent_mod, "_llm_provider", counting_provider)
+    monkeypatch.setattr("open_edit.serve.llm._provider", counting_provider)
+
+    history: list[dict[str, Any]] = []
+    async for _ev in agent_mod.run_agent_turn(
+        project_id="testproject",
+        user_message="what do I have?",
+        conversation_history=history,
+    ):
+        pass
+
+    assert call_count["n"] == 1, (
+        f"expected _llm_provider() to be called once per turn; got {call_count['n']}"
+    )

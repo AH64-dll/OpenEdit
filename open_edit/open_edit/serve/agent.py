@@ -77,6 +77,19 @@ class AgentEvent(TypedDict, total=False):
 _SOURCE_PRIORITY = {"pi": 0, "computed": 1, "unavailable": 2}
 
 
+# v1.6 polish: ``MAX_AGENT_ITERATIONS`` is now a module-scope constant so
+# operators can tune the runaway-loop safety cap at process start without
+# editing source. Override via the ``OPEN_EDIT_AGENT_MAX_ITERATIONS`` env
+# var (parsed as an int; non-integer values will raise at import time).
+MAX_AGENT_ITERATIONS = int(os.environ.get("OPEN_EDIT_AGENT_MAX_ITERATIONS", "10"))
+
+
+# v1.6 polish: hoisted out of the per-iteration loop in ``run_agent_turn``.
+# Provider doesn't change between iterations of the same turn, so resolve
+# it once and reuse the result for the rest of the turn.
+from .llm import _provider as _llm_provider  # noqa: E402
+
+
 # ---------------------------------------------------------------------------
 # Conversation persistence
 # ---------------------------------------------------------------------------
@@ -676,8 +689,6 @@ async def run_agent_turn(
     The loop continues until the LLM returns ``end_turn`` or hits a
     safety cap (``MAX_AGENT_ITERATIONS``).
     """
-    MAX_AGENT_ITERATIONS = 10  # hard cap to prevent runaway loops
-
     # Resolve project + state
     try:
         state = await projects_mod.get_project_state(project_id)
@@ -729,6 +740,14 @@ async def run_agent_turn(
     turn_render_count = 0
     pending_verification: dict[str, Any] | None = None
 
+    # v1.6 polish: the LLM provider doesn't change between iterations of
+    # the same turn (provider switching mid-turn isn't supported). Resolve
+    # it once here so we don't re-read ``OPEN_EDIT_LLM_PROVIDER`` on every
+    # loop iteration. The pi path needs this flag because pi's extension
+    # has ALREADY executed every tool call by the time we see the
+    # ``tool_result`` event; we must NOT re-execute locally.
+    provider_does_tool_exec = _llm_provider() == "pi"
+
     # Main loop
     for _ in range(MAX_AGENT_ITERATIONS):
         # Stream the LLM
@@ -736,13 +755,6 @@ async def run_agent_turn(
         tool_use_blocks: list[dict[str, Any]] = []
         tool_results_by_name: dict[str, Any] = {}  # filled by pi provider
         stop_reason = "end_turn"
-
-        # Detect if the LLM provider is the ``pi`` subprocess driver. In that
-        # case the pi extension has ALREADY executed every tool call (via
-        # ``pi_bridge.py``) and streamed the results back to us as
-        # ``tool_result`` events. We must NOT re-execute locally.
-        from .llm import _provider as _llm_provider
-        provider_does_tool_exec = _llm_provider() == "pi"
 
         try:
             async for event in stream_chat(
