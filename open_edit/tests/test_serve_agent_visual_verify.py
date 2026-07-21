@@ -145,7 +145,7 @@ async def test_verify_loop_runs_after_trigger_render(monkeypatch, tmp_path):
         ],
     ])
 
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
 
     async def _stream_with_tool_result(*args, **kwargs):
@@ -171,7 +171,7 @@ async def test_verify_loop_runs_after_trigger_render(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_verify_skipped_for_text_only_model(monkeypatch, tmp_path):
     """A text-only model (minimax-m2.7) → no frames in result, outcome=skipped, source=text_only_model."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "minimax-m2.7")
     store = tmp_path / "models-store.json"
     store.write_text(json.dumps({"opencode-go": {"models": [
@@ -204,7 +204,7 @@ async def test_verify_skipped_for_text_only_model(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_render_count_capped_at_three(monkeypatch, tmp_path):
     """4 trigger_render calls in 4 turns → 4th returns render_capped tool result."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     monkeypatch.setenv("OPEN_EDIT_VERIFY_MAX_RENDERS", "3")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
 
@@ -238,7 +238,7 @@ async def test_render_count_capped_at_three(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_iteration_within_cap(monkeypatch, tmp_path):
     """2 renders, both verified, LLM says PASS after 2nd → outcome=pass."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -261,7 +261,7 @@ async def test_iteration_within_cap(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_mutation_tools_executed_before_render_in_batch(monkeypatch, tmp_path):
     """add_clip + trigger_render in one LLM turn → add_clip runs first, render is fresh."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     calls: list[str] = []
     def fake_execute(name, args, path):
@@ -291,7 +291,7 @@ async def test_mutation_tools_executed_before_render_in_batch(monkeypatch, tmp_p
 @pytest.mark.asyncio
 async def test_only_one_render_per_batch_even_if_multiple_called(monkeypatch, tmp_path):
     """LLM emits two trigger_render calls in one turn → only the last one runs."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     stream_fn, _ = _make_mock_stream([
         [
@@ -320,7 +320,7 @@ async def test_only_one_render_per_batch_even_if_multiple_called(monkeypatch, tm
 @pytest.mark.asyncio
 async def test_pass_line_drives_pass_outcome(monkeypatch, tmp_path):
     """VERIFICATION: PASS → outcome=pass, source=model_explicit_pass."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -343,7 +343,7 @@ async def test_pass_line_drives_pass_outcome(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_fail_no_tool_calls_emits_uncertain(monkeypatch, tmp_path):
     """VERIFICATION: FAIL with no tool calls → outcome=uncertain, source=model_explicit_fail."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -366,7 +366,7 @@ async def test_fail_no_tool_calls_emits_uncertain(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_no_verdict_line_emits_no_verdict_line_verdict_source(monkeypatch, tmp_path):
     """LLM says nothing parseable → outcome=uncertain, source=model_no_verdict_line."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -388,7 +388,7 @@ async def test_no_verdict_line_emits_no_verdict_line_verdict_source(monkeypatch,
 @pytest.mark.asyncio
 async def test_tool_result_with_images_does_not_bloat_persistent_history(monkeypatch, tmp_path):
     """After a verified render, the slim view sent to the next LLM call has no image blocks."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     seen_messages: list[list[dict]] = []
     async def _spy_stream(messages, **kwargs):
@@ -445,7 +445,7 @@ async def test_cancel_during_ffmpeg_aborts_cleanly(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_no_change_render_returns_no_change_tool_result(monkeypatch, tmp_path):
     """A 2nd trigger_render with the same project state → no ffmpeg, no frames."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setenv("OPEN_EDIT_VERIFY_ALLOW_NO_CHANGE_SKIP", "1")
     stream_fn, _ = _make_mock_stream([
@@ -475,7 +475,7 @@ async def test_no_change_render_returns_no_change_tool_result(monkeypatch, tmp_p
 @pytest.mark.asyncio
 async def test_project_meta_verify_disabled_skips_loop(monkeypatch, tmp_path):
     """project_meta.verify_disabled=1 → no verification stage, behaves like v1.4."""
-    monkeypatch.setattr("open_edit.serve.llm._provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
     # Create the edit_graph.db with verify_disabled=1 so is_verify_disabled returns True.
     from open_edit.storage.edit_graph import EditGraphStore
     db_path = tmp_path / ".open_edit" / "edit_graph.db"
