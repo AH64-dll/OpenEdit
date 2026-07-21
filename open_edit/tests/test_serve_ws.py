@@ -34,6 +34,8 @@ async def _mock_stream_chat(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     system: str,
+    session_id: str | None = None,
+    project_path: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     assistant_turns = sum(1 for m in messages if m.get("role") == "assistant")
     if assistant_turns == 0:

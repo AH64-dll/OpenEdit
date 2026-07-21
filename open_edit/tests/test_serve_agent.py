@@ -44,6 +44,8 @@ async def _mock_stream_chat(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     system: str,
+    session_id: str | None = None,
+    project_path: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Play back a canned 2-turn conversation based on how many assistant
     messages are already in ``messages``."""
