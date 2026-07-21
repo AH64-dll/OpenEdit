@@ -6,10 +6,11 @@ record; the source of truth for the IR.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from pydantic import TypeAdapter
 
@@ -65,6 +66,43 @@ class EditGraphStore:
                 (pid,),
             )
             return pid
+
+    def get_project_meta(self) -> dict[str, Any]:
+        """Return the project_meta table as a dict. Empty if no rows.
+
+        JSON-encoded values are decoded back to their native types (numbers,
+        booleans, lists, dicts, null). Plain string values (e.g. the
+        project_id) are returned as-is.
+        """
+        with self._conn() as conn:
+            cur = conn.execute("SELECT key, value FROM project_meta")
+            out: dict[str, Any] = {}
+            for k, v in cur.fetchall():
+                if isinstance(v, str) and v:
+                    try:
+                        out[k] = json.loads(v)
+                    except (ValueError, TypeError):
+                        out[k] = v
+                else:
+                    out[k] = v
+            return out
+
+    def set_project_meta_field(self, key: str, value: Any) -> None:
+        """Set a single project_meta field. Persists immediately.
+
+        Non-string values are JSON-encoded so that the table round-trips
+        native types (int, float, list, dict) through TEXT.
+        """
+        if isinstance(value, str):
+            raw = value
+        else:
+            raw = json.dumps(value)
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO project_meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, raw),
+            )
 
     def append(
         self, op: OperationUnion, sequence_num: int | None = None

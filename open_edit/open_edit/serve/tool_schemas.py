@@ -458,6 +458,9 @@ TOOL_USAGE_GUIDE = """\
 - **To render**, call `trigger_render` with `mode: "proxy"` (default) or
   `mode: "final"`. Do NOT try to call `open_edit render` from inside
   `run_python` — the sandbox doesn't allow subprocess calls.
+- **After every render, you MUST look at the sampled frames** attached to
+  the tool result and respond with `VERIFICATION: PASS|FAIL|UNCERTAIN` on
+  its own line. "PASS" only if the frames look correct; iterate otherwise.
 - **To leave a flag for the user**, call `add_marker` at the relevant
   timestamp with a short, specific note.
 - **To find stock media** (b-roll, SFX, ambience), call `search_assets`
