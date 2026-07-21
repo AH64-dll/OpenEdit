@@ -72,7 +72,14 @@ def patched_ws(monkeypatch, tmp_path):
 
     async def fake_get_state(project_id):
         if project_id != "wstest":
-            raise KeyError(project_id)
+            # Match the real KeyError format from projects.get_project_state
+            # (which prefixes the message with "project not found: " and
+            # includes the recovery hint).
+            raise KeyError(
+                f"project not found: {project_id!r} under "
+                f"OPEN_EDIT_PROJECTS_ROOT={tmp_path}. "
+                f"Run `open_edit init {tmp_path}/<name>` to create it."
+            )
         return fake_state
 
     def fake_resolve(project_id):

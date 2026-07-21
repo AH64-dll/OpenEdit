@@ -20,6 +20,7 @@ import asyncio
 import json
 import os
 import sys
+import types
 from pathlib import Path
 from typing import Any, AsyncIterator
 from unittest import mock
@@ -166,17 +167,43 @@ async def test_llm_stream_anthropic_surfaces_missing_api_key(seeded_project, mon
     assert "LLM stream error" not in msg
 
 
+@pytest.mark.parametrize(
+    "openai_available, expected_phrase",
+    [
+        # When the SDK is importable, the missing-key RuntimeError from
+        # _api_key() fires first.
+        (True, "OPEN_EDIT_LLM_API_KEY"),
+        # When the SDK is not importable, the ImportError handler fires.
+        (False, "required package not installed"),
+    ],
+    ids=["missing_api_key", "missing_sdk"],
+)
 @pytest.mark.asyncio
-async def test_llm_stream_openai_surfaces_missing_api_key(seeded_project, monkeypatch):
+async def test_llm_stream_openai_surfaces_clean_error(
+    seeded_project, monkeypatch, openai_available, expected_phrase
+):
     """Same as the anthropic test, but for the OpenAI provider path.
 
-    The OpenAI SDK may or may not be installed in the test env; either
-    way, ``stream_chat`` must surface a clean, actionable error event
-    rather than crashing with an uncaught ``ModuleNotFoundError`` or
-    ``RuntimeError``.
+    The two failure modes (missing key vs. missing SDK) are parametrised
+    so each asserts the SPECIFIC cause rather than a disjunctive that
+    silently passes regardless of which one fires. The previous
+    ``assert "OPEN_EDIT_LLM_API_KEY" in msg or "openai" in msg.lower()``
+    was effectively a no-op: the second clause was always true (every
+    OpenAI error mentions the provider name), and the first clause was
+    only true when the SDK happened to be importable in the test env.
     """
     monkeypatch.delenv("OPEN_EDIT_LLM_API_KEY", raising=False)
     monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "openai")
+    if openai_available:
+        # Provide a stub openai module so ``import openai`` succeeds;
+        # the missing-key RuntimeError from _api_key() is then what
+        # fires, not the ImportError handler.
+        fake_openai = types.ModuleType("openai")
+        fake_openai.AsyncOpenAI = mock.MagicMock()
+        monkeypatch.setitem(sys.modules, "openai", fake_openai)
+    else:
+        # Ensure the real openai (if installed) isn't picked up.
+        monkeypatch.delitem(sys.modules, "openai", raising=False)
     events: list[StreamEvent] = []
     async for ev in agent_mod.stream_chat(
         messages=[{"role": "user", "content": "hi"}],
@@ -187,12 +214,11 @@ async def test_llm_stream_openai_surfaces_missing_api_key(seeded_project, monkey
     assert any(e["type"] == "error" for e in events)
     err = next(e for e in events if e["type"] == "error")
     # The error message must NOT be wrapped in the agent-loop noise
-    # prefix; it must mention the provider name and the actionable
-    # cause (missing key OR missing SDK — both are misconfigs).
+    # prefix and must mention the provider name.
     assert "openai" in err["message"].lower()
     assert "LLM stream error" not in err["message"]
-    # It should mention one of the two real causes.
-    assert "OPEN_EDIT_LLM_API_KEY" in err["message"] or "openai" in err["message"].lower()
+    # The SPECIFIC cause for this case.
+    assert expected_phrase in err["message"]
 
 
 @pytest.mark.asyncio
@@ -266,3 +292,36 @@ def test_cli_init_silent_when_folder_is_under_projects_root(
     assert "not visible" not in captured.err
     assert "not visible" not in captured.out
     assert "Initialized project at" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Global exception handler: must NOT leak str(exc) to the client
+# ---------------------------------------------------------------------------
+
+def test_unhandled_exception_does_not_leak_exc_to_client(projects_root_tmp):
+    """Regression: an exception raised inside a route handler must NOT
+    include ``str(exc)`` in the response body. The v1.4 contract is a
+    constant ``{"error": "internal server error"}``; the full traceback
+    goes to the server log (via ``traceback.print_exc``) so the operator
+    can diagnose.
+
+    Before the fix, the body was ``{"error": "internal server error: <str(exc)>"}``
+    which would have leaked ``sqlite3.OperationalError`` messages (with
+    paths + SQL fragments), ``PermissionError`` messages (with paths),
+    and anything else verbatim to the browser.
+    """
+    # A unique marker so we can assert it never reaches the wire.
+    secret = "SECRET_LEAK_x9q7z_DO_NOT_RETURN_TO_CLIENT"
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError(secret)
+
+    with mock.patch.object(projects_mod, "list_projects", _raise):
+        client = TestClient(app_mod.app, raise_server_exceptions=False)
+        r = client.get("/api/projects")
+
+    assert r.status_code == 500
+    # The body is exactly the constant "internal server error" — no detail.
+    assert r.json() == {"error": "internal server error"}
+    # The unique exception string is nowhere in the response.
+    assert secret not in r.text

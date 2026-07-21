@@ -149,13 +149,15 @@ async def _http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
 
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse:
-    # Log so the server operator can see it; return a generic message so
-    # we don't leak internals to the client.
+    # Log so the server operator can see it; return a constant generic
+    # message so we don't leak internals (paths, SQL fragments, etc.)
+    # to the client. The traceback goes to stderr; the client only sees
+    # a fixed string.
     import traceback
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"error": f"internal server error: {exc}"},
+        content={"error": "internal server error"},
     )
 
 
@@ -303,15 +305,13 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
         await _require_project(project_id)
     except HTTPException as exc:
         await websocket.accept()
-        # Always start the WS error with a human-readable prefix so the
-        # user can tell at a glance this is a "project not found" issue,
-        # not a crash. The detail (from projects.get_project_state) carries
-        # the recovery hint; we just frame it.
+        # The detail already starts with "project not found: " (set by
+        # projects.get_project_state's KeyError) and includes the recovery
+        # hint — just forward it.
         detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-        msg = f"project not found: {detail}" if "not found" not in detail else detail
         await websocket.send_text(json.dumps({
             "type": "error",
-            "message": msg,
+            "message": detail,
         }))
         await websocket.close(code=4404, reason="project not found")
         return
