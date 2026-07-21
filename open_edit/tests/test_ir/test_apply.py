@@ -81,6 +81,90 @@ class TestApplyAddRemoveClip(unittest.TestCase):
         self.assertEqual(len(out.tracks[0].clips), 1)
 
 
+class TestApplyStrictMode(unittest.TestCase):
+    """Bug A3: ``apply_operation`` silently no-ops on unknown references.
+
+    Adding ``strict=True`` makes the helpers raise ``ApplyError`` instead of
+    silently returning the timeline unchanged. The default ``strict=False``
+    preserves the existing idempotent replay behavior used by
+    ``derive_timeline`` (the bridge path).
+    """
+
+    def test_strict_false_keeps_silent_noop_behavior(self) -> None:
+        from open_edit.ir.apply import ApplyError
+
+        timeline = Timeline()
+        mv = MoveClipOp(
+            author="user", clip_id="missing", new_track_id="v2",
+            new_position_sec=0.0,
+        )
+        try:
+            out = apply_operation(timeline, mv, strict=False)
+        except ApplyError as exc:
+            self.fail(f"strict=False should not raise, got {exc!r}")
+        self.assertEqual(out, timeline)
+
+    def test_strict_true_raises_on_unknown_clip_in_move(self) -> None:
+        from open_edit.ir.apply import ApplyError
+
+        timeline = Timeline()
+        timeline = apply_operation(
+            timeline,
+            AddClipOp(author="user", asset_hash="a", track_id="v1", position_sec=0.0),
+        )
+        mv = MoveClipOp(
+            author="user", clip_id="nope", new_track_id="v2",
+            new_position_sec=0.0,
+        )
+        with self.assertRaises(ApplyError):
+            apply_operation(timeline, mv, strict=True)
+
+    def test_strict_true_raises_on_unknown_target_in_normalize_audio(self) -> None:
+        from open_edit.ir.apply import ApplyError
+
+        timeline = Timeline()
+        norm = NormalizeAudioOp(
+            author="user", target_kind="clip", target_id="missing",
+            target_dbfs=-16.0,
+        )
+        with self.assertRaises(ApplyError):
+            apply_operation(timeline, norm, strict=True)
+
+    def test_strict_true_raises_on_unknown_target_in_add_effect(self) -> None:
+        from open_edit.ir.apply import ApplyError
+
+        timeline = Timeline()
+        eff = AddEffectOp(
+            author="user", target_kind="clip", target_id="missing",
+            effect_type="volume", params={"gain": 1.0},
+        )
+        with self.assertRaises(ApplyError):
+            apply_operation(timeline, eff, strict=True)
+
+    def test_strict_true_raises_on_unknown_clip_in_slip(self) -> None:
+        from open_edit.ir.apply import ApplyError
+
+        timeline = Timeline()
+        slip = SlipClipOp(author="user", clip_id="missing", delta_sec=1.0)
+        with self.assertRaises(ApplyError):
+            apply_operation(timeline, slip, strict=True)
+
+    def test_strict_true_raises_on_unknown_effect_id_in_set_keyframe(self) -> None:
+        from open_edit.ir.apply import ApplyError
+
+        timeline = Timeline()
+        timeline = apply_operation(
+            timeline,
+            AddClipOp(author="user", asset_hash="a", track_id="v1", position_sec=0.0),
+        )
+        kf = SetKeyframeOp(
+            author="user", effect_id="missing", param="gain",
+            keyframes=[(0.0, 1.0, "linear")],
+        )
+        with self.assertRaises(ApplyError):
+            apply_operation(timeline, kf, strict=True)
+
+
 class TestApplyMoveTrimClip(unittest.TestCase):
     def test_move_clip_relocates(self) -> None:
         timeline = Timeline()
@@ -356,6 +440,67 @@ class TestApplyTransitions(unittest.TestCase):
         eff = out.tracks[0].clips[0].effects[0]
         self.assertEqual(eff.params.get("softness"), "0.5")
 
+    def test_remove_transition_does_not_match_unrelated_effect_by_endswith(self) -> None:
+        """Bug A1 regression test.
+
+        ``_apply_remove_transition`` previously used ``eff.effect_id.endswith(op.transition_id)``
+        which would match a non-transition effect whose id merely ends with the same suffix
+        (e.g. transition_id="abc" would match effect_id="xabc"). The canonical form for
+        a transition effect is either the bare ``op.edit_id`` or ``transition_<edit_id>``;
+        we use strict equality on those two forms only.
+        """
+        timeline = Timeline()
+        op_a = AddClipOp(
+            author="user", asset_hash="a", track_id="v1",
+            position_sec=0.0, in_point_sec=0.0, out_point_sec=10.0,
+        )
+        timeline = apply_operation(timeline, op_a)
+        unrelated = AddEffectOp(
+            author="user", target_kind="clip", target_id=op_a.clip_id,
+            effect_type="luma", params={},
+        )
+        # Force the unrelated effect's id to end with the transition_id suffix.
+        # This simulates a tampered DB or accidental id collision.
+        timeline = apply_operation(
+            timeline,
+            unrelated.model_copy(update={"effect_id": "xabc"}),
+        )
+        self.assertEqual(len(timeline.tracks[0].clips[0].effects), 1)
+
+        rm_t = RemoveTransitionOp(author="user", transition_id="abc")
+        out = apply_operation(timeline, rm_t)
+        effects = out.tracks[0].clips[0].effects
+        self.assertEqual(
+            len(effects), 1,
+            "Unrelated effect whose id merely endswith transition_id must not be removed",
+        )
+        self.assertEqual(effects[0].effect_id, "xabc")
+
+    def test_set_transition_property_does_not_match_unrelated_effect_by_endswith(self) -> None:
+        """Bug A1 regression test for ``_apply_set_transition_property``."""
+        timeline = Timeline()
+        op_a = AddClipOp(
+            author="user", asset_hash="a", track_id="v1",
+            position_sec=0.0, in_point_sec=0.0, out_point_sec=10.0,
+        )
+        timeline = apply_operation(timeline, op_a)
+        unrelated = AddEffectOp(
+            author="user", target_kind="clip", target_id=op_a.clip_id,
+            effect_type="luma", params={},
+        )
+        timeline = apply_operation(
+            timeline,
+            unrelated.model_copy(update={"effect_id": "xabc"}),
+        )
+
+        set_prop = SetTransitionPropertyOp(
+            author="user", transition_id="abc",
+            prop_name="softness", value="0.5",
+        )
+        out = apply_operation(timeline, set_prop)
+        eff = out.tracks[0].clips[0].effects[0]
+        self.assertNotIn("softness", eff.params)
+
 
 class TestApplyEffectsAndAudio(unittest.TestCase):
     def test_add_effect_appends_to_clip(self) -> None:
@@ -577,6 +722,32 @@ class TestDeriveTimelineReplay(unittest.TestCase):
         project.edit_graph.append(child)
         timeline = derive_timeline(project)
         self.assertEqual(len(timeline.tracks), 0)
+
+    def test_derive_timeline_raises_on_parent_cycle(self) -> None:
+        """Bug A2 regression test.
+
+        ``derive_timeline`` walks the parent_id chain to determine whether an op
+        is "under a reverted parent" and should be skipped. The walk has no cycle
+        protection; a tampered DB (or hand-crafted project) where two ops point
+        at each other as parents would hang the test process. The fix is to
+        raise ``ApplyError`` when a cycle is detected.
+        """
+        from open_edit.ir.apply import ApplyError
+
+        op1 = AddClipOp(
+            author="user", asset_hash="a", track_id="v1",
+            position_sec=0.0, in_point_sec=0.0, out_point_sec=2.0,
+        )
+        op2 = AddClipOp(
+            author="user", asset_hash="b", track_id="v1",
+            position_sec=2.0, in_point_sec=0.0, out_point_sec=2.0,
+            parent_id=op1.edit_id,
+        )
+        # Force op1 to be its own grandparent via op2 (cycle: op1 -> op2 -> op1).
+        op1 = op1.model_copy(update={"parent_id": op2.edit_id})
+        project = Project(name="cycle", edit_graph=[op1, op2])
+        with self.assertRaises(ApplyError):
+            derive_timeline(project)
 
     def test_derive_timeline_empty_project(self) -> None:
         project = Project(name="empty")

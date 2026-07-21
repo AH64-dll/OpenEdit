@@ -217,7 +217,7 @@ class RippleDeleteClipOp(Operation):
 class ChangeClipSpeedOp(Operation):
     kind: Literal["change_clip_speed"] = "change_clip_speed"
     clip_id: str
-    rate: float
+    rate: float = Field(gt=0)
 
 
 class SplitClipOp(Operation):
@@ -253,7 +253,7 @@ class NormalizeAudioOp(Operation):
     kind: Literal["normalize_audio"] = "normalize_audio"
     target_kind: Literal["clip", "track", "project"]
     target_id: str
-    target_dbfs: float = -16.0
+    target_dbfs: float = Field(default=-16.0, ge=-100, le=0)
 
 
 class GroupEditsOp(Operation):

@@ -9,6 +9,7 @@ from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,
     AddTransitionOp,
+    ChangeClipSpeedOp,
     FreeFormCodeOp,
     GroupEditsOp,
     MoveClipOp,
@@ -134,6 +135,37 @@ class TestOperationTypes(unittest.TestCase):
             author="ai", target_kind="track", target_id="audio_1",
         )
         assert op.target_dbfs == -16.0
+
+    def test_change_clip_speed_rate_must_be_positive(self) -> None:
+        """Bug A4: ``rate`` must be > 0 (a 0 or negative rate would crash at render)."""
+        with pytest.raises(ValidationError):
+            ChangeClipSpeedOp(author="ai", clip_id="c1", rate=0)
+        with pytest.raises(ValidationError):
+            ChangeClipSpeedOp(author="ai", clip_id="c1", rate=-1.5)
+
+    def test_change_clip_speed_rate_accepts_positive(self) -> None:
+        op = ChangeClipSpeedOp(author="ai", clip_id="c1", rate=2.0)
+        assert op.rate == 2.0
+
+    def test_normalize_audio_target_dbfs_must_be_in_range(self) -> None:
+        """Bug A4: ``target_dbfs`` must be in [-100, 0] dBFS."""
+        with pytest.raises(ValidationError):
+            NormalizeAudioOp(
+                author="ai", target_kind="clip", target_id="c1",
+                target_dbfs=1.0,  # > 0 dBFS is digital clipping
+            )
+        with pytest.raises(ValidationError):
+            NormalizeAudioOp(
+                author="ai", target_kind="clip", target_id="c1",
+                target_dbfs=-200.0,  # impossibly low
+            )
+
+    def test_normalize_audio_target_dbfs_accepts_valid(self) -> None:
+        op = NormalizeAudioOp(
+            author="ai", target_kind="clip", target_id="c1",
+            target_dbfs=-14.0,
+        )
+        assert op.target_dbfs == -14.0
 
     # ===== Grouping =====
 
