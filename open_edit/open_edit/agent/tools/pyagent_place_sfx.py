@@ -33,7 +33,7 @@ def place_sfx(args: dict, project_path: str) -> dict:
     if asset is None:
         return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
     from open_edit.agent.skills.narrative_analyzer import analyze
-    from open_edit.agent.skills.sfx_placer import place, SfxClip
+    from open_edit.agent.skills.sfx_placer import place
     segments = analyze(asset, use_llm=False)
     library = _load_sfx_library(args.get("library_path"))
     ops = place(segments, music_downbeats=args.get("music_downbeats", []), library=library)

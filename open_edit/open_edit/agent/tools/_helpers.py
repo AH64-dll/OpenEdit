@@ -56,7 +56,6 @@ def load_project(project_path: str | Path) -> Project:
 
     For read-back operations. Raises FileNotFoundError if the db doesn't exist.
     """
-    from open_edit.ir.apply import derive_timeline
 
     db_path = _db_path(project_path)
     if not db_path.exists():

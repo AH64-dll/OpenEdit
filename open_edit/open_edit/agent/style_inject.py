@@ -66,7 +66,7 @@ def build_prior_state(
                 elif anchor.anchor_type == "region":
                     anchor_text = f"[{anchor.t_start:.1f}s region]"
                 else:
-                    anchor_text = f"[op]"
+                    anchor_text = "[op]"
                 summary_lines.append(f"- {anchor_text} {n.text[:50]}")
             parts.append(
                 "<pending_notes_summary>\n"

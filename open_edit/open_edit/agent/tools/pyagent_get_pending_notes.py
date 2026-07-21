@@ -5,7 +5,6 @@ The first 10 are returned in full; the rest are summarized as a count.
 """
 from __future__ import annotations
 
-from pathlib import Path
 
 from open_edit.agent.tools._helpers import _db_path
 from open_edit.storage.notes import NotesStore

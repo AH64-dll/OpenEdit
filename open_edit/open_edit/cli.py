@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from open_edit.ir.apply import derive_timeline
-from open_edit.ir.types import Project, OperationUnion
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 

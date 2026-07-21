@@ -32,7 +32,7 @@ def select_music(args: dict, project_path: str) -> dict:
     if asset is None:
         return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
     from open_edit.agent.skills.narrative_analyzer import analyze
-    from open_edit.agent.skills.music_selector import MusicTrack, select
+    from open_edit.agent.skills.music_selector import select
     segments = analyze(asset, use_llm=False)
     library = _load_music_library(args.get("library_path"))
     ops = select(segments, library)

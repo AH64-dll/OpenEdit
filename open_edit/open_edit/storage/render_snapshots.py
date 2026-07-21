@@ -4,7 +4,6 @@ Per phase4-design-revised.md §3.4 (T4).
 """
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone

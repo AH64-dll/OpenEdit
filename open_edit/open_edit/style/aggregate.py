@@ -8,10 +8,8 @@ import json
 import os
 import shutil
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from open_edit.style.taste_events import TasteEventStore
 from open_edit.storage.config import get_config_dir, get_profile_path

@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from open_edit.ir.types import Asset, WordAlignment
+from open_edit.ir.types import Asset
 
 
 BEAT_TYPES = ("hook", "turn", "scope", "mechanism", "cost", "tease", "button")

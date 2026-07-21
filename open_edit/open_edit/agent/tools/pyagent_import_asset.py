@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tempfile
 import urllib.error
 import urllib.parse

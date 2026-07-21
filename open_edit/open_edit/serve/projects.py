@@ -36,23 +36,18 @@ import hashlib
 import json
 import logging
 import os
-import shutil
-import sqlite3
 import subprocess
-import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 # Real Open Edit storage classes
 from open_edit.ir.types import Asset
-from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
-from open_edit.storage.notes import NotesStore, NoteStatus
+from open_edit.storage.notes import NotesStore
 
 _LOG = logging.getLogger("open_edit.serve.projects")
 

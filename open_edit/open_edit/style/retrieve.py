@@ -5,7 +5,6 @@ Per phase4-design-revised.md section 3.2 and spec section 8.8.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from open_edit.storage.config import get_profile_path

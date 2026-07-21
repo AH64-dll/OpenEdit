@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import shutil
 import subprocess
@@ -379,7 +378,6 @@ async def get_asset_file(project_id: str, asset_hash: str) -> FileResponse:
     state = await _require_project(project_id)
     project_path = Path(state.path)
 
-    from open_edit.ir.types import Asset
     from open_edit.storage.assets import AssetStore
 
     assets_dir = project_path / ".open_edit" / "assets"

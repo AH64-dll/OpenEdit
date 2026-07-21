@@ -20,11 +20,9 @@ Pure (or near-pure) functions for the post-render verification stage:
 """
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
-import os
 import re
 import subprocess
 from pathlib import Path

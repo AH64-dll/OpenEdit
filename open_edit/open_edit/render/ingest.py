@@ -6,7 +6,6 @@ curves, multi-tractor nesting, and other features the IR cannot model.
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from lxml import etree
 
