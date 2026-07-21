@@ -76,6 +76,31 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     print(f"Initialized project at {project_dir}")
     print(f"Ingested {ingested} media file(s)")
+
+    # Visibility hint (v1.4 P0-1): the chat server (``open_edit serve``)
+    # only sees projects that are SUBDIRECTORIES of OPEN_EDIT_PROJECTS_ROOT.
+    # If the user ran ``open_edit init .`` from inside the root, or
+    # pointed init at a folder that is not under the root, the project
+    # will exist on disk but ``GET /api/projects`` will not list it.
+    # Warn so the user knows what to do.
+    server_root_raw = os.environ.get("OPEN_EDIT_PROJECTS_ROOT", "~/OpenEditProjects")
+    server_root = Path(server_root_raw).expanduser().resolve()
+    try:
+        folder.relative_to(server_root)
+        under_root = True
+    except ValueError:
+        under_root = False
+    if not under_root:
+        print(
+            f"note: this project is not a subdirectory of "
+            f"OPEN_EDIT_PROJECTS_ROOT={server_root}, so it will NOT be "
+            f"visible to `open_edit serve`.",
+            file=sys.stderr,
+        )
+        print(
+            f"  To make it visible, run:  open_edit init {server_root}/<name>",
+            file=sys.stderr,
+        )
     return 0
 
 

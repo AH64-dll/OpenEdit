@@ -236,3 +236,76 @@ async def test_get_project_state_404_for_unknown(projects_root_tmp):
     """Unknown project id raises KeyError."""
     with pytest.raises(KeyError):
         await projects_mod.get_project_state("does-not-exist")
+
+
+# ---------------------------------------------------------------------------
+# Regression: freshly-initialized (empty) project (P0-1 in v1.4 plan)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_project_state_fresh_init_no_errors(projects_root_tmp):
+    """A project that has only been ``open_edit init``-ed (zero assets, zero
+    ops, no notes.db yet) must not crash when the UI requests its state.
+
+    Before the v1.4 fix, the registry's defensive guards existed, but the
+    common case of "user ran ``open_edit init <root>/<proj>`` then opened
+    the UI" was not exercised. This is the user-visible P0-1 scenario: the
+    freshly-initialized project must yield a valid empty state with no
+    error events.
+    """
+    from open_edit.cli import cmd_init
+    import argparse
+
+    # Run the real `open_edit init` against a fresh folder under the
+    # projects root. This is exactly the workflow described in the
+    # v1.3 followup: `open_edit init <root>/<proj>` makes the project
+    # visible to the server.
+    proj_folder = projects_root_tmp / "fresh-project"
+    proj_folder.mkdir()
+    rc = cmd_init(argparse.Namespace(folder=str(proj_folder)))
+    assert rc == 0
+    # The server-visible marker must be there.
+    assert (proj_folder / ".open_edit" / "edit_graph.db").is_file()
+
+    # Now the server (via the registry) should be able to list and
+    # fetch the state of this project.
+    listed = await projects_mod.list_projects()
+    assert len(listed) == 1
+    assert listed[0].name == "fresh-project"
+    # No assets / no ops on a fresh init.
+    assert listed[0].num_assets == 0
+    assert listed[0].num_ops == 0
+    assert listed[0].duration_s == 0.0
+
+    state = await projects_mod.get_project_state(listed[0].id)
+    assert state.id == listed[0].id
+    assert state.name == "fresh-project"
+    assert state.assets == []
+    assert state.ops == []
+    assert state.notes == []
+    assert state.pending_notes_count == 0
+    # Timeline summary: all zeros, head/tail None (no ops).
+    assert state.timeline.total_duration_s == 0.0
+    assert state.timeline.num_clips == 0
+    assert state.timeline.num_effects == 0
+    assert state.timeline.num_markers == 0
+    assert state.timeline.num_tracks == 0
+    assert state.timeline.head is None
+    assert state.timeline.tail is None
+
+
+@pytest.mark.asyncio
+async def test_get_project_state_404_message_includes_path_hint(projects_root_tmp):
+    """Project-not-found errors carry a readable message mentioning the
+    projects root, so the UI can show the user how to recover.
+
+    v1.4 P0-1: opaque 500s were the failure mode; now it's a structured
+    404 with a hint about ``open_edit init <root>/<id>``.
+    """
+    root = projects_mod.projects_root()
+    with pytest.raises(KeyError) as excinfo:
+        await projects_mod.get_project_state("does-not-exist")
+    msg = str(excinfo.value)
+    assert "does-not-exist" in msg
+    assert str(root) in msg
+    assert "open_edit init" in msg

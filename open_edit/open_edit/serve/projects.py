@@ -305,7 +305,12 @@ async def get_project_state(project_id: str) -> ProjectState:
     async with _REGISTRY.lock:
         path = _resolve_project_by_id(project_id)
         if path is None:
-            raise KeyError(f"project not found: {project_id}")
+            root = projects_root()
+            raise KeyError(
+                f"project not found: {project_id!r} under "
+                f"OPEN_EDIT_PROJECTS_ROOT={root}. "
+                f"Run `open_edit init {root}/<name>` to create it."
+            )
 
         # Assets: from filesystem via AssetStore
         asset_models = _list_assets_from_disk(path)
@@ -385,7 +390,12 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
     async with _REGISTRY.lock:
         path = _resolve_project_by_id(project_id)
         if path is None:
-            raise KeyError(f"project not found: {project_id}")
+            root = projects_root()
+            raise KeyError(
+                f"project not found: {project_id!r} under "
+                f"OPEN_EDIT_PROJECTS_ROOT={root}. "
+                f"Run `open_edit init {root}/<name>` to create it."
+            )
 
     try:
         from open_edit.storage.render_snapshots import RenderSnapshots

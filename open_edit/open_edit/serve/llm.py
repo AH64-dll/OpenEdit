@@ -112,18 +112,67 @@ async def stream_chat(
     Tool inputs are accumulated from ``input_json_delta`` events and only
     emitted once the block is closed (so callers receive one fully-formed
     ``tool_use`` event per tool call, not a stream of partial JSON).
+
+    Provider-level misconfiguration (missing API key, unknown provider,
+    missing SDK) is caught here and surfaced as a single
+    ``{"type": "error", "message": "..."}`` event so the user sees the
+    real cause, not a wrapped ``RuntimeError`` or ``ModuleNotFoundError``.
     """
-    if _provider() == "openai":
-        async for ev in _stream_openai(messages, tools, system):
-            yield ev
-        return
-    if _provider() == "pi":
-        async for ev in _stream_pi(messages, tools, system, session_id, project_path):
-            yield ev
+    provider = _provider()
+    if provider not in ("anthropic", "openai", "pi"):
+        yield {
+            "type": "error",
+            "message": (
+                f"unknown OPEN_EDIT_LLM_PROVIDER={provider!r}; "
+                f"expected one of: anthropic, openai, pi"
+            ),
+        }
         return
 
-    async for ev in _stream_anthropic(messages, tools, system):
-        yield ev
+    if provider == "openai":
+        try:
+            async for ev in _stream_openai(messages, tools, system):
+                yield ev
+        except RuntimeError as exc:
+            yield {"type": "error", "message": str(exc)}
+        except ImportError as exc:
+            yield {
+                "type": "error",
+                "message": (
+                    f"openai provider: required package not installed ({exc}). "
+                    f"Install with `pip install openai` or "
+                    f"`pip install -e '.[openai]'`."
+                ),
+            }
+        except Exception as exc:
+            yield {"type": "error", "message": f"openai provider error: {exc}"}
+        return
+
+    if provider == "pi":
+        try:
+            async for ev in _stream_pi(messages, tools, system, session_id, project_path):
+                yield ev
+        except Exception as exc:
+            yield {"type": "error", "message": f"pi provider error: {exc}"}
+        return
+
+    # Default: anthropic
+    try:
+        async for ev in _stream_anthropic(messages, tools, system):
+            yield ev
+    except RuntimeError as exc:
+        # _api_key() raises RuntimeError when the key is missing.
+        yield {"type": "error", "message": str(exc)}
+    except ImportError as exc:
+        yield {
+            "type": "error",
+            "message": (
+                f"anthropic provider: required package not installed ({exc}). "
+                f"Install with `pip install anthropic`."
+            ),
+        }
+    except Exception as exc:
+        yield {"type": "error", "message": f"anthropic provider error: {exc}"}
 
 
 # ---------------------------------------------------------------------------

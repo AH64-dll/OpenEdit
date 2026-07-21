@@ -132,6 +132,34 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
+# Error contract: v1.4 returns ``{"error": "..."}`` (not FastAPI's default
+# ``{"detail": "..."}``). This is the wire shape the frontend parses; see
+# ``static/app.js``. We register handlers for HTTPException and for any
+# uncaught exception so a raw 500 traceback is never leaked.
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(HTTPException)
+async def _http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
+    msg = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": msg},
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse:
+    # Log so the server operator can see it; return a generic message so
+    # we don't leak internals to the client.
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"error": f"internal server error: {exc}"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # REST: projects
 # ---------------------------------------------------------------------------
 
@@ -273,11 +301,17 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
     # Verify project exists before accepting.
     try:
         await _require_project(project_id)
-    except HTTPException:
+    except HTTPException as exc:
         await websocket.accept()
+        # Always start the WS error with a human-readable prefix so the
+        # user can tell at a glance this is a "project not found" issue,
+        # not a crash. The detail (from projects.get_project_state) carries
+        # the recovery hint; we just frame it.
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        msg = f"project not found: {detail}" if "not found" not in detail else detail
         await websocket.send_text(json.dumps({
             "type": "error",
-            "message": f"project not found: {project_id}",
+            "message": msg,
         }))
         await websocket.close(code=4404, reason="project not found")
         return

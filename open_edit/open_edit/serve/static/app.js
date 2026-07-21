@@ -85,10 +85,28 @@ function fmtTime(iso) {
 // ----------------------------------------------------------
 // REST client
 // ----------------------------------------------------------
+
+// Extract the v1.4 ``{"error": "..."}`` (or legacy ``{"detail": "..."}``)
+// from a failed response and surface it in the thrown Error so the rest of
+// the UI (toasts / chat log) can show the actual reason rather than just
+// the HTTP status. Falls back to the raw text body if the body isn't JSON.
+async function _extractError(r, opName) {
+  let msg = '';
+  try {
+    const body = await r.json();
+    if (body && typeof body.error === 'string') msg = body.error;
+    else if (body && typeof body.detail === 'string') msg = body.detail;
+    else msg = JSON.stringify(body);
+  } catch {
+    try { msg = await r.text(); } catch { msg = ''; }
+  }
+  return new Error(msg ? `${opName}: ${msg}` : `${opName}: HTTP ${r.status}`);
+}
+
 const api = {
   async listProjects() {
     const r = await fetch('/api/projects');
-    if (!r.ok) throw new Error(`listProjects: ${r.status}`);
+    if (!r.ok) throw await _extractError(r, 'listProjects');
     return r.json();
   },
 
@@ -98,16 +116,13 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });
-    if (!r.ok) {
-      const err = await r.text();
-      throw new Error(`createProject: ${r.status} ${err}`);
-    }
+    if (!r.ok) throw await _extractError(r, 'createProject');
     return r.json();
   },
 
   async getProjectState(id) {
     const r = await fetch(`/api/projects/${encodeURIComponent(id)}`);
-    if (!r.ok) throw new Error(`getProjectState: ${r.status}`);
+    if (!r.ok) throw await _extractError(r, 'getProjectState');
     return r.json();
   },
 
@@ -127,12 +142,14 @@ const api = {
           onProgress(e.loaded / e.total);
         }
       };
-      xhr.onload = () => {
+      xhr.onload = async () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try { resolve(JSON.parse(xhr.responseText)); }
           catch { resolve({}); }
         } else {
-          reject(new Error(`ingest: ${xhr.status} ${xhr.responseText}`));
+          // Mirror the fetch path: parse the v1.4 ``{"error": "..."}`` body.
+          const fakeResp = new Response(xhr.responseText, { status: xhr.status });
+          reject(await _extractError(fakeResp, 'ingest'));
         }
       };
       xhr.onerror = () => reject(new Error('ingest: network error'));
@@ -146,16 +163,22 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode }),
     });
-    if (!r.ok) {
-      const err = await r.text();
-      throw new Error(`render: ${r.status} ${err}`);
-    }
+    if (!r.ok) throw await _extractError(r, 'render');
     return r.json();
   },
 
   async listRenders(id) {
     const r = await fetch(`/api/projects/${encodeURIComponent(id)}/renders`);
-    if (!r.ok) return [];
+    if (!r.ok) {
+      // ``listRenders`` is best-effort: the right panel shows whatever
+      // the server has. We don't want a stale render failure to toast
+      // repeatedly on every refresh, so swallow with an empty list.
+      try {
+        const fakeResp = new Response(await r.text(), { status: r.status });
+        console.warn('listRenders failed:', (await _extractError(fakeResp, 'listRenders')).message);
+      } catch { /* ignore */ }
+      return [];
+    }
     return r.json();
   },
 
@@ -269,6 +292,11 @@ async function refreshProjects() {
     // Auto-select if exactly one project exists and none is selected.
     if (!state.currentProjectId && state.projects.length === 1) {
       selectProject(state.projects[0].id);
+    }
+    // If no project is selected (and the list is empty), refresh the
+    // chat log so the "no projects" hint replaces the generic placeholder.
+    if (!state.currentProjectId) {
+      clearChatLog();
     }
   } catch (e) {
     showToast(`Failed to load projects: ${e.message}`, 'error');
@@ -492,7 +520,18 @@ function hideAllModals() { $$('.modal').forEach(m => m.classList.add('hidden'));
 function clearChatLog() {
   const log = $('#chat-log');
   log.innerHTML = '';
-  log.appendChild(el('div', { class: 'empty-state' }, ['Select a project to start chatting.']));
+  // If there are no projects, the user can't chat — show a hint with
+  // the recovery command (v1.4 P0-1: "no projects found" must not be
+  // an opaque empty state). Otherwise the generic placeholder.
+  if (state.projects && state.projects.length === 0) {
+    log.appendChild(el('div', { class: 'empty-state' }, [
+      'No projects yet. Run ',
+      el('code', {}, ['open_edit init <root>/<name>']),
+      ' in a terminal, then click ⟳ to refresh.',
+    ]));
+  } else {
+    log.appendChild(el('div', { class: 'empty-state' }, ['Select a project to start chatting.']));
+  }
   state.pendingAssistantMsg = null;
   state.pendingToolCards.clear();
 }
