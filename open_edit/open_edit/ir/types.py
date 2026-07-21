@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def new_id() -> str:
@@ -57,11 +57,17 @@ class HtmlOverlay(BaseModel):
     Chromium (HyperFrames-style frame-stepping) and is merged by FFmpeg
     in the final render pass.
     """
-    overlay_id: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    overlay_id: str = Field(alias="id")
     template_path: str
     variables: dict[str, Any] = Field(default_factory=dict)
     position_sec: float
     duration_sec: float
+
+    @property
+    def id(self) -> str:
+        return self.overlay_id
 
 
 class Timeline(BaseModel):
