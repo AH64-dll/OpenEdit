@@ -308,8 +308,14 @@ def cmd_notes_dismiss(args: argparse.Namespace) -> int:
 
 
 def cmd_notes(args: argparse.Namespace) -> int:
-    """Back-compat: bare `open_edit notes` with no subcommand prints help."""
-    parser_notes.print_help()
+    """Back-compat: bare `open_edit notes` with no subcommand prints help.
+
+    The notes subparser is built inside ``main()`` (so it can't be reached
+    from this module-scope callback). Print a one-liner pointing the user
+    at the full help instead.
+    """
+    print("usage: open_edit notes <list|add|dismiss> ...", file=sys.stderr)
+    print("Run 'open_edit notes <subcommand> --help' for details.", file=sys.stderr)
     return 0
 
 

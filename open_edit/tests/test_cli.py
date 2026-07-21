@@ -73,3 +73,17 @@ def test_render_subcommand_runs(tmp_path: Path) -> None:
     # Should exit 1 with "no ops" or similar
     assert result.returncode == 1
     assert "ops" in (result.stderr + result.stdout).lower() or "empty" in (result.stderr + result.stdout).lower()
+
+
+def test_notes_no_subcommand_prints_usage(capsys) -> None:
+    """Regression: `open_edit notes` (no subcommand) used to crash with
+    NameError because cmd_notes referenced `parser_notes` (a name that
+    does not exist — the local is `p_notes`, defined inside main()).
+    Now it prints a usage hint and returns 0.
+    """
+    from open_edit import cli
+    rc = cli.main(["notes"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "usage" in (captured.out + captured.err).lower()
+    assert "notes" in (captured.out + captured.err).lower()
