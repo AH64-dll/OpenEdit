@@ -147,9 +147,13 @@ def test_get_project_state_assets_include_url(seeded_project):
 # ---------------------------------------------------------------------------
 
 def test_asset_file_endpoint_returns_bytes_with_content_type(seeded_project):
-    """A GET on the asset's ``url`` returns the file with a
-    non-default ``Content-Type``. (The previous behaviour left the
-    field unset and the browser refused to play the response.)"""
+    """A GET on the asset's ``url`` returns the file with the right
+    ``Content-Type`` for the original filename's extension. (The
+    previous behaviour left the field unset and the browser refused
+    to play the response.) The mime type is derived from
+    ``asset.original_path`` (``<project>/<filename>``), so a file
+    uploaded as ``movie.mp4`` gets ``video/mp4`` even though the CAS
+    file itself has no extension."""
     _proj, pid = seeded_project
     payload = b"\x00\x01\x02\x03fake-mp4-bytes\xff\xff" * 16
     asset_hash = _seed_asset_on_disk(_proj, "movie.mp4", payload)
@@ -160,13 +164,12 @@ def test_asset_file_endpoint_returns_bytes_with_content_type(seeded_project):
     r = client.get(url)
     assert r.status_code == 200, f"got {r.status_code} body={r.text!r}"
     assert r.content == payload
-    # The original test fixture was a 1KB blob with the suffix ``.bin`` —
-    # the route uses the on-disk asset filename (the CAS stores the
-    # original file under <hash> with no extension), so we fall back
-    # to octet-stream. Re-ingest with a .mp4 extension to verify the
-    # mp4 path.
-    # (This is just sanity: we already cover the .mp4 case via the
-    # round-trip test below.)
+    ctype = r.headers.get("content-type", "")
+    assert "video/mp4" in ctype, (
+        f"expected Content-Type to include 'video/mp4' for a .mp4 "
+        f"asset, got {ctype!r} (the browser will refuse to play the "
+        f"response without the right mime type)"
+    )
 
 
 def test_asset_file_endpoint_mp4_content_type(seeded_project):
@@ -291,6 +294,60 @@ def test_asset_file_endpoint_rejects_path_traversal_in_hash(seeded_project):
 # Contract 3: ingest — upload actually puts the file in CAS
 # ---------------------------------------------------------------------------
 
+import shutil as _shutil  # local alias for the ffprobe-skip check below
+
+
+@pytest.fixture
+def ffprobe_available() -> bool:
+    """True iff ``ffprobe`` is on PATH. Mirrors the pattern in
+    ``test_cli.py`` / ``test_e2e.py`` so the ffprobe-failure test
+    skips cleanly on minimal environments instead of erroring."""
+    return _shutil.which("ffprobe") is not None
+
+
+def test_upload_invalid_media_returns_400_with_error_shape(
+    seeded_project, tmp_path, ffprobe_available
+):
+    """Uploading a file that ffprobe can't parse (here: a small text
+    file with a ``.mp4`` extension) returns 400 with the v1.4
+    ``{"error": "..."}`` shape — not a generic 500, and not a leaky
+    traceback. This is the one piece of the new error contract the
+    success-path and CAS-roundtrip tests don't cover.
+    """
+    if not ffprobe_available:
+        pytest.skip("ffprobe not installed")
+    _proj, pid = seeded_project
+    fake = tmp_path / "not-really-an-mp4.mp4"
+    fake.write_text("this is just plain text, not a media file\n", encoding="utf-8")
+
+    client = TestClient(app_mod.app)
+    with fake.open("rb") as fh:
+        r = client.post(
+            f"/api/projects/{pid}/ingest",
+            files={"file": ("not-really-an-mp4.mp4", fh, "video/mp4")},
+        )
+    assert r.status_code == 400, (
+        f"expected 400 for unparseable media, got {r.status_code} "
+        f"body={r.text!r}"
+    )
+    body = r.json()
+    # v1.4 error contract: the response is ``{"error": "..."}`` (not
+    # FastAPI's default ``{"detail": "..."}``). See app.py:142.
+    assert "error" in body, (
+        f"missing 'error' key in {body!r} — the v1.4 frontend can't "
+        f"display this error without it"
+    )
+    assert isinstance(body["error"], str) and body["error"], (
+        f"'error' should be a non-empty string, got {body['error']!r}"
+    )
+    # And the file should NOT have landed in the CAS — ffprobe failed,
+    # so AssetStore.ingest never wrote the sidecar.
+    assets_dir = _proj / ".open_edit" / "assets"
+    assert not any(assets_dir.rglob("*.meta.json")), (
+        f"expected no asset metadata after a failed ingest, but found "
+        f"sidecars under {assets_dir}"
+    )
+
 def test_upload_writes_file_to_cas(seeded_project):
     """``POST /api/projects/{id}/ingest`` writes the file into the CAS
     (i.e., ``.open_edit/assets/<prefix>/<hash>`` with a sidecar
@@ -411,7 +468,14 @@ def test_frontend_normalize_assets_passes_through_url():
     ``<video src>`` to it.
 
     We run the file in a Node sandbox with stubbed browser APIs and
-    read ``window.OpenEdit`` after the IIFE executes.
+    call the real ``normalizeAssets`` via the test export
+    (``window.OpenEdit.__testHooks.normalizeAssets``). The export
+    exists so tests can exercise the function in its real IIFE
+    closure — extracting the function body via regex and re-evaluating
+    it in a fresh ``Function`` would let typos in field names slip
+    through (the extracted copy has no closure state, so refactors
+    that introduce cross-references between normalizers would not
+    be caught by tests).
     """
     import subprocess
     import tempfile
@@ -420,8 +484,9 @@ def test_frontend_normalize_assets_passes_through_url():
     assert app_js.exists(), f"missing {app_js}"
 
     # A tiny Node harness that loads app.js into a stubbed global
-    # environment, then invokes normalizeAssets on a sample input
-    # and prints the result as JSON.
+    # environment, then calls the real ``normalizeAssets`` via
+    # ``window.OpenEdit.__testHooks.normalizeAssets`` and prints the
+    # result as JSON.
     harness = r"""
 'use strict';
 const fs = require('fs');
@@ -474,28 +539,16 @@ const sandbox = {
   console: { warn: () => {}, error: () => {}, log: () => {} },
   location: { protocol: 'http:', host: 'localhost' },
 };
-sandbox.window.OpenEdit = null;
 sandbox.self = sandbox;
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
 
-// app.js does `window.OpenEdit = { state, api, connectWS };` —
-// but our stub is missing `state` and `api` at the moment of capture.
-// We don't need them; we just need to access normalizeAssets.
-// It's not exported (closed over by the IIFE), so we can't get it
-// directly. Instead, run a probe that monkey-patches api.ingestFiles
-// and then calls api.getProjectState to see what normalizeAssets
-// receives... but that's also not exported.
-//
-// FALLBACK: parse the source for the normalizeAssets body and
-// re-evaluate just it.
-const m = code.match(/function normalizeAssets\(rawAssets\)\s*\{[\s\S]*?\n\}/);
-if (!m) {
-  console.error('normalizeAssets not found');
+const testHooks = sandbox.window.OpenEdit && sandbox.window.OpenEdit.__testHooks;
+if (!testHooks || typeof testHooks.normalizeAssets !== 'function') {
+  console.error('window.OpenEdit.__testHooks.normalizeAssets not exposed');
   process.exit(2);
 }
-const fn = new Function('rawAssets', m[0] + '\nreturn normalizeAssets(rawAssets);');
 const input = [
   {
     hash: 'abc123',
@@ -515,7 +568,7 @@ const input = [
     duration_s: 5.0,
   },
 ];
-const out = fn(input);
+const out = testHooks.normalizeAssets(input);
 console.log(JSON.stringify(out));
 """
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
@@ -547,4 +600,164 @@ console.log(JSON.stringify(out));
     assert out[1]["url"] == "", (
         f"legacy-shape asset should default url to '' (not crash), "
         f"got {out[1]!r}"
+    )
+
+
+def test_frontend_open_asset_preview_annotates_title_when_no_url():
+    """When an asset has no servable URL the preview modal would
+    otherwise be a blank ``<video>`` with no explanation. The title
+    must be annotated so the user knows why the player is empty.
+
+    Before this fix, ``openAssetPreview`` set the title to the
+    filename on the happy path and the no-URL branch only cleared
+    the video's ``src`` — the title stayed as the bare filename,
+    which made the no-URL state indistinguishable from a working
+    preview that hadn't loaded yet.
+    """
+    import subprocess
+    import tempfile
+
+    app_js = REPO_ROOT / "open_edit" / "open_edit" / "serve" / "static" / "app.js"
+    assert app_js.exists(), f"missing {app_js}"
+
+    harness = r"""
+'use strict';
+const fs = require('fs');
+const vm = require('vm');
+
+const code = fs.readFileSync(process.argv[2], 'utf-8');
+
+const stubElement = () => ({
+  appendChild: () => {},
+  setAttribute: () => {},
+  addEventListener: () => {},
+  classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+  querySelector: () => stubElement(),
+  querySelectorAll: () => [],
+  dataset: {},
+  style: {},
+  children: [],
+  textContent: '',
+  innerHTML: '',
+  value: '',
+  files: [],
+  scrollTop: 0,
+  scrollHeight: 0,
+  removeAttribute: () => {},
+  load: () => {},
+  focus: () => {},
+  click: () => {},
+  replaceWith: () => {},
+  remove: () => {},
+});
+// Capture the title and video elements so the test can inspect
+// their state after ``openAssetPreview`` runs.
+const titleEl = { textContent: '' };
+const videoEl = {
+  src: '',
+  load: () => {},
+  removeAttribute: () => {},
+};
+const modalEl = { classList: { add: () => {}, remove: () => {} } };
+const docStubs = new Map([
+  ['#asset-preview-title', titleEl],
+  ['#asset-preview-video', videoEl],
+  ['#modal-asset-preview', modalEl],
+]);
+const sandbox = {
+  document: {
+    createElement: () => stubElement(),
+    createTextNode: (t) => ({ nodeType: 3, textContent: t }),
+    addEventListener: () => {},
+    querySelector: (sel) => docStubs.get(sel) || stubElement(),
+    querySelectorAll: () => [],
+  },
+  window: { addEventListener: () => {} },
+  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  WebSocket: function () { this.close = () => {}; },
+  crypto: { randomUUID: () => 'test-uuid' },
+  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
+  navigator: { clipboard: { writeText: () => Promise.resolve() } },
+  Response: function () {},
+  setTimeout: (fn) => fn && fn(),
+  clearTimeout: () => {},
+  Node: { TEXT_NODE: 3 },
+  console: { warn: () => {}, error: () => {}, log: () => {} },
+  location: { protocol: 'http:', host: 'localhost' },
+};
+sandbox.self = sandbox;
+sandbox.globalThis = sandbox;
+vm.createContext(sandbox);
+vm.runInContext(code, sandbox);
+
+const testHooks = sandbox.window.OpenEdit && sandbox.window.OpenEdit.__testHooks;
+if (!testHooks || typeof testHooks.openAssetPreview !== 'function') {
+  console.error('window.OpenEdit.__testHooks.openAssetPreview not exposed');
+  process.exit(2);
+}
+
+// Case 1: no URL — title should be annotated with a "no preview" hint.
+titleEl.textContent = 'unset';
+videoEl.src = '';
+testHooks.openAssetPreview({ filename: 'broken.mp4', url: '' });
+const noUrlTitle = titleEl.textContent;
+const noUrlVideoSrc = videoEl.src;
+
+// Case 2: with URL — title is the bare filename, video src is set.
+titleEl.textContent = 'unset';
+videoEl.src = '';
+testHooks.openAssetPreview({
+  filename: 'good.mp4',
+  url: '/api/projects/x/assets/y/file',
+});
+const withUrlTitle = titleEl.textContent;
+const withUrlVideoSrc = videoEl.src;
+
+console.log(JSON.stringify({
+  noUrlTitle,
+  noUrlVideoSrc,
+  withUrlTitle,
+  withUrlVideoSrc,
+}));
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(harness)
+        harness_path = fh.name
+    try:
+        proc = subprocess.run(
+            ["node", harness_path, str(app_js)],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert proc.returncode == 0, (
+            f"node harness failed (rc={proc.returncode}): "
+            f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+        )
+        out = json.loads(proc.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(harness_path)
+
+    # No-URL case: title is annotated, video src is empty.
+    assert out["noUrlTitle"] != "unset", "openAssetPreview didn't touch the title"
+    assert "broken.mp4" in out["noUrlTitle"], (
+        f"no-URL title should still include the filename, got "
+        f"{out['noUrlTitle']!r}"
+    )
+    assert "no preview" in out["noUrlTitle"].lower(), (
+        f"no-URL title should mention the missing preview, got "
+        f"{out['noUrlTitle']!r} (the user will stare at a blank modal "
+        f"wondering why the player is empty)"
+    )
+    assert out["noUrlVideoSrc"] == "", (
+        f"no-URL case should leave video.src empty, got "
+        f"{out['noUrlVideoSrc']!r}"
+    )
+
+    # With-URL case: title is the bare filename, video src is the URL.
+    assert out["withUrlTitle"] == "good.mp4", (
+        f"with-URL title should be the bare filename, got "
+        f"{out['withUrlTitle']!r}"
+    )
+    assert out["withUrlVideoSrc"] == "/api/projects/x/assets/y/file", (
+        f"with-URL case should set video.src to the asset URL, got "
+        f"{out['withUrlVideoSrc']!r}"
     )

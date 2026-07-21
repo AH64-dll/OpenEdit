@@ -481,7 +481,7 @@ async function refreshRendersList() {
 // Asset preview modal
 // ----------------------------------------------------------
 function openAssetPreview(asset) {
-  $('#asset-preview-title').textContent = asset.filename;
+  const titleEl = $('#asset-preview-title');
   const video = $('#asset-preview-video');
   // v1.4 P0-2: the backend's ``AssetInfo.url`` is a servable route
   // (e.g. ``/api/projects/abc/assets/13957.../file``) that streams the
@@ -489,11 +489,15 @@ function openAssetPreview(asset) {
   // Set it as the ``<video>`` src so the browser actually plays it.
   if (asset.url) {
     video.src = asset.url;
+    titleEl.textContent = asset.filename;
   } else {
-    // No URL — clear any previous source and show a hint in the title
-    // so the user knows why the player is blank (instead of staring
-    // at an empty modal wondering if it's broken).
+    // No URL — clear any previous source and annotate the title so
+    // the user knows why the player is blank (instead of staring at
+    // an empty modal wondering if it's broken). The bare filename
+    // alone would be indistinguishable from a working preview that
+    // hasn't loaded yet.
     video.removeAttribute('src');
+    titleEl.textContent = `${asset.filename} (no preview available)`;
   }
   video.load();
   showModal('modal-asset-preview');
@@ -1091,6 +1095,26 @@ async function boot() {
 document.addEventListener('DOMContentLoaded', boot);
 
 // Expose for debugging in the console.
-window.OpenEdit = { state, api, connectWS };
+window.OpenEdit = {
+  state,
+  api,
+  connectWS,
+  // Test-only hooks. The ``__`` prefix signals these are not part of
+  // the public API; the frontend normalizers/transforms are exposed
+  // here so Node-sandbox tests can call the real function in the
+  // real IIFE closure (regex-extracting the function body and
+  // re-evaluating it in a fresh ``Function`` would not see closure
+  // state, so refactors that introduce cross-references between
+  // normalizers would slip past the tests). Keep this list narrow:
+  // add a hook only when there's a test that needs it.
+  __testHooks: {
+    normalizeAssets,
+    normalizeEdits,
+    normalizeTimeline,
+    normalizeRenders,
+    normalizeNotes,
+    openAssetPreview,
+  },
+};
 
 })();
