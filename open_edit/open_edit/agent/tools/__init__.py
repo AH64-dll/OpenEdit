@@ -7,11 +7,16 @@ home for the new ones.
 
 The runtime's OP_TABLE dispatches by `(module_path, function_name)`, so each
 wrapper is exposed by importing its function from this package.
+
+v1.4 P1-1: also re-exports ``search_assets`` and ``import_asset`` so the
+pi extension bridge can dispatch them via ``getattr(tools_mod, name)``.
 """
 from open_edit.agent.tools.pyagent_add_marker import add_marker
 from open_edit.agent.tools.pyagent_get_pending_notes import get_pending_notes
 from open_edit.agent.tools.pyagent_get_style_profile import get_style_profile
+from open_edit.agent.tools.pyagent_import_asset import import_asset
 from open_edit.agent.tools.pyagent_run_python import run_python
+from open_edit.agent.tools.pyagent_search_assets import search_assets
 from open_edit.agent.tools.pyagent_set_pinned_value import set_pinned_value
 
 
@@ -19,6 +24,8 @@ __all__ = [
     "add_marker",
     "get_pending_notes",
     "get_style_profile",
+    "import_asset",
     "run_python",
+    "search_assets",
     "set_pinned_value",
 ]

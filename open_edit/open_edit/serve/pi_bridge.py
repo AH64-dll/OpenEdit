@@ -57,7 +57,7 @@ def _resolve_project_path(project: str) -> Path:
 
 
 def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
-    """Run one of the 10 real tools in ``open_edit.agent.tools``.
+    """Run one of the real tools in ``open_edit.agent.tools``.
 
     The real tool functions take ``(args: dict, project_path: str)`` and
     expect ``args`` to contain the project-specific fields the function
@@ -65,22 +65,30 @@ def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) ->
     derived from the project path (e.g. ``project_id`` is the UUID stored
     in ``edit_graph.db``). We inject those derivable fields here so the
     TS extension doesn't need to know about them.
+
+    v1.4 P1-1: ``search_assets`` is project-agnostic — the
+    ``project_id`` injection is harmless (the tool ignores it) but we
+    skip the edit_graph.db lookup for that tool to avoid forcing a
+    project to exist for a global search.
     """
     import open_edit.agent.tools as tools_mod
     from open_edit.storage.edit_graph import EditGraphStore
 
-    # Inject the project's edit_graph.db project_id if the tool needs it
-    # and the caller didn't provide one.
-    db_path = project_path / ".open_edit" / "edit_graph.db"
-    if db_path.exists() and "project_id" not in args:
-        try:
-            args = {**args, "project_id": EditGraphStore(db_path).project_id}
-        except Exception as exc:
-            # Don't silently swallow — surface the failure so the user
-            # can see why project_id didn't get injected.
-            raise RuntimeError(
-                f"failed to inject project_id from {db_path}: {exc}"
-            ) from exc
+    # ``search_assets`` doesn't write to the project, so we skip the
+    # project_id auto-inject for it. The tool ignores ``project_id``
+    # anyway; skipping the DB read keeps a global search callable
+    # even on a fresh server (before any project has been created).
+    if tool_name != "search_assets":
+        db_path = project_path / ".open_edit" / "edit_graph.db"
+        if db_path.exists() and "project_id" not in args:
+            try:
+                args = {**args, "project_id": EditGraphStore(db_path).project_id}
+            except Exception as exc:
+                # Don't silently swallow — surface the failure so the user
+                # can see why project_id didn't get injected.
+                raise RuntimeError(
+                    f"failed to inject project_id from {db_path}: {exc}"
+                ) from exc
 
     fn = getattr(tools_mod, tool_name, None)
     if fn is None or not callable(fn):

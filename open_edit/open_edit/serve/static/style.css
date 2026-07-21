@@ -607,3 +607,140 @@ code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, 
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ============================================================
+   v1.4 P1-1: search-assets results panel
+   Renders inside the chat log right under a search_assets tool
+   card. Cards are a flex row of thumbnail + body so the user can
+   scan quickly and click "Add to project" without leaving the
+   conversation.
+   ============================================================ */
+.search-results {
+  margin: 8px 0 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.search-results-head {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-family: var(--font-mono, monospace);
+}
+.search-results-empty,
+.search-results-error {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.search-results-error {
+  border-left: 3px solid var(--yellow, #d4a017);
+  background: rgba(212, 160, 23, 0.06);
+  border-radius: 4px;
+}
+.search-results-error-head {
+  font-weight: 600;
+  color: var(--yellow, #d4a017);
+  margin-bottom: 4px;
+  font-family: var(--font-mono, monospace);
+}
+.search-results-error-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.search-results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.result-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card, #0e0e0e);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.result-card:hover {
+  border-color: var(--accent, #58a6ff);
+  transform: translateY(-1px);
+}
+.result-thumb {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  background: #1a1a1a;
+}
+.result-thumb.thumb-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+.result-body {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.result-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.result-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+.license-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  border-radius: 3px;
+  background: var(--bg-tertiary, #2a2a2a);
+  color: var(--text-secondary, #ccc);
+  align-self: flex-start;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+}
+.license-badge.attr-required {
+  background: rgba(212, 160, 23, 0.12);
+  color: var(--yellow, #d4a017);
+  border-color: rgba(212, 160, 23, 0.4);
+}
+.license-badge.permissive {
+  background: rgba(46, 160, 67, 0.10);
+  color: #3fb950;
+  border-color: rgba(46, 160, 67, 0.3);
+}
+.result-attribution {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.result-import-btn {
+  margin-top: 6px;
+  align-self: flex-start;
+}

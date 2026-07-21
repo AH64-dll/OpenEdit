@@ -10,6 +10,10 @@ tool ``trigger_render`` is included: it is **server-side only** (not in
 ``open_edit.agent.tools``) and is handled specially by the agent loop to
 shell out to ``open_edit render``.
 
+v1.4 P1-1 added ``search_assets`` and ``import_asset`` (12 real + 1 virtual
+= 13 in total). The pi TS extension auto-discovers new entries from this
+list, so no extension changes are needed when tools are added.
+
 Each schema follows the Anthropic tools shape::
 
     {
@@ -317,6 +321,104 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    # 12 (v1.4 P1-1) ---------------------------------------------------
+    {
+        "name": "search_assets",
+        "description": (
+            "Search the internet for stock media (video, photo, or audio) "
+            "to use in the project. Dispatches to Pexels (video/photo) or "
+            "Freesound (audio). Returns a normalised list of results with "
+            "id, source, kind, title, thumbnail_url, preview_url, "
+            "duration_seconds, license, and attribution_required — the UI "
+            "renders the thumbnails with the license badge and an 'Add to "
+            "project' button that fires import_asset. Cached in-memory for "
+            "5 minutes so an iterative search loop doesn't burn the Pexels "
+            "20k/month cap. If the relevant API key is missing, returns a "
+            "structured error (not a crash) — surface it to the user."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Free-text search query, e.g. 'rain b-roll', "
+                        "'whoosh sound effect', 'sunset over mountains'."
+                    ),
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["video", "photo", "audio"],
+                    "description": (
+                        "Which kind of media to search for. 'video' and "
+                        "'photo' go to Pexels; 'audio' goes to Freesound."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        "Max number of results to return. Default 8. "
+                        "Capped at 40 to keep responses tractable."
+                    ),
+                    "default": 8,
+                },
+            },
+            "required": ["query", "kind"],
+        },
+    },
+    # 13 (v1.4 P1-1) ---------------------------------------------------
+    {
+        "name": "import_asset",
+        "description": (
+            "Import a third-party media asset (returned by a prior "
+            "search_assets call, or a direct HTTPS URL) into the project's "
+            "content-addressed asset store. Downloads the file, ingests it "
+            "via AssetStore, and tags the resulting Asset with license + "
+            "attribution metadata so the credit line is visible later. "
+            "For a result_id, the license/attribution are pulled from the "
+            "search cache (so the LLM doesn't have to re-pass them); for "
+            "a bare source_url, supply license + attribution explicitly "
+            "or accept the 'Unknown' default. Requires HTTPS."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "result_id": {
+                    "type": "string",
+                    "description": (
+                        "ID of a result from a prior search_assets call. "
+                        "Preferred over source_url because the cached "
+                        "metadata (license, attribution) is reused."
+                    ),
+                },
+                "source_url": {
+                    "type": "string",
+                    "description": (
+                        "Direct HTTPS URL to the media file. Use this when "
+                        "you don't have a result_id (e.g. the user pasted "
+                        "a link). Must be HTTPS."
+                    ),
+                },
+                "license": {
+                    "type": "string",
+                    "description": (
+                        "Human-readable license string, e.g. 'Pexels "
+                        "License', 'CC BY 4.0', 'CC0 1.0'. Defaults to "
+                        "'Unknown' when neither this nor a cached result "
+                        "provides one."
+                    ),
+                },
+                "attribution": {
+                    "type": "string",
+                    "description": (
+                        "Credit line to display, e.g. \"'rain' by "
+                        "alice (CC BY 4.0)\" or 'Source: Pexels'. "
+                        "Defaults to empty when unknown."
+                    ),
+                },
+            },
+        },
+    },
 ]
 
 
@@ -358,6 +460,15 @@ TOOL_USAGE_GUIDE = """\
   `run_python` — the sandbox doesn't allow subprocess calls.
 - **To leave a flag for the user**, call `add_marker` at the relevant
   timestamp with a short, specific note.
+- **To find stock media** (b-roll, SFX, ambience), call `search_assets`
+  with `kind` in ('video', 'photo', 'audio'). Results surface in the UI
+  with thumbnails + license badges; the user clicks "Add to project"
+  (or you can call `import_asset` directly with a result_id). Audio
+  results are preview-quality (lossy MP3); full-quality audio is a
+  fast-follow requiring Freesound OAuth2.
+- **To import a third-party asset** the user picked from a search,
+  call `import_asset` with the result_id (license/attribution come from
+  the search cache) or a direct `source_url` (supply them yourself).
 """
 
 

@@ -74,6 +74,12 @@ class Asset(BaseModel):
     codec: Optional[str] = None
     has_audio: bool = False
     alignment: list[WordAlignment] = Field(default_factory=list)
+    # v1.4 P1-1: license + attribution metadata for third-party media
+    # (Pexels / Freesound). Both are populated by ``import_asset`` and
+    # shown verbatim by the UI; an empty string means "unknown — figure
+    # it out before publishing".
+    license: str = ""
+    attribution: str = ""
 
 
 # ===== Operation base + concrete variants =====

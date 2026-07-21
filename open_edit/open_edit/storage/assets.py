@@ -97,13 +97,22 @@ class AssetStore:
     def ingest(self, source_path: str) -> Asset:
         return self.ingest_paths([source_path])[0]
 
-    def ingest_paths(self, paths: list[str]) -> list[Asset]:
+    def ingest_paths(
+        self, paths: list[str],
+        license: str = "",
+        attribution: str = "",
+    ) -> list[Asset]:
         """Ingest one or more files. Returns one Asset per input path.
 
         Bug B regression: empty paths list is rejected with a `fix:` line.
         Bug-hunt #6: each ingested asset is persisted to a sidecar JSON
         so that subsequent ``get()`` calls return full metadata, not
         placeholder values.
+
+        v1.4 P1-1: ``license`` and ``attribution`` are propagated to
+        every ``Asset`` produced (and the sidecar JSON). Both default
+        to empty strings; callers that ingest third-party media should
+        pass them through so the credit line is visible later.
         """
         if not paths:
             raise ValueError(
@@ -135,6 +144,8 @@ class AssetStore:
                 codec=media_info["codec"],
                 has_audio=media_info["has_audio"],
                 alignment=alignment,
+                license=license,
+                attribution=attribution,
             )
             sidecar = self._sidecar_path(asset_hash)
             sidecar.write_text(asset.model_dump_json(indent=2))

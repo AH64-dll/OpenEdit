@@ -606,9 +606,17 @@ function appendToolCard(toolUseId, name, input) {
   ]);
   const result = el('div', { class: 'tool-result hidden' });
 
+  // v1.4 P1-1: search_assets gets a dedicated placeholder region that
+  // the result panel replaces. The text-based resultEl stays hidden
+  // but kept in the DOM for compatibility with ``completeToolCard``.
+  const searchPanel = name === 'search_assets'
+    ? el('div', { class: 'search-results-placeholder' })
+    : null;
+
   const card = el('div', { class: 'tool-card' }, [
     el('div', { class: 'gear' }, ['⚙']),
     body,
+    searchPanel,
     spinner,
     result,
   ]);
@@ -622,7 +630,10 @@ function appendToolCard(toolUseId, name, input) {
   } else {
     $('#chat-log').appendChild(card);
   }
-  state.pendingToolCards.set(toolUseId, { card, spinner, result });
+  state.pendingToolCards.set(
+    toolUseId,
+    { card, spinner, result, name, searchPanel },
+  );
   scrollChatToBottom();
 }
 
@@ -641,8 +652,20 @@ function completeToolCard(toolUseId, result, isError = false) {
     scrollChatToBottom();
     return;
   }
-  const { card, spinner, result: resultEl } = entry;
+  const { card, spinner, result: resultEl, name, searchPanel } = entry;
   spinner.remove();
+  // v1.4 P1-1: delegate to the dedicated results panel renderer for
+  // search_assets. The result shape matches what the Python tool
+  // returns (see pyagent_search_assets.search_assets).
+  if (name === 'search_assets' && searchPanel) {
+    const panel = appendSearchResults(result || {}, searchPanel);
+    if (panel) {
+      // Replace the placeholder with the real panel.
+      searchPanel.replaceWith(panel);
+    }
+    scrollChatToBottom();
+    return;
+  }
   const text = (() => {
     try {
       const r = typeof result === 'string' ? JSON.parse(result) : result;
@@ -656,6 +679,128 @@ function completeToolCard(toolUseId, result, isError = false) {
   resultEl.className = 'tool-result' + (isError ? ' failed' : '');
   resultEl.classList.remove('hidden');
   scrollChatToBottom();
+}
+
+// ----------------------------------------------------------
+// Search results panel (v1.4 P1-1)
+//
+// Renders one card per result with a thumbnail, title, license badge,
+// attribution hint, and an "Add to project" button. When the tool
+// returns an error (e.g. the API key is missing), renders a clear
+// error state so the user can fix the env and retry.
+//
+// The wire shape is the same dict the Python tool returns, so we
+// never re-fetch or re-shape the data — we render what the LLM saw.
+// ----------------------------------------------------------
+function appendSearchResults(result, mountPoint) {
+  const root = mountPoint
+    ? mountPoint
+    : (el('div', { class: 'search-results' }));
+  if (!root.classList.contains('search-results')) {
+    root.classList.add('search-results');
+  }
+  // Empty out any previous render (e.g. when re-rendering the same
+  // panel after a follow-up search).
+  while (root.firstChild) root.removeChild(root.firstChild);
+
+  if (result && result.error) {
+    // Error state: a clear message + the cause.
+    const errBox = el('div', { class: 'search-results-error' }, [
+      el('div', { class: 'search-results-error-head' }, ['⚠ Search failed']),
+      el('div', { class: 'search-results-error-body' }, [result.error]),
+    ]);
+    root.appendChild(errBox);
+    return root;
+  }
+
+  const results = (result && result.results) || [];
+  if (results.length === 0) {
+    root.appendChild(el('div', { class: 'search-results-empty' }, [
+      'No results. Try a different query.',
+    ]));
+    return root;
+  }
+
+  // Header summarising the query (so the user sees what was searched).
+  const query = result.query || '';
+  const kind = result.kind || '';
+  if (query || kind) {
+    const headBits = [];
+    if (query) headBits.push(`for "${query}"`);
+    if (kind) headBits.push(`(${kind})`);
+    root.appendChild(el('div', { class: 'search-results-head' }, [
+      `${results.length} result${results.length === 1 ? '' : 's'} ${headBits.join(' ')}`,
+    ]));
+  }
+
+  // Grid of result cards.
+  const grid = el('div', { class: 'search-results-grid' });
+  for (const r of results) {
+    grid.appendChild(_renderSearchResultCard(r));
+  }
+  root.appendChild(grid);
+  return root;
+}
+
+function _renderSearchResultCard(r) {
+  // License badge color: red for attribution-required, yellow for
+  // permissive-but-credit-appreciated, green for public-domain.
+  const license = (r && r.license) || 'Unknown';
+  const licenseClass = r && r.attribution_required
+    ? 'license-badge attr-required'
+    : (license.toLowerCase().includes('cc0') || license.toLowerCase().includes('pexels')
+        ? 'license-badge permissive'
+        : 'license-badge');
+
+  // Thumbnail: an <img> that fails soft if the upstream CDN is down.
+  const thumb = el('img', {
+    class: 'result-thumb',
+    src: r.thumbnail_url || '',
+    alt: r.title || '',
+    loading: 'lazy',
+  });
+  thumb.addEventListener('error', () => {
+    thumb.classList.add('thumb-error');
+    thumb.replaceWith(el('div', { class: 'result-thumb thumb-error' }, ['(no preview)']));
+  });
+
+  const titleText = r.title || r.id || '(untitled)';
+  const metaBits = [];
+  if (r.kind) metaBits.push(r.kind);
+  if (r.duration_seconds != null) metaBits.push(fmtDuration(r.duration_seconds));
+
+  const card = el('div', { class: 'result-card', 'data-result-id': r.id || '' }, [
+    thumb,
+    el('div', { class: 'result-body' }, [
+      el('div', { class: 'result-title' }, [titleText]),
+      metaBits.length ? el('div', { class: 'result-meta' }, [metaBits.join(' · ')]) : null,
+      el('div', { class: licenseClass }, [license]),
+      r.attribution
+        ? el('div', { class: 'result-attribution' }, [r.attribution])
+        : null,
+      el('button', {
+        class: 'btn btn-secondary btn-sm result-import-btn',
+        type: 'button',
+      }, ['+ Add to project']),
+    ]),
+  ]);
+  // Wire the import button. The simplest reliable cross-LLM path is
+  // to send a chat message asking the assistant to import this result;
+  // the assistant's tool schema already knows the import_asset shape.
+  const btn = card.querySelector('.result-import-btn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      const id = r.id || '';
+      const ok = sendChatMessage(
+        `Please import the search result with id "${id}" into the project.`
+      );
+      if (ok) {
+        btn.disabled = true;
+        btn.textContent = 'Requested…';
+      }
+    });
+  }
+  return card;
 }
 
 function appendRenderEvent(path, mode) {
@@ -1227,6 +1372,14 @@ window.OpenEdit = {
     // tests can drive it through a synthetic WS event sequence
     // without a real DOM (see ``tests/test_serve_chat_status.py``).
     createChatStatus,
+    // v1.4 P1-1: search-assets results panel renderer. Exposed so
+    // Node-sandbox tests can drive the panel without a real DOM
+    // (see ``tests/test_serve_search_assets.py``).
+    appendSearchResults,
+    // v1.4 P1-1: the chat sender (used by the Add-to-project button
+    // in the search-assets panel). Exposed so the search-assets
+    // test can verify the import message is sent.
+    sendChatMessage,
   },
 };
 
