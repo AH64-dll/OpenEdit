@@ -535,3 +535,24 @@ def test_pi_path_emits_done_after_usage(fake_pi_with_usage):
     # usage must appear before done.
     if "usage" in types:
         assert types.index("usage") < types.index("done")
+
+
+# ---------------------------------------------------------------------------
+# v1.5: parse_verdict in the LLM response path
+# ---------------------------------------------------------------------------
+
+def test_parse_verdict_in_message():
+    """A real LLM response containing ``VERIFICATION: PASS`` extracts as pass."""
+    from open_edit.serve.visual_verify import parse_verdict
+    r = parse_verdict("Looks good. The overlay is gone.\nVERIFICATION: PASS\n")
+    assert r["verdict"] == "pass"
+    assert r["source"] == "model_explicit_pass"
+
+
+def test_no_verdict_line_returns_unknown():
+    """No verdict line → unknown (caller decides what to do; the spec
+    requires a non-false ``verification_result`` in this case)."""
+    from open_edit.serve.visual_verify import parse_verdict
+    r = parse_verdict("Done. Rendered successfully.")
+    assert r["verdict"] == "unknown"
+    assert r["source"] == "model_no_verdict_line"

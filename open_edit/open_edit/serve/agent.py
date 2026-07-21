@@ -19,15 +19,22 @@ per line).
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, AsyncIterator, Literal, TypedDict
+from typing import Any, AsyncIterator, Callable, Literal, TypedDict
 
 from . import projects as projects_mod
+from . import visual_verify
 from .llm import stream_chat
+from .pi_bridge import _probe_duration
+from .project_meta import is_verify_disabled
+from .serve_env import get_visual_verify_config
 from .tool_schemas import (
     IR_MODEL_SUMMARY,
     TOOL_SCHEMAS,
@@ -56,6 +63,7 @@ class AgentEvent(TypedDict, total=False):
     type: Literal[
         "text", "tool_start", "tool_result", "render",
         "error", "done", "cost_update",
+        "verification_started", "verification_result",
     ]
 
 
@@ -329,6 +337,290 @@ def _execute_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[s
 
 
 # ---------------------------------------------------------------------------
+# Visual verification helpers (v1.5)
+# ---------------------------------------------------------------------------
+
+def _render_failure_source(error_msg: str) -> str:
+    """Map a render error string to a ``verdict_source`` value."""
+    if "render_failed" in error_msg:
+        return "render_failed"
+    if "no_video_stream" in error_msg:
+        return "no_video_stream"
+    if "frame_extraction_failed" in error_msg:
+        return "frame_extraction_failed"
+    if "timeout" in error_msg:
+        return "timeout"
+    if "empty_render" in error_msg or "render_invalid" in error_msg:
+        return "empty_render"
+    return "render_failed"
+
+
+def _build_verification_result(
+    *,
+    render_id: str,
+    render_path: str,
+    outcome: str,
+    verdict_source: str,
+    render_count: int,
+    max_renders: int,
+) -> dict[str, Any]:
+    """Build a single ``verification_result`` AgentEvent."""
+    return {
+        "type": "verification_result",
+        "render_id": render_id,
+        "render_path": render_path,
+        "outcome": outcome,
+        "verdict_source": verdict_source,
+        "render_count": render_count,
+        "max_renders": max_renders,
+    }
+
+
+async def _maybe_verify_render(
+    result: dict[str, Any],
+    project_path: Path,
+    render_count: int,
+    cfg: dict[str, Any],
+    should_cancel: Callable[[], bool] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
+    """Run the verification stage for one ``trigger_render`` result.
+
+    Returns ``(events, augmented_result, pending)``:
+    - ``events``: AgentEvents to yield in order.
+    - ``augmented_result``: the tool result the LLM sees.
+    - ``pending``: state to track across the next LLM response so the
+      LLM's verdict can be parsed. ``None`` for terminal paths.
+    """
+    events: list[dict[str, Any]] = []
+    render_id = result.get("render_id", "render_unknown")
+    output_path = result.get("output_path", "")
+    mode = result.get("mode", "proxy")
+    max_renders = cfg["max_renders"]
+
+    if result.get("no_change"):
+        events.append(_build_verification_result(
+            render_id=render_id,
+            render_path=output_path,
+            outcome="skipped",
+            verdict_source="no_change",
+            render_count=render_count,
+            max_renders=max_renders,
+        ))
+        return events, result, None
+
+    if "error" in result:
+        events.append(_build_verification_result(
+            render_id=render_id,
+            render_path=output_path,
+            outcome="failed",
+            verdict_source=_render_failure_source(result["error"]),
+            render_count=render_count,
+            max_renders=max_renders,
+        ))
+        return events, result, None
+
+    mp4_path = Path(output_path)
+    if not output_path or not mp4_path.exists() or mp4_path.stat().st_size == 0:
+        invalid = visual_verify.build_failure_tool_result(
+            "empty_render", render_id=render_id, path=output_path,
+        )
+        events.append(_build_verification_result(
+            render_id=render_id,
+            render_path=output_path,
+            outcome="failed",
+            verdict_source="empty_render",
+            render_count=render_count,
+            max_renders=max_renders,
+        ))
+        return events, invalid, None
+
+    try:
+        duration_s = await asyncio.to_thread(_probe_duration, mp4_path)
+    except Exception:
+        invalid = visual_verify.build_failure_tool_result(
+            "no_video_stream", render_id=render_id, detail=str(output_path),
+        )
+        events.append(_build_verification_result(
+            render_id=render_id,
+            render_path=output_path,
+            outcome="failed",
+            verdict_source="no_video_stream",
+            render_count=render_count,
+            max_renders=max_renders,
+        ))
+        return events, invalid, None
+
+    frames_ts = visual_verify.sample_frames(duration_s, override_count=cfg["frames"])
+    model_id = os.environ.get("OPEN_EDIT_LLM_MODEL", "minimax-m3")
+    cap = visual_verify.model_capability(model_id)
+    supports_images = bool(cap.get("supports_images", False))
+
+    events.append({
+        "type": "verification_started",
+        "render_id": render_id,
+        "render_path": output_path,
+        "frame_count": cfg["frames"],
+        "stage": "sampling",
+    })
+
+    if not supports_images:
+        events.append(_build_verification_result(
+            render_id=render_id,
+            render_path=output_path,
+            outcome="skipped",
+            verdict_source="text_only_model",
+            render_count=render_count,
+            max_renders=max_renders,
+        ))
+        augmented = visual_verify.build_verification_tool_result(
+            {"render_id": render_id, "output_path": output_path, "duration_s": duration_s},
+            [], cap, mode,
+        )
+        return events, augmented, None
+
+    events.append({
+        "type": "verification_started",
+        "render_id": render_id,
+        "render_path": output_path,
+        "frame_count": len(frames_ts),
+        "stage": "encoding",
+    })
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="oe_verify_"))
+    try:
+        frames: list[dict[str, Any]] = []
+        for ts in frames_ts:
+            if should_cancel and should_cancel():
+                events.append(_build_verification_result(
+                    render_id=render_id,
+                    render_path=output_path,
+                    outcome="skipped",
+                    verdict_source="user_cancelled",
+                    render_count=render_count,
+                    max_renders=max_renders,
+                ))
+                fail = visual_verify.build_failure_tool_result(
+                    "frame_extraction_failed",
+                    render_id=render_id,
+                    detail="cancelled by user",
+                )
+                return events, fail, None
+            frame_path = tmpdir / f"frame_{int(ts * 1000)}.jpg"
+            try:
+                await asyncio.to_thread(
+                    visual_verify.encode_jpeg,
+                    mp4_path,
+                    frame_path,
+                    cfg["max_edge_px"],
+                    cfg["jpeg_quality"],
+                    cfg["max_image_bytes"],
+                )
+            except Exception as exc:
+                events.append(_build_verification_result(
+                    render_id=render_id,
+                    render_path=output_path,
+                    outcome="failed",
+                    verdict_source="frame_extraction_failed",
+                    render_count=render_count,
+                    max_renders=max_renders,
+                ))
+                fail = visual_verify.build_failure_tool_result(
+                    "frame_extraction_failed", render_id=render_id, detail=str(exc),
+                )
+                return events, fail, None
+            with frame_path.open("rb") as f:
+                data = base64.b64encode(f.read()).decode("ascii")
+            frames.append({
+                "mimeType": "image/jpeg",
+                "data": data,
+                "t_seconds": ts,
+            })
+
+        events.append({
+            "type": "verification_started",
+            "render_id": render_id,
+            "render_path": output_path,
+            "frame_count": len(frames),
+            "stage": "ready",
+        })
+
+        render_output = {
+            "render_id": render_id,
+            "output_path": output_path,
+            "duration_s": duration_s,
+        }
+        augmented = visual_verify.build_verification_tool_result(
+            render_output, frames, cap, mode,
+        )
+        pending = {
+            "render_id": render_id,
+            "output_path": output_path,
+            "render_count": render_count,
+            "max_renders": max_renders,
+            "supports_images": supports_images,
+            "verdict": "unknown",
+            "notes": "",
+        }
+        return events, augmented, pending
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _build_tool_result_message(
+    tu_id: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the ``tool_result`` message for the conversation history.
+
+    When the result carries verification frames, the content is a list
+    of content blocks (text summary + image blocks) so the LLM can
+    actually see the frames.
+    """
+    verification = result.get("verification") or {}
+    frames = verification.get("frames") or []
+    if frames:
+        text_summary = json.dumps(result, default=str)
+        blocks: list[dict[str, Any]] = [{"type": "text", "text": text_summary}]
+        for frame in frames:
+            blocks.append({
+                "type": "image",
+                "data": frame["data"],
+                "mimeType": frame.get("mimeType", "image/jpeg"),
+            })
+        content: Any = blocks
+    else:
+        content = json.dumps(result, default=str)
+    return {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": tu_id,
+                "content": content,
+            }
+        ],
+    }
+
+
+def _make_slim_history(
+    history: list[dict[str, Any]],
+    pending: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Build the slim LLM-facing view of ``history``."""
+    if pending is None:
+        return visual_verify.prune_images(list(history))
+    return visual_verify.prune_images(
+        list(history),
+        last_verdict=(
+            pending["render_id"],
+            pending.get("verdict", "unknown"),
+            pending.get("supports_images", False),
+            pending.get("notes", ""),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # The agent loop
 # ---------------------------------------------------------------------------
 
@@ -337,6 +629,7 @@ async def run_agent_turn(
     user_message: str,
     conversation_history: list[dict[str, Any]],
     conv_id: str | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """Run one full agent turn (user message -> final assistant text).
 
@@ -348,6 +641,9 @@ async def run_agent_turn(
     message and the assistant's response (including tool calls and tool
     results) are appended. If ``conv_id`` is provided, each new message
     is also appended to ``.open_edit/conversations/<conv_id>.jsonl``.
+
+    ``should_cancel`` is an optional callback used by the verification
+    stage to abort in-flight ffmpeg work when the WebSocket disconnects.
 
     The loop continues until the LLM returns ``end_turn`` or hits a
     safety cap (``MAX_AGENT_ITERATIONS``).
@@ -400,6 +696,11 @@ async def run_agent_turn(
     best_source_priority = _SOURCE_PRIORITY["unavailable"]
     best_source = "unavailable"
 
+    cfg = get_visual_verify_config()
+    verify_active = cfg["enabled"] and not is_verify_disabled(project_path)
+    turn_render_count = 0
+    pending_verification: dict[str, Any] | None = None
+
     # Main loop
     for _ in range(MAX_AGENT_ITERATIONS):
         # Stream the LLM
@@ -418,7 +719,7 @@ async def run_agent_turn(
 
         try:
             async for event in stream_chat(
-                messages=conversation_history,
+                messages=_make_slim_history(conversation_history, pending_verification),
                 tools=TOOL_SCHEMAS,
                 system=system_prompt,
                 session_id=conv_id,
@@ -489,6 +790,24 @@ async def run_agent_turn(
                 )
             return
 
+        if pending_verification is not None:
+            verdict = visual_verify.parse_verdict("".join(current_text_parts))
+            if tool_use_blocks:
+                outcome = "iterate"
+            elif verdict["verdict"] == "pass":
+                outcome = "pass"
+            else:
+                outcome = "uncertain"
+            yield _build_verification_result(
+                render_id=pending_verification["render_id"],
+                render_path=pending_verification["output_path"],
+                outcome=outcome,
+                verdict_source=verdict["source"],
+                render_count=pending_verification["render_count"],
+                max_renders=pending_verification["max_renders"],
+            )
+            pending_verification = None
+
         # Build the assistant message
         assistant_content: list[dict[str, Any]] = []
         if current_text_parts:
@@ -535,56 +854,130 @@ async def run_agent_turn(
                 )
             return
 
-        # Execute each tool call and emit events. If the provider is
-        # ``pi``, the tool has already been run by the extension and we
-        # just forward the result we captured in ``tool_results_by_name``.
+        # Execute tool calls. v1.5: reorder so mutations run before
+        # ``trigger_render``, and only the last ``trigger_render`` in a
+        # batch is executed (pi may emit several in one turn; the
+        # first ones are short-circuited).
         tool_result_messages: list[dict[str, Any]] = []
-        for tu in tool_use_blocks:
+        mutations = [tu for tu in tool_use_blocks if tu["name"] != "trigger_render"]
+        trigger_renders = [tu for tu in tool_use_blocks if tu["name"] == "trigger_render"]
+
+        for tu in mutations:
             tool_name = tu["name"]
             tool_input = tu.get("input", {})
             yield {"type": "tool_start", "name": tool_name, "input": tool_input}
-
-            if provider_does_tool_exec:
-                # Use the result that pi's extension already produced.
-                result = tool_results_by_name.get(tool_name, {"status": "ok"})
+            try:
+                # Mutations are dispatched locally regardless of provider
+                # — the pi extension only pre-executes the slow
+                # ``trigger_render``; mutation tools (add_clip etc.) are
+                # quick edit-graph updates that the agent loop runs itself.
+                result = _execute_tool(tool_name, tool_input, project_path)
                 yield {"type": "tool_result", "name": tool_name, "result": result}
+                tool_result_messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tu["id"],
+                            "content": json.dumps(result, default=str),
+                        }
+                    ],
+                })
+            except Exception as exc:
+                err_msg = f"tool '{tool_name}' failed: {exc}"
+                yield {"type": "error", "message": err_msg}
+                tool_result_messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tu["id"],
+                            "content": json.dumps({"error": err_msg}),
+                        }
+                    ],
+                })
 
-                # Special-case render: also emit a top-level render event
-                # so the client can immediately react to it.
-                if tool_name == "trigger_render" and isinstance(result, dict):
+        if trigger_renders:
+            tu = trigger_renders[-1]
+            tool_name = tu["name"]
+            tool_input = tu.get("input", {})
+            yield {"type": "tool_start", "name": tool_name, "input": tool_input}
+            try:
+                if provider_does_tool_exec:
+                    result = tool_results_by_name.get(tool_name, {"status": "ok"})
+                else:
+                    result = _execute_tool(tool_name, tool_input, project_path)
+                yield {"type": "tool_result", "name": tool_name, "result": result}
+                if isinstance(result, dict):
                     output_path = result.get("output_path", "")
                     mode = result.get("mode", "proxy")
                     if output_path:
                         yield {"type": "render", "path": output_path, "mode": mode}
 
-                tool_result_content = json.dumps(result, default=str)
-            else:
-                try:
-                    result = _execute_tool(tool_name, tool_input, project_path)
-                    yield {"type": "tool_result", "name": tool_name, "result": result}
-
-                    if tool_name == "trigger_render" and isinstance(result, dict):
-                        output_path = result.get("output_path", "")
-                        mode = result.get("mode", "proxy")
-                        if output_path:
-                            yield {"type": "render", "path": output_path, "mode": mode}
-
-                    tool_result_content = json.dumps(result, default=str)
-                except Exception as exc:
-                    err_msg = f"tool '{tool_name}' failed: {exc}"
-                    yield {"type": "error", "message": err_msg}
-                    tool_result_content = json.dumps({"error": err_msg})
-
-            tool_result_messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tu["id"],
-                        "content": tool_result_content,
-                    }
-                ],
-            })
+                if verify_active:
+                    turn_render_count += 1
+                    if turn_render_count > cfg["max_renders"]:
+                        capped = visual_verify.build_failure_tool_result(
+                            "render_capped",
+                            render_id=result.get("render_id", "render_unknown"),
+                            cap=cfg["max_renders"],
+                            render_count=turn_render_count,
+                        )
+                        yield _build_verification_result(
+                            render_id=result.get("render_id", "render_unknown"),
+                            render_path=output_path,
+                            outcome="capped",
+                            verdict_source="cap_reached",
+                            render_count=turn_render_count,
+                            max_renders=cfg["max_renders"],
+                        )
+                        tool_result_messages.append(
+                            _build_tool_result_message(tu["id"], capped)
+                        )
+                    else:
+                        try:
+                            v_events, augmented_result, vstate = await _maybe_verify_render(
+                                result, project_path, turn_render_count, cfg, should_cancel,
+                            )
+                        except Exception as exc:
+                            v_events = [_build_verification_result(
+                                render_id=result.get("render_id", "render_unknown"),
+                                render_path=output_path,
+                                outcome="failed",
+                                verdict_source="frame_extraction_failed",
+                                render_count=turn_render_count,
+                                max_renders=cfg["max_renders"],
+                            )]
+                            augmented_result = visual_verify.build_failure_tool_result(
+                                "frame_extraction_failed",
+                                render_id=result.get("render_id", "render_unknown"),
+                                detail=str(exc),
+                            )
+                            vstate = None
+                        for ev in v_events:
+                            yield ev
+                        if vstate is not None:
+                            pending_verification = vstate
+                        tool_result_messages.append(
+                            _build_tool_result_message(tu["id"], augmented_result)
+                        )
+                else:
+                    tool_result_messages.append(
+                        _build_tool_result_message(tu["id"], result)
+                    )
+            except Exception as exc:
+                err_msg = f"tool '{tool_name}' failed: {exc}"
+                yield {"type": "error", "message": err_msg}
+                tool_result_messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tu["id"],
+                            "content": json.dumps({"error": err_msg}),
+                        }
+                    ],
+                })
 
         # Append all tool_result messages in order
         for trm in tool_result_messages:

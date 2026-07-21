@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Literal, TypedDict
 
 from . import cost as cost_mod
+from .visual_verify import parse_verdict
 
 # ``anthropic`` is listed as a hard dependency in pyproject.toml. We import
 # lazily inside ``stream_chat`` so the module can still be imported in test
