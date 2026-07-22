@@ -151,15 +151,16 @@ _RENDER_TASKS: dict[str, asyncio.Task] = {}
 
 async def _run_render_job(job: RenderJobResponse, project_path: Path) -> None:
     """Run ``open_edit render --mode <mode>`` in the background."""
+    proc = None
     job.status = "running"
+    _RENDER_TASKS[job.job_id] = asyncio.current_task()
     try:
         proc = await asyncio.create_subprocess_exec(
             "open_edit", "render", "--mode", job.mode,
             cwd=str(project_path),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        _RENDER_TASKS[job.job_id] = asyncio.current_task()
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
         except asyncio.TimeoutError:
@@ -178,8 +179,9 @@ async def _run_render_job(job: RenderJobResponse, project_path: Path) -> None:
     except asyncio.CancelledError:
         job.status = "failed"
         job.error = "cancelled"
-        proc.terminate()
-        await proc.wait()
+        if proc is not None:
+            proc.terminate()
+            await proc.wait()
     except Exception as exc:
         job.status = "failed"
         job.error = str(exc)
