@@ -67,6 +67,18 @@ jobs:
         run: |
           pytest tests/ --ignore=tests/test_free_form_e2e.py -v
 
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Unit tests
+        run: go test ./internal/... -v -count=1
+      - name: Build CLIs
+        run: go build ./cmd/...
+
   rust-build:
     name: Rust build + unit tests
     runs-on: ubuntu-latest
