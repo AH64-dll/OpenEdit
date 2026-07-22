@@ -19,6 +19,7 @@ html, body { margin: 0; padding: 0; height: 100%; }
   --accent-dim:   rgba(88, 166, 255, 0.15);
   --green:        #3fb950;
   --yellow:       #d29922;
+  --warn:         #d29922;
   --red:          #f85149;
   --user-bubble:  rgba(88, 166, 255, 0.12);
   --bot-bubble:   rgba(139, 148, 158, 0.10);
@@ -1084,5 +1085,22 @@ body.has-timeline .site-wrapper {
 body.has-timeline main.layout {
   flex: 1;
   min-height: 0;
+}
+
+/* ---------- v1.7 LLM provider/model selection bar ---------- */
+.topbar-sep { color: var(--border); margin: 0 0.5rem; }
+.topbar-label { font-size: 0.85rem; color: var(--text-muted); margin-left: 0.25rem; }
+.topbar-select {
+  font-size: 0.85rem;
+  padding: 0.15rem 0.35rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.llm-warn {
+  font-size: 0.75rem;
+  color: var(--warn, #b8860b);
+  margin-left: 0.4rem;
 }
 

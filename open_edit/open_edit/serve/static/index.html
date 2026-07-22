@@ -22,6 +22,19 @@
       </select>
       <button id="btn-new-project" class="btn btn-ghost" title="New project">+ New</button>
       <button id="btn-refresh-project" class="btn btn-ghost" title="Refresh projects">⟳</button>
+      <span class="topbar-sep">|</span>
+      <label class="topbar-label" for="llm-provider-select">Provider:</label>
+      <select id="llm-provider-select" class="topbar-select" disabled>
+        <option value="">—</option>
+      </select>
+      <label class="topbar-label" for="llm-model-select">Model:</label>
+      <select id="llm-model-select" class="topbar-select" disabled>
+        <option value="">—</option>
+      </select>
+      <button id="btn-llm-preset-antigravity" class="btn btn-ghost btn-xs" disabled
+              title="Quick switch: opencode + antigravity/gemini-2.5-flash">Antigravity</button>
+      <span id="llm-tools-warn" class="llm-warn hidden"
+            title="This provider does not support the 11 Open Edit tools">⚠ no tools</span>
     </div>
     <div class="topbar-right">
       <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets">☰</button>

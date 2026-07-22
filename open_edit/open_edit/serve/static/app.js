@@ -95,6 +95,7 @@ export function selectProject(id) {
 
   $('#project-select').value = id || '';
   loadProjectState();
+  loadLLMConfig();
   connectWS();
 }
 
@@ -532,6 +533,173 @@ function bindEvents() {
 }
 
 // ----------------------------------------------------------
+// LLM provider/model selection (v1.7)
+//
+// The selection bar lives in the topbar and lets the user pick the
+// provider + model used for the next chat turn. The choice is
+// persisted to ``<project>/.open_edit/config.toml`` via
+// ``GET /api/projects/{id}/llm-config`` and
+// ``PUT /api/projects/{id}/llm-config`` (see
+// ``open_edit/serve/app.py``). After a save we reconnect the WS
+// so the next turn picks up the new provider.
+//
+// We use ``fetch()`` directly because the existing ``api.js``
+// module only ships dedicated methods (listProjects,
+// getProjectState, …) — adding ``get``/``put`` would touch a
+// file outside this task's scope. The pattern is otherwise the
+// same as the dedicated helpers: throw an ``Error`` with the
+// server's ``{"error": ...}`` payload so the toast shows the
+// real reason.
+// ----------------------------------------------------------
+const llmProviderSelect = $('#llm-provider-select');
+const llmModelSelect = $('#llm-model-select');
+const btnAntigravity = $('#btn-llm-preset-antigravity');
+const llmToolsWarn = $('#llm-tools-warn');
+
+const ANTIGRAVITY_DEFAULT_MODEL = 'omniroute/antigravity/gemini-2.5-flash';
+const TOOL_UNSUPPORTED_PROVIDERS = new Set(['opencode']);  // v1.7: opencode has no extension yet
+
+async function fetchLLMConfig(projectId) {
+  const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/llm-config`);
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    try {
+      const body = await r.json();
+      msg = body.error || body.detail || msg;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+async function putLLMConfigRequest(projectId, provider, model) {
+  const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/llm-config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, model }),
+  });
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    try {
+      const body = await r.json();
+      msg = body.error || body.detail || msg;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+export async function loadLLMConfig() {
+  const projectId = state.currentProjectId;
+  if (!projectId) {
+    if (llmProviderSelect) llmProviderSelect.disabled = true;
+    if (llmModelSelect) llmModelSelect.disabled = true;
+    if (btnAntigravity) btnAntigravity.disabled = true;
+    return;
+  }
+  try {
+    const cfg = await fetchLLMConfig(projectId);
+    populateProviderDropdown(cfg.available_providers, cfg.provider);
+    populateModelDropdown(cfg.available_models, cfg.model);
+    if (llmProviderSelect) llmProviderSelect.disabled = false;
+    if (llmModelSelect) llmModelSelect.disabled = false;
+    if (btnAntigravity) btnAntigravity.disabled = false;
+    updateToolsWarning(cfg.provider);
+  } catch (err) {
+    console.error('loadLLMConfig failed', err);
+    showToast(`Failed to load LLM config: ${err.message || err}`, 'error');
+  }
+}
+
+function populateProviderDropdown(providers, current) {
+  if (!llmProviderSelect) return;
+  llmProviderSelect.innerHTML = '';
+  for (const p of providers) {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    if (p === current) opt.selected = true;
+    llmProviderSelect.appendChild(opt);
+  }
+}
+
+function populateModelDropdown(models, current) {
+  if (!llmModelSelect) return;
+  llmModelSelect.innerHTML = '';
+  if (!models || models.length === 0) {
+    // Opencode binary may be missing; still let the user keep the
+    // current model value (which may have been set via env var).
+    const opt = document.createElement('option');
+    opt.value = current;
+    opt.textContent = current;
+    opt.selected = true;
+    llmModelSelect.appendChild(opt);
+    return;
+  }
+  for (const m of models) {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    if (m === current) opt.selected = true;
+    llmModelSelect.appendChild(opt);
+  }
+}
+
+function updateToolsWarning(provider) {
+  if (!llmToolsWarn) return;
+  if (TOOL_UNSUPPORTED_PROVIDERS.has(provider)) {
+    llmToolsWarn.classList.remove('hidden');
+  } else {
+    llmToolsWarn.classList.add('hidden');
+  }
+}
+
+async function saveLLMConfig(provider, model) {
+  const projectId = state.currentProjectId;
+  if (!projectId) return;
+  try {
+    const cfg = await putLLMConfigRequest(projectId, provider, model);
+    populateProviderDropdown(cfg.available_providers, cfg.provider);
+    populateModelDropdown(cfg.available_models, cfg.model);
+    updateToolsWarning(cfg.provider);
+    showToast(`LLM set to ${cfg.provider} / ${cfg.model}`, 'success');
+    // Reconnect the WS so the next turn uses the new provider.
+    connectWS();
+  } catch (err) {
+    console.error('saveLLMConfig failed', err);
+    showToast(`Failed to save LLM config: ${err.message || err}`, 'error');
+  }
+}
+
+if (llmProviderSelect) {
+  llmProviderSelect.addEventListener('change', async () => {
+    const provider = llmProviderSelect.value;
+    const currentModel = llmModelSelect ? llmModelSelect.value : '';
+    await saveLLMConfig(provider, currentModel);
+    // Refetch the model list for the new provider.
+    await loadLLMConfig();
+  });
+}
+
+if (llmModelSelect) {
+  llmModelSelect.addEventListener('change', async () => {
+    const provider = llmProviderSelect ? llmProviderSelect.value : '';
+    const model = llmModelSelect.value;
+    await saveLLMConfig(provider, model);
+  });
+}
+
+if (btnAntigravity) {
+  btnAntigravity.addEventListener('click', async () => {
+    // Antigravity preset: provider=opencode, model=ANTIGRAVITY_DEFAULT_MODEL.
+    // The server never sees the string 'antigravity' as a provider —
+    // see the v1.7 plan (A3: antigravity is a UI label, not a backend).
+    await saveLLMConfig('opencode', ANTIGRAVITY_DEFAULT_MODEL);
+    await loadLLMConfig();
+  });
+}
+
+// ----------------------------------------------------------
 // Boot
 // ----------------------------------------------------------
 async function boot() {
@@ -565,6 +733,7 @@ async function boot() {
   await refreshProjects();
   if (state.currentProjectId) {
     await loadProjectState();
+    loadLLMConfig();
     connectWS();
   } else {
     setChatEnabled(false);
