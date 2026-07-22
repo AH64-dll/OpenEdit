@@ -457,14 +457,18 @@ def _apply_split_clip(
         return timeline
     split_offset = op.at_sec - clip.position_sec
 
+    left_effects = [e.model_copy(deep=True) for e in clip.effects] if clip.effects else None
+    right_effects = [e.model_copy(deep=True) for e in clip.effects] if clip.effects else None
     left_clip = clip.model_copy(update={
         "clip_id": op.left_clip_id,
         "out_point_sec": clip.in_point_sec + split_offset,
+        "effects": left_effects,
     })
     right_clip = clip.model_copy(update={
         "clip_id": op.right_clip_id,
         "position_sec": op.at_sec,
         "in_point_sec": clip.in_point_sec + split_offset,
+        "effects": right_effects,
     })
     track.clips[i:i + 1] = [left_clip, right_clip]
     return timeline
