@@ -1,11 +1,18 @@
 package metadata
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
+)
+
+const (
+	probeTimeout       = 30 * time.Second
+	sceneDetectTimeout = 30 * time.Minute
 )
 
 // Analyze runs ffprobe + ffmpeg scene detection on the given files and
@@ -32,7 +39,9 @@ func Analyze(paths []string, scenes bool, threshold float64) (*Manifest, error) 
 func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 	c := &Clip{Path: path}
 
-	probe := exec.Command("ffprobe",
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer probeCancel()
+	probe := exec.CommandContext(probeCtx, "ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format",
@@ -41,6 +50,9 @@ func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 	)
 	probeOut, err := probe.Output()
 	if err != nil {
+		if probeCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("ffprobe timed out after %s", probeTimeout)
+		}
 		return nil, fmt.Errorf("ffprobe: %w", err)
 	}
 	var probeData struct {
@@ -97,13 +109,18 @@ func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 }
 
 func detectScenes(path string, threshold float64) ([]Scene, error) {
-	cmd := exec.Command("ffmpeg",
+	ctx, cancel := context.WithTimeout(context.Background(), sceneDetectTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-i", path,
 		"-vf", fmt.Sprintf("select='gt(scene,%f)',showinfo", threshold),
 		"-f", "null", "-",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("ffmpeg scene detect timed out after %s", sceneDetectTimeout)
+		}
 		return nil, fmt.Errorf("ffmpeg scene detect: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 	var cuts []float64
@@ -126,13 +143,18 @@ func detectScenes(path string, threshold float64) ([]Scene, error) {
 		}
 	}
 
-	durCmd := exec.Command("ffprobe",
+	durCtx, durCancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer durCancel()
+	durCmd := exec.CommandContext(durCtx, "ffprobe",
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format", path,
 	)
 	durOut, err := durCmd.Output()
 	if err != nil {
+		if durCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("ffprobe for duration timed out after %s", probeTimeout)
+		}
 		return nil, fmt.Errorf("ffprobe for duration: %w", err)
 	}
 	var durData struct {

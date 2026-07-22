@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"testing"
+	"time"
 )
 
 func TestAnalyze_AcceptsTestClip(t *testing.T) {
@@ -17,5 +18,17 @@ func TestAnalyze_AcceptsTestClip(t *testing.T) {
 	}
 	if len(m.Clips[0].Scenes) < 2 {
 		t.Errorf("scene count = %d, want >= 2", len(m.Clips[0].Scenes))
+	}
+}
+
+func TestAnalyze_SubprocessTimeoutsConfigured(t *testing.T) {
+	if probeTimeout <= 0 {
+		t.Fatalf("probeTimeout = %s, want positive", probeTimeout)
+	}
+	if sceneDetectTimeout <= probeTimeout {
+		t.Fatalf("sceneDetectTimeout = %s, want greater than probe timeout %s", sceneDetectTimeout, probeTimeout)
+	}
+	if probeTimeout > time.Minute {
+		t.Fatalf("probeTimeout = %s, want bounded to at most 1m", probeTimeout)
 	}
 }

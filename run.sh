@@ -5,9 +5,17 @@
 #   ./run.sh <project-name> [--force] [--render | --no-render]
 #
 # Idempotent: re-running skips any stage whose output already exists.
-# Writes only to projects/<name>/.
+# Writes only to projects/<name/>.
 
 set -euo pipefail
+
+# Prevent system sleep during the pipeline (renders can take minutes).
+if [[ -z "${MLT_PIPELINE_INHIBITED:-}" ]] && command -v systemd-inhibit >/dev/null 2>&1; then
+    export MLT_PIPELINE_INHIBITED=1
+    exec systemd-inhibit --what=handle-lid-switch:sleep:idle \
+        --why="mlt-pipeline: rendering video project" \
+        "$0" "$@"
+fi
 
 if [[ $# -lt 1 ]]; then
     echo "usage: $0 <project-name> [--force] [--render | --no-render]" >&2
@@ -71,8 +79,10 @@ if should_run edl.json; then
     # write edl.json, run compile + render --dry-run, and we don't want it
     # hanging on permission prompts in a non-interactive run).
     PROMPT_CONTENT=$(cat "$ROOT/prompts/edl_writer.md")
+    set +e
     nice -n 5 opencode run --format json --auto "$PROMPT_CONTENT"
     AGENT_EXIT=$?
+    set -e
     if [[ $AGENT_EXIT -ne 0 || -f edl.failed.json ]]; then
         echo "agent failed; see edl.failed.json if present" >&2
         exit 1
@@ -104,7 +114,8 @@ if should_run preview.mp4; then
     "$ROOT/bin/render" \
         --mlt project.mlt \
         --output preview.mp4 \
-        --dry-run
+        --dry-run \
+        --timeout "${MLT_PIPELINE_DRY_RUN_TIMEOUT:-10m}"
 else
     echo "--- Stage 4: render --dry-run (skip; preview.mp4 exists) ---"
 fi
@@ -116,7 +127,8 @@ if [[ $DO_RENDER -eq 1 ]]; then
         echo "--- Stage 5: final render ---"
         "$ROOT/bin/render" \
             --mlt project.mlt \
-            --output final.mp4
+            --output final.mp4 \
+            --timeout "${MLT_PIPELINE_FINAL_RENDER_TIMEOUT:-0}"
     else
         echo "--- Stage 5: final render (skip; final.mp4 exists) ---"
     fi

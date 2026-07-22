@@ -94,3 +94,50 @@ func TestGenerate_GoldenMatch(t *testing.T) {
 		t.Errorf("output does not match golden file\n--- got ---\n%s\n--- want ---\n%s\n", out, string(golden))
 	}
 }
+
+func TestSecToTC_RoundsMillisecondsAndCarries(t *testing.T) {
+	cases := map[float64]string{
+		0:         "00:00:00.000",
+		1.2345:    "00:00:01.235",
+		59.9996:   "00:01:00.000",
+		3661.9996: "01:01:02.000",
+		-0.25:     "00:00:00.000",
+	}
+	for in, want := range cases {
+		if got := secToTC(in); got != want {
+			t.Errorf("secToTC(%v) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestGenerate_RejectsMixedMediaProfiles(t *testing.T) {
+	e := &edl.EDL{
+		Version: 1,
+		Segments: []edl.Segment{
+			{Source: "/tmp/a.mp4", InSec: 0, OutSec: 1, Transition: edl.TransitionCut},
+			{Source: "/tmp/b.mp4", InSec: 0, OutSec: 1, Transition: edl.TransitionCut},
+		},
+	}
+	m := &metadata.Manifest{Version: 1, Clips: []metadata.Clip{
+		{Path: "/tmp/a.mp4", DurationSec: 1, Width: 1920, Height: 1080, FPS: 30},
+		{Path: "/tmp/b.mp4", DurationSec: 1, Width: 1280, Height: 720, FPS: 30},
+	}}
+	_, err := Generate(e, m)
+	if err == nil || !strings.Contains(err.Error(), "mixed media profiles") {
+		t.Fatalf("expected mixed-profile error, got %v", err)
+	}
+}
+
+func TestGenerate_RejectsInvalidProfile(t *testing.T) {
+	e := &edl.EDL{
+		Version:  1,
+		Segments: []edl.Segment{{Source: "/tmp/a.mp4", InSec: 0, OutSec: 1, Transition: edl.TransitionCut}},
+	}
+	m := &metadata.Manifest{Version: 1, Clips: []metadata.Clip{
+		{Path: "/tmp/a.mp4", DurationSec: 1, Width: 1920, Height: 1080, FPS: 0},
+	}}
+	_, err := Generate(e, m)
+	if err == nil || !strings.Contains(err.Error(), "invalid profile") {
+		t.Fatalf("expected invalid-profile error, got %v", err)
+	}
+}

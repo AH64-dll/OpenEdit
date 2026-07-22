@@ -25,4 +25,7 @@ func TestRenderCLI_BuildOK(t *testing.T) {
 	if !strings.Contains(string(out), "-mlt") {
 		t.Errorf("--help output missing -mlt flag; got:\n%s", out)
 	}
+	if !strings.Contains(string(out), "-timeout") {
+		t.Errorf("--help output missing -timeout flag; got:\n%s", out)
+	}
 }

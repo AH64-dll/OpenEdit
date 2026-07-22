@@ -6,14 +6,30 @@ Autonomous video-editing pipeline. Raw footage → Kdenlive-editable `project.ml
 
 - **Spec:** [`docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md`](docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md)
 - **Plan:** [`docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md`](docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md)
+- **Architecture boundary:** [`docs/architecture-boundary.md`](docs/architecture-boundary.md)
 
-## Setup (v1.6+)
+## Architecture status
+
+The supported production path is the Go pipeline in `cmd/`, `internal/`,
+`run.sh`, and `edit.sh`.
+
+`open_edit/` is an experimental prototype for a larger AI-native editor. It is
+kept in this repository for exploration, but production scripts do not depend on
+it. See [`open_edit/README.md`](open_edit/README.md) before installing or using
+that package.
+
+## Setup
+
+Production Go pipeline:
+
+1. Install Go 1.22+, `ffmpeg`/`ffprobe`, `melt`, `opencode`, and Kdenlive.
+2. Build the Go CLIs with the commands in [Build](#build).
+
+Experimental `open_edit/` prototype only:
 
 1. `pip install -e open_edit/` (Python deps)
-2. `npm install` at the repo root — installs `hyperframes@0.7.65` (pinned
-   exactly in `package.json`). The binary lives at
-   `node_modules/.bin/hyperframes`; if it's missing, the overlay pipeline
-   falls back to bare `npx hyperframes` with a WARNING.
+2. `npm install` at the repo root — installs `hyperframes@0.7.65` for prototype
+   overlay experiments.
 
 ## Dependencies
 
