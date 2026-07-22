@@ -569,20 +569,20 @@ async def render_composited(
             )
         success = True
         return final_path
-    except* OverlayRenderError as eg:
+    except ExceptionGroup as eg:
         # TaskGroup wraps the failure in ExceptionGroup. Extract the first
         # OverlayRenderError and propagate it with bg_path set if known.
-        exc = next((e for e in eg.exceptions if isinstance(e, OverlayRenderError)), eg.exceptions[0])
-        if bg_path_holder["path"] is not None and exc.bg_path is None:
-            exc.bg_path = bg_path_holder["path"]
-        raise exc from eg
-    except* Exception as eg:
-        # Any non-OverlayRenderError exception in any task: wrap as OverlayRenderError
-        # so callers always see the documented exception type. TaskGroup has already
-        # cancelled sibling tasks.
+        overlay_errors = [e for e in eg.exceptions if isinstance(e, OverlayRenderError)]
+        if overlay_errors:
+            exc = overlay_errors[0]
+            if bg_path_holder["path"] is not None and exc.bg_path is None:
+                exc.bg_path = bg_path_holder["path"]
+            raise exc from eg
         first = eg.exceptions[0]
         exc = OverlayRenderError(str(first) or type(first).__name__, bg_path=bg_path_holder["path"])
         raise exc from eg
+    except Exception as e:
+        raise OverlayRenderError(str(e), bg_path=bg_path_holder["path"]) from e
     finally:
         # Always clean up the temp composition HTML and overlay.mov.
         comp_html_path.unlink(missing_ok=True)
