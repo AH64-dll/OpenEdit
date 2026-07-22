@@ -16,6 +16,7 @@ The static frontend is served from ``open_edit/serve/static/`` at ``/``.
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import re
@@ -145,30 +146,64 @@ def _register_job(project_id: str, mode: str) -> RenderJobResponse:
     return job
 
 
+_RENDER_TASKS: dict[str, asyncio.Task] = {}
+
+
 async def _run_render_job(job: RenderJobResponse, project_path: Path) -> None:
     """Run ``open_edit render --mode <mode>`` in the background."""
     job.status = "running"
     try:
-        proc = await asyncio.to_thread(
-            subprocess.run,
-            ["open_edit", "render", "--mode", job.mode],
+        proc = await asyncio.create_subprocess_exec(
+            "open_edit", "render", "--mode", job.mode,
             cwd=str(project_path),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=1800,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        # Parse output path from last non-empty stdout line
+        _RENDER_TASKS[job.job_id] = asyncio.current_task()
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
+        except asyncio.TimeoutError:
+            proc.terminate()
+            await proc.wait()
+            raise
+        if proc.returncode != 0:
+            raise RuntimeError(f"render failed (exit {proc.returncode}): {stderr.decode(errors='replace')}")
         last_line = ""
-        for line in reversed(proc.stdout.splitlines()):
+        for line in reversed(stdout.decode(errors="replace").splitlines()):
             if line.strip():
                 last_line = line.strip()
                 break
         job.output_path = last_line if ("/" in last_line or "\\" in last_line) else ""
         job.status = "complete"
+    except asyncio.CancelledError:
+        job.status = "failed"
+        job.error = "cancelled"
+        proc.terminate()
+        await proc.wait()
     except Exception as exc:
         job.status = "failed"
         job.error = str(exc)
+    finally:
+        _RENDER_TASKS.pop(job.job_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting (simple in-memory sliding window)
+# ---------------------------------------------------------------------------
+
+_RATE_LIMITS: dict[str, collections.deque] = {}
+
+
+def _check_rate_limit(key: str, max_requests: int = 10, window_sec: float = 60.0) -> None:
+    now = time.time()
+    if key not in _RATE_LIMITS:
+        _RATE_LIMITS[key] = collections.deque()
+    window = _RATE_LIMITS[key]
+    while window and window[0] < now - window_sec:
+        window.popleft()
+    if len(window) >= max_requests:
+        raise HTTPException(status_code=429, detail="rate limit exceeded. try again later.")
+    window.append(now)
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +359,7 @@ async def post_ingest(
 @app.post("/api/projects/{project_id}/render", status_code=202)
 async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     """Trigger a render in the background. Returns the job immediately."""
+    _check_rate_limit(f"render:{project_id}", max_requests=5, window_sec=300)
     state = await _require_project(project_id)
     if req.mode not in ("proxy", "final"):
         raise HTTPException(status_code=400, detail="mode must be 'proxy' or 'final'")
@@ -338,6 +374,23 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
 async def get_renders(project_id: str) -> list[dict[str, Any]]:
     await _require_project(project_id)
     return await projects_mod.list_renders(project_id)
+
+
+@app.post("/api/projects/{project_id}/render_jobs/{job_id}/cancel")
+async def cancel_render_job(project_id: str, job_id: str) -> dict:
+    """Cancel a running render job."""
+    await _require_project(project_id)
+    job = _RENDER_JOBS.get(job_id)
+    if job is None or job.project_id != project_id:
+        raise HTTPException(status_code=404, detail=f"render job not found: {job_id}")
+    if job.status not in ("queued", "running"):
+        return {"status": "already_terminal", "job_status": job.status}
+    task = _RENDER_TASKS.get(job_id)
+    if task and not task.done():
+        task.cancel()
+    job.status = "failed"
+    job.error = "cancelled by user"
+    return {"status": "cancelled"}
 
 
 @app.get("/api/projects/{project_id}/render_jobs/{job_id}")
@@ -466,6 +519,7 @@ async def get_settings_keys() -> JSONResponse:
 @app.put("/api/settings/keys")
 async def put_settings_key(req: SaveKeyRequest) -> JSONResponse:
     """Save an API key to ~/.open_edit/keys.json with 0600 permissions."""
+    _check_rate_limit("settings:keys", max_requests=10, window_sec=60)
     from .runtimes.keys_store import save_stored_key, get_masked_keys_summary
     provider = req.provider.strip().lower()
     if not provider:

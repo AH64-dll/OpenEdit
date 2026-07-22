@@ -99,13 +99,10 @@ export function appendToolCard(toolUseId, name, input) {
     spinner,
     result,
   ]);
-  // Insert BEFORE the pending assistant text message if it exists,
-  // so tool cards appear above the final text. If there's no pending
-  // assistant message yet, just append.
-  if (state.pendingAssistantMsg && state.pendingAssistantMsg.textContent.length === 0) {
-    // Replace the empty pending message with the tool card.
-    state.pendingAssistantMsg.replaceWith(card);
-    state.pendingAssistantMsg = null;
+  // Insert before the assistant text message so tool cards always
+  // appear above the final text, regardless of how many tools run.
+  if (state.pendingAssistantMsg) {
+    state.pendingAssistantMsg.before(card);
   } else {
     $('#chat-log').appendChild(card);
   }
@@ -263,20 +260,20 @@ function _renderSearchResultCard(r) {
       }, ['+ Add to project']),
     ]),
   ]);
-  // Wire the import button. The simplest reliable cross-LLM path is
-  // to send a chat message asking the assistant to import this result;
-  // the assistant's tool schema already knows the import_asset shape.
+  // Wire the import button. Dispatches through app.js's standard send
+  // path (via the ``open-edit:quick-send`` event) so the user's request
+  // appears in the log, the status pill activates, and the input locks
+  // while the turn runs — previously this fired an invisible background
+  // turn that could race an in-flight one.
   const btn = card.querySelector('.result-import-btn');
   if (btn) {
     btn.addEventListener('click', () => {
       const id = r.id || '';
-      const ok = sendChatMessage(
-        `Please import the search result with id "${id}" into the project.`
-      );
-      if (ok) {
-        btn.disabled = true;
-        btn.textContent = 'Requested…';
-      }
+      document.dispatchEvent(new CustomEvent('open-edit:quick-send', {
+        detail: { text: `Please import the search result with id "${id}" into the project.` },
+      }));
+      btn.disabled = true;
+      btn.textContent = 'Requested…';
     });
   }
   return card;
@@ -306,6 +303,19 @@ export function markTurnDone() {
   if (state.pendingAssistantMsg && state.pendingAssistantMsg.textContent.trim() === '') {
     state.pendingAssistantMsg.remove();
   }
+  // Sweep any tool cards still pending: a card whose result never
+  // arrived (cancel, stream error) must not spin forever — mark it
+  // as interrupted so the transcript reads honestly.
+  for (const entry of state.pendingToolCards.values()) {
+    if (entry.spinner && entry.spinner.isConnected) {
+      entry.spinner.remove();
+      if (entry.result) {
+        entry.result.textContent = '✗ interrupted';
+        entry.result.className = 'tool-result failed';
+        entry.result.classList.remove('hidden');
+      }
+    }
+  }
   state.pendingAssistantMsg = null;
   state.pendingToolCards.clear();
 }
@@ -313,6 +323,10 @@ export function markTurnDone() {
 function scrollChatToBottom() {
   const log = $('#chat-log');
   if (!log) return;
+  // Instant jump — .chat-log uses scroll-behavior:smooth in CSS for
+  // user-initiated scrolling, but per-delta smooth scrolling queues
+  // animations and lags behind fast token streams.
+  log.style.scrollBehavior = 'auto';
   log.scrollTop = log.scrollHeight;
 }
 
