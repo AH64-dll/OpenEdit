@@ -185,35 +185,60 @@ async def stream_chat(
 
     model = project_model or _model()
 
-    try:
-        if spec.name == "pi":
-            async for ev in _stream_pi(messages, tools, system, session_id, project_path, model):
-                yield ev
-        elif spec.is_cli:
-            from .cli_adapter import get_adapter
-            adapter = get_adapter(spec.name)
-            async for ev in _stream_cli(
-                adapter, model, messages, tools, system,
-                session_id, project_path,
-            ):
-                yield ev
-        else:
-            async for ev in spec.stream(
-                messages, tools, system, model,
-            ):
-                yield ev
-    except RuntimeError as exc:
-        yield {"type": "error", "message": str(exc)}
-    except ImportError as exc:
-        msg = getattr(spec, "missing_error", None) or str(exc)
-        yield {"type": "error", "message": msg}
-    except Exception as exc:
-        # Catch-all: log to stderr so the dev sees the traceback, then
-        # yield a single error event for the UI.
-        import sys
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        yield {"type": "error", "message": f"{spec.name} provider error: {exc}"}
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        events_yielded = 0
+        try:
+            if spec.name == "pi":
+                async for ev in _stream_pi(messages, tools, system, session_id, project_path, model):
+                    events_yielded += 1
+                    yield ev
+            elif spec.is_cli:
+                from .cli_adapter import get_adapter
+                adapter = get_adapter(spec.name)
+                async for ev in _stream_cli(
+                    adapter, model, messages, tools, system,
+                    session_id, project_path,
+                ):
+                    events_yielded += 1
+                    yield ev
+            else:
+                async for ev in spec.stream(
+                    messages, tools, system, model,
+                ):
+                    events_yielded += 1
+                    yield ev
+            break
+        except (ConnectionError, TimeoutError, OSError) as exc:
+            if attempt < max_retries and events_yielded == 0:
+                await asyncio.sleep(0.2 * (2 ** attempt))
+                continue
+            yield {"type": "error", "message": f"{spec.name} network error: {exc}"}
+            return
+        except RuntimeError as exc:
+            yield {"type": "error", "message": str(exc)}
+            return
+        except ImportError as exc:
+            msg = getattr(spec, "missing_error", None) or str(exc)
+            yield {"type": "error", "message": msg}
+            return
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            is_transient = (
+                "connection" in exc_str or "timeout" in exc_str or "network" in exc_str or
+                exc.__class__.__name__ in ("APIConnectionError", "NetworkError", "TimeoutException", "ConnectTimeout", "ReadTimeout")
+            )
+            if is_transient and attempt < max_retries and events_yielded == 0:
+                await asyncio.sleep(0.2 * (2 ** attempt))
+                continue
+
+            # Catch-all: log to stderr so the dev sees the traceback, then
+            # yield a single error event for the UI.
+            import sys
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            yield {"type": "error", "message": f"{spec.name} provider error: {exc}"}
+            return
 
 
 # ---------------------------------------------------------------------------

@@ -274,6 +274,7 @@ def _build_system_prompt(state: projects_mod.ProjectState) -> str:
 # in-process names; the canonical implementations now live in
 # `tool_executor.py` so the agent loop and the TS-extension bridge cannot
 # drift on tool dispatch.
+import inspect
 from .tool_executor import (  # noqa: E402, F401, I001
     ToolNotFound,
     execute_tool as _execute_agent_tool,
@@ -287,13 +288,19 @@ def _resolve_project_path(project_id: str) -> Path | None:
     return projects_mod._resolve_project_by_id(project_id)
 
 
-def _execute_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+async def _execute_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch a tool call. ``trigger_render`` is server-side; the rest
     live in ``open_edit.agent.tools``.
     """
     if name == "trigger_render":
-        return _execute_trigger_render(args, project_path)
-    return _execute_agent_tool(name, args, project_path)
+        res = _execute_trigger_render(args, project_path)
+        if inspect.isawaitable(res):
+            return await res
+        return res
+    res = _execute_agent_tool(name, args, project_path)
+    if inspect.isawaitable(res):
+        return await res
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -667,8 +674,23 @@ async def run_agent_turn(
     # ``tool_result`` event; we must NOT re-execute locally.
     provider_does_tool_exec = _llm_provider() == "pi"
 
+    def _is_cancelled() -> bool:
+        if should_cancel and should_cancel():
+            return True
+        try:
+            task = asyncio.current_task()
+            if task and hasattr(task, "cancelling") and task.cancelling() > 0:
+                return True
+        except Exception:
+            pass
+        return False
+
     # Main loop
     for _ in range(MAX_AGENT_ITERATIONS):
+        if _is_cancelled():
+            yield {"type": "done", "stop_reason": "cancelled"}
+            return
+
         # Stream the LLM
         current_text_parts: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
@@ -683,6 +705,9 @@ async def run_agent_turn(
                 session_id=conv_id,
                 project_path=str(project_path),
             ):
+                if _is_cancelled():
+                    yield {"type": "done", "stop_reason": "cancelled"}
+                    return
                 # Wave 3.3: normalize through the StreamEvent contract so
                 # every consumer below can rely on ``event["type"]`` being
                 # present and the variant payload fields having safe
@@ -731,6 +756,8 @@ async def run_agent_turn(
                     yield event
                 elif etype == "done":
                     stop_reason = event.get("stop_reason", "end_turn")
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             # LLM/streaming failure — surface and abort. Emit a
             # cost_update with whatever we've accumulated so the
@@ -829,6 +856,9 @@ async def run_agent_turn(
         trigger_renders = [tu for tu in tool_use_blocks if tu["name"] == "trigger_render"]
 
         for tu in mutations:
+            if _is_cancelled():
+                yield {"type": "done", "stop_reason": "cancelled"}
+                return
             tool_name = tu["name"]
             tool_input = tu.get("input", {})
             yield {"type": "tool_start", "name": tool_name, "input": tool_input}
@@ -837,7 +867,11 @@ async def run_agent_turn(
                 # — the pi extension only pre-executes the slow
                 # ``trigger_render``; mutation tools (add_clip etc.) are
                 # quick edit-graph updates that the agent loop runs itself.
-                result = _execute_tool(tool_name, tool_input, project_path)
+                res = _execute_tool(tool_name, tool_input, project_path)
+                if inspect.isawaitable(res):
+                    result = await res
+                else:
+                    result = res
                 yield {"type": "tool_result", "name": tool_name, "result": result}
                 tool_result_messages.append({
                     "role": "user",
@@ -849,6 +883,8 @@ async def run_agent_turn(
                         }
                     ],
                 })
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 err_msg = f"tool '{tool_name}' failed: {exc}"
                 yield {"type": "error", "message": err_msg}
@@ -864,6 +900,9 @@ async def run_agent_turn(
                 })
 
         if trigger_renders:
+            if _is_cancelled():
+                yield {"type": "done", "stop_reason": "cancelled"}
+                return
             tu = trigger_renders[-1]
             tool_name = tu["name"]
             tool_input = tu.get("input", {})
@@ -872,7 +911,11 @@ async def run_agent_turn(
                 if provider_does_tool_exec:
                     result = tool_results_by_name.get(tool_name, {"status": "ok"})
                 else:
-                    result = _execute_tool(tool_name, tool_input, project_path)
+                    res = _execute_tool(tool_name, tool_input, project_path)
+                    if inspect.isawaitable(res):
+                        result = await res
+                    else:
+                        result = res
                 yield {"type": "tool_result", "name": tool_name, "result": result}
                 if isinstance(result, dict):
                     output_path = result.get("output_path", "")
@@ -905,6 +948,8 @@ async def run_agent_turn(
                             v_events, augmented_result, vstate = await _maybe_verify_render(
                                 result, project_path, turn_render_count, cfg, should_cancel,
                             )
+                        except asyncio.CancelledError:
+                            raise
                         except Exception as exc:
                             v_events = [_build_verification_result(
                                 render_id=result.get("render_id", "render_unknown"),
@@ -931,6 +976,8 @@ async def run_agent_turn(
                     tool_result_messages.append(
                         _build_tool_result_message(tu["id"], result)
                     )
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 err_msg = f"tool '{tool_name}' failed: {exc}"
                 yield {"type": "error", "message": err_msg}
