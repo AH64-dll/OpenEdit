@@ -161,8 +161,9 @@ async def test_agent_loop_two_turn_with_tool_call(patched_agent):
     assert events[3]["text"] == "You have 2 assets."
 
     # Verify tool_start / tool_result
+    # project_id is auto-injected by the agent loop (matches pi_bridge behavior)
     assert events[1]["name"] == "list_assets"
-    assert events[1]["input"] == {}
+    assert events[1]["input"] == {"project_id": "testproject"}
     assert events[2]["name"] == "list_assets"
     assert "result" in events[2]
     assert events[2]["result"]["result"]["assets"][0]["hash"] == "h1"
@@ -280,7 +281,8 @@ async def test_system_prompt_is_deterministic(patched_agent):
 # ---------------------------------------------------------------------------
 
 
-def test_execute_trigger_render_in_process_returns_structured_shape(tmp_path):
+@pytest.mark.asyncio
+async def test_execute_trigger_render_in_process_returns_structured_shape(tmp_path):
     """V4: ``_execute_trigger_render`` (in-process agent path) must
     return a dict with ``render_id`` and ``duration_s`` for non-overlay
     modes, matching the pi subprocess path. The verification stage
@@ -291,11 +293,13 @@ def test_execute_trigger_render_in_process_returns_structured_shape(tmp_path):
     renders.mkdir(parents=True, exist_ok=True)
     fake = renders / "project_aaa.mp4"
     fake.write_bytes(b"\x00\x00\x00\x18ftypmp42")
-    proc = mock.Mock(returncode=0, stdout=f"{fake}\n", stderr="")
+    proc = mock.AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (f"{fake}\n".encode("utf-8"), b"")
 
-    with mock.patch("subprocess.run", return_value=proc), \
+    with mock.patch("asyncio.create_subprocess_exec", return_value=proc), \
          mock.patch("open_edit.serve.tool_executor._probe_duration", return_value=10.5):
-        out = agent._execute_trigger_render({"mode": "proxy"}, tmp_path)
+        out = await agent._execute_trigger_render({"mode": "proxy"}, tmp_path)
 
     # Required structured fields (must match pi subprocess shape)
     assert "output_path" in out
@@ -308,16 +312,19 @@ def test_execute_trigger_render_in_process_returns_structured_shape(tmp_path):
     assert out["duration_s"] == 10.5
 
 
-def test_execute_trigger_render_in_process_duration_zero_on_missing_file(tmp_path):
+@pytest.mark.asyncio
+async def test_execute_trigger_render_in_process_duration_zero_on_missing_file(tmp_path):
     """V4: when the output file doesn't exist (parse fallback path),
     ``duration_s`` is 0.0 (not raised) and ``render_id`` is present.
     The verification stage must always see a render_id."""
     from open_edit.serve import agent
 
     # Subprocess returns stdout that doesn't look like a path → no file
-    proc = mock.Mock(returncode=0, stdout="not a path\n", stderr="")
-    with mock.patch("subprocess.run", return_value=proc):
-        out = agent._execute_trigger_render({"mode": "final"}, tmp_path)
+    proc = mock.AsyncMock()
+    proc.returncode = 0
+    proc.communicate.return_value = (b"not a path\n", b"")
+    with mock.patch("asyncio.create_subprocess_exec", return_value=proc):
+        out = await agent._execute_trigger_render({"mode": "final"}, tmp_path)
 
     assert out["mode"] == "final"
     assert out["output_path"] == ""

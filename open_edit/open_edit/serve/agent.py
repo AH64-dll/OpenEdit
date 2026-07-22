@@ -866,7 +866,9 @@ async def run_agent_turn(
                 yield {"type": "done", "stop_reason": "cancelled"}
                 return
             tool_name = tu["name"]
-            tool_input = tu.get("input", {})
+            tool_input = dict(tu.get("input", {}))
+            if "project_id" not in tool_input and tool_name != "search_assets":
+                tool_input["project_id"] = project_id
             yield {"type": "tool_start", "name": tool_name, "input": tool_input}
             try:
                 # Mutations are dispatched locally regardless of provider
@@ -911,7 +913,9 @@ async def run_agent_turn(
                 return
             tu = trigger_renders[-1]
             tool_name = tu["name"]
-            tool_input = tu.get("input", {})
+            tool_input = dict(tu.get("input", {}))
+            if "project_id" not in tool_input and tool_name != "search_assets":
+                tool_input["project_id"] = project_id
             yield {"type": "tool_start", "name": tool_name, "input": tool_input}
             try:
                 if provider_does_tool_exec:
