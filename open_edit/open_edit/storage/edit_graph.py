@@ -130,12 +130,13 @@ class EditGraphStore:
         """Load all operations in sequence_num order."""
         with self._conn() as conn:
             cur = conn.execute(
-                "SELECT payload, status FROM edits ORDER BY sequence_num"
+                "SELECT payload, status, parent_id FROM edits ORDER BY sequence_num"
             )
             ops: list[OperationUnion] = []
             for row in cur.fetchall():
                 op = TypeAdapter(OperationUnion).validate_json(row[0])
                 op.status = row[1]
+                op.parent_id = row[2]
                 ops.append(op)
             return ops
 
@@ -146,6 +147,63 @@ class EditGraphStore:
                 "UPDATE edits SET status = ? WHERE edit_id = ?",
                 (new_status, edit_id),
             )
+
+    def delete_op(self, edit_id: str) -> bool:
+        """Remove an operation from the edit graph by id.
+
+        Any ops that had ``parent_id == edit_id`` get their parent_id
+        cleared (set to NULL) so the graph remains consistent.
+        Returns True if an op was found and deleted.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT edit_id FROM edits WHERE edit_id = ?", (edit_id,)
+            )
+            if cur.fetchone() is None:
+                return False
+            conn.execute(
+                "UPDATE edits SET parent_id = NULL WHERE parent_id = ?",
+                (edit_id,),
+            )
+            conn.execute(
+                "DELETE FROM edits WHERE edit_id = ?", (edit_id,)
+            )
+        return True
+
+    def move_arbitrary(self, edit_id: str, new_sequence_num: int) -> bool:
+        """Move an operation to any position in the sequence.
+
+        This is a general reorder operation (not just adjacent swap).
+        Returns True if the op was found and moved.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT sequence_num FROM edits WHERE edit_id = ?",
+                (edit_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return False
+            old_pos = row[0]
+            if old_pos == new_sequence_num:
+                return True
+            if old_pos < new_sequence_num:
+                conn.execute(
+                    "UPDATE edits SET sequence_num = sequence_num - 1 "
+                    "WHERE sequence_num > ? AND sequence_num <= ?",
+                    (old_pos, new_sequence_num),
+                )
+            else:
+                conn.execute(
+                    "UPDATE edits SET sequence_num = sequence_num + 1 "
+                    "WHERE sequence_num >= ? AND sequence_num < ?",
+                    (new_sequence_num, old_pos),
+                )
+            conn.execute(
+                "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
+                (new_sequence_num, edit_id),
+            )
+        return True
 
     def reorder(self, edit_id_a: str, edit_id_b: str) -> None:
         """Swap the sequence_num of two adjacent operations.

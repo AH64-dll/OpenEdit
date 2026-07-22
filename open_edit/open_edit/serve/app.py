@@ -404,9 +404,7 @@ async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigRes
     """Persist the project's LLM provider + model config.
 
     Validation:
-    - ``provider`` must be in the enum ``{anthropic, openai, pi, opencode}``.
-      ``antigravity`` is rejected as a provider (A3) — it is a UI label,
-      not a backend.
+    - ``provider`` must be in registered adapters: {antigravity, anthropic, openai, pi, opencode}.
     - ``model`` must be a non-empty string.
 
     On success, the config is written atomically to
@@ -417,10 +415,7 @@ async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigRes
             status_code=400,
             detail=(
                 f"unknown provider {req.provider!r}; "
-                f"expected one of: {', '.join(cli_adapter_mod.list_adapters())}. "
-                f"Note: 'antigravity' is a UI label, not a provider; "
-                f"pick 'opencode' as the provider and set model to "
-                f"'omniroute/antigravity/<model>'."
+                f"expected one of: {', '.join(cli_adapter_mod.list_adapters())}."
             ),
         )
     if not req.model or not req.model.strip():
@@ -438,6 +433,89 @@ async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigRes
         available_providers=cli_adapter_mod.list_adapters(),
         available_models=cli_adapter_mod.get_adapter(cfg.provider).available_models(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Edit graph CRUD (Wave 1.4)
+# ---------------------------------------------------------------------------
+
+class UpdateOpStatusRequest(BaseModel):
+    status: str  # "applied" | "reverted" | "superseded"
+
+
+class ReorderOpsRequest(BaseModel):
+    op_ids: list[str]  # ordered list of edit_ids in desired sequence
+
+
+@app.patch("/api/projects/{project_id}/ops/{edit_id}/status")
+async def update_op_status(
+    project_id: str, edit_id: str, req: UpdateOpStatusRequest,
+) -> JSONResponse:
+    if req.status not in ("applied", "reverted", "superseded"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid status {req.status!r}; expected applied, reverted, or superseded",
+        )
+    state = await _require_project(project_id)
+    db_path = Path(state.path) / ".open_edit" / "edit_graph.db"
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="edit graph not found")
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    store = EditGraphStore(db_path)
+    ops = store.load_all()
+    if not any(o.edit_id == edit_id for o in ops):
+        raise HTTPException(status_code=404, detail=f"op {edit_id} not found")
+    store.update_status(edit_id, req.status)
+    return JSONResponse({"edit_id": edit_id, "status": req.status})
+
+
+@app.delete("/api/projects/{project_id}/ops/{edit_id}")
+async def delete_op(project_id: str, edit_id: str) -> JSONResponse:
+    state = await _require_project(project_id)
+    db_path = Path(state.path) / ".open_edit" / "edit_graph.db"
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="edit graph not found")
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    store = EditGraphStore(db_path)
+    if not store.delete_op(edit_id):
+        raise HTTPException(status_code=404, detail=f"op {edit_id} not found")
+    return JSONResponse({"edit_id": edit_id, "deleted": True})
+
+
+@app.post("/api/projects/{project_id}/ops/reorder")
+async def reorder_ops(
+    project_id: str, req: ReorderOpsRequest,
+) -> JSONResponse:
+    state = await _require_project(project_id)
+    db_path = Path(state.path) / ".open_edit" / "edit_graph.db"
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="edit graph not found")
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    store = EditGraphStore(db_path)
+    ops = store.load_all()
+    existing = {o.edit_id for o in ops}
+    for eid in req.op_ids:
+        if eid not in existing:
+            raise HTTPException(
+                status_code=404, detail=f"op {eid} not found in edit graph",
+            )
+    for i, eid in enumerate(req.op_ids, start=1):
+        store.move_arbitrary(eid, i)
+    return JSONResponse({"reordered": True})
+
+
+@app.get("/api/llm/providers/{provider}/models")
+async def get_provider_models(provider: str) -> dict[str, list[str]]:
+    """Return available models for a given provider."""
+    try:
+        adapter = cli_adapter_mod.get_adapter(provider)
+        models = adapter.available_models()
+    except KeyError:
+        models = []
+    return {"models": models}
 
 
 # ---------------------------------------------------------------------------
