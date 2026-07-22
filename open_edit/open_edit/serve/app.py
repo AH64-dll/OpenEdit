@@ -365,6 +365,12 @@ async def get_thumbnail(project_id: str) -> Any:
     raise HTTPException(status_code=404, detail="no thumbnail available")
 
 
+@app.get("/api/health")
+async def get_health() -> dict[str, str]:
+    """Health check endpoint returning {"status": "ok"}."""
+    return {"status": "ok"}
+
+
 @app.get("/api/projects/{project_id}/llm-config")
 async def get_llm_config(project_id: str) -> LLMConfigResponse:
     """Return the project's LLM provider + model config.
@@ -390,7 +396,7 @@ async def get_llm_config(project_id: str) -> LLMConfigResponse:
         # Fall back to whatever's in the env so the UI can recover.
         available_models: list[str] = []
     else:
-        available_models = adapter.available_models()
+        available_models = await asyncio.to_thread(adapter.available_models)
     return LLMConfigResponse(
         provider=cfg.provider,
         model=cfg.model,
@@ -425,13 +431,15 @@ async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigRes
     cfg = llm_config_mod.LLMConfig(provider=req.provider, model=req.model.strip())
     try:
         llm_config_mod.save_llm_config(project_path, cfg)
-    except llm_config_mod.LLMConfigError as exc:
+    except (llm_config_mod.LLMConfigError, OSError) as exc:
         raise HTTPException(status_code=500, detail=f"failed to save LLM config: {exc}") from exc
+    adapter = cli_adapter_mod.get_adapter(cfg.provider)
+    avail_models = await asyncio.to_thread(adapter.available_models)
     return LLMConfigResponse(
         provider=cfg.provider,
         model=cfg.model,
         available_providers=cli_adapter_mod.list_adapters(),
-        available_models=cli_adapter_mod.get_adapter(cfg.provider).available_models(),
+        available_models=avail_models,
     )
 
 
@@ -547,7 +555,7 @@ async def get_provider_models(provider: str) -> dict[str, list[str]]:
     """Return available models for a given provider."""
     try:
         adapter = cli_adapter_mod.get_adapter(provider)
-        models = adapter.available_models()
+        models = await asyncio.to_thread(adapter.available_models)
     except KeyError:
         models = []
     return {"models": models}
@@ -645,10 +653,12 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
         {"type": "render",       "path": "...", "mode": "proxy"|"final"}
         {"type": "error",        "message": "..."}
         {"type": "done",         "stop_reason": "..."}
+        {"type": "cancelled"}
 
     Protocol (client -> server)::
 
         {"message": "...", "conv_id": "optional"}
+        {"type": "cancel"} / {"type": "stop"}
 
     On connect, the server sends a ``ready`` event so the client knows the
     project was found and the WS is wired up.
@@ -675,6 +685,17 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
     # Per-connection conversation cache. In-memory only — persisted via
     # append_to_conversation() if a conv_id is provided by the client.
     conversations: dict[str, list[dict[str, Any]]] = {}
+    current_turn_task: asyncio.Task | None = None
+
+    async def _cancel_turn():
+        nonlocal current_turn_task
+        if current_turn_task and not current_turn_task.done():
+            current_turn_task.cancel()
+            try:
+                await current_turn_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        current_turn_task = None
 
     try:
         while True:
@@ -686,6 +707,15 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
                     "type": "error",
                     "message": "invalid JSON; expected {\"message\": \"...\"}",
                 }))
+                continue
+
+            if not isinstance(payload, dict):
+                continue
+
+            msg_type = payload.get("type")
+            if msg_type in ("cancel", "stop"):
+                await _cancel_turn()
+                await websocket.send_text(json.dumps({"type": "cancelled"}))
                 continue
 
             message = payload.get("message")
@@ -704,30 +734,39 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
 
             history = conversations[conv_id]
 
-            # Run the agent turn and stream events back to the client.
-            try:
-                async for event in agent_mod.run_agent_turn(
-                    project_id=project_id,
-                    user_message=message,
-                    conversation_history=history,
-                    conv_id=conv_id,
-                ):
-                    await websocket.send_text(json.dumps(event, default=str))
-            except Exception as exc:
-                # Never crash the WS — surface as error and keep the loop open.
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": f"agent turn crashed: {exc}",
-                }))
-                await websocket.send_text(json.dumps({
-                    "type": "done",
-                    "stop_reason": "error",
-                }))
+            await _cancel_turn()
+
+            async def _run_agent_turn_task(user_msg: str, cid: str, hist: list[dict[str, Any]]):
+                try:
+                    async for event in agent_mod.run_agent_turn(
+                        project_id=project_id,
+                        user_message=user_msg,
+                        conversation_history=hist,
+                        conv_id=cid,
+                        should_cancel=lambda: asyncio.current_task() is not None and asyncio.current_task().cancelling() > 0,
+                    ):
+                        await websocket.send_text(json.dumps(event, default=str))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": f"agent turn crashed: {exc}",
+                    }))
+                    await websocket.send_text(json.dumps({
+                        "type": "done",
+                        "stop_reason": "error",
+                    }))
+
+            current_turn_task = asyncio.create_task(_run_agent_turn_task(message, conv_id, history))
     except WebSocketDisconnect:
+        await _cancel_turn()
         return
     except Exception:
-        # Catch-all so the server process never dies on a WS bug.
+        await _cancel_turn()
         return
+    finally:
+        await _cancel_turn()
 
 
 # ---------------------------------------------------------------------------

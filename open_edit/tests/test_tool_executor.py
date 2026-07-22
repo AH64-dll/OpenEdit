@@ -1,7 +1,6 @@
 """Tests for the shared tool executor (Wave 3.2)."""
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -31,19 +30,22 @@ def test_execute_tool_unknown_raises(tmp_path: Path):
     assert "definitely_not_a_tool" in str(exc.value)
 
 
-def test_execute_trigger_render_missing_args(tmp_path: Path):
+@pytest.mark.asyncio
+async def test_execute_trigger_render_missing_args(tmp_path: Path):
     """Server-side virtual tool: subprocess failure must surface as a
-    clear error (not 500). We mock ``subprocess.run`` to force the
-    error path so the test is deterministic regardless of whether
-    the real ``open_edit`` CLI is installed in the test env.
+    clear error (not 500). We mock ``asyncio.create_subprocess_exec`` to
+    force a non-zero exit so the test is deterministic regardless of
+    whether the real ``open_edit`` CLI is installed in the test env.
 
-    v1.6 behavior: an empty ``args`` dict defaults ``mode`` to
-    ``"proxy"`` and shells out. The RuntimeError is what
-    ``test_serve_agent.py::test_execute_trigger_render_in_process_*``
-    relies on — it must still be raised.
+    v1.7+ behavior: an empty ``args`` dict defaults ``mode`` to
+    ``"proxy"`` and shells out via ``asyncio.create_subprocess_exec``.
+    The RuntimeError is what ``test_serve_agent.py`` relies on — it
+    must still be raised.
     """
-    boom = subprocess.CalledProcessError(returncode=1, cmd=["open_edit", "render"], stderr="boom")
-    with mock.patch("subprocess.run", side_effect=boom), \
+    proc = mock.AsyncMock()
+    proc.returncode = 1
+    proc.communicate.return_value = (b"", b"boom")
+    with mock.patch("asyncio.create_subprocess_exec", return_value=proc), \
          pytest.raises((ValueError, KeyError, RuntimeError)) as exc:
-        execute_trigger_render(args={}, project_path=tmp_path)
+        await execute_trigger_render(args={}, project_path=tmp_path)
     assert "open_edit render" in str(exc.value)

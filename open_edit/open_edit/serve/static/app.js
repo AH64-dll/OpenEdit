@@ -444,12 +444,155 @@ async function saveSettingsKeys() {
 }
 
 // ----------------------------------------------------------
+// Theme System (Dark / Light)
+// ----------------------------------------------------------
+function initTheme() {
+  const saved = localStorage.getItem('open-edit-theme') || 'dark';
+  applyTheme(saved);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('open-edit-theme', theme);
+  const btn = $('#btn-toggle-theme');
+  if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  showToast(`Switched to ${next} mode`, 'success');
+}
+
+// ----------------------------------------------------------
+// Command Palette (Cmd+K / Ctrl+K)
+// ----------------------------------------------------------
+const COMMANDS = [
+  { id: 'new-project', title: 'Create New Project', icon: '➕', action: () => $('#btn-new-project')?.click() },
+  { id: 'refresh-projects', title: 'Refresh Projects List', icon: '⟳', action: () => refreshProjects() },
+  { id: 'render-proxy', title: 'Render Proxy Video (540p)', icon: '🎬', action: () => triggerRender('proxy') },
+  { id: 'render-final', title: 'Render Final Video (1080p)', icon: '🎥', action: () => triggerRender('final') },
+  { id: 'open-settings', title: 'Open Settings & API Keys', icon: '⚙️', action: () => openSettingsModal() },
+  { id: 'toggle-theme', title: 'Toggle Light / Dark Mode', icon: '🌓', action: () => toggleTheme() },
+  { id: 'upload-assets', title: 'Upload Media Files', icon: '⬆', action: () => $('#file-input')?.click() },
+  { id: 'clear-chat', title: 'Clear Chat Log', icon: '🗑️', action: () => clearChatLog() },
+];
+
+let activeCmdIndex = 0;
+let filteredCommands = [...COMMANDS];
+
+function openCmdPalette() {
+  const modal = $('#modal-cmd-k');
+  const input = $('#cmd-input');
+  if (!modal || !input) return;
+  input.value = '';
+  filteredCommands = [...COMMANDS];
+  activeCmdIndex = 0;
+  renderCmdList();
+  showModal('modal-cmd-k');
+  setTimeout(() => input.focus(), 50);
+}
+
+function renderCmdList() {
+  const list = $('#cmd-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!filteredCommands.length) {
+    list.appendChild(el('div', { class: 'empty-state' }, ['No matching commands']));
+    return;
+  }
+  filteredCommands.forEach((cmd, idx) => {
+    const item = el('div', { class: `cmd-item ${idx === activeCmdIndex ? 'active' : ''}` }, [
+      el('div', { class: 'cmd-item-label' }, [
+        el('span', {}, [cmd.icon]),
+        el('span', {}, [cmd.title]),
+      ]),
+      el('span', { class: 'kbd-badge' }, ['↵']),
+    ]);
+    item.addEventListener('click', () => executeCmd(cmd));
+    list.appendChild(item);
+  });
+}
+
+function executeCmd(cmd) {
+  hideModal('modal-cmd-k');
+  if (cmd && typeof cmd.action === 'function') {
+    cmd.action();
+  }
+}
+
+function handleCmdKeydown(e) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (filteredCommands.length) {
+      activeCmdIndex = (activeCmdIndex + 1) % filteredCommands.length;
+      renderCmdList();
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (filteredCommands.length) {
+      activeCmdIndex = (activeCmdIndex - 1 + filteredCommands.length) % filteredCommands.length;
+      renderCmdList();
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (filteredCommands[activeCmdIndex]) {
+      executeCmd(filteredCommands[activeCmdIndex]);
+    }
+  }
+}
+
+function filterCmdList(query) {
+  const q = query.toLowerCase().trim();
+  if (!q) {
+    filteredCommands = [...COMMANDS];
+  } else {
+    filteredCommands = COMMANDS.filter(c => c.title.toLowerCase().includes(q));
+  }
+  activeCmdIndex = 0;
+  renderCmdList();
+}
+
+
+// ----------------------------------------------------------
 // Chat input
 // ----------------------------------------------------------
 function setChatEnabled(enabled) {
-  $('#chat-input').disabled = !enabled;
-  $('#btn-send').disabled = !enabled;
-  if (enabled) $('#chat-input').focus();
+  const input = $('#chat-input');
+  const btnSend = $('#btn-send');
+  const btnStop = $('#btn-stop');
+  const btnTopbarStop = $('#btn-topbar-stop');
+  if (input) input.disabled = !enabled;
+  if (btnSend) {
+    btnSend.disabled = !enabled;
+    if (btnSend.classList && typeof btnSend.classList.toggle === 'function') {
+      btnSend.classList.toggle('hidden', !enabled);
+    }
+  }
+  if (btnStop) {
+    if (btnStop.classList && typeof btnStop.classList.toggle === 'function') {
+      btnStop.classList.toggle('hidden', enabled);
+    }
+  }
+  if (btnTopbarStop) {
+    if (btnTopbarStop.classList && typeof btnTopbarStop.classList.toggle === 'function') {
+      btnTopbarStop.classList.toggle('hidden', enabled);
+    }
+  }
+  if (enabled && input) input.focus();
+}
+
+function cancelTurn() {
+  if (state.ws) {
+    try {
+      state.ws.send(JSON.stringify({ type: 'cancel' }));
+    } catch {}
+  }
+  markTurnDone();
+  if (state.chatStatus) state.chatStatus.onEvent({ type: 'done', stop_reason: 'cancelled' });
+  setChatEnabled(true);
+  showToast('Turn interrupted by user', 'warn');
 }
 
 function handleSend() {
@@ -460,20 +603,14 @@ function handleSend() {
     showToast('Select or create a project first.', 'error');
     return;
   }
+  setChatEnabled(false);
   if (sendChatMessage(text)) {
     appendUserMessage(text);
     input.value = '';
     autoGrowInput();
     if (state.chatStatus) state.chatStatus.send();
   } else {
-    // v1.4 P2 review fix: the WS layer's onclose handler covers the
-    // normal disconnect case, but if the user clicks Send while the
-    // socket is stuck in CONNECTING (e.g. stalled TCP handshake or
-    // browser tab throttling) onclose may never fire, leaving the
-    // user stuck on the "Not connected. Retrying…" toast. Kick a
-    // reconnect so the next attempt has a chance to land. Safe to
-    // call when a reconnect is already pending — scheduleReconnect
-    // is a no-op in that case (see ws.js).
+    setChatEnabled(true);
     scheduleReconnect();
   }
 }
@@ -664,16 +801,44 @@ function bindEvents() {
   });
   input.addEventListener('input', autoGrowInput);
   $('#btn-send').addEventListener('click', handleSend);
+  $('#btn-stop')?.addEventListener('click', cancelTurn);
+  $('#btn-topbar-stop')?.addEventListener('click', cancelTurn);
 
   // Render buttons
   $('#btn-render-proxy').addEventListener('click', () => triggerRender('proxy'));
   $('#btn-render-final').addEventListener('click', () => triggerRender('final'));
   $('#btn-refresh-renders').addEventListener('click', refreshRendersList);
 
-  // Notes & Settings
+  // Notes & Settings & Theme & Cmd+K
   $('#btn-show-notes').addEventListener('click', openNotesModal);
   $('#btn-settings').addEventListener('click', openSettingsModal);
   $('#btn-save-settings-keys').addEventListener('click', saveSettingsKeys);
+  $('#btn-toggle-theme')?.addEventListener('click', toggleTheme);
+  $('#btn-cmd-k')?.addEventListener('click', openCmdPalette);
+
+  // Command palette inputs
+  $('#cmd-input')?.addEventListener('input', (e) => filterCmdList(e.target.value));
+  $('#cmd-input')?.addEventListener('keydown', handleCmdKeydown);
+
+  // Quick Prompt Chips
+  $$('.prompt-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const text = chip.dataset.prompt;
+      const input = $('#chat-input');
+      if (input && text) {
+        input.value = text;
+        handleSend();
+      }
+    });
+  });
+
+  // Global Keyboard Shortcuts (Cmd+K / Ctrl+K)
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      openCmdPalette();
+    }
+  });
 
   // Mobile panel toggles
   $('#btn-left-panel').addEventListener('click', () => $('#left-panel').classList.toggle('open'));
@@ -731,7 +896,6 @@ function bindEvents() {
 // ----------------------------------------------------------
 const llmProviderSelect = $('#llm-provider-select');
 const llmModelSelect = $('#llm-model-select');
-const btnAntigravity = $('#btn-llm-preset-antigravity');
 // v1.7 §6 A5: tools are triggered by the LLM via ``tool_use`` events
 // (not by user clicks), so the ``#llm-tools-warn`` warning span is
 // the sole tool-UI gating — no dedicated tool-trigger buttons exist.
@@ -786,7 +950,6 @@ export async function loadLLMConfig() {
   if (!projectId) {
     if (llmProviderSelect) llmProviderSelect.disabled = true;
     if (llmModelSelect) llmModelSelect.disabled = true;
-    if (btnAntigravity) btnAntigravity.disabled = true;
     return;
   }
   try {
@@ -795,7 +958,6 @@ export async function loadLLMConfig() {
     populateModelDropdown(cfg.available_models, cfg.model);
     if (llmProviderSelect) llmProviderSelect.disabled = false;
     if (llmModelSelect) llmModelSelect.disabled = false;
-    if (btnAntigravity) btnAntigravity.disabled = false;
     updateToolsWarning(cfg.provider);
   } catch (err) {
     console.error('loadLLMConfig failed', err);
@@ -890,17 +1052,13 @@ if (llmModelSelect) {
   });
 }
 
-if (btnAntigravity) {
-  btnAntigravity.addEventListener('click', async () => {
-    await saveLLMConfig('antigravity', ANTIGRAVITY_DEFAULT_MODEL);
-    await loadLLMConfig();
-  });
-}
+
 
 // ----------------------------------------------------------
 // Boot
 // ----------------------------------------------------------
 async function boot() {
+  initTheme();
   bindEvents();
   // v1.4 P1-2: chat-status indicator. Lives in the DOM between the
   // chat log and the input row; ``createChatStatus`` keeps it in sync
