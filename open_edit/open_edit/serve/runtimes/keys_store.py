@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -45,13 +46,21 @@ def save_stored_key(provider: str, key_value: str) -> None:
     else:
         current.pop(provider, None)
 
-    # Write file
-    temp_content = json.dumps(current, indent=2)
-    KEYS_FILE_PATH.write_text(temp_content, encoding="utf-8")
-
-    # Enforce restricted permissions (0600) on POSIX
-    if sys.platform != "win32":
-        os.chmod(KEYS_FILE_PATH, 0o600)
+    # Write atomically with restricted permissions (0600)
+    content = json.dumps(current, indent=2)
+    fd, tmp = tempfile.mkstemp(dir=KEYS_FILE_PATH.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        if sys.platform != "win32":
+            os.chmod(tmp, 0o600)
+        os.replace(tmp, KEYS_FILE_PATH)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def get_stored_key(provider: str) -> str | None:
