@@ -1,6 +1,8 @@
 package metadata
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,5 +32,35 @@ func TestAnalyze_SubprocessTimeoutsConfigured(t *testing.T) {
 	}
 	if probeTimeout > time.Minute {
 		t.Fatalf("probeTimeout = %s, want bounded to at most 1m", probeTimeout)
+	}
+}
+
+func TestAnalyze_RejectsNaN(t *testing.T) {
+	output := `{
+		"format": {"duration": "10.0"},
+		"streams": [{
+			"codec_type": "video",
+			"width": 1920,
+			"height": 1080,
+			"r_frame_rate": "-nan/1",
+			"duration": "10.0"
+		}]
+	}`
+
+	var probeData ffprobeOutput
+	if err := json.Unmarshal([]byte(output), &probeData); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, s := range probeData.Streams {
+		if s.CodecType == "video" {
+			_, err := parseFrameRate(s.RFrameRate)
+			if err == nil {
+				t.Fatal("expected error for NaN frame rate, got nil")
+			}
+			if !strings.Contains(err.Error(), "invalid frame rate") {
+				t.Errorf("error message = %q, want containing 'invalid frame rate'", err.Error())
+			}
+		}
 	}
 }

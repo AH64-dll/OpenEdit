@@ -15,6 +15,38 @@ const (
 	sceneDetectTimeout = 30 * time.Minute
 )
 
+type ffprobeOutput struct {
+	Streams []struct {
+		CodecType  string `json:"codec_type"`
+		CodecName  string `json:"codec_name"`
+		Width      int    `json:"width"`
+		Height     int    `json:"height"`
+		RFrameRate string `json:"r_frame_rate"`
+	} `json:"streams"`
+	Format struct {
+		Duration string `json:"duration"`
+	} `json:"format"`
+}
+
+func parseFrameRate(s string) (float64, error) {
+	if !strings.Contains(s, "/") {
+		return 0, fmt.Errorf("invalid frame rate %q: missing '/'", s)
+	}
+	parts := strings.SplitN(s, "/", 2)
+	num, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid frame rate numerator %q: %w", parts[0], err)
+	}
+	den, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid frame rate denominator %q: %w", parts[1], err)
+	}
+	if den <= 0 {
+		return 0, fmt.Errorf("invalid frame rate denominator %q: must be positive", parts[1])
+	}
+	return num / den, nil
+}
+
 // Analyze runs ffprobe + ffmpeg scene detection on the given files and
 // returns a Manifest. It does NOT write to disk — use Save for that.
 //
@@ -55,18 +87,7 @@ func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 		}
 		return nil, fmt.Errorf("ffprobe: %w", err)
 	}
-	var probeData struct {
-		Streams []struct {
-			CodecType  string `json:"codec_type"`
-			CodecName  string `json:"codec_name"`
-			Width      int    `json:"width"`
-			Height     int    `json:"height"`
-			RFrameRate string `json:"r_frame_rate"`
-		} `json:"streams"`
-		Format struct {
-			Duration string `json:"duration"`
-		} `json:"format"`
-	}
+	var probeData ffprobeOutput
 	if err := json.Unmarshal(probeOut, &probeData); err != nil {
 		return nil, fmt.Errorf("parse ffprobe: %w", err)
 	}
@@ -76,12 +97,11 @@ func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 			c.Width = s.Width
 			c.Height = s.Height
 			if strings.Contains(s.RFrameRate, "/") {
-				parts := strings.SplitN(s.RFrameRate, "/", 2)
-				num, _ := strconv.ParseFloat(parts[0], 64)
-				den, _ := strconv.ParseFloat(parts[1], 64)
-				if den > 0 {
-					c.FPS = num / den
+				fps, err := parseFrameRate(s.RFrameRate)
+				if err != nil {
+					return nil, fmt.Errorf("clip %s: invalid frame rate: %w", path, err)
 				}
+				c.FPS = fps
 			}
 		}
 		if s.CodecType == "audio" {
@@ -89,9 +109,11 @@ func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 		}
 	}
 
-	if dur, err := strconv.ParseFloat(probeData.Format.Duration, 64); err == nil {
-		c.DurationSec = dur
+	dur, err := strconv.ParseFloat(probeData.Format.Duration, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid duration %q: %w", probeData.Format.Duration, err)
 	}
+	c.DurationSec = dur
 
 	if scenes {
 		detected, err := detectScenes(path, threshold)

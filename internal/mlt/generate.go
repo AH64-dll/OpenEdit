@@ -117,7 +117,7 @@ func resolveProfile(e *edl.EDL, clipByPath map[string]*metadata.Clip) (profile, 
 		if clip == nil {
 			return profile{}, fmt.Errorf("EDL segment %d references source %q not in manifest", i, s.Source)
 		}
-		if clip.Width <= 0 || clip.Height <= 0 || clip.FPS <= 0 {
+		if clip.Width <= 0 || clip.Height <= 0 || clip.FPS <= 0 || math.IsNaN(clip.FPS) {
 			return profile{}, fmt.Errorf("clip %q has invalid profile %dx%d @ %.3ffps; fix: re-run analyze on a valid video file", clip.Path, clip.Width, clip.Height, clip.FPS)
 		}
 		current := profile{width: clip.Width, height: clip.Height, fps: clip.FPS}
