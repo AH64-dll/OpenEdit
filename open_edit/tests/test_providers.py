@@ -49,3 +49,25 @@ def test_cli_providers_have_callable_stream():
         spec = resolve_provider(name)
         assert spec.is_cli is True
         assert callable(spec.stream)
+
+
+def test_provider_model_endpoint_handles_all_providers():
+    """Every registered provider must be reachable via
+    /api/llm/providers/{name}/models.
+
+    A missing handler should 404, not 500. The endpoint is a thin
+    dispatch — we don't assert model lists, just that the dispatch
+    doesn't crash for any provider in the registry. Catches the
+    regression of someone adding a provider to the registry but
+    forgetting to wire it into the endpoint.
+    """
+    from fastapi.testclient import TestClient
+
+    from open_edit.serve.app import app
+
+    client = TestClient(app)
+    for spec in list_provider_specs():
+        resp = client.get(f"/api/llm/providers/{spec.name}/models")
+        assert resp.status_code in (200, 404), (
+            f"{spec.name}: {resp.status_code} {resp.text}"
+        )
