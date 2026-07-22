@@ -554,6 +554,9 @@ function bindEvents() {
 const llmProviderSelect = $('#llm-provider-select');
 const llmModelSelect = $('#llm-model-select');
 const btnAntigravity = $('#btn-llm-preset-antigravity');
+// v1.7 §6 A5: tools are triggered by the LLM via ``tool_use`` events
+// (not by user clicks), so the ``#llm-tools-warn`` warning span is
+// the sole tool-UI gating — no dedicated tool-trigger buttons exist.
 const llmToolsWarn = $('#llm-tools-warn');
 
 const ANTIGRAVITY_DEFAULT_MODEL = 'omniroute/antigravity/gemini-2.5-flash';
