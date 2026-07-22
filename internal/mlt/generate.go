@@ -79,7 +79,11 @@ func Generate(e *edl.EDL, m *metadata.Manifest) (string, error) {
 	// Producers.
 	for _, p := range producers {
 		b.WriteString(fmt.Sprintf("  <producer id=\"%s\">\n", p.id))
-		b.WriteString(fmt.Sprintf("    <property name=\"resource\">%s</property>\n", p.path))
+		escaped := strings.ReplaceAll(p.path, "&", "&amp;")
+		escaped = strings.ReplaceAll(escaped, "<", "&lt;")
+		escaped = strings.ReplaceAll(escaped, ">", "&gt;")
+		escaped = strings.ReplaceAll(escaped, `"`, "&quot;")
+		b.WriteString(fmt.Sprintf("    <property name=\"resource\">%s</property>\n", escaped))
 		b.WriteString("  </producer>\n")
 	}
 

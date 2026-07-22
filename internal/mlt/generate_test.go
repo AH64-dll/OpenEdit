@@ -110,6 +110,43 @@ func TestSecToTC_RoundsMillisecondsAndCarries(t *testing.T) {
 	}
 }
 
+func goodEDL() *edl.EDL {
+	return &edl.EDL{
+		Version: 1,
+		Segments: []edl.Segment{
+			{Source: "/tmp/video.mp4", InSec: 0, OutSec: 10, Transition: edl.TransitionCut},
+		},
+	}
+}
+
+func goodManifest() *metadata.Manifest {
+	return &metadata.Manifest{
+		Version: 1,
+		Clips: []metadata.Clip{
+			{Path: "/tmp/video.mp4", DurationSec: 10, Width: 1920, Height: 1080, FPS: 30},
+		},
+	}
+}
+
+func TestGenerateXMLEscapesPaths(t *testing.T) {
+	edl := goodEDL()
+	edl.Segments[0].Source = "/path/foo & bar <baz>.mp4"
+	m := goodManifest()
+	m.Clips[0].Path = "/path/foo & bar <baz>.mp4"
+
+	xml, err := Generate(edl, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(xml, "&") && !strings.Contains(xml, "&amp;") {
+		t.Error("Unescaped & in XML output")
+	}
+	if strings.Contains(xml, "<") && !strings.Contains(xml, "&lt;") {
+		t.Error("Unescaped < in XML output")
+	}
+}
+
 func TestGenerate_RejectsMixedMediaProfiles(t *testing.T) {
 	e := &edl.EDL{
 		Version: 1,
