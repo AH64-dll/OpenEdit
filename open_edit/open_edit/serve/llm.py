@@ -368,9 +368,10 @@ def _pi_normalize_event(obj: dict[str, Any]) -> list[StreamEvent]:
                     "input": raw_args if isinstance(raw_args, dict) else {"value": raw_args},
                 })
             elif btype == "text":
-                text = blk.get("text", "")
-                if text:
-                    out.append({"type": "text_delta", "text": text})
+                # Final text is also delivered via message_end; we
+                # already streamed the deltas, so we skip here to avoid
+                # duplicating the text in the UI.
+                pass
         # If there was a toolCall, the assistant didn't return end_turn.
         # The agent loop sees a tool_use and continues; we DON'T emit
         # done here — the agent loop's logic handles stop_reason.
