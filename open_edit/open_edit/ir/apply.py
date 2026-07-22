@@ -95,6 +95,7 @@ def apply_operation(
     agent that just appended an op) get immediate feedback instead of a
     silently-wrong timeline.
     """
+    timeline = timeline.model_copy(deep=True)
     if op.status != "applied":
         return timeline
 
