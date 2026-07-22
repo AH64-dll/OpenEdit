@@ -30,8 +30,9 @@ import asyncio
 import json
 import os
 import shutil
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from . import cost as cost_mod
 from .cli_adapter import CLIAdapter, get_adapter
@@ -458,7 +459,7 @@ async def _stream_cli(
         while True:
             try:
                 line = await asyncio.wait_for(proc.stdout.readline(), timeout=adapter.default_timeout_s)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 try:
                     proc.kill()
                 except ProcessLookupError:
@@ -506,7 +507,7 @@ async def _stream_cli(
                 # done is the authoritative one.
                 yield ev
             return
-    except asyncio.TimeoutError:
+    except TimeoutError:
         try:
             proc.kill()
         except ProcessLookupError:
@@ -526,7 +527,7 @@ async def _stream_cli(
 
     try:
         await asyncio.wait_for(proc.wait(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
 
     if proc.returncode != 0 and not saw_text:
