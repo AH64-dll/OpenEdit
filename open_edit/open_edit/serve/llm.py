@@ -163,73 +163,44 @@ async def stream_chat(
                 pass  # fall back to env on any error (parse, validation, etc.)
 
     provider = project_provider or _provider()
-    if provider not in ("anthropic", "openai", "pi", "opencode"):
-        yield {
-            "type": "error",
-            "message": (
-                f"unknown OPEN_EDIT_LLM_PROVIDER={provider!r}; "
-                f"expected one of: anthropic, openai, pi, opencode"
-            ),
-        }
+    try:
+        from .providers import resolve_provider
+        spec = resolve_provider(provider)
+    except KeyError as exc:
+        yield {"type": "error", "message": str(exc)}
         return
 
     model = project_model or _model()
 
-    if provider == "openai":
-        try:
-            async for ev in _stream_openai(messages, tools, system, model):
-                yield ev
-        except RuntimeError as exc:
-            yield {"type": "error", "message": str(exc)}
-        except ImportError as exc:
-            yield {
-                "type": "error",
-                "message": (
-                    f"openai provider: required package not installed ({exc}). "
-                    f"Install with `pip install openai` or "
-                    f"`pip install -e '.[openai]'`."
-                ),
-            }
-        except Exception as exc:
-            yield {"type": "error", "message": f"openai provider error: {exc}"}
-        return
-
-    if provider == "pi":
-        try:
+    try:
+        if spec.name == "pi":
             async for ev in _stream_pi(messages, tools, system, session_id, project_path, model):
                 yield ev
-        except Exception as exc:
-            yield {"type": "error", "message": f"pi provider error: {exc}"}
-        return
-
-    if provider == "opencode":
-        try:
-            adapter = get_adapter("opencode")
+        elif spec.is_cli:
+            from .cli_adapter import get_adapter
+            adapter = get_adapter(spec.name)
             async for ev in _stream_cli(
-                adapter, model, messages, tools, system, session_id, project_path,
+                adapter, model, messages, tools, system,
+                session_id, project_path,
             ):
                 yield ev
-        except Exception as exc:
-            yield {"type": "error", "message": f"opencode provider error: {exc}"}
-        return
-
-    # Default: anthropic
-    try:
-        async for ev in _stream_anthropic(messages, tools, system, model):
-            yield ev
+        else:
+            async for ev in spec.stream(
+                messages, tools, system, model,
+            ):
+                yield ev
     except RuntimeError as exc:
-        # _api_key() raises RuntimeError when the key is missing.
         yield {"type": "error", "message": str(exc)}
     except ImportError as exc:
-        yield {
-            "type": "error",
-            "message": (
-                f"anthropic provider: required package not installed ({exc}). "
-                f"Install with `pip install anthropic`."
-            ),
-        }
+        msg = getattr(spec, "missing_error", None) or str(exc)
+        yield {"type": "error", "message": msg}
     except Exception as exc:
-        yield {"type": "error", "message": f"anthropic provider error: {exc}"}
+        # Catch-all: log to stderr so the dev sees the traceback, then
+        # yield a single error event for the UI.
+        import sys
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        yield {"type": "error", "message": f"{spec.name} provider error: {exc}"}
 
 
 # ---------------------------------------------------------------------------
