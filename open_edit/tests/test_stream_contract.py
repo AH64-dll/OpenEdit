@@ -9,11 +9,14 @@ from open_edit.serve.llm import StreamEvent, _coerce_event
 def test_stream_event_is_typed_dict():
     """StreamEvent must be importable and annotated — not just a docstring."""
     hints = get_type_hints(StreamEvent)
-    # The exact field set is what _stream_anthropic / _stream_cli / etc.
-    # actually emit; this is a contract, so guard it with a test.
+    # Wave 3.3 final: events are flat, discriminated by ``type``. The
+    # contract is that the ``type`` discriminant and every variant payload
+    # field are declared on the TypedDict.
     assert "type" in hints
-    for field in ("text_delta", "tool_use", "tool_result", "usage", "done", "error"):
-        assert field in hints, f"StreamEvent must declare {field!r} variant"
+    for field in ("text", "id", "name", "input", "result",
+                  "tokens", "cost_usd", "usage", "source",
+                  "stop_reason", "message"):
+        assert field in hints, f"StreamEvent must declare {field!r} field"
 
 
 def test_coerce_event_passes_through_valid_text_delta():

@@ -25,12 +25,14 @@ import os
 import shutil
 import tempfile
 import uuid
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from . import projects as projects_mod
 from . import visual_verify
 from .llm import _coerce_event, stream_chat
+from .llm import _provider as _llm_provider
 from .pi_bridge import _probe_duration
 from .project_meta import is_verify_disabled
 from .serve_env import get_visual_verify_config
@@ -39,7 +41,6 @@ from .tool_schemas import (
     TOOL_SCHEMAS,
     TOOL_USAGE_GUIDE,
 )
-
 
 # ---------------------------------------------------------------------------
 # Event types
@@ -83,10 +84,10 @@ _SOURCE_PRIORITY = {"pi": 0, "computed": 1, "unavailable": 2}
 MAX_AGENT_ITERATIONS = int(os.environ.get("OPEN_EDIT_AGENT_MAX_ITERATIONS", "10"))
 
 
-# v1.6 polish: hoisted out of the per-iteration loop in ``run_agent_turn``.
-# Provider doesn't change between iterations of the same turn, so resolve
-# it once and reuse the result for the rest of the turn.
-from .llm import _provider as _llm_provider  # noqa: E402
+# v1.6 polish: ``_llm_provider`` is imported at the top of the module so
+# it's resolved once at import time. The provider doesn't change between
+# iterations of the same turn, and the agent loop reads the resolved value
+# at the top of each iteration (see ``run_agent_turn``).
 
 
 # ---------------------------------------------------------------------------
@@ -270,12 +271,17 @@ def _build_system_prompt(state: projects_mod.ProjectState) -> str:
 # ---------------------------------------------------------------------------
 
 # Re-exports for backward compatibility (Wave 3.2: moved to tool_executor.py).
-# `_execute_agent_tool` and `_execute_trigger_render` are the historical
-# in-process names; the canonical implementations now live in
-# `tool_executor.py` so the agent loop and the TS-extension bridge cannot
-# drift on tool dispatch.
-import inspect
-from .tool_executor import (  # noqa: E402, F401, I001
+# The ``_execute_agent_tool`` and ``_execute_trigger_render`` names are
+# the historical in-process entry points; the canonical implementations
+# now live in ``tool_executor.py`` so the agent loop and the TS-extension
+# bridge cannot drift on tool dispatch. The re-export is placed in this
+# section (mid-file) so it sits next to the ``_execute_tool`` dispatcher
+# that uses the symbols; the ``noqa: E402`` directive acknowledges that
+# ruff prefers top-of-file imports. Symbols are underscore-prefixed
+# because the canonical public surface uses these names. ``ToolNotFound``
+# is re-exported for callers that previously imported it from this module.
+import inspect  # noqa: E402, I001
+from .tool_executor import (  # noqa: E402, F401
     ToolNotFound,
     execute_tool as _execute_agent_tool,
     execute_trigger_render as _execute_trigger_render,
