@@ -88,7 +88,7 @@ def make_ir(project_path: str | Path, parent_op_id: Optional[str] = None) -> IR:
 
 
 def get_asset_store(project_path: str | Path) -> AssetStore:
-    """Return the AssetStore rooted at <project>/assets."""
+    """Return the AssetStore rooted at <project>/.open_edit/assets."""
     p = Path(project_path)
     workdir = p if p.is_dir() else p.parent
-    return AssetStore(workdir / "assets")
+    return AssetStore(workdir / ".open_edit" / "assets")

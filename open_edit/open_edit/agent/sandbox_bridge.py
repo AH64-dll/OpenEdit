@@ -310,7 +310,7 @@ def _run_sandboxed(
             project_id, parent_op_id, originating_note_id,
         ))
 
-        assets_dir = workdir / 'assets'
+        assets_dir = workdir / ".open_edit" / "assets"
         source_dirs = sorted(p for p in assets_dir.iterdir() if p.is_dir()) if assets_dir.exists() else []
         meta_file = workdir / 'edit_graph.db'
 
@@ -440,7 +440,7 @@ def _load_assets_via_store(store: EditGraphStore, workdir: Path) -> dict[str, As
     for op in store.load_all():
         if isinstance(op, AddClipOp):
             asset_hashes.add(op.asset_hash)
-    assets_dir = workdir / 'assets'
+    assets_dir = workdir / ".open_edit" / "assets"
     if not assets_dir.exists():
         return {}
     asset_store = AssetStore(assets_dir)
