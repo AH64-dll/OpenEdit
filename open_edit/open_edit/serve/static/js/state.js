@@ -71,12 +71,17 @@ export function normalizeAssets(rawAssets) {
 export function normalizeEdits(rawState) {
   // Prompt-2 contract uses state.edit_graph[]
   // Prompt-1 backend uses state.ops[] with {id, type, payload, effects}
+  // v1.8 Wave 2: preserve full op data for edit-graph interactivity
   if (Array.isArray(rawState.edit_graph)) {
     return rawState.edit_graph.map(e => ({
       edit_id: e.edit_id || e.id || '',
       kind: e.kind || e.type || '',
       status: e.status || '',
-      summary: e.summary || JSON.stringify(e.payload || e).slice(0, 80),
+      summary: e.summary || summarizeOpPayload(e.payload || {}),
+      payload: e.payload || {},
+      parent_id: e.parent_id || null,
+      author: e.author || '',
+      timestamp: e.timestamp || '',
     }));
   }
   if (Array.isArray(rawState.ops)) {
@@ -85,6 +90,10 @@ export function normalizeEdits(rawState) {
       kind: o.type || '',
       status: o.status || 'committed',
       summary: summarizeOpPayload(o.payload || {}),
+      payload: o.payload || {},
+      parent_id: o.parent_id || null,
+      author: o.author || '',
+      timestamp: o.timestamp || '',
     }));
   }
   return [];

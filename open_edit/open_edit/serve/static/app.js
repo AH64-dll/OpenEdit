@@ -173,23 +173,119 @@ export async function loadProjectState() {
   }
 }
 
+/** ID of the currently selected edit in the edit-graph panel */
+let selectedEditId = null;
+
 function renderEditGraph(edits) {
   const list = $('#edit-graph-list');
   if (!list) return;
   list.innerHTML = '';
   if (!edits.length) {
     list.appendChild(el('div', { class: 'empty-state' }, ['No edits yet.', el('br'), 'Ask the agent to do something.']));
+    hideEditDetail();
     return;
   }
   // Show most recent first.
   for (const e of [...edits].reverse().slice(0, 50)) {
-    list.appendChild(el('div', { class: 'edit-card' }, [
-      el('div', {}, [
+    const card = el('div', {
+      class: 'edit-card' + (e.edit_id === selectedEditId ? ' edit-card-selected' : ''),
+    }, [
+      el('div', { class: 'edit-card-header' }, [
         el('span', { class: 'edit-kind' }, [e.kind]),
-        e.status ? el('span', { class: 'edit-status' }, [e.status]) : null,
+        e.status ? el('span', { class: 'edit-status edit-status-' + e.status }, [e.status]) : null,
+        e.author ? el('span', { class: 'edit-author' }, [e.author]) : null,
       ]),
-      el('div', { class: 'edit-summary' }, [e.summary]),
-    ]));
+      el('div', { class: 'edit-summary' }, [e.summary || '—']),
+    ]);
+    card.addEventListener('click', () => selectEdit(e));
+    list.appendChild(card);
+  }
+}
+
+function selectEdit(e) {
+  selectedEditId = e.edit_id;
+  // Re-render to update selected state on all cards
+  const edits = normalizeEdits(state.currentProjectState || {});
+  renderEditGraph(edits);
+  showEditDetail(e);
+}
+
+function showEditDetail(e) {
+  const panel = $('#edit-detail-panel');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+  $('#edit-detail-kind').textContent = e.kind;
+  $('#edit-detail-status').textContent = e.status || 'applied';
+  $('#edit-detail-author').textContent = e.author || '—';
+  $('#edit-detail-id').textContent = e.edit_id ? e.edit_id.slice(0, 12) + '…' : '—';
+
+  // Build a readable payload summary
+  const payloadEntries = [];
+  if (e.payload && typeof e.payload === 'object') {
+    for (const [k, v] of Object.entries(e.payload)) {
+      if (k === 'edit_id' || k === 'parent_id' || k === 'author' || k === 'timestamp' || k === 'status') continue;
+      payloadEntries.push(el('div', { class: 'edit-detail-field' }, [
+        el('span', { class: 'edit-detail-key' }, [k]),
+        el('span', { class: 'edit-detail-val' }, [JSON.stringify(v, null, 0).slice(0, 120)]),
+      ]));
+    }
+  }
+  const payloadDiv = $('#edit-detail-payload');
+  payloadDiv.innerHTML = '';
+  if (payloadEntries.length) {
+    for (const entry of payloadEntries) payloadDiv.appendChild(entry);
+  } else {
+    payloadDiv.textContent = '—';
+  }
+
+  // Wire action buttons
+  const btnUndo = $('#btn-edit-undo');
+  const btnDelete = $('#btn-edit-delete');
+  if (btnUndo) {
+    btnUndo.disabled = e.status === 'reverted';
+    btnUndo.onclick = () => undoEdit(e);
+  }
+  if (btnDelete) {
+    btnDelete.onclick = () => deleteEdit(e);
+  }
+}
+
+function hideEditDetail() {
+  selectedEditId = null;
+  const panel = $('#edit-detail-panel');
+  if (panel) panel.classList.add('hidden');
+}
+
+async function undoEdit(e) {
+  if (!state.currentProjectId) return;
+  const newStatus = e.status === 'reverted' ? 'applied' : 'reverted';
+  try {
+    const r = await fetch(
+      `/api/projects/${encodeURIComponent(state.currentProjectId)}/ops/${encodeURIComponent(e.edit_id)}/status`,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) },
+    );
+    if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+    showToast(`${newStatus === 'reverted' ? 'Undid' : 'Redid'} ${e.kind}`, 'success');
+    await loadProjectState();
+  } catch (err) {
+    showToast(`Failed to undo: ${err.message}`, 'error');
+  }
+}
+
+async function deleteEdit(e) {
+  if (!state.currentProjectId) return;
+  if (!confirm(`Delete ${e.kind}? This cannot be undone.`)) return;
+  try {
+    const r = await fetch(
+      `/api/projects/${encodeURIComponent(state.currentProjectId)}/ops/${encodeURIComponent(e.edit_id)}`,
+      { method: 'DELETE' },
+    );
+    if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+    hideEditDetail();
+    showToast(`Deleted ${e.kind}`, 'success');
+    await loadProjectState();
+  } catch (err) {
+    showToast(`Failed to delete: ${err.message}`, 'error');
   }
 }
 
@@ -272,6 +368,79 @@ function openNotesModal() {
     }
   }
   showModal('modal-notes');
+}
+
+// ----------------------------------------------------------
+// Settings modal (BYOK & Runtime Discovery)
+// ----------------------------------------------------------
+async function openSettingsModal() {
+  const rList = $('#settings-runtimes-list');
+  if (rList) rList.textContent = 'Scanning PATH & GUI directories…';
+
+  showModal('modal-settings');
+
+  try {
+    const [rRes, kRes] = await Promise.all([
+      fetch('/api/runtimes').then(r => r.json()),
+      fetch('/api/settings/keys').then(r => r.json()),
+    ]);
+
+    if (rList && rRes.runtimes) {
+      rList.innerHTML = '';
+      for (const rt of rRes.runtimes) {
+        const statusBadge = rt.installed
+          ? el('span', { style: 'color: var(--green); font-weight:600;' }, ['✓ Installed'])
+          : el('span', { style: 'color: var(--text-dim);' }, ['— Not detected']);
+        const pathText = rt.binary_path ? ` (${rt.binary_path})` : '';
+        rList.appendChild(el('div', { class: 'note-item' }, [
+          el('div', { style: 'display:flex; justify-content:space-between;' }, [
+            el('strong', {}, [rt.name]),
+            statusBadge,
+          ]),
+          rt.binary_path ? el('div', { class: 'muted small' }, [pathText]) : null,
+        ]));
+      }
+    }
+
+    if (kRes) {
+      ['anthropic', 'openai', 'opencode', 'antigravity'].forEach(p => {
+        const inp = $(`#key-${p}`);
+        if (inp && kRes[p]) {
+          inp.placeholder = kRes[p].has_key
+            ? `Active (${kRes[p].source}): ${kRes[p].masked_key}`
+            : `Enter ${p} API key…`;
+          inp.value = '';
+        }
+      });
+    }
+  } catch (err) {
+    showToast(`Failed to load settings: ${err.message}`, 'error');
+  }
+}
+
+async function saveSettingsKeys() {
+  const providers = ['anthropic', 'openai', 'opencode', 'antigravity'];
+  let savedCount = 0;
+  for (const p of providers) {
+    const val = $(`#key-${p}`)?.value.trim();
+    if (val) {
+      try {
+        await fetch('/api/settings/keys', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: p, key: val }),
+        });
+        savedCount++;
+      } catch (err) {
+        console.error(`Save key failed for ${p}:`, err);
+      }
+    }
+  }
+  if (savedCount > 0) {
+    showToast(`Saved ${savedCount} API key${savedCount === 1 ? '' : 's'} to ~/.open_edit/keys.json`, 'success');
+    await loadLLMConfig();
+  }
+  hideModal('modal-settings');
 }
 
 // ----------------------------------------------------------
@@ -405,9 +574,16 @@ function startEditGraphRefresh() {
     try {
       const s = await api.getProjectState(state.currentProjectId);
       state.currentProjectState = s;
+      const edits = normalizeEdits(s);
       renderAssets(normalizeAssets(s.assets));
-      renderEditGraph(normalizeEdits(s));
+      renderEditGraph(edits);
       renderNotesSummary(normalizeNotes(s));
+      // If an edit is selected, re-show its detail panel with fresh data
+      if (selectedEditId) {
+        const selected = edits.find(e => e.edit_id === selectedEditId);
+        if (selected) showEditDetail(selected);
+        else hideEditDetail();
+      }
     } catch {
       // silent
     }
@@ -494,8 +670,10 @@ function bindEvents() {
   $('#btn-render-final').addEventListener('click', () => triggerRender('final'));
   $('#btn-refresh-renders').addEventListener('click', refreshRendersList);
 
-  // Notes
+  // Notes & Settings
   $('#btn-show-notes').addEventListener('click', openNotesModal);
+  $('#btn-settings').addEventListener('click', openSettingsModal);
+  $('#btn-save-settings-keys').addEventListener('click', saveSettingsKeys);
 
   // Mobile panel toggles
   $('#btn-left-panel').addEventListener('click', () => $('#left-panel').classList.toggle('open'));

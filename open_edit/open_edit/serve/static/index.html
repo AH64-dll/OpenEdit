@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Open Edit</title>
   <meta name="description" content="Open Edit — AI-native headless video editing engine. Chat with an AI agent to edit your video timeline directly.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="has-timeline">
@@ -14,20 +17,20 @@
   <header class="topbar">
     <div class="topbar-left">
       <span class="logo">⏺ Open Edit</span>
-    </div>
-    <div class="topbar-center">
-      <label class="project-label">Project:</label>
+      <span class="topbar-sep">|</span>
+      <label class="topbar-label" for="project-select">Project</label>
       <select id="project-select" class="project-select">
         <option value="">— select —</option>
       </select>
-      <button id="btn-new-project" class="btn btn-ghost" title="New project">+ New</button>
-      <button id="btn-refresh-project" class="btn btn-ghost" title="Refresh projects">⟳</button>
-      <span class="topbar-sep">|</span>
-      <label class="topbar-label" for="llm-provider-select">Provider:</label>
+      <button id="btn-new-project" class="btn btn-ghost btn-xs" title="New project">+ New</button>
+      <button id="btn-refresh-project" class="btn btn-ghost btn-xs" title="Refresh projects">⟳</button>
+    </div>
+    <div class="topbar-center">
+      <label class="topbar-label" for="llm-provider-select">Provider</label>
       <select id="llm-provider-select" class="topbar-select" disabled>
         <option value="">—</option>
       </select>
-      <label class="topbar-label" for="llm-model-select">Model:</label>
+      <label class="topbar-label" for="llm-model-select">Model</label>
       <select id="llm-model-select" class="topbar-select" disabled>
         <option value="">—</option>
       </select>
@@ -37,6 +40,7 @@
             title="This provider does not support the 11 Open Edit tools">⚠ no tools</span>
     </div>
     <div class="topbar-right">
+      <button id="btn-settings" class="btn btn-ghost btn-xs" title="Settings & API Keys">⚙️ Settings</button>
       <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets">☰</button>
       <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders">≡</button>
       <span id="conn-status" class="conn-status disconnected" title="Disconnected">●</span>
@@ -71,7 +75,22 @@
         <div id="edit-graph-list" class="edit-graph-list">
           <div class="empty-state">No edits yet.<br>Ask the agent to do something.</div>
         </div>
-        <div class="panel-footer muted small">Auto-refreshes every 5s</div>
+        <div id="edit-detail-panel" class="edit-detail-panel hidden">
+          <div class="edit-detail-header">
+            <span id="edit-detail-kind" class="edit-detail-kind"></span>
+            <span id="edit-detail-status" class="edit-detail-status"></span>
+          </div>
+          <div class="edit-detail-meta">
+            <span class="muted">by</span> <span id="edit-detail-author"></span>
+            <span class="muted"> · id </span><span id="edit-detail-id" class="mono"></span>
+          </div>
+          <div id="edit-detail-payload" class="edit-detail-payload"></div>
+          <div class="edit-detail-actions">
+            <button id="btn-edit-undo" class="btn btn-sm btn-outline">Undo</button>
+            <button id="btn-edit-delete" class="btn btn-sm btn-danger">Delete</button>
+          </div>
+        </div>
+        <div class="panel-footer muted small">Click an edit to inspect · Auto-refreshes every 5s</div>
       </div>
     </aside>
 
@@ -186,6 +205,45 @@
       <div id="notes-list" class="notes-list">Loading…</div>
       <div class="modal-actions">
         <button class="btn btn-ghost" data-modal-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-settings" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-card-wide">
+      <h3>Settings & API Keys</h3>
+      
+      <div style="margin-bottom: 16px;">
+        <h4 style="margin: 0 0 8px; font-size: 13px; color: var(--accent);">Detected Local Agent Runtimes</h4>
+        <div id="settings-runtimes-list" class="muted small" style="display: flex; flex-direction: column; gap: 4px;">Loading runtimes…</div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <h4 style="margin: 0 0 8px; font-size: 13px; color: var(--accent);">API Key Configuration (BYOK)</h4>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">Anthropic API Key</label>
+            <input type="password" id="key-anthropic" class="text-input" placeholder="sk-ant-..." autocomplete="off">
+          </div>
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">OpenAI API Key</label>
+            <input type="password" id="key-openai" class="text-input" placeholder="sk-proj-..." autocomplete="off">
+          </div>
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">OpenCode API Key</label>
+            <input type="password" id="key-opencode" class="text-input" placeholder="sk-..." autocomplete="off">
+          </div>
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">Antigravity / Google API Key</label>
+            <input type="password" id="key-antigravity" class="text-input" placeholder="key..." autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Cancel</button>
+        <button id="btn-save-settings-keys" class="btn btn-primary">Save Keys</button>
       </div>
     </div>
   </div>
