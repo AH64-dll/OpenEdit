@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Open Edit</title>
+  <title>Open Edit — AI Video Studio</title>
   <meta name="description" content="Open Edit — AI-native headless video editing engine. Chat with an AI agent to edit your video timeline directly.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,15 +16,20 @@
   <!-- =================== Top bar =================== -->
   <header class="topbar">
     <div class="topbar-left">
-      <span class="logo">⏺ Open Edit</span>
+      <span class="logo">
+        <span class="logo-badge"></span> Open Edit
+      </span>
       <span class="topbar-sep">|</span>
       <label class="topbar-label" for="project-select">Project</label>
       <select id="project-select" class="project-select">
         <option value="">— select —</option>
       </select>
       <button id="btn-new-project" class="btn btn-ghost btn-xs" title="New project">+ New</button>
-      <button id="btn-refresh-project" class="btn btn-ghost btn-xs" title="Refresh projects">⟳</button>
+      <button id="btn-refresh-project" class="btn btn-ghost btn-xs" title="Refresh projects">
+        <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      </button>
     </div>
+    
     <div class="topbar-center">
       <label class="topbar-label" for="llm-provider-select">Provider</label>
       <select id="llm-provider-select" class="topbar-select" disabled>
@@ -34,13 +39,18 @@
       <select id="llm-model-select" class="topbar-select" disabled>
         <option value="">—</option>
       </select>
-      <button id="btn-llm-preset-antigravity" class="btn btn-ghost btn-xs" disabled
-              title="Quick switch: opencode + antigravity/gemini-2.5-flash">Antigravity</button>
       <span id="llm-tools-warn" class="llm-warn hidden"
             title="This provider does not support the 11 Open Edit tools">⚠ no tools</span>
     </div>
+
     <div class="topbar-right">
+      <button id="btn-cmd-k" class="btn btn-ghost btn-xs" title="Command Palette (Cmd+K)">
+        <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <span class="kbd-badge">⌘K</span>
+      </button>
+      <button id="btn-toggle-theme" class="btn btn-ghost btn-xs" title="Toggle Light/Dark Theme">🌙</button>
       <button id="btn-settings" class="btn btn-ghost btn-xs" title="Settings & API Keys">⚙️ Settings</button>
+      <button id="btn-topbar-stop" class="btn btn-secondary hidden" title="Interrupt request">Stop ⏹</button>
       <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets">☰</button>
       <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders">≡</button>
       <span id="conn-status" class="conn-status disconnected" title="Disconnected">●</span>
@@ -63,8 +73,10 @@
 
         <div id="dropzone" class="dropzone">
           <div class="dropzone-inner">
-            <div class="dropzone-icon">⬆</div>
-            <div class="dropzone-text">Drop files here<br><span class="muted">or click to browse</span></div>
+            <div class="dropzone-icon">
+              <svg class="icon-svg" style="width:24px;height:24px;" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            </div>
+            <div class="dropzone-text">Drop video, audio, or images<br><span class="muted">or click to browse</span></div>
           </div>
           <input type="file" id="file-input" multiple accept="video/*,audio/*,image/*" hidden>
         </div>
@@ -97,8 +109,19 @@
     <!-- ----- CENTER panel ----- -->
     <section class="panel panel-center">
       <div id="chat-log" class="chat-log">
-        <div class="empty-state">Select a project to start chatting.</div>
+        <div class="empty-state">
+          <div style="font-size: 20px; font-weight:700; color:var(--text-primary); margin-bottom: 8px;">Welcome to Open Edit</div>
+          <div>Select or create a project to start chatting with your AI video editor.</div>
+          
+          <div class="prompt-chips-container" id="prompt-chips">
+            <div class="prompt-chip" data-prompt="Cut dead air and silent pauses from the video">✂️ Cut silences</div>
+            <div class="prompt-chip" data-prompt="Add lower-third title overlay at start">🏷️ Add lower-third</div>
+            <div class="prompt-chip" data-prompt="Normalize audio levels to -16dBFS">🔊 Normalize audio</div>
+            <div class="prompt-chip" data-prompt="Render final 1080p MP4">🎬 Render final video</div>
+          </div>
+        </div>
       </div>
+      
       <div id="chat-status" class="chat-status hidden" data-state="idle" aria-live="polite">
         <span class="chat-status-dot"></span>
         <span class="chat-status-text"></span>
@@ -109,9 +132,16 @@
       <div id="cost-badge" class="cost-badge hidden" data-source="unavailable" aria-live="polite">
         <span class="cost-badge-text"></span>
       </div>
+      
       <div class="chat-input-row">
-        <textarea id="chat-input" class="chat-input" placeholder="Type a message… (Enter to send, Shift+Enter for newline)" rows="1" disabled></textarea>
-        <button id="btn-send" class="btn btn-primary" disabled>Send</button>
+        <textarea id="chat-input" class="chat-input" placeholder="Type a prompt to edit video... (Enter to send, Shift+Enter for newline, ⌘K for commands)" rows="1" disabled></textarea>
+        <button id="btn-send" class="btn btn-primary" disabled>
+          Send
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+        <button id="btn-stop" class="btn btn-secondary hidden" title="Interrupt request">
+          Stop ⏹
+        </button>
       </div>
     </section>
 
@@ -120,7 +150,9 @@
       <div class="panel-section">
         <div class="panel-section-header">
           <span>Renders</span>
-          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh">⟳</button>
+          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </button>
         </div>
         <div id="renders-list" class="renders-list">
           <div class="empty-state">No renders yet.</div>
@@ -173,6 +205,20 @@
   </section>
 
   </div><!-- /.site-wrapper -->
+
+  <div id="modal-cmd-k" class="modal cmd-palette hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-modal-close></div>
+    <div class="cmd-palette-card">
+      <div class="cmd-input-container">
+        <svg class="icon-svg" style="color:var(--text-dim);" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="cmd-input" class="cmd-input" placeholder="Type a command or search..." autocomplete="off">
+        <span class="kbd-badge">ESC</span>
+      </div>
+      <div id="cmd-list" class="cmd-list">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+  </div>
 
   <!-- =================== Modals =================== -->
   <div id="modal-new-project" class="modal hidden" role="dialog" aria-modal="true">

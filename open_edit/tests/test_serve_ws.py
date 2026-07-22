@@ -193,3 +193,23 @@ def test_ws_chat_conv_id_echoed(patched_ws):
     first = json.loads(lines[0])
     assert first["role"] == "user"
     assert first["content"] == "hello"
+
+
+def test_ws_chat_cancellation_message(patched_ws):
+    """Sending type=cancel emits type=cancelled over websocket."""
+    client = TestClient(app_mod.app)
+    with client.websocket_connect("/api/chat/wstest") as ws:
+        _ = ws.receive_text()  # ready
+        ws.send_text(json.dumps({"type": "cancel"}))
+        ev = json.loads(ws.receive_text())
+        assert ev["type"] == "cancelled"
+
+
+def test_ws_chat_stop_message(patched_ws):
+    """Sending type=stop emits type=cancelled over websocket."""
+    client = TestClient(app_mod.app)
+    with client.websocket_connect("/api/chat/wstest") as ws:
+        _ = ws.receive_text()  # ready
+        ws.send_text(json.dumps({"type": "stop"}))
+        ev = json.loads(ws.receive_text())
+        assert ev["type"] == "cancelled"

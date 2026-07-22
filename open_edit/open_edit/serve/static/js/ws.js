@@ -10,7 +10,7 @@
    Reconnect is exponential backoff capped at 10s.
    ============================================================ */
 
-import { $ } from './dom.js';
+import { $, showToast } from './dom.js';
 import { state } from './state.js';
 import {
   appendTextDelta,
@@ -64,8 +64,12 @@ export function connectWS() {
   state.ws = ws;
 
   ws.onopen = () => {
+    const wasReconnecting = state.reconnectAttempts > 0;
     setWsState('connected');
     state.reconnectAttempts = 0;
+    if (wasReconnecting) {
+      showToast('WebSocket reconnected', 'success');
+    }
   };
 
   ws.onmessage = (ev) => {
@@ -82,6 +86,7 @@ export function connectWS() {
   ws.onclose = () => {
     setWsState('disconnected');
     state.ws = null;
+    showToast('WebSocket connection dropped', 'error');
     if (state.currentProjectId) scheduleReconnect();
   };
 }

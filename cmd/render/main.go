@@ -46,6 +46,7 @@ func main() {
 		"CUDA_VISIBLE_DEVICES=",
 		"LIBGL_ALWAYS_SOFTWARE=1",
 		"__GL_YIELD=USLEEP",
+		"QT_QPA_PLATFORM=offscreen",
 	)
 
 	cmd.Stdout = os.Stdout
