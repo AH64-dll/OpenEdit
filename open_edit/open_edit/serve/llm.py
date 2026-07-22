@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Literal, TypedDict
 
 from . import cost as cost_mod
+from .cli_adapter import CLIAdapter, get_adapter
+from .opencode_adapter import parse_opencode_events
 
 # ``anthropic`` is listed as a hard dependency in pyproject.toml. We import
 # lazily inside ``stream_chat`` so the module can still be imported in test
@@ -160,12 +162,25 @@ async def stream_chat(
             yield {"type": "error", "message": f"openai provider error: {exc}"}
         return
 
-    if provider == "pi":
+    if provider in ("pi", "opencode"):
+        # Resolve per-project config if the caller passed a project path;
+        # the FastAPI WS handler already has it on hand.
         try:
-            async for ev in _stream_pi(messages, tools, system, session_id, project_path):
+            adapter = get_adapter(provider)
+        except KeyError as exc:
+            yield {
+                "type": "error",
+                "message": f"unknown CLI provider {provider!r}: {exc}",
+            }
+            yield {"type": "done", "stop_reason": "error"}
+            return
+        try:
+            async for ev in _stream_cli(
+                adapter, _model(), messages, tools, system, session_id, project_path,
+            ):
                 yield ev
         except Exception as exc:
-            yield {"type": "error", "message": f"pi provider error: {exc}"}
+            yield {"type": "error", "message": f"{provider} provider error: {exc}"}
         return
 
     # Default: anthropic
@@ -221,164 +236,48 @@ async def _stream_pi(
     session_id: str | None,
     project_path: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
-    """Spawn the ``pi`` CLI as a subprocess and parse its JSON output.
+    """Pi provider — delegates to _stream_cli with the PiAdapter.
 
-    Pi manages its own conversation state (per session_id). We:
-    1. Pass the user message via ``--print``.
-    2. Append our system prompt via ``--append-system-prompt``.
-    3. Load the open_edit pi extension (registers the 11 tools).
-    4. Read JSON-line events from stdout; map to our StreamEvent shape.
-
-    The ``messages`` and ``tools`` args are ignored — pi has its own
-    history and tool registry. ``project_path`` (if given) is passed
-    to the subprocess as ``OPEN_EDIT_PROJECT`` so the extension knows
-    which project to operate on.
+    After _stream_cli finishes, we read the pi session JSONL delta to
+    extract the per-call cost (v1.4 P1-3). The opencode provider does
+    not need this — it reports cost directly in step_finish events.
     """
-    # Pull the last user message text from the messages list.
-    user_text = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            content = m.get("content")
-            if isinstance(content, str):
-                user_text = content
-            elif isinstance(content, list):
-                for blk in content:
-                    if isinstance(blk, dict) and blk.get("type") == "text":
-                        user_text = blk.get("text", "")
-                        break
-            break
-
-    if not user_text:
-        yield {
-            "type": "error",
-            "message": "pi provider: no user message found in messages list",
-        }
-        return
-
     sid = session_id or f"oe-{os.getpid()}"
-    ext_path = _pi_extension_path()
-    if not Path(ext_path).is_file():
-        yield {
-            "type": "error",
-            "message": f"pi provider: extension not found at {ext_path}",
-        }
-        return
-
-    # Resolve the session file path before we spawn pi. pi appends
-    # to this file as it runs, so we record its current size and
-    # compute the delta (new bytes → new assistant messages → new
-    # tokens/cost) after the subprocess finishes.
     sessions_dir = cost_mod.default_pi_sessions_dir()
     session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
-    if session_path is not None:
-        baseline_size = session_path.stat().st_size
-    else:
-        baseline_size = 0
+    baseline_size = session_path.stat().st_size if session_path is not None else 0
 
-    cmd = [
-        _pi_binary(),
-        "--provider", _pi_provider_name(),
-        "--model", _pi_model(),
-        "--mode", "json",
-        "--no-extensions",       # we load the extension explicitly below
-        "--extension", ext_path,
-        "--session-id", sid,
-        "--print", user_text,
-        "--append-system-prompt", system,
-    ]
-
-    env = dict(os.environ)
-    # The open_edit package root needs to be on PYTHONPATH so the
-    # subprocess can import open_edit.serve.pi_bridge.
-    pkg_root = str(Path(__file__).resolve().parents[2])  # .../open_edit
-    env["PYTHONPATH"] = (
-        pkg_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    )
-    # The TS extension reads OPEN_EDIT_PROJECT to know which project to
-    # operate on (passed to the pi_bridge subprocess).
-    if project_path:
-        env["OPEN_EDIT_PROJECT"] = str(project_path)
-
+    adapter = get_adapter("pi")
+    saw_done = False
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-    except FileNotFoundError as exc:
-        yield {"type": "error", "message": f"pi binary not found: {exc}"}
+        async for ev in _stream_cli(
+            adapter, _model(), messages, tools, system, session_id, project_path,
+        ):
+            if ev.get("type") == "done":
+                saw_done = True
+            yield ev
+    except Exception as exc:
+        yield {"type": "error", "message": f"pi provider error: {exc}"}
+        if not saw_done:
+            yield {"type": "done", "stop_reason": "error"}
         return
 
-    stop_reason = "end_turn"
-    saw_text = False
-    try:
-        assert proc.stdout is not None
-        async for raw in proc.stdout:
-            line = raw.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            for ev in _pi_normalize_event(obj):
-                if ev.get("type") == "done":
-                    stop_reason = ev.get("stop_reason", stop_reason)
-                if ev.get("type") == "text_delta":
-                    saw_text = True
-                yield ev
-        await proc.wait()
-    except asyncio.CancelledError:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-        raise
-
-    if proc.returncode != 0 and not saw_text:
-        stderr = (await proc.stderr.read()).decode("utf-8", errors="replace").strip() if proc.stderr else ""
-        yield {
-            "type": "error",
-            "message": stderr or f"pi exited {proc.returncode}",
-        }
-        return
-
-    # Cost extraction (v1.4 P1-3). Pi already computed the per-call
-    # cost and wrote it into the session JSONL; we read the delta
-    # between baseline_size and the current file size and yield a
-    # ``usage`` event. If the file vanished (pi wiped its session
-    # between invocations — unusual but possible) or there's no
-    # session file at all, we surface ``unavailable`` so the UI
-    # shows the honest "cost n/a" state.
+    # Cost extraction (v1.4 P1-3). The cli stream emitted its own
+    # ``done``; we re-emit a final ``done`` only if the stream didn't
+    # (defensive). Pi cost is read from the session JSONL delta.
     if session_path is None:
-        # No file at all — try once more in case pi just created it.
         session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
     if session_path is None or not session_path.exists():
         yield {
-            "type": "usage",
-            "source": "unavailable",
-            "tokens": 0,
-            "cost_usd": 0.0,
-            "usage": {},
+            "type": "usage", "source": "unavailable",
+            "tokens": 0, "cost_usd": 0.0, "usage": {},
         }
     else:
-        delta = cost_mod.parse_pi_session_usage_delta(
-            session_path, last_size=baseline_size,
-        )
-        # Source is always "pi" when we successfully read the file.
-        # A zero-cost delta means pi made no API call this turn
-        # (rare, but possible — e.g. cached reuse); the UI shows
-        # $0.00 and the operator can investigate if unexpected.
+        delta = cost_mod.parse_pi_session_usage_delta(session_path, last_size=baseline_size)
         yield {
-            "type": "usage",
-            "source": "pi",
-            "tokens": delta["tokens"],
-            "cost_usd": delta["cost_usd"],
-            "usage": {},
+            "type": "usage", "source": "pi",
+            "tokens": delta["tokens"], "cost_usd": delta["cost_usd"], "usage": {},
         }
-
-    yield {"type": "done", "stop_reason": stop_reason}
 
 
 def _pi_normalize_event(obj: dict[str, Any]) -> list[StreamEvent]:
@@ -482,6 +381,171 @@ def _pi_normalize_event(obj: dict[str, Any]) -> list[StreamEvent]:
     if et == "error":
         return [{"type": "error", "message": str(obj.get("error", "pi error"))}]
     return []
+
+
+async def _stream_cli(
+    adapter: CLIAdapter,
+    model: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    system: str,
+    session_id: str | None,
+    project_path: str | None,
+) -> AsyncIterator[StreamEvent]:
+    """Generic subprocess driver for any CLIAdapter (pi, opencode).
+
+    Pulls the last user message text from ``messages``, builds the
+    command via ``adapter.build_command``, spawns the subprocess, and
+    yields ``StreamEvent``-shaped dicts.
+
+    Enforces ``adapter.default_timeout_s`` on the subprocess lifetime
+    (R4 fix). On timeout, kills the process, yields an ``error`` event
+    with a clear message, then a ``done`` event with stop_reason=error.
+    """
+    user_text = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, str):
+                user_text = content
+            elif isinstance(content, list):
+                for blk in content:
+                    if isinstance(blk, dict) and blk.get("type") == "text":
+                        user_text = blk.get("text", "")
+                        break
+            break
+    if not user_text:
+        yield {"type": "error", "message": f"{adapter.name} provider: no user message found"}
+        yield {"type": "done", "stop_reason": "error"}
+        return
+
+    sid = session_id or f"oe-{os.getpid()}"
+    # Pi-specific extension path: the opencode adapter doesn't use it.
+    extension_path: str | None = None
+    if adapter.name == "pi":
+        extension_path = _pi_extension_path()
+
+    cmd = adapter.build_command(
+        model=model,
+        user_text=user_text,
+        session_id=sid,
+        extension_path=extension_path,
+        system_prompt=system,
+    )
+
+    env = dict(os.environ)
+    pkg_root = str(Path(__file__).resolve().parents[2])
+    env["PYTHONPATH"] = (
+        pkg_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    )
+    if project_path:
+        env["OPEN_EDIT_PROJECT"] = str(project_path)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env,
+        )
+    except FileNotFoundError as exc:
+        yield {"type": "error", "message": f"{adapter.name} binary not found: {exc}"}
+        yield {"type": "done", "stop_reason": "error"}
+        return
+
+    async def _read_with_timeout() -> AsyncIterator[bytes]:
+        assert proc.stdout is not None
+        while True:
+            try:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=adapter.default_timeout_s)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                raise
+            if not line:
+                return
+            yield line
+
+    saw_text = False
+    try:
+        if adapter.name == "pi":
+            # Read JSON-line events and run them through the existing
+            # pi normalizer. We suppress the inner "done" event so the
+            # final done can be emitted at the end (after the cost
+            # extraction in _stream_pi, which appends a "usage" event).
+            buf = b""
+            async for chunk in _read_with_timeout():
+                buf += chunk
+                while b"\n" in buf:
+                    raw_line, buf = buf.split(b"\n", 1)
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    for ev in _pi_normalize_event(obj):
+                        if ev.get("type") == "done":
+                            # Defer; final done is emitted at the end.
+                            continue
+                        if ev.get("type") == "text_delta":
+                            saw_text = True
+                        yield ev
+        else:
+            # opencode normalizer is already adapter-aware; pass it the
+            # raw byte stream and let it handle framing.
+            async for ev in parse_opencode_events(_read_with_timeout()):
+                if ev.get("type") == "text_delta":
+                    saw_text = True
+                # Note: opencode's step_finish already yields a "done";
+                # _stream_cli does NOT emit a second "done" at the end
+                # for the opencode branch — the opencode normalizer's
+                # done is the authoritative one.
+                yield ev
+            return
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        yield {
+            "type": "error",
+            "message": f"{adapter.name} timed out after {adapter.default_timeout_s}s",
+        }
+        yield {"type": "done", "stop_reason": "error"}
+        return
+    except asyncio.CancelledError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        raise
+
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5.0)
+    except asyncio.TimeoutError:
+        proc.kill()
+
+    if proc.returncode != 0 and not saw_text:
+        stderr_data = b""
+        if proc.stderr is not None:
+            try:
+                stderr_data = await proc.stderr.read()
+            except Exception:
+                pass
+        stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+        yield {
+            "type": "error",
+            "message": stderr_text or f"{adapter.name} exited {proc.returncode}",
+        }
+        yield {"type": "done", "stop_reason": "error"}
+        return
+
+    # For the pi branch: emit the final "done" here (the inner one was
+    # suppressed). For the opencode branch: the opencode normalizer
+    # already emitted "done" inside its async-for loop above; that
+    # branch returns early.
+    yield {"type": "done", "stop_reason": "end_turn"}
 
 
 # ---------------------------------------------------------------------------
