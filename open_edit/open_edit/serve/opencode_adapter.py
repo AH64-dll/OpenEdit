@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, AsyncIterator
-
+from collections.abc import AsyncIterator
+from typing import Any
 
 _STOP_REASON_MAP = {
     "stop": "end_turn",
