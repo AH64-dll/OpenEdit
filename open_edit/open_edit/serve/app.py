@@ -40,6 +40,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import agent as agent_mod
+from . import cli_adapter as cli_adapter_mod
+from . import llm_config as llm_config_mod
 from . import projects as projects_mod
 
 _LOG = logging.getLogger("open_edit.serve.app")
@@ -69,6 +71,18 @@ class RenderJobResponse(BaseModel):
     # Not part of the public API contract — kept on the model so the
     # field survives Pydantic serialization roundtrips in tests.
     created_at: float = Field(default_factory=time.time)
+
+
+class LLMConfigRequest(BaseModel):
+    provider: str
+    model: str
+
+
+class LLMConfigResponse(BaseModel):
+    provider: str
+    model: str
+    available_providers: list[str]
+    available_models: list[str]
 
 
 class ChatRequest(BaseModel):
@@ -349,6 +363,81 @@ async def get_thumbnail(project_id: str) -> Any:
         if f.exists():
             return FileResponse(str(f))
     raise HTTPException(status_code=404, detail="no thumbnail available")
+
+
+@app.get("/api/projects/{project_id}/llm-config")
+async def get_llm_config(project_id: str) -> LLMConfigResponse:
+    """Return the project's LLM provider + model config.
+
+    v1.7: the config is per-project (in ``<project>/.open_edit/config.toml``)
+    with env-var fallback. The response also carries the list of available
+    providers (so the UI can populate the provider dropdown) and the list
+    of available models for the current provider (so the model dropdown
+    can be filled). Models come from the adapter's ``available_models()``
+    method; for opencode this shells out to ``opencode models`` (cached
+    60s by the adapter).
+    """
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+    try:
+        cfg = llm_config_mod.load_llm_config(project_path)
+    except llm_config_mod.LLMConfigError as exc:
+        raise HTTPException(status_code=500, detail=f"invalid LLM config: {exc}") from exc
+    try:
+        adapter = cli_adapter_mod.get_adapter(cfg.provider)
+    except KeyError:
+        # The config file references a provider we no longer ship.
+        # Fall back to whatever's in the env so the UI can recover.
+        available_models: list[str] = []
+    else:
+        available_models = adapter.available_models()
+    return LLMConfigResponse(
+        provider=cfg.provider,
+        model=cfg.model,
+        available_providers=cli_adapter_mod.list_adapters(),
+        available_models=available_models,
+    )
+
+
+@app.put("/api/projects/{project_id}/llm-config")
+async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigResponse:
+    """Persist the project's LLM provider + model config.
+
+    Validation:
+    - ``provider`` must be in the enum ``{anthropic, openai, pi, opencode}``.
+      ``antigravity`` is rejected as a provider (A3) — it is a UI label,
+      not a backend.
+    - ``model`` must be a non-empty string.
+
+    On success, the config is written atomically to
+    ``<project>/.open_edit/config.toml`` and the next chat turn picks it up.
+    """
+    if req.provider not in cli_adapter_mod.list_adapters():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown provider {req.provider!r}; "
+                f"expected one of: {', '.join(cli_adapter_mod.list_adapters())}. "
+                f"Note: 'antigravity' is a UI label, not a provider; "
+                f"pick 'opencode' as the provider and set model to "
+                f"'omniroute/antigravity/<model>'."
+            ),
+        )
+    if not req.model or not req.model.strip():
+        raise HTTPException(status_code=400, detail="model must be a non-empty string")
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+    cfg = llm_config_mod.LLMConfig(provider=req.provider, model=req.model.strip())
+    try:
+        llm_config_mod.save_llm_config(project_path, cfg)
+    except llm_config_mod.LLMConfigError as exc:
+        raise HTTPException(status_code=500, detail=f"failed to save LLM config: {exc}") from exc
+    return LLMConfigResponse(
+        provider=cfg.provider,
+        model=cfg.model,
+        available_providers=cli_adapter_mod.list_adapters(),
+        available_models=cli_adapter_mod.get_adapter(cfg.provider).available_models(),
+    )
 
 
 # ---------------------------------------------------------------------------
