@@ -166,6 +166,12 @@ def emit_timeline(
                     _emit_filter(entry, effect, fps_num, fps_den)
             current_pos = clip.position_sec + clip_dur
 
+        for effect in track.effects:
+            if effect.effect_type.startswith("transition_"):
+                _emit_transition(playlist, effect)
+            else:
+                _emit_filter(playlist, effect, fps_num, fps_den)
+
         etree.SubElement(multitrack, "track", attrib={
             "producer": f"playlist_{track.track_id}",
         })

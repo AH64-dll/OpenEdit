@@ -42,10 +42,12 @@ def rollup(project_id: str, store: TasteEventStore) -> StyleProfile:
     events = store.pull(project_id=project_id, window_days=90, max_events=200)
     profile = json.loads(get_profile_path().read_text())
 
+    transition_ids: list[str] = []
     weighted_sum_transitions = 0
     examples_transitions = []
     for ev in events:
         if ev.op_type == "AddTransition":
+            transition_ids.append(ev.id)
             weight = _weight_for_action(ev.action)
             weighted_sum_transitions += weight
             if ev.action == "applied_modified" and len(examples_transitions) < 4:
@@ -61,7 +63,8 @@ def rollup(project_id: str, store: TasteEventStore) -> StyleProfile:
     profile["meta"]["version"] = profile["meta"].get("version", 0) + 1
 
     _write_profile_with_backup(profile)
-    store.purge(project_id=project_id)
+    if transition_ids:
+        store.purge(ids=transition_ids)
     return StyleProfile(**profile)
 
 
