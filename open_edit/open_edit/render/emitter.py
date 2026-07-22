@@ -146,7 +146,14 @@ def emit_timeline(
             "id": f"playlist_{track.track_id}",
         })
 
+        current_pos: float = 0.0
         for clip in track.clips:
+            if clip.position_sec > current_pos:
+                blank_dur = clip.position_sec - current_pos
+                etree.SubElement(playlist, "blank", attrib={
+                    "length": _format_timecode(blank_dur, fps_num, fps_den),
+                })
+            clip_dur = clip.out_point_sec - clip.in_point_sec
             entry = etree.SubElement(playlist, "entry", attrib={
                 "producer": f"producer_{clip.asset_hash}",
                 "in": _format_timecode(clip.in_point_sec, fps_num, fps_den),
@@ -157,6 +164,7 @@ def emit_timeline(
                     _emit_transition(entry, effect)
                 else:
                     _emit_filter(entry, effect, fps_num, fps_den)
+            current_pos = clip.position_sec + clip_dur
 
         etree.SubElement(multitrack, "track", attrib={
             "producer": f"playlist_{track.track_id}",
