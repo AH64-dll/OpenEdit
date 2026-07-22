@@ -699,7 +699,11 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
 
     try:
         while True:
-            raw = await websocket.receive_text()
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+            except asyncio.TimeoutError:
+                await websocket.send_text(json.dumps({"type": "ping"}))
+                continue
             try:
                 payload = json.loads(raw)
             except json.JSONDecodeError:
