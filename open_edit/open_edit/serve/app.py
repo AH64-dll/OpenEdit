@@ -435,6 +435,41 @@ async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigRes
     )
 
 
+class SaveKeyRequest(BaseModel):
+    provider: str
+    key: str
+
+
+@app.get("/api/runtimes")
+async def list_discovered_runtimes() -> JSONResponse:
+    """Return auto-discovered CLI runtimes across system PATH and GUI directories."""
+    from .runtimes.registry import discover_runtimes
+    runtimes = discover_runtimes()
+    return JSONResponse({"runtimes": [r.to_dict() for r in runtimes]})
+
+
+@app.get("/api/settings/keys")
+async def get_settings_keys() -> JSONResponse:
+    """Return masked status summary of API keys (from env or ~/.open_edit/keys.json)."""
+    from .runtimes.keys_store import get_masked_keys_summary
+    return JSONResponse(get_masked_keys_summary())
+
+
+@app.put("/api/settings/keys")
+async def put_settings_key(req: SaveKeyRequest) -> JSONResponse:
+    """Save an API key to ~/.open_edit/keys.json with 0600 permissions."""
+    from .runtimes.keys_store import save_stored_key, get_masked_keys_summary
+    provider = req.provider.strip().lower()
+    if not provider:
+        raise HTTPException(status_code=400, detail="provider is required")
+    save_stored_key(provider, req.key)
+    return JSONResponse({
+        "status": "saved",
+        "provider": provider,
+        "keys": get_masked_keys_summary(),
+    })
+
+
 # ---------------------------------------------------------------------------
 # Edit graph CRUD (Wave 1.4)
 # ---------------------------------------------------------------------------
@@ -502,7 +537,7 @@ async def reorder_ops(
             raise HTTPException(
                 status_code=404, detail=f"op {eid} not found in edit graph",
             )
-    for i, eid in enumerate(req.op_ids, start=1):
+    for i, eid in enumerate(req.op_ids, start=0):
         store.move_arbitrary(eid, i)
     return JSONResponse({"reordered": True})
 
