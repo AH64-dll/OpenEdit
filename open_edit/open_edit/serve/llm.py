@@ -31,6 +31,7 @@ import json
 import os
 import shutil
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -60,7 +61,7 @@ class StreamEvent(TypedDict, total=False):
       — per-call token + cost data (v1.4 P1-3). The agent loop
       aggregates these across one user turn and emits a single
       ``cost_update`` event after ``done``. ``source`` distinguishes
-      "pi" (read from pi's session JSONL), "computed" (SDK usage ×
+      "pi" (read from pi's session JSONL), "computed" (SDK usage x
       pricing.json), and "unavailable" (no cost data — UI shows
       "cost n/a"). For "pi" / "computed", ``tokens`` and
       ``cost_usd`` are the per-call figures; for "unavailable"
@@ -76,12 +77,29 @@ class StreamEvent(TypedDict, total=False):
 # Config
 # ---------------------------------------------------------------------------
 
-def _api_key() -> str:
-    key = os.environ.get("OPEN_EDIT_LLM_API_KEY", "").strip()
+def _api_key(provider: str | None = None) -> str:
+    key = (
+        os.environ.get("OPEN_EDIT_LLM_API_KEY", "").strip()
+        or os.environ.get("OPENCODE_API_KEY", "").strip()
+        or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+    )
+    if not key and provider:
+        from .runtimes.keys_store import get_stored_key
+        key = get_stored_key(provider) or ""
     if not key:
+        from .runtimes.keys_store import get_stored_key
+        key = (
+            get_stored_key("anthropic")
+            or get_stored_key("opencode")
+            or get_stored_key("openai")
+            or get_stored_key("antigravity")
+            or ""
+        )
+    if not key:
+        p_title = provider.lower() if provider else "llm"
         raise RuntimeError(
-            "OPEN_EDIT_LLM_API_KEY is not set. Set it to your Anthropic "
-            "(or OpenAI) API key before starting the server."
+            f"{p_title} provider: OPEN_EDIT_LLM_API_KEY is not set. Set it or configure a key in Settings (⚙️)."
         )
     return key
 
@@ -352,6 +370,29 @@ def _pi_normalize_event(obj: dict[str, Any]) -> list[StreamEvent]:
 
         if role != "assistant":
             return []
+
+        # Surface provider-level errors (429 rate limits, auth failures,
+        # model unavailability, etc.). Pi emits these as message_end
+        # events with stopReason="error" and an errorMessage string —
+        # but with an empty content array, so without this check the
+        # error is silently swallowed and the user sees no response.
+        if msg.get("stopReason") == "error" and msg.get("errorMessage"):
+            err = msg["errorMessage"]
+            # Try to extract a human-readable message from the JSON
+            # error body that opencode-go returns (e.g. "429 {...}").
+            try:
+                # Strip the leading HTTP status code if present
+                if err[:4].strip().isdigit():
+                    err_json = json.loads(err.split(" ", 1)[1])
+                    err = (
+                        err_json.get("error", {}).get("message", "")
+                        or err_json.get("message", "")
+                        or err
+                    )
+            except (json.JSONDecodeError, IndexError, KeyError, TypeError):
+                pass  # use the raw errorMessage string
+            return [{"type": "error", "message": f"LLM provider error: {err}"}]
+
         out: list[StreamEvent] = []
         for blk in content:
             if not isinstance(blk, dict):
@@ -464,10 +505,8 @@ async def _stream_cli(
             try:
                 line = await asyncio.wait_for(proc.stdout.readline(), timeout=adapter.default_timeout_s)
             except TimeoutError:
-                try:
+                with suppress(ProcessLookupError):
                     proc.kill()
-                except ProcessLookupError:
-                    pass
                 raise
             if not line:
                 return
@@ -499,23 +538,65 @@ async def _stream_cli(
                         if ev.get("type") == "text_delta":
                             saw_text = True
                         yield ev
-        else:
+        elif adapter.name == "jcode":
+            # JCode ``--json`` outputs a single JSON blob (not streaming).
+            # Read all stdout, parse and extract the assistant reply.
+            jcode_raw = b""
+            async for chunk in _read_with_timeout():
+                jcode_raw += chunk
+            jcode_text = jcode_raw.decode("utf-8", errors="replace").strip()
+            if jcode_text:
+                try:
+                    jcode_obj = json.loads(jcode_text)
+                except json.JSONDecodeError:
+                    jcode_obj = {}
+                reply: str = ""
+                if isinstance(jcode_obj, dict):
+                    reply = jcode_obj.get("text") or jcode_obj.get("response") or jcode_obj.get("content") or ""
+                    if not reply and "choices" in jcode_obj:
+                        choices = jcode_obj["choices"]
+                        if isinstance(choices, list) and choices:
+                            msg = choices[0].get("message", "") if isinstance(choices[0], dict) else ""
+                            if isinstance(msg, dict):
+                                reply = msg.get("content", "")
+                            elif isinstance(msg, str):
+                                reply = msg
+                if reply:
+                    saw_text = True
+                    yield {"type": "text_delta", "text": reply}
+                elif jcode_text:
+                    saw_text = True
+                    yield {"type": "text_delta", "text": jcode_text}
+            yield {"type": "done", "stop_reason": "end_turn"}
+            return
+        elif adapter.name == "antigravity":
+            async for chunk in _read_with_timeout():
+                text = chunk.decode("utf-8", errors="replace")
+                if text:
+                    saw_text = True
+                    yield {"type": "text_delta", "text": text}
+            yield {"type": "done", "stop_reason": "end_turn"}
+            return
+        elif adapter.name == "opencode":
             # opencode normalizer is already adapter-aware; pass it the
             # raw byte stream and let it handle framing.
             async for ev in parse_opencode_events(_read_with_timeout()):
                 if ev.get("type") == "text_delta":
                     saw_text = True
-                # Note: opencode's step_finish already yields a "done";
-                # _stream_cli does NOT emit a second "done" at the end
-                # for the opencode branch — the opencode normalizer's
-                # done is the authoritative one.
                 yield ev
             return
+        else:
+            # Fallback for any other CLI adapter: stream stdout lines as text_delta
+            async for chunk in _read_with_timeout():
+                text = chunk.decode("utf-8", errors="replace")
+                if text:
+                    saw_text = True
+                    yield {"type": "text_delta", "text": text}
+            yield {"type": "done", "stop_reason": "end_turn"}
+            return
     except TimeoutError:
-        try:
+        with suppress(ProcessLookupError):
             proc.kill()
-        except ProcessLookupError:
-            pass
         yield {
             "type": "error",
             "message": f"{adapter.name} timeout: timed out after {adapter.default_timeout_s}s",
@@ -523,10 +604,8 @@ async def _stream_cli(
         yield {"type": "done", "stop_reason": "error"}
         return
     except asyncio.CancelledError:
-        try:
+        with suppress(Exception):
             proc.kill()
-        except Exception:
-            pass
         raise
 
     try:
@@ -537,10 +616,8 @@ async def _stream_cli(
     if proc.returncode != 0 and not saw_text:
         stderr_data = b""
         if proc.stderr is not None:
-            try:
+            with suppress(Exception):
                 stderr_data = await proc.stderr.read()
-            except Exception:
-                pass
         stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
         yield {
             "type": "error",
@@ -573,7 +650,7 @@ async def _stream_anthropic(
     # Check the API key before attempting the import so that a missing key
     # raises a clean RuntimeError (caught by the caller) rather than being
     # shadowed by an ImportError when the anthropic package is absent.
-    api_key = _api_key()
+    api_key = _api_key("anthropic")
     import anthropic  # type: ignore
 
     client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -622,10 +699,7 @@ async def _stream_anthropic(
                     if raw:
                         try:
                             parsed = json.loads(raw)
-                            if isinstance(parsed, dict):
-                                parsed_input = parsed
-                            else:
-                                parsed_input = {"value": parsed}
+                            parsed_input = parsed if isinstance(parsed, dict) else {"value": parsed}
                         except json.JSONDecodeError:
                             # Forward the raw string so the agent loop can
                             # surface a useful error rather than crash.
@@ -702,7 +776,7 @@ async def _stream_openai(
     """
     import openai  # type: ignore
 
-    client = openai.AsyncOpenAI(api_key=_api_key())
+    client = openai.AsyncOpenAI(api_key=_api_key("openai"))
 
     # Convert messages: Anthropic blocks -> OpenAI role/content
     oai_messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
