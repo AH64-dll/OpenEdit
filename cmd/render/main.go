@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -49,9 +51,34 @@ func main() {
 		"QT_QPA_PLATFORM=offscreen",
 	)
 
+	// Put the subprocess in its own process group so we can kill the whole
+	// tree on signal or timeout (see cmd.Cancel below).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, "render:", err)
+		os.Exit(1)
+	}
+
+	// Forward SIGINT/SIGTERM to the whole process group so melt is
+	// cleaned up (instead of becoming an orphan when we exit).
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		os.Exit(1)
+	}()
+
+	if err := cmd.Wait(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			fmt.Fprintf(os.Stderr, "render: timed out after %s; fix: retry with --timeout 0 for no limit or a larger duration\n", (*timeout).Round(time.Second))
 			os.Exit(1)

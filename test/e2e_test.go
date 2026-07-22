@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -13,6 +14,75 @@ import (
 	"testing"
 	"time"
 )
+
+func TestRenderSignalCleanup(t *testing.T) {
+	root, _ := filepath.Abs("..")
+	bin := filepath.Join(root, "bin")
+
+	build := exec.Command("go", "build", "-a", "-o", filepath.Join(bin, "render"), filepath.Join(root, "cmd", "render"))
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build render: %v\n%s", err, out)
+	}
+	t.Cleanup(func() {
+		os.Remove(filepath.Join(bin, "render"))
+	})
+
+	mltPath := filepath.Join(root, "testdata", "clip_short.expected.mlt")
+	outputPath := filepath.Join(t.TempDir(), "out.mp4")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	render := exec.CommandContext(ctx, filepath.Join(bin, "render"),
+		"--mlt", mltPath,
+		"--output", outputPath,
+		"--nice", "0",
+	)
+	render.Dir = root
+	render.Stdout = io.Discard
+	render.Stderr = io.Discard
+
+	if err := render.Start(); err != nil {
+		t.Fatalf("start render: %v", err)
+	}
+
+	// Poll for melt to start (tight loop because render completes
+	// in ~1.4s at native resolution).
+	var meltPid int
+	for i := 0; i < 150; i++ {
+		check := exec.Command("pgrep", "-x", "melt")
+		out, err := check.Output()
+		if err == nil {
+			fmt.Sscanf(string(out), "%d", &meltPid)
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if meltPid == 0 {
+		cancel()
+		render.Process.Kill()
+		render.Wait()
+		t.Skip("render completed before melt could be detected")
+	}
+	t.Logf("melt running before SIGINT (pid: %d)", meltPid)
+
+	if err := render.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatalf("signal SIGINT: %v", err)
+	}
+
+	// Use Process.Wait() so we don't block on pipe-drain goroutines
+	// (melt may still hold the write end of stdout/stderr).
+	if _, err := render.Process.Wait(); err != nil {
+		t.Logf("render process wait: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// kill -0 checks if the process exists. nil means it's still alive.
+	if err := syscall.Kill(meltPid, 0); err == nil {
+		t.Errorf("melt (pid %d) is still running after SIGINT — orphaned subprocess", meltPid)
+	}
+}
 
 func TestPipelineE2E_NoLLM(t *testing.T) {
 	root, _ := filepath.Abs("..")
