@@ -294,7 +294,7 @@ def test_execute_trigger_render_in_process_returns_structured_shape(tmp_path):
     proc = mock.Mock(returncode=0, stdout=f"{fake}\n", stderr="")
 
     with mock.patch("subprocess.run", return_value=proc), \
-         mock.patch("open_edit.serve.agent._probe_duration", return_value=10.5):
+         mock.patch("open_edit.serve.tool_executor._probe_duration", return_value=10.5):
         out = agent._execute_trigger_render({"mode": "proxy"}, tmp_path)
 
     # Required structured fields (must match pi subprocess shape)
