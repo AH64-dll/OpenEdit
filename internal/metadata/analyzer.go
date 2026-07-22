@@ -116,7 +116,7 @@ func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 	c.DurationSec = dur
 
 	if scenes {
-		detected, err := detectScenes(path, threshold)
+		detected, err := detectScenes(path, threshold, c.DurationSec)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +130,7 @@ func analyzeOne(path string, scenes bool, threshold float64) (*Clip, error) {
 	return c, nil
 }
 
-func detectScenes(path string, threshold float64) ([]Scene, error) {
+func detectScenes(path string, threshold float64, totalDurationSec float64) ([]Scene, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), sceneDetectTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ffmpeg",
@@ -165,39 +165,12 @@ func detectScenes(path string, threshold float64) ([]Scene, error) {
 		}
 	}
 
-	durCtx, durCancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer durCancel()
-	durCmd := exec.CommandContext(durCtx, "ffprobe",
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_format", path,
-	)
-	durOut, err := durCmd.Output()
-	if err != nil {
-		if durCtx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("ffprobe for duration timed out after %s", probeTimeout)
-		}
-		return nil, fmt.Errorf("ffprobe for duration: %w", err)
-	}
-	var durData struct {
-		Format struct {
-			Duration string `json:"duration"`
-		} `json:"format"`
-	}
-	if err := json.Unmarshal(durOut, &durData); err != nil {
-		return nil, fmt.Errorf("parse duration: %w", err)
-	}
-	totalDur, err := strconv.ParseFloat(durData.Format.Duration, 64)
-	if err != nil {
-		return nil, fmt.Errorf("parse duration float: %w", err)
-	}
-
 	scenes := make([]Scene, 0, len(cuts)+1)
 	prev := 0.0
 	for _, t := range cuts {
 		scenes = append(scenes, Scene{StartSec: prev, EndSec: t})
 		prev = t
 	}
-	scenes = append(scenes, Scene{StartSec: prev, EndSec: totalDur})
+	scenes = append(scenes, Scene{StartSec: prev, EndSec: totalDurationSec})
 	return scenes, nil
 }
