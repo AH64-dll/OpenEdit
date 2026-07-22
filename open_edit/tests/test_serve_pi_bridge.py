@@ -76,7 +76,7 @@ def _bootstrap_project(project_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_bridge_list_tools():
-    """--list-tools returns all 13 tool names (10 real + 2 P1-1 + 1 virtual)."""
+    """--list-tools returns all 14 tool names (10 real + 3 P1-1/Wave1 + 1 virtual)."""
     res = _run_bridge("--list-tools")
     tools = res.get("tools", [])
     assert "add_marker" in tools
@@ -84,7 +84,8 @@ def test_bridge_list_tools():
     assert "run_python" in tools
     assert "search_assets" in tools
     assert "import_asset" in tools
-    assert len(tools) == 13
+    assert "list_assets" in tools
+    assert len(tools) == 14
 
 
 def test_bridge_invalid_args_returns_error():
@@ -185,8 +186,8 @@ def test_bridge_list_tools_includes_new_tool_names():
     tools = res.get("tools", [])
     assert "search_assets" in tools
     assert "import_asset" in tools
-    # The count grows from 11 (P1-2 baseline) to 13.
-    assert len(tools) == 13, tools
+    # The count grows from 11 (P1-2 baseline) to 14.
+    assert len(tools) == 14, tools
 
 
 def test_bridge_search_assets_missing_key_returns_structured_error(tmp_path):
@@ -350,8 +351,8 @@ def test_bridge_can_dispatch_every_advertised_tool():
     ``_run_agent_tool`` (``pi_bridge.py``); a missing re-export would
     make the LLM see ``tool not found`` for that tool.
     """
-    from open_edit.serve.tool_schemas import TOOL_SCHEMAS
     import open_edit.agent.tools as tools_mod
+    from open_edit.serve.tool_schemas import TOOL_SCHEMAS
 
     missing: list[str] = []
     for schema in TOOL_SCHEMAS:
@@ -439,10 +440,9 @@ def test_trigger_render_overlay_mode_with_overlays_calls_html_overlay(tmp_path, 
     """Test 42: trigger_render with mode='overlay' + at least one overlay
     in the project → html_overlay.render_composited is invoked with a
     bg_renderer lambda."""
-    from open_edit.serve import pi_bridge
-    from open_edit.serve import html_overlay
     # Set up a project with one overlay.
-    from open_edit.ir.types import Timeline, HtmlOverlay
+    from open_edit.ir.types import HtmlOverlay, Timeline
+    from open_edit.serve import html_overlay, pi_bridge
     project = tmp_path / "myproject"
     project.mkdir()
     # Mock the timeline-loading to return a Timeline with one overlay.
@@ -481,9 +481,8 @@ def test_trigger_render_overlay_mode_with_overlays_calls_html_overlay(tmp_path, 
 def test_trigger_render_overlay_mode_without_overlays_uses_bare_mlt(tmp_path, monkeypatch):
     """Test 43: trigger_render with mode='overlay' BUT no overlays →
     fall back to bare MLT (no composited path)."""
-    from open_edit.serve import pi_bridge
-    from open_edit.serve import html_overlay
     from open_edit.ir.types import Timeline
+    from open_edit.serve import html_overlay, pi_bridge
     project = tmp_path / "myproject"
     project.mkdir()
     fake_timeline = Timeline(overlays=[])  # empty
@@ -505,10 +504,10 @@ def test_trigger_render_overlay_render_error_falls_back_to_bare_mlt(tmp_path, mo
     """Test 44: html_overlay.render_composited raises OverlayRenderError
     → log warning + fall back to bare MLT. If e.bg_path is set, return it
     directly without re-rendering the bg."""
-    from open_edit.serve import pi_bridge
-    from open_edit.serve import html_overlay
-    from open_edit.ir.types import Timeline, HtmlOverlay
     import logging
+
+    from open_edit.ir.types import HtmlOverlay, Timeline
+    from open_edit.serve import html_overlay, pi_bridge
     project = tmp_path / "myproject"
     project.mkdir()
     fake_timeline = Timeline(overlays=[
@@ -563,9 +562,8 @@ async def test_run_trigger_render_overlay_inside_running_loop(
     agent path). The bridge must detect the running loop and execute the
     coroutine on a worker thread instead.
     """
-    from open_edit.serve import pi_bridge
-    from open_edit.serve import html_overlay
-    from open_edit.ir.types import Timeline, HtmlOverlay
+    from open_edit.ir.types import HtmlOverlay, Timeline
+    from open_edit.serve import html_overlay, pi_bridge
 
     project = tmp_path / "myproject"
     project.mkdir()
@@ -660,9 +658,8 @@ def test_run_trigger_render_overlay_error_no_bg_path_returns_failure(
     re-run the bg via ``_run_mlt_only_render``. Re-running is a slow
     and confusing fallback that masks the real error.
     """
-    from open_edit.serve import pi_bridge
-    from open_edit.serve import html_overlay
-    from open_edit.ir.types import Timeline, HtmlOverlay
+    from open_edit.ir.types import HtmlOverlay, Timeline
+    from open_edit.serve import html_overlay, pi_bridge
     project = tmp_path / "myproject"
     project.mkdir()
     fake_timeline = Timeline(overlays=[

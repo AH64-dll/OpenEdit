@@ -5,14 +5,15 @@ matching the actual ``args: dict`` shape that the corresponding function in
 ``open_edit/agent/tools/`` expects. Keep them in sync with the tool
 docstrings when the underlying tools change.
 
-The 12 tools below mirror ``open_edit/agent/tools/`` 1:1. A 13th virtual
+The 13 tools below mirror ``open_edit/agent/tools/`` 1:1. A 14th virtual
 tool ``trigger_render`` is included: it is **server-side only** (not in
 ``open_edit.agent.tools``) and is handled specially by the agent loop to
 shell out to ``open_edit render``.
 
-v1.4 P1-1 added ``search_assets`` and ``import_asset`` (12 real + 1 virtual
-= 13 in total). The pi TS extension auto-discovers new entries from this
-list, so no extension changes are needed when tools are added.
+v1.4 P1-1 added ``search_assets`` and ``import_asset``. Wave 1.2 added
+``list_assets`` (13 real + 1 virtual = 14 in total). The pi TS extension
+auto-discovers new entries from this list, so no extension changes are
+needed when tools are added.
 
 Each schema follows the Anthropic tools shape::
 
@@ -419,6 +420,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     ),
                 },
             },
+        },
+    },
+    # 14 (Wave 1.2) ----------------------------------------------------
+    {
+        "name": "list_assets",
+        "description": (
+            "List all ingested media assets in the project. "
+            "Returns each asset's hash, filename, duration, type "
+            "(video/audio/image), dimensions, fps, codec, and "
+            "whether it has an audio track. Call this whenever you "
+            "need to discover what media is available in the project."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
         },
     },
 ]
