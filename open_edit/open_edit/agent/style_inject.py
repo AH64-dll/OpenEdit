@@ -5,7 +5,6 @@ Per phase4-design-revised.md section 3.2 (T2) and audit M4.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Optional
 
 from open_edit.style.retrieve import get_slice
@@ -38,9 +37,14 @@ def build_prior_state(
 
     # 4. Latest 3 ops (≤150 tokens)
     if workdir:
+        from open_edit.agent.tools._helpers import _db_path
         from open_edit.storage.edit_graph import EditGraphStore
-        store = EditGraphStore(Path(workdir) / "edit_graph.db")
-        recent = store.load_all()[-3:]
+        db_path = _db_path(workdir)
+        if not db_path.exists():
+            recent = []
+        else:
+            store = EditGraphStore(db_path)
+            recent = store.load_all()[-3:]
         if recent:
             ops_lines = "\n".join(
                 f"- {op.kind} ({op.author}) at {op.timestamp[:19]}"
@@ -53,8 +57,9 @@ def build_prior_state(
     # know what's queued so it can reason about over-commit risk before
     # it's asked to "process" the notes via commit_feedback.
     if workdir:
+        from open_edit.agent.tools._helpers import _notes_db_path
         from open_edit.storage.notes import NotesStore
-        notes_db = Path(workdir) / "notes.db"
+        notes_db = _notes_db_path(workdir)
         if notes_db.exists():
             store = NotesStore(notes_db)
             pending = store.list_pending(project_id)

@@ -33,6 +33,15 @@ class ProviderSpec:
     is_cli: bool
     stream: Callable[..., Awaitable[Iterator[dict]]]
     missing_error: str  # yielded as {"type": "error", "message": ...}
+    # True when the provider runs a COMPLETE agent loop per ``stream_chat``
+    # call (all CLI providers: pi executes tools via the TS extension and
+    # loops internally; opencode/jcode/antigravity similarly). For these,
+    # the Open Edit agent loop must NOT re-execute tools or re-loop: it
+    # streams exactly once, forwards events, and finalizes the turn.
+    # False for SDK providers (anthropic/openai), where one ``stream_chat``
+    # call yields ONE assistant message and the agent loop owns tool
+    # execution + iteration.
+    owns_agent_loop: bool = False
 
 
 # --- Imported lazily so a missing SDK doesn't break server startup. ---
@@ -87,6 +96,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "(see https://github.com/badlogic/pi-mono) and ensure the "
             "binary is on PATH, or set OPEN_EDIT_PI_BINARY."
         ),
+        owns_agent_loop=True,
     ),
     "opencode": ProviderSpec(
         name="opencode",
@@ -97,6 +107,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "Install opencode (see https://opencode.ai) and ensure the "
             "binary is on PATH."
         ),
+        owns_agent_loop=True,
     ),
     "antigravity": ProviderSpec(
         name="antigravity",
@@ -106,6 +117,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "antigravity provider: `antigravity` binary not found on "
             "PATH. Install antigravity and ensure the binary is on PATH."
         ),
+        owns_agent_loop=True,
     ),
     "jcode": ProviderSpec(
         name="jcode",
@@ -115,6 +127,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "jcode provider: `jcode` binary not found on PATH. Install "
             "jcode and ensure the binary is on PATH."
         ),
+        owns_agent_loop=True,
     ),
 }
 

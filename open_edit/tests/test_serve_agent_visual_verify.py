@@ -145,8 +145,12 @@ async def test_verify_loop_runs_after_trigger_render(monkeypatch, tmp_path):
         ],
     ])
 
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
 
     async def _stream_with_tool_result(*args, **kwargs):
         async for ev in stream_fn(*args, **kwargs):
@@ -171,7 +175,7 @@ async def test_verify_loop_runs_after_trigger_render(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_verify_skipped_for_text_only_model(monkeypatch, tmp_path):
     """A text-only model (minimax-m2.7) → no frames in result, outcome=skipped, source=text_only_model."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "minimax-m2.7")
     store = tmp_path / "models-store.json"
     store.write_text(json.dumps({"opencode-go": {"models": [
@@ -185,6 +189,10 @@ async def test_verify_skipped_for_text_only_model(monkeypatch, tmp_path):
         [{"type": "text_delta", "text": "Done."}, {"type": "done", "stop_reason": "end_turn"}],
     ])
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
 
     async def _stream_with_tool_result(*args, **kwargs):
         async for ev in stream_fn(*args, **kwargs):
@@ -204,9 +212,13 @@ async def test_verify_skipped_for_text_only_model(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_render_count_capped_at_three(monkeypatch, tmp_path):
     """4 trigger_render calls in 4 turns → 4th returns render_capped tool result."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     monkeypatch.setenv("OPEN_EDIT_VERIFY_MAX_RENDERS", "3")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
 
     turns = []
     for i in range(4):
@@ -238,8 +250,12 @@ async def test_render_count_capped_at_three(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_iteration_within_cap(monkeypatch, tmp_path):
     """2 renders, both verified, LLM says PASS after 2nd → outcome=pass."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
         [{"type": "tool_use", "id": "t2", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -261,11 +277,17 @@ async def test_iteration_within_cap(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_mutation_tools_executed_before_render_in_batch(monkeypatch, tmp_path):
     """add_clip + trigger_render in one LLM turn → add_clip runs first, render is fresh."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
     calls: list[str] = []
     def fake_execute(name, args, path):
         calls.append(name)
+        if name == "trigger_render":
+            return render_result
         return {"ok": True}
     monkeypatch.setattr(agent_mod, "_execute_tool", fake_execute)
     stream_fn, _ = _make_mock_stream([
@@ -285,14 +307,20 @@ async def test_mutation_tools_executed_before_render_in_batch(monkeypatch, tmp_p
     events: list[dict] = []
     async for ev in agent_mod.run_agent_turn("testproject", "Add and render.", [], conv_id=None):
         events.append(ev)
-    assert calls == ["add_clip"]
+    # SDK providers execute every tool locally; the guarantee under test
+    # is that the mutation runs BEFORE the render in the same batch.
+    assert calls == ["add_clip", "trigger_render"]
 
 
 @pytest.mark.asyncio
 async def test_only_one_render_per_batch_even_if_multiple_called(monkeypatch, tmp_path):
     """LLM emits two trigger_render calls in one turn → only the last one runs."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
     stream_fn, _ = _make_mock_stream([
         [
             {"type": "tool_use", "id": "r1", "name": "trigger_render", "input": {}},
@@ -320,8 +348,12 @@ async def test_only_one_render_per_batch_even_if_multiple_called(monkeypatch, tm
 @pytest.mark.asyncio
 async def test_pass_line_drives_pass_outcome(monkeypatch, tmp_path):
     """VERIFICATION: PASS → outcome=pass, source=model_explicit_pass."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
         [{"type": "text_delta", "text": "VERIFICATION: PASS"}, {"type": "done", "stop_reason": "end_turn"}],
@@ -343,8 +375,12 @@ async def test_pass_line_drives_pass_outcome(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_fail_no_tool_calls_emits_uncertain(monkeypatch, tmp_path):
     """VERIFICATION: FAIL with no tool calls → outcome=uncertain, source=model_explicit_fail."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
         [{"type": "text_delta", "text": "The overlay is still there.\nVERIFICATION: FAIL"}, {"type": "done", "stop_reason": "end_turn"}],
@@ -366,8 +402,12 @@ async def test_fail_no_tool_calls_emits_uncertain(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_no_verdict_line_emits_no_verdict_line_verdict_source(monkeypatch, tmp_path):
     """LLM says nothing parseable → outcome=uncertain, source=model_no_verdict_line."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
         [{"type": "text_delta", "text": "All done."}, {"type": "done", "stop_reason": "end_turn"}],
@@ -388,8 +428,12 @@ async def test_no_verdict_line_emits_no_verdict_line_verdict_source(monkeypatch,
 @pytest.mark.asyncio
 async def test_tool_result_with_images_does_not_bloat_persistent_history(monkeypatch, tmp_path):
     """After a verified render, the slim view sent to the next LLM call has no image blocks."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path: render_result,
+    )
     seen_messages: list[list[dict]] = []
     async def _spy_stream(messages, **kwargs):
         seen_messages.append(list(messages))
@@ -445,26 +489,30 @@ async def test_cancel_during_ffmpeg_aborts_cleanly(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_no_change_render_returns_no_change_tool_result(monkeypatch, tmp_path):
     """A 2nd trigger_render with the same project state → no ffmpeg, no frames."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    render_calls = {"n": 0}
+
+    def fake_execute(name, args, path):
+        render_calls["n"] += 1
+        if render_calls["n"] >= 2:
+            return {
+                "output_path": render_result["output_path"],
+                "no_change": True,
+                "render_id": "render_nochange",
+                "previous_render_id": render_result["render_id"],
+                "verification": {"verdict_required": False, "frames": [], "reason": "no_change"},
+            }
+        return render_result
+
+    monkeypatch.setattr(agent_mod, "_execute_tool", fake_execute)
     monkeypatch.setenv("OPEN_EDIT_VERIFY_ALLOW_NO_CHANGE_SKIP", "1")
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
         [{"type": "tool_use", "id": "t2", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
         [{"type": "text_delta", "text": "VERIFICATION: PASS\n"}, {"type": "done", "stop_reason": "end_turn"}],
     ])
-    async def _stream_with_tool_result(*args, **kwargs):
-        async for ev in stream_fn(*args, **kwargs):
-            if ev.get("type") == "tool_use":
-                yield {"type": "tool_result", "name": ev["name"], "result": {
-                    "output_path": render_result["output_path"],
-                    "no_change": True,
-                    "render_id": "render_nochange",
-                    "previous_render_id": render_result["render_id"],
-                    "verification": {"verdict_required": False, "frames": [], "reason": "no_change"},
-                } if ev["id"] == "t2" else render_result}
-            yield ev
-    monkeypatch.setattr(agent_mod, "stream_chat", _stream_with_tool_result)
+    monkeypatch.setattr(agent_mod, "stream_chat", stream_fn)
     events: list[dict] = []
     async for ev in agent_mod.run_agent_turn("testproject", "Render twice.", [], conv_id=None):
         events.append(ev)
@@ -475,7 +523,7 @@ async def test_no_change_render_returns_no_change_tool_result(monkeypatch, tmp_p
 @pytest.mark.asyncio
 async def test_project_meta_verify_disabled_skips_loop(monkeypatch, tmp_path):
     """project_meta.verify_disabled=1 → no verification stage, behaves like v1.4."""
-    monkeypatch.setattr(agent_mod, "_llm_provider", lambda: "pi")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     # Create the edit_graph.db with verify_disabled=1 so is_verify_disabled returns True.
     from open_edit.storage.edit_graph import EditGraphStore
     db_path = tmp_path / ".open_edit" / "edit_graph.db"

@@ -149,6 +149,32 @@ def _max_tokens() -> int:
         return 4096
 
 
+def effective_provider(project_path: str | None) -> str:
+    """Resolve the provider that ``stream_chat`` would use for this project.
+
+    Mirrors the resolution order inside ``stream_chat``: per-project
+    ``.open_edit/config.toml`` (if present and valid) beats the
+    ``OPEN_EDIT_LLM_PROVIDER`` env var. The agent loop needs this to
+    decide whether the provider owns the agent loop (CLI providers)
+    before it starts streaming — it cannot learn it from the event
+    stream itself.
+    """
+    if project_path is not None:
+        try:
+            proj_dir = Path(project_path)
+        except (TypeError, ValueError):
+            proj_dir = None  # type: ignore[assignment]
+        if proj_dir is not None and (proj_dir / ".open_edit" / "config.toml").is_file():
+            try:
+                from .llm_config import load_llm_config
+                cfg = load_llm_config(proj_dir)
+                if cfg.provider:
+                    return cfg.provider
+            except Exception:
+                pass  # fall back to env on any error
+    return _provider()
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -196,6 +222,9 @@ async def stream_chat(
     # broken project config never wedges the chat.
     project_provider: str | None = None
     project_model: str | None = None
+    resolved = effective_provider(project_path)
+    if resolved != _provider():
+        project_provider = resolved
     if project_path is not None:
         try:
             proj_dir = Path(project_path)
@@ -205,7 +234,6 @@ async def stream_chat(
             try:
                 from .llm_config import load_llm_config
                 cfg = load_llm_config(proj_dir)
-                project_provider = cfg.provider
                 project_model = cfg.model
             except Exception:
                 pass  # fall back to env on any error (parse, validation, etc.)

@@ -365,23 +365,18 @@ def test_max_agent_iterations_env_override(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_provider_does_tool_exec_resolved_once_per_turn(patched_agent, monkeypatch):
-    """V6-2: ``_llm_provider()`` is hoisted out of the per-iteration
-    loop. Provider doesn't change between iterations of the same turn,
-    so resolving it once is enough. The canned ``_mock_stream_chat``
-    yields a 2-turn conversation, which means the loop runs twice;
-    before the fix the provider resolver was called once per iteration
-    (2 times), after the fix it's called once per turn (1 time)."""
+async def test_provider_resolved_once_per_turn(patched_agent, monkeypatch):
+    """The provider spec is resolved ONCE per turn (before the loop), not
+    per iteration. The canned ``_mock_stream_chat`` yields a 2-turn
+    conversation (loop runs twice); ``effective_provider`` must still be
+    called exactly once."""
     call_count = {"n": 0}
 
-    def counting_provider() -> str:
+    def counting_effective_provider(project_path: str | None) -> str:
         call_count["n"] += 1
         return "anthropic"
 
-    # Patch the module-scope alias (after the fix) AND the underlying
-    # llm._provider (in case any code path re-imports it).
-    monkeypatch.setattr(agent_mod, "_llm_provider", counting_provider)
-    monkeypatch.setattr("open_edit.serve.llm._provider", counting_provider)
+    monkeypatch.setattr(agent_mod, "effective_provider", counting_effective_provider)
 
     history: list[dict[str, Any]] = []
     async for _ev in agent_mod.run_agent_turn(
@@ -392,5 +387,5 @@ async def test_provider_does_tool_exec_resolved_once_per_turn(patched_agent, mon
         pass
 
     assert call_count["n"] == 1, (
-        f"expected _llm_provider() to be called once per turn; got {call_count['n']}"
+        f"expected effective_provider() to be called once per turn; got {call_count['n']}"
     )

@@ -138,6 +138,19 @@ def _is_under(path: Path, root: Path) -> bool:
         return False
 
 
+def _assets_dir_for_workdir(workdir: Path) -> Path:
+    """Return the asset-store directory for a sandbox workdir.
+
+    The workdir is whichever directory contains ``edit_graph.db``:
+    - canonical layout: ``<root>/.open_edit/`` → assets at ``<workdir>/assets``
+    - legacy layout: ``<root>/`` → assets at ``<workdir>/.open_edit/assets``
+    """
+    direct = workdir / "assets"
+    if direct.is_dir():
+        return direct
+    return workdir / ".open_edit" / "assets"
+
+
 def _get_allowed_roots() -> list[Path]:
     """P9: return the list of allowed project-root directories.
 
@@ -310,7 +323,11 @@ def _run_sandboxed(
             project_id, parent_op_id, originating_note_id,
         ))
 
-        assets_dir = workdir / ".open_edit" / "assets"
+        # workdir is the directory that CONTAINS edit_graph.db. In the
+        # canonical layout that IS the .open_edit dir (assets sit beside
+        # the db at <root>/.open_edit/assets); legacy projects have the
+        # db at the root with assets under <root>/.open_edit/assets.
+        assets_dir = _assets_dir_for_workdir(workdir)
         source_dirs = sorted(p for p in assets_dir.iterdir() if p.is_dir()) if assets_dir.exists() else []
         meta_file = workdir / 'edit_graph.db'
 
@@ -440,7 +457,7 @@ def _load_assets_via_store(store: EditGraphStore, workdir: Path) -> dict[str, As
     for op in store.load_all():
         if isinstance(op, AddClipOp):
             asset_hashes.add(op.asset_hash)
-    assets_dir = workdir / ".open_edit" / "assets"
+    assets_dir = _assets_dir_for_workdir(workdir)
     if not assets_dir.exists():
         return {}
     asset_store = AssetStore(assets_dir)

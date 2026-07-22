@@ -38,17 +38,40 @@ class _ReadBackBuffer(list):
         super().append(op)
 
 
+def _project_root(project_path: str | Path) -> Path:
+    """Return the project ROOT directory (the folder that contains
+    ``.open_edit/``). Accepts either the root itself or a file inside it
+    (legacy convention where ``project_path`` was a .kdenlive file).
+    """
+    p = Path(project_path)
+    return p if p.is_dir() else p.parent
+
+
 def _db_path(project_path: str | Path) -> Path:
     """Return the edit_graph.db path for the given project directory.
 
-    Accepts either a directory (containing edit_graph.db) or a file path
-    (whose parent contains edit_graph.db). The latter supports the old
-    convention where `project_path` was a .kdenlive file.
+    Canonical server layout (``serve/projects.py``) stores the DB at
+    ``<root>/.open_edit/edit_graph.db``. Older tooling wrote it directly
+    at ``<root>/edit_graph.db``; we read the legacy path only when the
+    canonical one is absent, and always prefer the canonical path for
+    creation so new writes land where the server looks for them.
     """
-    p = Path(project_path)
-    if p.is_dir() or p.suffix == "":
-        return p / "edit_graph.db"
-    return p.parent / "edit_graph.db"
+    root = _project_root(project_path)
+    canonical = root / ".open_edit" / "edit_graph.db"
+    if canonical.exists() or (root / ".open_edit").is_dir():
+        return canonical
+    legacy = root / "edit_graph.db"
+    if legacy.exists():
+        return legacy
+    return canonical
+
+
+def _notes_db_path(project_path: str | Path) -> Path:
+    """Return the notes.db path. Notes live at the project ROOT
+    (``<root>/notes.db``), NOT inside ``.open_edit/`` — see
+    ``serve/projects.py`` which reads them from the root.
+    """
+    return _project_root(project_path) / "notes.db"
 
 
 def load_project(project_path: str | Path) -> Project:
@@ -61,8 +84,7 @@ def load_project(project_path: str | Path) -> Project:
     if not db_path.exists():
         raise FileNotFoundError(f"edit_graph.db not found at {db_path}")
     store = EditGraphStore(db_path)
-    pp = Path(project_path)
-    workdir = pp if pp.is_dir() else pp.parent
+    workdir = _project_root(project_path)
     project = Project(
         project_id=store.project_id,
         name=workdir.name or "untitled",
@@ -89,6 +111,5 @@ def make_ir(project_path: str | Path, parent_op_id: Optional[str] = None) -> IR:
 
 def get_asset_store(project_path: str | Path) -> AssetStore:
     """Return the AssetStore rooted at <project>/.open_edit/assets."""
-    p = Path(project_path)
-    workdir = p if p.is_dir() else p.parent
+    workdir = _project_root(project_path)
     return AssetStore(workdir / ".open_edit" / "assets")

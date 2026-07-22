@@ -31,10 +31,10 @@ from typing import Any, Literal, TypedDict
 
 from . import projects as projects_mod
 from . import visual_verify
-from .llm import _coerce_event, stream_chat
-from .llm import _provider as _llm_provider
+from .llm import _coerce_event, effective_provider, stream_chat
 from .pi_bridge import _probe_duration
 from .project_meta import is_verify_disabled
+from .providers import resolve_provider
 from .serve_env import get_visual_verify_config
 from .tool_schemas import (
     IR_MODEL_SUMMARY,
@@ -82,12 +82,6 @@ _SOURCE_PRIORITY = {"pi": 0, "computed": 1, "unavailable": 2}
 # editing source. Override via the ``OPEN_EDIT_AGENT_MAX_ITERATIONS`` env
 # var (parsed as an int; non-integer values will raise at import time).
 MAX_AGENT_ITERATIONS = int(os.environ.get("OPEN_EDIT_AGENT_MAX_ITERATIONS", "10"))
-
-
-# v1.6 polish: ``_llm_provider`` is imported at the top of the module so
-# it's resolved once at import time. The provider doesn't change between
-# iterations of the same turn, and the agent loop reads the resolved value
-# at the top of each iteration (see ``run_agent_turn``).
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +228,9 @@ a one-line lead-in is enough (e.g. "Let me check the project's assets.").
 
 If a tool call fails, you'll see an `error` event in the tool_result.
 Surface the failure to the user briefly and propose a fix or a fallback.
+NEVER retry an identical failing call with identical arguments — read the
+error, change something, or stop and explain. A circuit breaker aborts
+the turn after repeated identical failures.
 """
 
 
@@ -594,6 +591,172 @@ def _make_slim_history(
 
 
 # ---------------------------------------------------------------------------
+# CLI-owned turns (pi / opencode / antigravity / jcode)
+# ---------------------------------------------------------------------------
+# CLI providers run a COMPLETE agent loop inside a single subprocess call:
+# the model calls tools, the CLI executes them (pi via the TS extension ->
+# pi_bridge), and the event stream carries both ``tool_use`` and
+# ``tool_result`` events. The Open Edit agent loop must NOT:
+#   - re-execute those tools locally (every mutation would run TWICE —
+#     duplicate notes, duplicate clips, corrupted edit graphs), or
+#   - re-loop (the next subprocess call would have no new user text —
+#     previously this ended every tool-using pi turn with a spurious
+#     "no user message found" error).
+# Instead we stream exactly once, forward events for the UI, and record a
+# well-formed transcript (every tool_use paired with a tool_result) so the
+# conversation history stays valid if the user later switches to an SDK
+# provider.
+
+async def _run_cli_owned_turn(
+    *,
+    project_id: str,
+    project_path: Path,
+    conv_id: str | None,
+    conversation_history: list[dict[str, Any]],
+    system_prompt: str,
+    should_cancel: Callable[[], bool] | None,
+    _is_cancelled: Callable[[], bool],
+    cost_ctx: dict[str, Any],
+) -> AsyncIterator[AgentEvent]:
+    """Run one turn against a provider that owns its agent loop."""
+    current_text_parts: list[str] = []
+    tool_use_blocks: list[dict[str, Any]] = []
+    forwarded_results: dict[str, dict[str, Any]] = {}  # tool_use_id -> result
+    unmatched_result_queue: list[dict[str, Any]] = []  # results without ids (FIFO)
+    stop_reason = "end_turn"
+
+    try:
+        async for raw_event in stream_chat(
+            messages=_make_slim_history(conversation_history, None),
+            tools=TOOL_SCHEMAS,
+            system=system_prompt,
+            session_id=conv_id,
+            project_path=str(project_path),
+        ):
+            if _is_cancelled():
+                yield {"type": "done", "stop_reason": "cancelled"}
+                return
+            event = _coerce_event(raw_event)
+            etype = event["type"]
+            if etype == "text_delta":
+                text = event.get("text", "")
+                if text:
+                    current_text_parts.append(text)
+                    yield {"type": "text", "text": text}
+            elif etype == "tool_use":
+                block = {
+                    "type": "tool_use",
+                    "id": event["id"],
+                    "name": event["name"],
+                    "input": event.get("input", {}),
+                }
+                tool_use_blocks.append(block)
+                yield {
+                    "type": "tool_start",
+                    "id": block["id"],
+                    "name": block["name"],
+                    "input": block["input"],
+                }
+            elif etype == "tool_result":
+                result = event.get("result", {})
+                tu_id = event.get("tool_use_id", "")
+                if tu_id:
+                    forwarded_results[tu_id] = result
+                else:
+                    unmatched_result_queue.append(result)
+                yield {
+                    "type": "tool_result",
+                    "id": tu_id,
+                    "name": event.get("name", ""),
+                    "result": result,
+                }
+                # A render result carries output_path — surface it so the
+                # UI refreshes the renders list.
+                if isinstance(result, dict) and result.get("output_path"):
+                    yield {
+                        "type": "render",
+                        "path": result["output_path"],
+                        "mode": result.get("mode", "proxy"),
+                    }
+            elif etype == "usage":
+                try:
+                    cost_ctx["turn_tokens"] += int(event.get("tokens", 0) or 0)
+                    cost_ctx["turn_cost_usd"] += float(event.get("cost_usd", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    pass
+                src = event.get("source", "unavailable")
+                if not isinstance(src, str):
+                    src = "unavailable"
+                prio = _SOURCE_PRIORITY.get(src, _SOURCE_PRIORITY["unavailable"])
+                if prio < cost_ctx["best_source_priority"]:
+                    cost_ctx["best_source_priority"] = prio
+                    cost_ctx["best_source"] = src
+            elif etype == "error":
+                yield {"type": "error", "message": event.get("message", "provider error")}
+            elif etype == "done":
+                stop_reason = event.get("stop_reason", "end_turn")
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        yield {"type": "error", "message": f"LLM stream error: {exc}"}
+        stop_reason = "error"
+
+    # Record a well-formed transcript: assistant text + tool_uses, then one
+    # user message pairing every tool_use with its result (synthesizing a
+    # placeholder for any the provider didn't report, so the history stays
+    # valid for SDK providers if the user switches later).
+    assistant_content: list[dict[str, Any]] = []
+    if current_text_parts:
+        assistant_content.append({
+            "type": "text",
+            "text": "".join(current_text_parts),
+        })
+    assistant_content.extend(tool_use_blocks)
+    if assistant_content:
+        assistant_msg: dict[str, Any] = {"role": "assistant", "content": assistant_content}
+        conversation_history.append(assistant_msg)
+        if conv_id:
+            append_to_conversation(project_id, conv_id, assistant_msg)
+
+    if tool_use_blocks:
+        result_blocks: list[dict[str, Any]] = []
+        for block in tool_use_blocks:
+            result = forwarded_results.get(block["id"])
+            if result is None and unmatched_result_queue:
+                result = unmatched_result_queue.pop(0)
+            if result is None:
+                result = {"status": "no_result_forwarded"}
+            result_blocks.append({
+                "type": "tool_result",
+                "tool_use_id": block["id"],
+                "content": json.dumps(result, default=str),
+            })
+        results_msg: dict[str, Any] = {"role": "user", "content": result_blocks}
+        conversation_history.append(results_msg)
+        if conv_id:
+            append_to_conversation(project_id, conv_id, results_msg)
+
+    yield {"type": "done", "stop_reason": stop_reason}
+    session_cost_usd = cost_ctx["previous_session_cost"] + cost_ctx["turn_cost_usd"]
+    yield {
+        "type": "cost_update",
+        "turn_tokens": cost_ctx["turn_tokens"],
+        "turn_cost_usd": round(cost_ctx["turn_cost_usd"], 9),
+        "session_cost_usd": round(session_cost_usd, 9),
+        "source": cost_ctx["best_source"],
+    }
+    if conv_id:
+        cost_ctx["cost_state"][conv_id] = {
+            "session_cost_usd": session_cost_usd,
+            "source": cost_ctx["best_source"],
+            "last_turn_cost_usd": cost_ctx["turn_cost_usd"],
+        }
+        asyncio.create_task(
+            _save_cost_state_async(project_path, dict(cost_ctx["cost_state"]))
+        )
+
+
+# ---------------------------------------------------------------------------
 # The agent loop
 # ---------------------------------------------------------------------------
 
@@ -672,14 +835,6 @@ async def run_agent_turn(
     turn_render_count = 0
     pending_verification: dict[str, Any] | None = None
 
-    # v1.6 polish: the LLM provider doesn't change between iterations of
-    # the same turn (provider switching mid-turn isn't supported). Resolve
-    # it once here so we don't re-read ``OPEN_EDIT_LLM_PROVIDER`` on every
-    # loop iteration. The pi path needs this flag because pi's extension
-    # has ALREADY executed every tool call by the time we see the
-    # ``tool_result`` event; we must NOT re-execute locally.
-    provider_does_tool_exec = _llm_provider() == "pi"
-
     def _is_cancelled() -> bool:
         if should_cancel and should_cancel():
             return True
@@ -691,6 +846,44 @@ async def run_agent_turn(
             pass
         return False
 
+    # v1.9: CLI providers (pi, opencode, ...) run a COMPLETE agent loop
+    # per subprocess call — they execute tools themselves and stream both
+    # tool_use and tool_result events. The loop below must NOT re-execute
+    # those tools or re-iterate (that double-executed every mutation and
+    # ended every pi turn with a spurious "no user message found" error).
+    # Divert to the single-stream implementation and return.
+    try:
+        provider_spec = resolve_provider(effective_provider(str(project_path)))
+    except KeyError:
+        provider_spec = None
+    if provider_spec is not None and provider_spec.owns_agent_loop:
+        cost_ctx = {
+            "cost_state": cost_state,
+            "previous_session_cost": previous_session_cost,
+            "turn_tokens": turn_tokens,
+            "turn_cost_usd": turn_cost_usd,
+            "best_source_priority": best_source_priority,
+            "best_source": best_source,
+        }
+        async for event in _run_cli_owned_turn(
+            project_id=project_id,
+            project_path=project_path,
+            conv_id=conv_id,
+            conversation_history=conversation_history,
+            system_prompt=system_prompt,
+            should_cancel=should_cancel,
+            _is_cancelled=_is_cancelled,
+            cost_ctx=cost_ctx,
+        ):
+            yield event
+        return
+
+    # Circuit breaker (v1.9): track consecutive failures per (tool, args)
+    # pair. If the LLM retries the IDENTICAL failing call, we warn it in
+    # the error result; after the third identical failure we terminate the
+    # turn instead of burning the remaining iterations in a retry loop.
+    failure_counts: dict[str, int] = {}
+
     # Main loop
     for _ in range(MAX_AGENT_ITERATIONS):
         if _is_cancelled():
@@ -700,7 +893,6 @@ async def run_agent_turn(
         # Stream the LLM
         current_text_parts: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
-        tool_results_by_name: dict[str, Any] = {}  # filled by pi provider
         stop_reason = "end_turn"
 
         try:
@@ -734,12 +926,13 @@ async def run_agent_turn(
                         "input": event.get("input", {}),
                     })
                 elif etype == "tool_result":
-                    # Pi has already executed the tool; we receive the
-                    # result directly from the provider. Forward it as a
-                    # ``tool_result`` event and stash it for the next
-                    # LLM turn. Keyed by tool name since pi's events
-                    # don't always carry the tool_use_id forward.
-                    tool_results_by_name[event.get("name", "")] = event.get("result", {})
+                    # SDK providers (anthropic/openai) never emit this —
+                    # the agent loop executes tools itself. CLI providers
+                    # are diverted to ``_run_cli_owned_turn`` before the
+                    # loop, so receiving one here means a provider is
+                    # misbehaving; ignore it rather than corrupt the
+                    # execution state.
+                    pass
                 elif etype == "usage":
                     # v1.4 P1-3: aggregate per-call cost data into
                     # the turn total. The source priority ranking
@@ -869,18 +1062,56 @@ async def run_agent_turn(
             tool_input = dict(tu.get("input", {}))
             if "project_id" not in tool_input and tool_name != "search_assets":
                 tool_input["project_id"] = project_id
-            yield {"type": "tool_start", "name": tool_name, "input": tool_input}
+
+            # Circuit breaker: has this EXACT call (name + args) failed
+            # repeatedly? Terminate instead of burning iterations in a
+            # retry loop.
+            fail_key = f"{tool_name}:{json.dumps(tool_input, sort_keys=True, default=str)}"
+            if failure_counts.get(fail_key, 0) >= 3:
+                yield {
+                    "type": "error",
+                    "message": (
+                        f"tool '{tool_name}' failed 3 times with identical "
+                        f"arguments; aborting the turn instead of looping."
+                    ),
+                }
+                yield {"type": "done", "stop_reason": "tool_loop_detected"}
+                tool_result_messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tu["id"],
+                            "content": json.dumps({
+                                "error": (
+                                    f"tool '{tool_name}' aborted: same call "
+                                    f"failed 3 times. STOP retrying it."
+                                )
+                            }),
+                        }
+                    ],
+                })
+                for trm in tool_result_messages:
+                    conversation_history.append(trm)
+                    if conv_id:
+                        append_to_conversation(project_id, conv_id, trm)
+                return
+
+            yield {"type": "tool_start", "id": tu["id"], "name": tool_name, "input": tool_input}
             try:
-                # Mutations are dispatched locally regardless of provider
-                # — the pi extension only pre-executes the slow
-                # ``trigger_render``; mutation tools (add_clip etc.) are
-                # quick edit-graph updates that the agent loop runs itself.
                 res = _execute_tool(tool_name, tool_input, project_path)
                 if inspect.isawaitable(res):
                     result = await res
                 else:
                     result = res
-                yield {"type": "tool_result", "name": tool_name, "result": result}
+                # A tool-level error payload (status: error) counts as a
+                # failure for the circuit breaker even though the call
+                # didn't raise.
+                if isinstance(result, dict) and (
+                    result.get("status") == "error" or result.get("error")
+                ):
+                    failure_counts[fail_key] = failure_counts.get(fail_key, 0) + 1
+                yield {"type": "tool_result", "id": tu["id"], "name": tool_name, "result": result}
                 tool_result_messages.append({
                     "role": "user",
                     "content": [
@@ -894,7 +1125,15 @@ async def run_agent_turn(
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                failure_counts[fail_key] = failure_counts.get(fail_key, 0) + 1
                 err_msg = f"tool '{tool_name}' failed: {exc}"
+                if failure_counts[fail_key] >= 2:
+                    err_msg += (
+                        " [circuit-breaker: this exact call has failed "
+                        f"{failure_counts[fail_key]} times — DO NOT retry it "
+                        "with the same arguments; change your approach or "
+                        "explain the blocker to the user]"
+                    )
                 yield {"type": "error", "message": err_msg}
                 tool_result_messages.append({
                     "role": "user",
@@ -911,22 +1150,37 @@ async def run_agent_turn(
             if _is_cancelled():
                 yield {"type": "done", "stop_reason": "cancelled"}
                 return
+            # Only the LAST trigger_render in a batch executes; every
+            # earlier one gets a synthesized "skipped" tool_result so the
+            # conversation history never contains an orphaned tool_use
+            # block (Anthropic rejects those with a 400 on the next call).
+            for skipped_tu in trigger_renders[:-1]:
+                tool_result_messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": skipped_tu["id"],
+                            "content": json.dumps({
+                                "status": "skipped",
+                                "reason": "superseded by a later trigger_render in the same turn",
+                            }),
+                        }
+                    ],
+                })
             tu = trigger_renders[-1]
             tool_name = tu["name"]
             tool_input = dict(tu.get("input", {}))
             if "project_id" not in tool_input and tool_name != "search_assets":
                 tool_input["project_id"] = project_id
-            yield {"type": "tool_start", "name": tool_name, "input": tool_input}
+            yield {"type": "tool_start", "id": tu["id"], "name": tool_name, "input": tool_input}
             try:
-                if provider_does_tool_exec:
-                    result = tool_results_by_name.get(tool_name, {"status": "ok"})
+                res = _execute_tool(tool_name, tool_input, project_path)
+                if inspect.isawaitable(res):
+                    result = await res
                 else:
-                    res = _execute_tool(tool_name, tool_input, project_path)
-                    if inspect.isawaitable(res):
-                        result = await res
-                    else:
-                        result = res
-                yield {"type": "tool_result", "name": tool_name, "result": result}
+                    result = res
+                yield {"type": "tool_result", "id": tu["id"], "name": tool_name, "result": result}
                 if isinstance(result, dict):
                     output_path = result.get("output_path", "")
                     mode = result.get("mode", "proxy")
@@ -989,7 +1243,16 @@ async def run_agent_turn(
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                fail_key = f"{tool_name}:{json.dumps(tool_input, sort_keys=True, default=str)}"
+                failure_counts[fail_key] = failure_counts.get(fail_key, 0) + 1
                 err_msg = f"tool '{tool_name}' failed: {exc}"
+                if failure_counts[fail_key] >= 2:
+                    err_msg += (
+                        " [circuit-breaker: this exact call has failed "
+                        f"{failure_counts[fail_key]} times — DO NOT retry it "
+                        "with the same arguments; change your approach or "
+                        "explain the blocker to the user]"
+                    )
                 yield {"type": "error", "message": err_msg}
                 tool_result_messages.append({
                     "role": "user",

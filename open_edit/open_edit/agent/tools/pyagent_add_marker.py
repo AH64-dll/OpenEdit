@@ -4,7 +4,7 @@ Per audit resolution: markers are notes, not IR ops. Restored from v1's drop.
 """
 from __future__ import annotations
 
-from open_edit.agent.tools._helpers import _db_path
+from open_edit.agent.tools._helpers import _notes_db_path
 from open_edit.storage.notes import (
     NoteSource,
     NotesStore,
@@ -15,7 +15,7 @@ from open_edit.storage.notes import (
 
 def add_marker(args: dict, project_path: str) -> dict:
     """Append a ReviewNote with source=agent at the given timestamp."""
-    db_path = _db_path(project_path).parent / "notes.db"
+    db_path = _notes_db_path(project_path)
     store = NotesStore(db_path)
     note = ReviewNote(
         project_id=args["project_id"],

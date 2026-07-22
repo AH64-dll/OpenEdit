@@ -226,16 +226,31 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "edits. Use this when no single dedicated tool fits — e.g. "
             "'add a fade-out to the first clip' needs to fetch the first "
             "clip op, build an AddEffectOp with type='fade_out', and "
-            "append it. The sandbox has access to ``open_edit`` modules "
-            "and to the project path. Output (print/return value) is "
-            "captured and returned as the tool result."
+            "append it. Output (print/return value) is captured and "
+            "returned as the tool result. "
+            "MANDATORY HEADER: the code MUST begin with a header comment "
+            "of the form `# ir_api_version: 0.1; libs: {}` or the sandbox "
+            "rejects it at preflight. Declare third-party libs you import "
+            "(allowed: numpy 1.26.4|2.1.3, pillow 10.4.0|11.0.0, "
+            "opencv-python 4.8.1.78|4.10.0.84), e.g. "
+            "`# ir_api_version: 0.1; libs: {\"numpy\": \"2.1.3\"}`. "
+            "Inside the sandbox, `ir` (an open_edit.ir.api.IR instance) "
+            "and all op classes (AddClipOp, AddEffectOp, ...) are ALREADY "
+            "injected — do NOT `import open_edit` (it is unavailable). "
+            "Build ops with `ir.add_clip(...)`, `ir.add_effect(...)` etc.; "
+            "they are committed automatically on success. Do NOT call "
+            "subprocess — the sandbox forbids it."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "code": {
                     "type": "string",
-                    "description": "Python source to execute. Must be self-contained.",
+                    "description": (
+                        "Python source to execute. Must be self-contained "
+                        "and MUST start with the header comment "
+                        "`# ir_api_version: 0.1; libs: {...}`."
+                    ),
                 },
                 "timeout_s": {
                     "type": "integer",
@@ -469,7 +484,20 @@ TOOL_USAGE_GUIDE = """\
   builds and appends the op using the open_edit IR helpers.
 - **For one-off edits that don't fit a dedicated tool** (e.g. "add a
   fade-out to the first clip"), call `run_python` directly. Compose the
-  op, append it to the graph, and print a short confirmation.
+  op, append it to the graph, and print a short confirmation. The code
+  MUST start with `# ir_api_version: 0.1; libs: {}` and must NOT
+  `import open_edit` — an `ir` object and all op classes are pre-injected.
+  Example:
+  ```python
+  # ir_api_version: 0.1; libs: {}
+  clip_id = ir.add_clip(asset_hash="ab12...", track_id="video_main",
+                        position_sec=0.0, in_point_sec=0.0, out_point_sec=5.0)
+  print("added clip", clip_id)
+  ```
+- **If a tool returns `status: "error"` or raises, do NOT retry the same
+  call with the same arguments.** Read the error, change the approach
+  (different tool, different args), or explain the blocker to the user.
+  A circuit breaker aborts the turn after repeated identical failures.
 - **For style decisions the user states explicitly**, call
   `set_pinned_value` so the preference sticks for future turns.
 - **Before generating ops of a given type**, call `get_style_profile` to
