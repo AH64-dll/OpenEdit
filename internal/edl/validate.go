@@ -39,7 +39,7 @@ func Validate(e *EDL, m *metadata.Manifest) error {
 
 		// inSec < outSec.
 		if s.InSec >= s.OutSec {
-			return fmt.Errorf("segment %d: inSec must be less than outSec (got inSec=%v, outSec=%v); fix: set inSec=%v outSec=%v", i, s.InSec, s.OutSec, s.InSec, s.OutSec+0.1)
+			return fmt.Errorf("segment %d: inSec must be less than outSec (got inSec=%v, outSec=%v); fix: set outSec=%.1f (outSec = inSec+0.1)", i, s.InSec, s.OutSec, s.InSec+0.1)
 		}
 
 		// inSec >= 0.
