@@ -30,7 +30,7 @@ from typing import Any, AsyncIterator, Callable, Literal, TypedDict
 
 from . import projects as projects_mod
 from . import visual_verify
-from .llm import stream_chat
+from .llm import _coerce_event, stream_chat
 from .pi_bridge import _probe_duration
 from .project_meta import is_verify_disabled
 from .serve_env import get_visual_verify_config
@@ -676,13 +676,19 @@ async def run_agent_turn(
         stop_reason = "end_turn"
 
         try:
-            async for event in stream_chat(
+            async for raw_event in stream_chat(
                 messages=_make_slim_history(conversation_history, pending_verification),
                 tools=TOOL_SCHEMAS,
                 system=system_prompt,
                 session_id=conv_id,
                 project_path=str(project_path),
             ):
+                # Wave 3.3: normalize through the StreamEvent contract so
+                # every consumer below can rely on ``event["type"]`` being
+                # present and the variant payload fields having safe
+                # defaults. ``_coerce_event`` raises on events missing
+                # ``type``; everything else is filled in.
+                event = _coerce_event(raw_event)
                 etype = event["type"]
                 if etype == "text_delta":
                     text = event.get("text", "")

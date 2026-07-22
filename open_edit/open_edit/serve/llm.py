@@ -49,28 +49,23 @@ from .opencode_adapter import parse_opencode_events
 # ---------------------------------------------------------------------------
 
 class StreamEvent(TypedDict, total=False):
-    """One event emitted by ``stream_chat``.
+    """One event emitted by ``stream_chat``."""
+    type: str
+    text_delta: str
+    tool_use: dict[str, Any]
+    tool_result: dict[str, Any]
+    usage: dict[str, Any]
+    done: dict[str, Any]
+    error: str
 
-    Variants:
-    - ``{"type": "text_delta", "text": "..."}``
-      — a chunk of assistant text (already delta-decoded)
-    - ``{"type": "tool_use", "id": "...", "name": "...", "input": {...}}``
-      — a fully-assembled tool_use block (input JSON already parsed)
-    - ``{"type": "usage", "source": "pi"|"computed"|"unavailable",
-         "tokens": int, "cost_usd": float, "usage": dict}``
-      — per-call token + cost data (v1.4 P1-3). The agent loop
-      aggregates these across one user turn and emits a single
-      ``cost_update`` event after ``done``. ``source`` distinguishes
-      "pi" (read from pi's session JSONL), "computed" (SDK usage x
-      pricing.json), and "unavailable" (no cost data — UI shows
-      "cost n/a"). For "pi" / "computed", ``tokens`` and
-      ``cost_usd`` are the per-call figures; for "unavailable"
-      both are 0.
-    - ``{"type": "done", "stop_reason": "..."}``
-      — final event; ``stop_reason`` is the model's stop reason
-      (``end_turn`` / ``tool_use`` / ``max_tokens`` / ``stop_sequence``)
-    """
-    type: Literal["text_delta", "tool_use", "done", "usage", "error"]
+
+def _coerce_event(raw: dict[str, Any]) -> StreamEvent:
+    if not isinstance(raw, dict) or "type" not in raw:
+        raise ValueError("StreamEvent must contain a 'type' field")
+    out = dict(raw)
+    if out.get("type") == "text_delta" and "text" not in out:
+        out["text"] = ""
+    return out  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
