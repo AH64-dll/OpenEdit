@@ -69,7 +69,7 @@ _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
 def _read_toml(path: Path) -> dict[str, Any]:
     """Read a TOML file. Python 3.11+ has tomllib; 3.13+ deprecated tomli."""
     try:
-        import tomllib  # type: ignore[import-not-found]
+        import tomllib
     except ImportError:  # pragma: no cover — Python < 3.11
         import tomli as tomllib  # type: ignore[no-redef]
     with path.open("rb") as fh:
@@ -143,7 +143,9 @@ def load_llm_config(project_dir: Path) -> LLMConfig:
         cli = {}
 
     try:
-        return LLMConfig(provider=provider, model=model, cli=cli)
+        # Pydantic will validate ``provider`` is in the enum and raise
+        # ValidationError if not. We catch and rewrap as LLMConfigError.
+        return LLMConfig(provider=provider, model=model, cli=cli)  # type: ignore[arg-type]
     except Exception as exc:
         raise LLMConfigError(
             f"invalid LLM config: provider={provider!r}, model={model!r}: {exc}"
