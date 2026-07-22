@@ -160,8 +160,8 @@ export async function loadProjectState() {
     if (inlineRenders) renderRendersList(inlineRenders);
     else refreshRendersList();
     // Render the timeline panel if full timeline data is included
-    if (s.timeline_full ?? s.timeline) {
-      renderTimeline(s.timeline_full ?? s.timeline);
+    if (s.timeline_full) {
+      renderTimeline(s.timeline_full);
     }
   } catch (e) {
     // The fetch failed — clear the loading state so the list isn't
@@ -559,8 +559,19 @@ const btnAntigravity = $('#btn-llm-preset-antigravity');
 // the sole tool-UI gating — no dedicated tool-trigger buttons exist.
 const llmToolsWarn = $('#llm-tools-warn');
 
-const ANTIGRAVITY_DEFAULT_MODEL = 'omniroute/antigravity/gemini-2.5-flash';
-const TOOL_UNSUPPORTED_PROVIDERS = new Set(['opencode']);  // v1.7: opencode has no extension yet
+const ANTIGRAVITY_DEFAULT_MODEL = 'gemini-2.5-flash';
+const TOOL_UNSUPPORTED_PROVIDERS = new Set([]);
+
+async function fetchProviderModels(provider) {
+  try {
+    const r = await fetch(`/api/llm/providers/${encodeURIComponent(provider)}/models`);
+    if (r.ok) {
+      const data = await r.json();
+      return data.models || [];
+    }
+  } catch { /* ignore */ }
+  return [];
+}
 
 async function fetchLLMConfig(projectId) {
   const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/llm-config`);
@@ -617,7 +628,8 @@ export async function loadLLMConfig() {
 function populateProviderDropdown(providers, current) {
   if (!llmProviderSelect) return;
   llmProviderSelect.innerHTML = '';
-  for (const p of providers) {
+  const allProviders = (providers || []).slice().sort();
+  for (const p of allProviders) {
     const opt = document.createElement('option');
     opt.value = p;
     opt.textContent = p;
@@ -630,20 +642,29 @@ function populateModelDropdown(models, current) {
   if (!llmModelSelect) return;
   llmModelSelect.innerHTML = '';
   if (!models || models.length === 0) {
-    // Opencode binary may be missing; still let the user keep the
-    // current model value (which may have been set via env var).
     const opt = document.createElement('option');
-    opt.value = current;
-    opt.textContent = current;
+    opt.value = current || 'default';
+    opt.textContent = current || 'default';
     opt.selected = true;
     llmModelSelect.appendChild(opt);
     return;
   }
+  let selectedFound = false;
   for (const m of models) {
     const opt = document.createElement('option');
     opt.value = m;
     opt.textContent = m;
-    if (m === current) opt.selected = true;
+    if (m === current) {
+      opt.selected = true;
+      selectedFound = true;
+    }
+    llmModelSelect.appendChild(opt);
+  }
+  if (!selectedFound && current) {
+    const opt = document.createElement('option');
+    opt.value = current;
+    opt.textContent = current;
+    opt.selected = true;
     llmModelSelect.appendChild(opt);
   }
 }
@@ -666,7 +687,6 @@ async function saveLLMConfig(provider, model) {
     populateModelDropdown(cfg.available_models, cfg.model);
     updateToolsWarning(cfg.provider);
     showToast(`LLM set to ${cfg.provider} / ${cfg.model}`, 'success');
-    // Reconnect the WS so the next turn uses the new provider.
     connectWS();
   } catch (err) {
     console.error('saveLLMConfig failed', err);
@@ -677,9 +697,9 @@ async function saveLLMConfig(provider, model) {
 if (llmProviderSelect) {
   llmProviderSelect.addEventListener('change', async () => {
     const provider = llmProviderSelect.value;
-    const currentModel = llmModelSelect ? llmModelSelect.value : '';
-    await saveLLMConfig(provider, currentModel);
-    // Refetch the model list for the new provider.
+    const models = await fetchProviderModels(provider);
+    const firstModel = (models && models.length > 0) ? models[0] : '';
+    await saveLLMConfig(provider, firstModel);
     await loadLLMConfig();
   });
 }
@@ -694,10 +714,7 @@ if (llmModelSelect) {
 
 if (btnAntigravity) {
   btnAntigravity.addEventListener('click', async () => {
-    // Antigravity preset: provider=opencode, model=ANTIGRAVITY_DEFAULT_MODEL.
-    // The server never sees the string 'antigravity' as a provider —
-    // see the v1.7 plan (A3: antigravity is a UI label, not a backend).
-    await saveLLMConfig('opencode', ANTIGRAVITY_DEFAULT_MODEL);
+    await saveLLMConfig('antigravity', ANTIGRAVITY_DEFAULT_MODEL);
     await loadLLMConfig();
   });
 }

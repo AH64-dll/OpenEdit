@@ -103,6 +103,8 @@ export function normalizeTimeline(raw) {
     num_tracks: raw.num_tracks ?? 0,
     duration_sec: raw.duration_sec ?? raw.total_duration_s ?? raw.duration_s ?? 0,
     clip_count: raw.clip_count ?? raw.num_clips ?? 0,
+    tracks: raw.tracks || [],
+    overlays: raw.overlays || [],
   };
 }
 

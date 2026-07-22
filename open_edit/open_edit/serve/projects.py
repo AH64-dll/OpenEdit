@@ -144,6 +144,7 @@ class ProjectState(BaseModel):
     assets: list[AssetInfo]
     ops: list[OpInfo]
     timeline: TimelineSummary
+    timeline_full: Optional[dict] = None
     pending_notes_count: int
     notes: list[ReviewNoteInfo] = Field(default_factory=list)
 
@@ -406,6 +407,21 @@ async def get_project_state(project_id: str) -> ProjectState:
             tail=ops[-1].edit_id if ops else None,
         )
 
+        try:
+            from open_edit.ir.apply import derive_timeline
+            from open_edit.ir.types import Project as IRProject
+            ir_project = IRProject(
+                project_id=project_id_real,
+                name=path.name,
+                workdir=path,
+                assets={},
+                edit_graph=ops,
+            )
+            full_timeline = derive_timeline(ir_project)
+            timeline_full = full_timeline.model_dump(mode="json")
+        except Exception:
+            timeline_full = None
+
         return ProjectState(
             id=project_id,
             name=path.name,
@@ -413,6 +429,7 @@ async def get_project_state(project_id: str) -> ProjectState:
             assets=asset_infos,
             ops=op_infos,
             timeline=timeline,
+            timeline_full=timeline_full,
             pending_notes_count=pending_count,
             notes=note_infos,
         )
