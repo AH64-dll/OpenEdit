@@ -133,12 +133,12 @@ async def stream_chat(
     real cause, not a wrapped ``RuntimeError`` or ``ModuleNotFoundError``.
     """
     provider = _provider()
-    if provider not in ("anthropic", "openai", "pi"):
+    if provider not in ("anthropic", "openai", "pi", "opencode"):
         yield {
             "type": "error",
             "message": (
                 f"unknown OPEN_EDIT_LLM_PROVIDER={provider!r}; "
-                f"expected one of: anthropic, openai, pi"
+                f"expected one of: anthropic, openai, pi, opencode"
             ),
         }
         return
@@ -162,25 +162,23 @@ async def stream_chat(
             yield {"type": "error", "message": f"openai provider error: {exc}"}
         return
 
-    if provider in ("pi", "opencode"):
-        # Resolve per-project config if the caller passed a project path;
-        # the FastAPI WS handler already has it on hand.
+    if provider == "pi":
         try:
-            adapter = get_adapter(provider)
-        except KeyError as exc:
-            yield {
-                "type": "error",
-                "message": f"unknown CLI provider {provider!r}: {exc}",
-            }
-            yield {"type": "done", "stop_reason": "error"}
-            return
+            async for ev in _stream_pi(messages, tools, system, session_id, project_path):
+                yield ev
+        except Exception as exc:
+            yield {"type": "error", "message": f"pi provider error: {exc}"}
+        return
+
+    if provider == "opencode":
         try:
+            adapter = get_adapter("opencode")
             async for ev in _stream_cli(
                 adapter, _model(), messages, tools, system, session_id, project_path,
             ):
                 yield ev
         except Exception as exc:
-            yield {"type": "error", "message": f"{provider} provider error: {exc}"}
+            yield {"type": "error", "message": f"opencode provider error: {exc}"}
         return
 
     # Default: anthropic
@@ -241,6 +239,12 @@ async def _stream_pi(
     After _stream_cli finishes, we read the pi session JSONL delta to
     extract the per-call cost (v1.4 P1-3). The opencode provider does
     not need this — it reports cost directly in step_finish events.
+
+    Event order: text_deltas → tool_use → tool_result → ``usage`` →
+    ``done``. _stream_cli deliberately does NOT emit a trailing
+    ``done`` for the pi branch — the cost-extraction-and-done
+    responsibility is owned by this wrapper, so the agent loop sees
+    a single ``done`` at the very end, after the ``usage`` event.
     """
     sid = session_id or f"oe-{os.getpid()}"
     sessions_dir = cost_mod.default_pi_sessions_dir()
@@ -248,23 +252,14 @@ async def _stream_pi(
     baseline_size = session_path.stat().st_size if session_path is not None else 0
 
     adapter = get_adapter("pi")
-    saw_done = False
-    try:
-        async for ev in _stream_cli(
-            adapter, _model(), messages, tools, system, session_id, project_path,
-        ):
-            if ev.get("type") == "done":
-                saw_done = True
-            yield ev
-    except Exception as exc:
-        yield {"type": "error", "message": f"pi provider error: {exc}"}
-        if not saw_done:
-            yield {"type": "done", "stop_reason": "error"}
-        return
+    async for ev in _stream_cli(
+        adapter, _model(), messages, tools, system, session_id, project_path,
+    ):
+        yield ev
 
-    # Cost extraction (v1.4 P1-3). The cli stream emitted its own
-    # ``done``; we re-emit a final ``done`` only if the stream didn't
-    # (defensive). Pi cost is read from the session JSONL delta.
+    # Cost extraction (v1.4 P1-3). _stream_cli did NOT emit a trailing
+    # ``done`` for the pi branch — we own it here so the final order is
+    # usage → done. Pi cost is read from the session JSONL delta.
     if session_path is None:
         session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
     if session_path is None or not session_path.exists():
@@ -278,6 +273,8 @@ async def _stream_pi(
             "type": "usage", "source": "pi",
             "tokens": delta["tokens"], "cost_usd": delta["cost_usd"], "usage": {},
         }
+
+    yield {"type": "done", "stop_reason": "end_turn"}
 
 
 def _pi_normalize_event(obj: dict[str, Any]) -> list[StreamEvent]:
@@ -370,10 +367,9 @@ def _pi_normalize_event(obj: dict[str, Any]) -> list[StreamEvent]:
                     "input": raw_args if isinstance(raw_args, dict) else {"value": raw_args},
                 })
             elif btype == "text":
-                # Final text is also delivered via message_end; we
-                # already streamed the deltas, so we skip here to avoid
-                # duplicating the text in the UI.
-                pass
+                text = blk.get("text", "")
+                if text:
+                    out.append({"type": "text_delta", "text": text})
         # If there was a toolCall, the assistant didn't return end_turn.
         # The agent loop sees a tool_use and continues; we DON'T emit
         # done here — the agent loop's logic handles stop_reason.
@@ -422,7 +418,14 @@ async def _stream_cli(
     sid = session_id or f"oe-{os.getpid()}"
     # Pi-specific extension path: the opencode adapter doesn't use it.
     extension_path: str | None = None
-    if adapter.name == "pi":
+    # Track which adapter we're driving so we know whether to emit the
+    # trailing "done" at the bottom of this function. For pi, the
+    # _stream_pi wrapper owns the final done (it must come AFTER the
+    # cost-extraction "usage" event). For opencode, the normalizer's
+    # own step_finish → done is authoritative and we return early above
+    # (but the ``not is_pi`` guard below is a defensive belt).
+    is_pi = adapter.name == "pi"
+    if is_pi:
         extension_path = _pi_extension_path()
 
     cmd = adapter.build_command(
@@ -510,7 +513,7 @@ async def _stream_cli(
             pass
         yield {
             "type": "error",
-            "message": f"{adapter.name} timed out after {adapter.default_timeout_s}s",
+            "message": f"{adapter.name} timeout: timed out after {adapter.default_timeout_s}s",
         }
         yield {"type": "done", "stop_reason": "error"}
         return
@@ -541,11 +544,15 @@ async def _stream_cli(
         yield {"type": "done", "stop_reason": "error"}
         return
 
-    # For the pi branch: emit the final "done" here (the inner one was
-    # suppressed). For the opencode branch: the opencode normalizer
-    # already emitted "done" inside its async-for loop above; that
-    # branch returns early.
-    yield {"type": "done", "stop_reason": "end_turn"}
+    # For the pi branch: do NOT emit a trailing "done" here. The
+    # _stream_pi wrapper owns the final done — it must come AFTER the
+    # cost-extraction "usage" event so the agent loop sees the order
+    # text_deltas → tool_use → tool_result → usage → done. For the
+    # opencode branch: the opencode normalizer already emitted "done"
+    # inside its async-for loop above (and that branch returns early);
+    # the ``not is_pi`` guard is defensive.
+    if not is_pi:
+        yield {"type": "done", "stop_reason": "end_turn"}
 
 
 # ---------------------------------------------------------------------------

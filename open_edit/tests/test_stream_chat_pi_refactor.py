@@ -26,6 +26,8 @@ print(json.dumps({"type":"session","version":3,"id":"$SID","timestamp":"2026-01-
 print(json.dumps({"type":"agent_start"}))
 print(json.dumps({"type":"turn_start"}))
 print(json.dumps({"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}))
+# Streamed text deltas (these are what _pi_normalize_event converts to text_delta).
+print(json.dumps({"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Hello back"}}))
 print(json.dumps({"type":"message_start","message":{"role":"assistant","content":[],"api":"anthropic-messages","provider":"opencode-go","model":"x","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}}))
 print(json.dumps({"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Hello back"}],"api":"anthropic-messages","provider":"opencode-go","model":"x","usage":{"input":10,"output":5,"cacheRead":0,"cacheWrite":0,"totalTokens":15,"cost":{"input":0.001,"output":0.002,"cacheRead":0,"cacheWrite":0,"total":0.003}},"stopReason":"stop","timestamp":2}}))
 print(json.dumps({"type":"turn_end","message":{"role":"assistant","content":[{"type":"text","text":"Hello back"}],"stopReason":"stop","timestamp":2},"toolResults":[]}))
@@ -85,7 +87,7 @@ async def test_pi_adapter_lookup_works(fake_pi: Path) -> None:
         extension_path=None,
         system_prompt="be brief",
     )
-    assert cmd[0] == "pi"
+    assert Path(cmd[0]).name == "pi"
     assert "--mode" in cmd
     assert "json" in cmd
     assert "--session-id" in cmd

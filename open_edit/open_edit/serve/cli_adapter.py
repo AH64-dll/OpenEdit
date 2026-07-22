@@ -11,6 +11,7 @@ DI container; adding a third CLI is one import + one entry.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
@@ -123,8 +124,13 @@ class _PiAdapter:
         extension_path: str | None,
         system_prompt: str,
     ) -> list[str]:
+        # Resolve the pi binary the same way the legacy _pi_binary() did:
+        # OPEN_EDIT_PI_BINARY env var (absolute path) wins; otherwise
+        # fall back to PATH lookup; otherwise just "pi" (which will
+        # surface a FileNotFoundError in _stream_cli if missing).
+        pi_bin = os.environ.get("OPEN_EDIT_PI_BINARY", "").strip() or shutil.which("pi") or "pi"
         cmd = [
-            "pi",
+            pi_bin,
             "--provider", "opencode-go",
             "--model", model,
             "--mode", "json",
