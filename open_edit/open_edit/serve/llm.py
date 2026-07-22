@@ -128,12 +128,41 @@ async def stream_chat(
     emitted once the block is closed (so callers receive one fully-formed
     ``tool_use`` event per tool call, not a stream of partial JSON).
 
+    v1.7: when ``project_path`` is provided and contains a
+    ``.open_edit/config.toml`` with an ``[llm]`` table, the per-project
+    provider + model override the env vars (``OPEN_EDIT_LLM_PROVIDER``
+    and ``OPEN_EDIT_LLM_MODEL``) for the duration of this call. This is
+    what makes the provider+model selection bar in the chat UI
+    functional: the PUT endpoint writes to the per-project config and
+    the next chat turn picks up the change.
+
     Provider-level misconfiguration (missing API key, unknown provider,
     missing SDK) is caught here and surfaced as a single
     ``{"type": "error", "message": "..."}`` event so the user sees the
     real cause, not a wrapped ``RuntimeError`` or ``ModuleNotFoundError``.
     """
-    provider = _provider()
+    # v1.7: per-project LLM config takes precedence over env vars when
+    # ``project_path`` points at a directory with a readable
+    # ``.open_edit/config.toml``. Any error (missing file, parse error,
+    # unknown provider) silently falls back to the env defaults so a
+    # broken project config never wedges the chat.
+    project_provider: str | None = None
+    project_model: str | None = None
+    if project_path is not None:
+        try:
+            proj_dir = Path(project_path)
+        except (TypeError, ValueError):
+            proj_dir = None  # type: ignore[assignment]
+        if proj_dir is not None and (proj_dir / ".open_edit" / "config.toml").is_file():
+            try:
+                from .llm_config import load_llm_config
+                cfg = load_llm_config(proj_dir)
+                project_provider = cfg.provider
+                project_model = cfg.model
+            except Exception:
+                pass  # fall back to env on any error (parse, validation, etc.)
+
+    provider = project_provider or _provider()
     if provider not in ("anthropic", "openai", "pi", "opencode"):
         yield {
             "type": "error",
@@ -144,9 +173,11 @@ async def stream_chat(
         }
         return
 
+    model = project_model or _model()
+
     if provider == "openai":
         try:
-            async for ev in _stream_openai(messages, tools, system):
+            async for ev in _stream_openai(messages, tools, system, model):
                 yield ev
         except RuntimeError as exc:
             yield {"type": "error", "message": str(exc)}
@@ -165,7 +196,7 @@ async def stream_chat(
 
     if provider == "pi":
         try:
-            async for ev in _stream_pi(messages, tools, system, session_id, project_path):
+            async for ev in _stream_pi(messages, tools, system, session_id, project_path, model):
                 yield ev
         except Exception as exc:
             yield {"type": "error", "message": f"pi provider error: {exc}"}
@@ -175,7 +206,7 @@ async def stream_chat(
         try:
             adapter = get_adapter("opencode")
             async for ev in _stream_cli(
-                adapter, _model(), messages, tools, system, session_id, project_path,
+                adapter, model, messages, tools, system, session_id, project_path,
             ):
                 yield ev
         except Exception as exc:
@@ -184,7 +215,7 @@ async def stream_chat(
 
     # Default: anthropic
     try:
-        async for ev in _stream_anthropic(messages, tools, system):
+        async for ev in _stream_anthropic(messages, tools, system, model):
             yield ev
     except RuntimeError as exc:
         # _api_key() raises RuntimeError when the key is missing.
@@ -234,6 +265,7 @@ async def _stream_pi(
     system: str,
     session_id: str | None,
     project_path: str | None = None,
+    model: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """Pi provider — delegates to _stream_cli with the PiAdapter.
 
@@ -254,7 +286,7 @@ async def _stream_pi(
 
     adapter = get_adapter("pi")
     async for ev in _stream_cli(
-        adapter, _model(), messages, tools, system, session_id, project_path,
+        adapter, model or _model(), messages, tools, system, session_id, project_path,
     ):
         yield ev
 
@@ -565,6 +597,7 @@ async def _stream_anthropic(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     system: str,
+    model: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     # Check the API key before attempting the import so that a missing key
     # raises a clean RuntimeError (caught by the caller) rather than being
@@ -576,7 +609,7 @@ async def _stream_anthropic(
 
     # Anthropic SDK streaming event names are stable across versions.
     async with client.messages.stream(
-        model=_model(),
+        model=model or _model(),
         max_tokens=_max_tokens(),
         system=system,
         messages=messages,
@@ -655,7 +688,7 @@ async def _stream_anthropic(
                         ),
                     }
                     cost_result = cost_mod.compute_anthropic_cost(
-                        usage_dict, _model(),
+                        usage_dict, model or _model(),
                     )
                     if cost_result is None:
                         yield {
@@ -688,6 +721,7 @@ async def _stream_openai(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     system: str,
+    model: str | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """OpenAI-compatible streaming.
 
@@ -744,7 +778,7 @@ async def _stream_openai(
     ]
 
     stream = await client.chat.completions.create(
-        model=_model(),
+        model=model or _model(),
         messages=oai_messages,
         tools=oai_tools or None,
         stream=True,
@@ -816,7 +850,7 @@ async def _stream_openai(
             usage_dict["prompt_tokens_details"] = {
                 "cached_tokens": int(getattr(details, "cached_tokens", 0) or 0),
             }
-        cost_result = cost_mod.compute_openai_cost(usage_dict, _model())
+        cost_result = cost_mod.compute_openai_cost(usage_dict, model or _model())
         if cost_result is None:
             yield {
                 "type": "usage",
