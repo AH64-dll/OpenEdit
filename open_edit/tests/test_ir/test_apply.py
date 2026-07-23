@@ -263,6 +263,27 @@ class TestApplyMoveTrimClip(unittest.TestCase):
         self.assertEqual(clips[1].in_point_sec, 6.0)
         self.assertEqual(clips[1].out_point_sec, 10.0)
 
+    def test_split_clip_with_no_effects(self) -> None:
+        timeline = Timeline()
+        op = AddClipOp(
+            author="user", asset_hash="a", track_id="v1",
+            position_sec=0.0, in_point_sec=2.0, out_point_sec=10.0,
+        )
+        timeline = apply_operation(timeline, op)
+        self.assertEqual(timeline.tracks[0].clips[0].effects, [])
+
+        split = SplitClipOp(
+            author="user", clip_id=op.clip_id, at_sec=4.0,
+            left_clip_id="left_1", right_clip_id="right_1",
+        )
+        out = apply_operation(timeline, split)
+        clips = out.tracks[0].clips
+        self.assertEqual(len(clips), 2)
+        # Bug 2 regression: splitting a clip with no effects must keep a real
+        # list (not None), otherwise downstream iteration breaks.
+        self.assertEqual(clips[0].effects, [])
+        self.assertEqual(clips[1].effects, [])
+
     def test_change_clip_speed(self) -> None:
         timeline = Timeline()
         op = AddClipOp(author="user", asset_hash="a", track_id="v1", position_sec=0.0)
@@ -388,8 +409,40 @@ class TestApplyTransitions(unittest.TestCase):
         clip_b = out.tracks[0].clips[1]
         self.assertGreater(clip_a.out_point_sec, clip_a.in_point_sec)
         self.assertGreaterEqual(clip_b.in_point_sec, 0.0)
-        self.assertAlmostEqual(clip_a.out_point_sec, 1.0, delta=0.001)
+        self.assertAlmostEqual(clip_a.out_point_sec, 1.5, delta=0.001)
         self.assertAlmostEqual(clip_b.in_point_sec, 0.0, delta=0.001)
+
+    def test_add_transition_with_clip_b_already_trimmed(self) -> None:
+        timeline = Timeline()
+        op_a = AddClipOp(
+            author="user", asset_hash="a", track_id="v1",
+            position_sec=0.0, in_point_sec=0.0, out_point_sec=2.0,
+        )
+        op_b = AddClipOp(
+            author="user", asset_hash="b", track_id="v1",
+            position_sec=2.0, in_point_sec=0.5, out_point_sec=2.0,
+        )
+        timeline = apply_operation(timeline, op_a)
+        timeline = apply_operation(timeline, op_b)
+        op_t = AddTransitionOp(
+            author="user", clip_a_id=op_a.clip_id, clip_b_id=op_b.clip_id,
+            transition_type="luma", duration_sec=1.0,
+        )
+        out = apply_operation(timeline, op_t)
+        clip_a = out.tracks[0].clips[0]
+        clip_b = out.tracks[0].clips[1]
+        # Bug 1 regression: clip_b's trim (in_point_sec=0.5) must be added
+        # back when back-solving its new asset-local in-point.
+        self.assertAlmostEqual(clip_a.out_point_sec, 1.5, delta=0.001)
+        self.assertAlmostEqual(clip_b.in_point_sec, 1.0, delta=0.001)
+        # Geometry: clip_a ends at timeline 1.5s, clip_b starts at timeline 2.0s;
+        # the transition spans the 1.0-2.0s window.
+        self.assertAlmostEqual(
+            clip_a.position_sec + (clip_a.out_point_sec - clip_a.in_point_sec), 1.5, delta=0.001
+        )
+        self.assertAlmostEqual(
+            clip_b.position_sec + (clip_b.out_point_sec - clip_b.in_point_sec), 3.0, delta=0.001
+        )
 
     def test_remove_transition(self) -> None:
         timeline = Timeline()

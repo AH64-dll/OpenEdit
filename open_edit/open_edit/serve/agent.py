@@ -233,6 +233,19 @@ def _save_cost_state(
     _write_cost_json_sync(_cost_sidecar_path(project_path), existing)
 
 
+# Keep a strong reference to background tasks so they are not garbage-collected
+# before the event loop schedules them (CPython can collect unreferenced tasks
+# on 3.10+). The done-callback drops the reference once the task finishes.
+_BG_TASKS: set[asyncio.Task] = set()
+
+
+def _create_bg_task(coro: Any) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+    return task
+
+
 async def _save_cost_state_async(
     project_path: Path, state: dict[str, dict[str, Any]],
 ) -> None:
@@ -899,7 +912,7 @@ async def _run_cli_owned_turn(
             "source": cost_ctx["best_source"],
             "last_turn_cost_usd": cost_ctx["turn_cost_usd"],
         }
-        asyncio.create_task(
+        _create_bg_task(
             _save_cost_state_async(project_path, dict(cost_ctx["cost_state"]))
         )
 
@@ -1132,7 +1145,7 @@ async def run_agent_turn(
                     "source": best_source,
                     "last_turn_cost_usd": turn_cost_usd,
                 }
-                asyncio.create_task(
+                _create_bg_task(
                     _save_cost_state_async(project_path, dict(cost_state))
                 )
             return
@@ -1196,7 +1209,7 @@ async def run_agent_turn(
                 # number immediately. If the write fails the
                 # next turn will reconcile from the in-memory
                 # state we just stashed here.
-                asyncio.create_task(
+                _create_bg_task(
                     _save_cost_state_async(project_path, dict(cost_state))
                 )
             return
@@ -1472,6 +1485,6 @@ async def run_agent_turn(
             "source": best_source,
             "last_turn_cost_usd": turn_cost_usd,
         }
-        asyncio.create_task(
+        _create_bg_task(
             _save_cost_state_async(project_path, dict(cost_state))
         )

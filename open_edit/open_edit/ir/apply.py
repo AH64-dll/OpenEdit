@@ -1,11 +1,17 @@
 """Apply operations to derive Timeline state. Pure functions.
 
-The Bug A fix lives in `_apply_add_transition`:
-- The transition is placed at `cut = clip_a.out_point_sec` (the cut point).
-- `clip_a.out_point_sec` is back-solved to `cut - duration_sec / 2`.
-- `clip_b.in_point_sec` is back-solved to `cut + duration_sec / 2`.
-- This means the transition is centered on the cut, NOT on the midpoint
-  of the two clips' original positions.
+Transitions (`_apply_add_transition`) are centered on the cut in *timeline*
+coordinates. The cut is where clip_a's playback ends and clip_b's begins:
+
+    cut = clip_a.position_sec + (clip_a.out_point_sec - clip_a.in_point_sec)
+
+This is the only correct formulation when clip_a has been trimmed
+(in_point_sec > 0): the asset-local out_point_sec is not the cut position.
+Each clip's new asset-local in/out points are then back-solved so the
+transition spans [cut - duration/2, cut + duration/2] on the timeline:
+
+    new_a_out = clip_a.in_point_sec + (cut - duration/2 - clip_a.position_sec)
+    new_b_in  = clip_b.in_point_sec + (cut + duration/2 - clip_b.position_sec)
 """
 from __future__ import annotations
 
@@ -459,8 +465,8 @@ def _apply_split_clip(
         return timeline
     split_offset = op.at_sec - clip.position_sec
 
-    left_effects = [e.model_copy(deep=True) for e in clip.effects] if clip.effects else None
-    right_effects = [e.model_copy(deep=True) for e in clip.effects] if clip.effects else None
+    left_effects = [e.model_copy(deep=True) for e in clip.effects]
+    right_effects = [e.model_copy(deep=True) for e in clip.effects]
     left_clip = clip.model_copy(update={
         "clip_id": op.left_clip_id,
         "out_point_sec": clip.in_point_sec + split_offset,
@@ -597,7 +603,7 @@ def _apply_add_transition(
     in/out points so the transition spans [cut - duration/2, cut + duration/2]
     on the timeline.
     """
-    track_a, clip_a, _ = _find_clip(timeline, op.clip_a_id)
+    _, clip_a, _ = _find_clip(timeline, op.clip_a_id)
     if clip_a is None:
         if strict:
             raise ApplyError(
@@ -629,8 +635,8 @@ def _apply_add_transition(
             f"for clip_b (end_timeline={clip_b_end_timeline})"
         )
 
-    new_a_out = (cut_timeline - half) - clip_a.position_sec
-    new_b_in = (cut_timeline + half) - clip_b.position_sec
+    new_a_out = clip_a.in_point_sec + (cut_timeline - half - clip_a.position_sec)
+    new_b_in = clip_b.in_point_sec + (cut_timeline + half - clip_b.position_sec)
 
     if new_a_out < clip_a.in_point_sec:
         raise ValueError(

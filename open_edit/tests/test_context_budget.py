@@ -8,6 +8,7 @@ import pytest
 
 from open_edit.serve.context_budget import (
     ContextBudget,
+    compact_history,
     count_tokens,
     count_tokens_history,
     count_tokens_message,
@@ -97,3 +98,39 @@ def test_summarize_tool_result_render_strips_stdout():
     result = {"status": "ok", "stdout": "lots of debug output", "stderr": "", "output_path": "/tmp/x.mp4"}
     capped = budget.summarize_tool_result(result, max_chars=10)
     assert len(capped["stdout"]) < 100
+
+
+def test_compact_history_merges_plain_user_messages():
+    hist = [
+        {"role": "user", "content": "one"},
+        {"role": "user", "content": "two"},
+    ]
+    out = compact_history(hist)
+    assert len(out) == 1
+    assert out[0]["content"] == "one\ntwo"
+
+
+def test_compact_history_keeps_tool_result_separate_from_following_text():
+    # Bug 3 regression: a tool_result user-message must not be merged with a
+    # following plain user text message (would corrupt tool_use/tool_result
+    # pairing).
+    hist = [
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "result"}]},
+        {"role": "user", "content": "please continue"},
+    ]
+    out = compact_history(hist)
+    assert len(out) == 2
+    assert out[0]["content"][0]["type"] == "tool_result"
+    assert out[1]["content"] == "please continue"
+
+
+def test_compact_history_keeps_tool_result_separate_from_preceding_text():
+    hist = [
+        {"role": "user", "content": "question"},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "r"}]},
+        {"role": "user", "content": "follow-up"},
+    ]
+    out = compact_history(hist)
+    assert len(out) == 3
+    assert out[1]["content"][0]["type"] == "tool_result"
+    assert out[2]["content"] == "follow-up"

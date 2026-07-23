@@ -5,6 +5,17 @@ import os
 from typing import Any
 
 
+def _has_tool_result(content: Any) -> bool:
+    """True if a message ``content`` carries a ``tool_result`` block.
+
+    tool_result blocks live inside user-role messages and must stay distinct
+    from plain user text for the Anthropic tool_use/tool_result pairing.
+    """
+    if not isinstance(content, list):
+        return False
+    return any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+
+
 def compact_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not history:
         return history
@@ -25,6 +36,12 @@ def compact_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if role == "user" and out and out[-1].get("role") == "user":
             prev = out[-1]
             prev_content = prev.get("content", "")
+            # Never merge a tool_result message into a neighbouring user
+            # message -- that would corrupt the tool_use/tool_result pairing
+            # the Anthropic API relies on.
+            if _has_tool_result(prev_content) or _has_tool_result(content):
+                out.append(msg)
+                continue
             if isinstance(prev_content, str) and isinstance(content, str):
                 prev["content"] = prev_content + "\n" + content
             elif isinstance(prev_content, list) and isinstance(content, list):

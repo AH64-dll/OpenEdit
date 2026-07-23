@@ -195,6 +195,12 @@ async def _run_render_job(job: RenderJobResponse, project_path: Path) -> None:
     except Exception as exc:
         job.status = "failed"
         job.error = str(exc)
+        if proc is not None:
+            proc.terminate()
+            try:
+                await proc.wait()
+            except Exception:
+                pass
     finally:
         _RENDER_TASKS.pop(job.job_id, None)
 
