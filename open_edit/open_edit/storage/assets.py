@@ -94,13 +94,14 @@ class AssetStore:
         """Path to the metadata sidecar JSON next to the CAS file."""
         return self.assets_dir / asset_hash[:2] / f"{asset_hash}.meta.json"
 
-    def ingest(self, source_path: str) -> Asset:
-        return self.ingest_paths([source_path])[0]
+    def ingest(self, source_path: str, transcribe: bool = True) -> Asset:
+        return self.ingest_paths([source_path], do_transcribe=transcribe)[0]
 
     def ingest_paths(
         self, paths: list[str],
         license: str = "",
         attribution: str = "",
+        do_transcribe: bool = True,
     ) -> list[Asset]:
         """Ingest one or more files. Returns one Asset per input path.
 
@@ -131,7 +132,9 @@ class AssetStore:
             if not dest.exists():
                 shutil.copy2(src, dest)
             media_info = _probe_media(str(src))
-            alignment = transcribe(src) if media_info["has_audio"] else []
+            alignment = (
+                transcribe(src) if (do_transcribe and media_info["has_audio"]) else []
+            )
             asset = Asset(
                 asset_hash=asset_hash,
                 original_path=str(src),
@@ -176,3 +179,16 @@ class AssetStore:
     def path(self, asset_hash: str) -> Optional[Path]:
         p = self._cas_path(asset_hash)
         return p if p.exists() else None
+
+    def update_alignment(self, asset_hash: str, alignment: list) -> None:
+        """Rewrite an asset's sidecar with new word-level ``alignment``.
+
+        Used by background transcription so an upload can return immediately
+        with an empty alignment and be enriched once Whisper finishes.
+        """
+        asset = self.get(asset_hash)
+        if asset is None:
+            raise FileNotFoundError(asset_hash)
+        asset = asset.model_copy(update={"alignment": alignment})
+        sidecar = self._sidecar_path(asset_hash)
+        sidecar.write_text(asset.model_dump_json(indent=2))
