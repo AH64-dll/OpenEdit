@@ -91,6 +91,8 @@ class TestEditGraphStore(unittest.TestCase):
 
     def test_append_and_load_all_10_operation_schemas(self) -> None:
         # Define sample instances for all 10 operation schemas
+        # References are ordered so each op targets a clip/effect that
+        # already exists (the append guard enforces reference integrity).
         ops = [
             AddClipOp(
                 author="user",
@@ -100,36 +102,78 @@ class TestEditGraphStore(unittest.TestCase):
                 position_sec=0.0,
                 in_point_sec=1.0,
                 out_point_sec=5.0,
-            ),
-            RemoveClipOp(
-                author="user",
-                clip_id="clip_to_remove",
+                clip_id="c1",
             ),
             MoveClipOp(
                 author="ai",
-                clip_id="clip_to_move",
+                clip_id="c1",
                 new_track_id="v2",
                 new_position_sec=10.0,
             ),
+            AddClipOp(
+                author="user",
+                asset_hash="hash_add_clip",
+                track_id="v1",
+                track_kind="video",
+                position_sec=0.0,
+                in_point_sec=1.0,
+                out_point_sec=5.0,
+                clip_id="c2",
+            ),
             TrimClipOp(
                 author="user",
-                clip_id="clip_to_trim",
+                clip_id="c2",
                 new_in_point_sec=2.0,
                 new_out_point_sec=8.0,
             ),
+            RemoveClipOp(
+                author="user",
+                clip_id="c1",
+            ),
+            AddClipOp(
+                author="user",
+                asset_hash="hash_add_clip",
+                track_id="v1",
+                track_kind="video",
+                position_sec=0.0,
+                in_point_sec=1.0,
+                out_point_sec=5.0,
+                clip_id="ca",
+            ),
+            AddClipOp(
+                author="user",
+                asset_hash="hash_add_clip",
+                track_id="v1",
+                track_kind="video",
+                position_sec=0.0,
+                in_point_sec=1.0,
+                out_point_sec=5.0,
+                clip_id="cb",
+            ),
             AddTransitionOp(
                 author="user",
-                clip_a_id="clip_a",
-                clip_b_id="clip_b",
+                clip_a_id="ca",
+                clip_b_id="cb",
                 transition_type="dissolve",
                 duration_sec=1.5,
+            ),
+            AddClipOp(
+                author="user",
+                asset_hash="hash_add_clip",
+                track_id="v1",
+                track_kind="video",
+                position_sec=0.0,
+                in_point_sec=1.0,
+                out_point_sec=5.0,
+                clip_id="ce",
             ),
             AddEffectOp(
                 author="ai",
                 target_kind="clip",
-                target_id="clip_eff",
+                target_id="ce",
                 effect_type="frei0r.blur",
                 params={"amount": 0.75},
+                effect_id="eff_kf",
             ),
             SetKeyframeOp(
                 author="user",
@@ -158,10 +202,14 @@ class TestEditGraphStore(unittest.TestCase):
 
         expected_classes = [
             AddClipOp,
-            RemoveClipOp,
             MoveClipOp,
+            AddClipOp,
             TrimClipOp,
+            RemoveClipOp,
+            AddClipOp,
+            AddClipOp,
             AddTransitionOp,
+            AddClipOp,
             AddEffectOp,
             SetKeyframeOp,
             GroupEditsOp,
@@ -207,15 +255,14 @@ class TestEditGraphStore(unittest.TestCase):
 
         # Specific field verifications
         self.assertEqual(loaded_ops[0].asset_hash, "hash_add_clip")
-        self.assertEqual(loaded_ops[1].clip_id, "clip_to_remove")
-        self.assertEqual(loaded_ops[2].new_track_id, "v2")
+        self.assertEqual(loaded_ops[1].new_track_id, "v2")
         self.assertEqual(loaded_ops[3].new_in_point_sec, 2.0)
-        self.assertEqual(loaded_ops[4].transition_type, "dissolve")
-        self.assertEqual(loaded_ops[5].params["amount"], 0.75)
-        self.assertEqual(loaded_ops[6].keyframes, [(0.0, 0.0, "linear"), (1.0, 1.0, "linear")])
-        self.assertEqual(loaded_ops[7].edit_ids, ["edit_1", "edit_2"])
-        self.assertEqual(loaded_ops[8].xml, "<mlt><profile/></mlt>")
-        self.assertEqual(loaded_ops[9].code, "print('Hello World')")
+        self.assertEqual(loaded_ops[7].transition_type, "dissolve")
+        self.assertEqual(loaded_ops[9].params["amount"], 0.75)
+        self.assertEqual(loaded_ops[10].keyframes, [(0.0, 0.0, "linear"), (1.0, 1.0, "linear")])
+        self.assertEqual(loaded_ops[11].edit_ids, ["edit_1", "edit_2"])
+        self.assertEqual(loaded_ops[12].xml, "<mlt><profile/></mlt>")
+        self.assertEqual(loaded_ops[13].code, "print('Hello World')")
 
     def test_status_updates(self) -> None:
         op = AddClipOp(author="user", asset_hash="hash_status", track_id="v1", position_sec=0.0)

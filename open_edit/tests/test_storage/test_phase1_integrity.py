@@ -54,7 +54,7 @@ class TestPhase1Integrity(unittest.TestCase):
         self.assertEqual(rows[0][2], "append")
 
     def test_update_status_writes_status_event(self) -> None:
-        op = RemoveClipOp(author="user", clip_id="c1")
+        op = AddClipOp(author="user", asset_hash="h", track_id="v1", position_sec=0.0)
         self.store.append(op)
         self.store.update_status(op.edit_id, "reverted", reason="undo")
         conn = self._raw()
