@@ -238,6 +238,12 @@ def validate_op_for_append(op: OperationUnion, store) -> list[str]:
                 a = astore.get(o.asset_hash)
                 if a is not None:
                     assets[o.asset_hash] = a
+        # Also include any asset referenced by the op being validated, so a
+        # freshly-ingested asset (not yet referenced by an existing op) passes.
+        if isinstance(op, AddClipOp) and op.asset_hash not in assets:
+            a = astore.get(op.asset_hash)
+            if a is not None:
+                assets[op.asset_hash] = a
     project = Project(
         project_id=store.project_id,
         name=db_parent.name,
