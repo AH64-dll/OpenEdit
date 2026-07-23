@@ -34,6 +34,7 @@ def _seed_project_with_one_op(project_dir: Path) -> None:
     store = EditGraphStore(project_dir / ".open_edit" / "edit_graph.db")
     store.append(AddClipOp(
         author="user", asset_hash="abc", track_id="t1", position_sec=0.0,
+        in_point_sec=0.0, out_point_sec=5.0,
     ))
 
 
