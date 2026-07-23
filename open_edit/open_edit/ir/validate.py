@@ -18,6 +18,7 @@ from open_edit.ir.types import (
     RemoveClipOp,
     SetAudioGainOp,
     SetKeyframeOp,
+    Timeline,
     TrimClipOp,
 )
 
@@ -176,3 +177,72 @@ def validate_op(
             )
 
     return errors
+
+
+class OpValidationError(ValueError):
+    """Raised by EditGraphStore.append when an op fails validation."""
+
+
+class TimelineValidationError(ValueError):
+    """Raised by derive_timeline(strict=True) when the timeline is broken."""
+
+
+def validate_timeline(timeline: Timeline) -> list[str]:
+    """Return timeline-level errors (empty list = valid).
+
+    Detects overlapping clips on the same track and non-positive clip
+    durations. Transitions do not create overlaps in the derived timeline
+    (they trim clip boundaries to meet at the cut), so a plain interval
+    check is correct.
+    """
+    errors: list[str] = []
+    eps = 1e-6
+    for track in timeline.tracks:
+        clips = sorted(track.clips, key=lambda c: c.position_sec)
+        for prev, cur in zip(clips, clips[1:]):
+            prev_end = prev.position_sec + (prev.out_point_sec - prev.in_point_sec)
+            if prev_end > cur.position_sec + eps:
+                errors.append(
+                    f"Overlap on track {track.track_id}: clip {prev.clip_id!r} "
+                    f"spans [{prev.position_sec:.3f}, {prev_end:.3f}] but clip "
+                    f"{cur.clip_id!r} starts at {cur.position_sec:.3f}."
+                )
+        for c in track.clips:
+            dur = c.out_point_sec - c.in_point_sec
+            if dur <= 0:
+                errors.append(
+                    f"Clip {c.clip_id!r} has non-positive duration ({dur:.3f}s)."
+                )
+    return errors
+
+
+def validate_op_for_append(op: OperationUnion, store) -> list[str]:
+    """Validate one op against the store's current project state.
+
+    Builds a lightweight Project from the store (current ops + assets) and
+    delegates to :func:`validate_op`. ``store`` is duck-typed (must expose
+    ``load_all()``, ``db_path``, ``project_id``). No runtime import of
+    EditGraphStore here to avoid a circular import.
+    """
+    from open_edit.storage.assets import AssetStore
+
+    ops = store.load_all()
+    assets: dict = {}
+    db_parent = store.db_path.parent
+    direct = db_parent / "assets"
+    assets_dir = direct if direct.is_dir() else db_parent / ".open_edit" / "assets"
+    if assets_dir.is_dir():
+        astore = AssetStore(assets_dir)
+        for o in ops:
+            if isinstance(o, AddClipOp) and o.asset_hash not in assets:
+                a = astore.get(o.asset_hash)
+                if a is not None:
+                    assets[o.asset_hash] = a
+    project = Project(
+        project_id=store.project_id,
+        name=db_parent.name,
+        workdir=db_parent,
+        assets=assets,
+        edit_graph=ops,
+    )
+    return validate_op(op, project)
