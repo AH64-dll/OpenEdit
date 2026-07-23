@@ -17,6 +17,12 @@ from pydantic import TypeAdapter
 
 from open_edit.ir.types import OperationUnion, new_id
 
+import threading
+
+from open_edit.ir import validate as _ir_validate
+
+_APPEND_LOCK = threading.Lock()
+
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -115,33 +121,42 @@ class EditGraphStore:
         self, op: OperationUnion, sequence_num: int | None = None,
         command_id: str | None = None,
     ) -> int:
-        """Append an operation. Returns the assigned sequence_num."""
-        with self._conn() as conn:
-            if sequence_num is None:
-                cur = conn.execute(
-                    "SELECT COALESCE(MAX(sequence_num), -1) + 1 FROM edits"
+        """Append an operation. Returns the assigned sequence_num.
+
+        Validates the op against the current project state (shape +
+        references) before persisting. Raises OpValidationError on failure;
+        the op is NOT written.
+        """
+        errors = _ir_validate.validate_op_for_append(op, self)
+        if errors:
+            raise _ir_validate.OpValidationError("; ".join(errors))
+        with _APPEND_LOCK:
+            with self._conn() as conn:
+                if sequence_num is None:
+                    cur = conn.execute(
+                        "SELECT COALESCE(MAX(sequence_num), -1) + 1 FROM edits"
+                    )
+                    sequence_num = cur.fetchone()[0]
+                conn.execute(
+                    "INSERT INTO edits "
+                    "(edit_id, parent_id, kind, author, timestamp, status, "
+                    " sequence_num, payload) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        op.edit_id, op.parent_id, op.kind, op.author, op.timestamp,
+                        op.status, sequence_num, op.model_dump_json(),
+                    ),
                 )
-                sequence_num = cur.fetchone()[0]
-            conn.execute(
-                "INSERT INTO edits "
-                "(edit_id, parent_id, kind, author, timestamp, status, "
-                " sequence_num, payload) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    op.edit_id, op.parent_id, op.kind, op.author, op.timestamp,
-                    op.status, sequence_num, op.model_dump_json(),
-                ),
-            )
-            conn.execute(
-                "INSERT INTO edit_status_events "
-                "(event_id, edit_id, from_status, to_status, command_id, "
-                " reason, changed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    new_id(), op.edit_id, None, op.status or "applied",
-                    command_id, "append", op.timestamp or self._now_iso(),
-                ),
-            )
+                conn.execute(
+                    "INSERT INTO edit_status_events "
+                    "(event_id, edit_id, from_status, to_status, command_id, "
+                    " reason, changed_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        new_id(), op.edit_id, None, op.status or "applied",
+                        command_id, "append", op.timestamp or self._now_iso(),
+                    ),
+                )
         return sequence_num
 
     def load_all(self) -> list[OperationUnion]:
