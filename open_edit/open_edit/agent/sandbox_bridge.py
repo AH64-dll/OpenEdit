@@ -149,15 +149,6 @@ def _resolve_sandbox_bin() -> str:
     )
 
 
-def _is_under(path: Path, root: Path) -> bool:
-    """Return True if `path` equals or is a sub-path of `root`."""
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
-
-
 def _assets_dir_for_workdir(workdir: Path) -> Path:
     """Return the asset-store directory for a sandbox workdir.
 
@@ -171,49 +162,18 @@ def _assets_dir_for_workdir(workdir: Path) -> Path:
     return workdir / ".open_edit" / "assets"
 
 
-def _get_allowed_roots() -> list[Path]:
-    """P9: return the list of allowed project-root directories.
-
-    Source: $OPEN_EDIT_PROJECTS_ROOT (os.pathsep-separated). If unset or
-    empty, fall back to the process's current working directory. Callers
-    may override the env per-test (monkeypatch.setenv) to narrow the root.
-    """
-    env = os.environ.get("OPEN_EDIT_PROJECTS_ROOT", "")
-    roots: list[Path] = []
-    for raw in env.split(os.pathsep):
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            roots.append(Path(raw).resolve())
-        except (OSError, ValueError):
-            continue
-    if roots:
-        return roots
-    return [Path.cwd().resolve()]
-
-
 def _validate_workdir(workdir: Path) -> Path:
-    """P9: resolve and validate a caller-supplied workdir.
+    """P9: resolve a caller-supplied workdir.
 
-    Rules (all must hold):
-      1. Resolved absolute path lives under one of the allowed roots
-         ($OPEN_EDIT_PROJECTS_ROOT, falling back to cwd).
-      2. The path is an existing directory.
-      3. The path contains `edit_graph.db` (a real project).
+    The AI may operate on any directory; we only require that it is a real
+    project (contains ``edit_graph.db``) so the store can locate its DB.
+    No root/allow-list restriction is applied.
 
     On any failure, raise ValueError with a clear message. The caller
     catches it and returns the appropriate FreeFormResult / RenderResult.
     Returns the resolved absolute Path on success.
     """
     workdir = Path(workdir).resolve()
-    allowed = _get_allowed_roots()
-    if not any(_is_under(workdir, root) for root in allowed):
-        allowed_repr = ", ".join(str(r) for r in allowed)
-        raise ValueError(
-            f"workdir {workdir} is not under any allowed project root "
-            f"({allowed_repr})"
-        )
     if not workdir.is_dir():
         raise ValueError(f"workdir {workdir} is not a directory")
     if not (workdir / "edit_graph.db").exists():

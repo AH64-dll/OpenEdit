@@ -345,15 +345,16 @@ def test_resolve_sandbox_bin_finds_allowlisted(monkeypatch, tmp_path):
 # A tool call with project_path="/etc" must NOT write into /etc.
 # =========================================================================
 
-def test_run_free_form_rejects_workdir_outside_allowed_root(tmp_path, monkeypatch):
-    """P9: a workdir that LOOKS like a real project (has edit_graph.db) but
-    lives outside OPEN_EDIT_PROJECTS_ROOT must be rejected with
-    reason='invalid_argument' and produce no host-side staging files.
+def test_validate_workdir_accepts_real_project_outside_root(tmp_path, monkeypatch):
+    """P9 (loosened): a workdir that is a real project (has edit_graph.db)
+    is accepted regardless of OPEN_EDIT_PROJECTS_ROOT. The AI may operate on
+    any directory; only the functional 'is a real project' check remains.
     """
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox_bridge import _validate_workdir
 
-    # Narrow the allowed root to a sub-dir of tmp_path; the test then
-    # creates the workdir as a SIBLING of that sub-dir.
+    # Narrow the allowed root to a sub-dir of tmp_path; the workdir below
+    # is a SIBLING of that sub-dir (outside the root) and must still be
+    # accepted now that the allow-list restriction is gone.
     allowed = tmp_path / "allowed"
     allowed.mkdir()
     monkeypatch.setenv("OPEN_EDIT_PROJECTS_ROOT", str(allowed))
@@ -362,19 +363,7 @@ def test_run_free_form_rejects_workdir_outside_allowed_root(tmp_path, monkeypatc
     outside.mkdir()
     (outside / "edit_graph.db").touch()
 
-    result = run_free_form(
-        code="# ir_api_version: 0.1; libs: {}",
-        workdir=outside,
-        project_id="p1",
-        parent_op_id="e1",
-    )
-    assert not result.success
-    assert result.reason == "invalid_argument"
-    # Critical: no .sandbox scratch dir was created in the rejected workdir.
-    assert not (outside / ".sandbox").exists(), (
-        "scratch dir was created in a rejected workdir — host-side "
-        "staging happened before validation"
-    )
+    assert _validate_workdir(outside) == outside.resolve()
 
 
 def test_run_free_form_rejects_nonexistent_workdir(tmp_path):
