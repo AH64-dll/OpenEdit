@@ -52,6 +52,7 @@ from open_edit.ir.types import (
     TrimClipOp,
     UngroupEditsOp,
 )
+from open_edit.ir.validate import TimelineValidationError
 
 
 class ApplyError(Exception):
@@ -758,8 +759,12 @@ def _apply_free_form_code(op: FreeFormCodeOp, project: Project) -> Project:
     return project
 
 
-def derive_timeline(project: Project) -> Timeline:
-    """Replay all non-reverted, applied operations in sequence order."""
+def derive_timeline(project: Project, strict: bool = False) -> Timeline:
+    """Replay all non-reverted, applied operations in sequence order.
+
+    When ``strict=True``, raise TimelineValidationError if the resulting
+    timeline has overlaps or non-positive-duration clips.
+    """
     timeline = Timeline()
     if not project.edit_graph:
         return timeline
@@ -810,10 +815,15 @@ def derive_timeline(project: Project) -> Timeline:
         if end > max_end:
             max_end = end
     timeline.duration_sec = max_end
+    if strict:
+        from open_edit.ir.validate import validate_timeline, TimelineValidationError
+        errs = validate_timeline(timeline)
+        if errs:
+            raise TimelineValidationError("; ".join(errs))
     return timeline
 
 
-def derive_or_load_timeline(project: Project, store=None) -> Timeline:
+def derive_or_load_timeline(project: Project, store=None, strict: bool = False) -> Timeline:
     """Return the Timeline for ``project``, using a cached snapshot when the
     edit graph's canonical hash matches a stored snapshot.
 
@@ -835,7 +845,7 @@ def derive_or_load_timeline(project: Project, store=None) -> Timeline:
         except Exception:
             pass
 
-    tl = derive_timeline(project)
+    tl = derive_timeline(project, strict=strict)
 
     if store is not None:
         with contextlib.suppress(Exception):
