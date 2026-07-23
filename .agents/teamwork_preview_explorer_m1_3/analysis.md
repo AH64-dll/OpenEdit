@@ -1,185 +1,188 @@
-# Analysis Report: Open Edit IR Operations Data Models & Cross-Module References
+# Open Edit Frontend UI & WebSocket Integration Analysis
 
-**Milestone**: Milestone 1 - Operations Data Models (Pydantic)  
-**Target File**: `open_edit/ir/types.py`  
-**Explorer**: Explorer 3  
-**Date**: 2026-07-21  
+## 1. Executive Summary
 
----
-
-## 1. Overview & Cross-Module References
-
-The Intermediate Representation (IR) of Open Edit centers on an append-only log of immutable Pydantic operations defined in `open_edit/ir/types.py`. Every modification to an edit graph is captured as an operation model inheriting from `Operation`. Operations are stored in SQLite via `open_edit/storage/edit_graph.py` and projected onto a derived `Timeline` state via `open_edit/ir/apply.py`.
-
-### Cross-Module Usage Map
-
-| Module | Reference Type | Usage Description |
-|---|---|---|
-| `open_edit/ir/types.py` | Definition | Defines `Operation` base class, 24 concrete operation subclasses (including the 10 target ops), `OperationUnion` discriminated union, `Project`, `Timeline`, `Track`, `Clip`, `Effect`, `Asset`, `WordAlignment`, `new_id()`, `now_iso8601()`. |
-| `open_edit/ir/api.py` | Construction / Builder | `IR` class exposes helper methods (`add_clip`, `remove_clip`, `move_clip`, `trim_clip`, `add_transition`, `add_effect`, `set_keyframe`, `group_edits`, `raw_mlt_xml`, `free_form_code`, etc.) that stamp `edit_id=new_id()`, `author="ai"`, `parent_id`, and `originating_note_id`, appending Pydantic ops to the sandbox ops buffer. |
-| `open_edit/ir/apply.py` | Replay Engine | `apply_operation(timeline, op)` updates `Timeline` for each applied operation. Replay skips `op.status != "applied"`. `FreeFormCodeOp` and `GroupEditsOp` are no-ops during timeline derivation. `_apply_free_form_code` runs scripts in sandbox and appends generated child ops. `derive_timeline(project)` replays all ops in sequence order. |
-| `open_edit/ir/validate.py` | Validation Engine | `validate_op(op, project, catalog)` checks op fields against current project state (e.g. clip/asset existence, time constraints, catalog effect types/targets). |
-| `open_edit/ir/commutativity.py` | Optimization | Analyzes operation pairs (`is_independent(op_a, op_b)`) to determine whether reordering is safe. |
-| `open_edit/storage/edit_graph.py` | Persistence Layer | SQLite `edits` table store. Uses `op.model_dump_json()` on `append()`, and `TypeAdapter(OperationUnion).validate_json(payload)` on `load_all()`. Sets `op.status` from DB column. |
-| `open_edit/cli.py` | CLI Interface | Commands `list`, `summary`, `undo`, `free_form`, `render` consume `OperationUnion` and `Project` to inspect edit graphs and derive timelines. |
-| `open_edit/agent/sandbox_bridge.py` | Execution Bridge | `run_free_form()` executes scripts inside Rust `bwrap` sandbox, reading produced ops from `ops.jsonl` via `TypeAdapter(OperationUnion).validate_json()`. |
-| `open_edit/render/ingest.py` | XML Ingestion | `ingest_mlt_xml()` parses raw MLT XML into a `RawMltXmlOp` and derived synthetic child ops (`AddClipOp`, `AddEffectOp`). |
-| `open_edit/render/orchestrator.py` | Rendering Pipeline | Reads `AddClipOp` and derived `Timeline` to drive MLT render process. |
-| `open_edit/serve/tool_schemas.py` | API Documentation | Documents the 24 operation kinds, payload schemas, and `IR` builder usage for agent tool invocations. |
+This report presents a thorough analysis of the frontend UI components, WebSocket client integration, turn state management, interrupt (Stop) button workflow, connection status handling, and pytest test suite setup for Open Edit (`/home/ah64/apps/mlt-pipeline/open_edit`).
 
 ---
 
-## 2. Base Model & Discriminator Architecture
+## 2. Web Frontend Structure & Component Mapping
 
-### Base `Operation` Class (`open_edit/ir/types.py:87-95`)
+### 2.1 Architecture & Tech Stack
+- **Framework**: Standard HTML5, CSS3, and Vanilla JavaScript (ES Modules). No React, Vue, Svelte, or external bundlers (Vite/Webpack) are used.
+- **Module Structure**: Native browser `<script type="module" src="/app.js"></script>` loading.
+- **Location**: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/serve/static/`
 
-All operation models inherit from `Operation`:
-
-```python
-class Operation(BaseModel):
-    kind: str  # Overridden in concrete subclasses as Literal["..."]
-    edit_id: str = Field(default_factory=new_id)
-    parent_id: Optional[str] = None
-    author: Literal["ai", "user"]
-    timestamp: str = Field(default_factory=now_iso8601)
-    status: Literal["applied", "reverted", "superseded"] = "applied"
-    originating_note_id: Optional[str] = None
+```
+open_edit/serve/static/
+├── index.html       # Single Page Application HTML shell
+├── app.js           # Main ES module entry point, bootstrapper & DOM event binder
+├── style.css        # CSS variable theme tokens & component styles
+└── js/
+    ├── api.js       # REST API wrapper methods (GET/POST/PUT/DELETE)
+    ├── assets.js    # Left-panel asset grid renderer & preview modal logic
+    ├── chat.js      # Center-panel chat log, tool cards, & auxiliary status widgets
+    ├── dom.js       # DOM selector helpers, element builder, toast & modal managers
+    ├── state.js     # Shared reactive state object & API response normalizers
+    └── ws.js        # WebSocket connection lifecycle, exponential backoff & event router
 ```
 
-- **`kind`**: Unique string discriminator (snake_case matching subclass intent).
-- **`edit_id`**: Stable UUIDv4 string (default factory `new_id()`). Unique for every operation.
-- **`parent_id`**: Optional UUID string referencing a parent operation (e.g. `FreeFormCodeOp` or `GroupEditsOp`) when an operation is generated as a child.
-- **`author`**: Originator of the edit, restricted to `"ai"` or `"user"`.
-- **`timestamp`**: ISO 8601 UTC timestamp string (default factory `now_iso8601()`).
-- **`status`**: Operation state in edit graph. Allowed values: `"applied"`, `"reverted"`, `"superseded"`. Default is `"applied"`.
-- **`originating_note_id`**: Optional string linking operation to a user feedback note.
+### 2.2 Topbar Layout & Input Row
+- **Topbar (`<header class="topbar">`)**:
+  - **Left**: `.logo` ("Open Edit"), `#project-select` dropdown, `#btn-new-project` (`+ New`), `#btn-refresh-project` (`⟳`).
+  - **Center**: `#llm-provider-select` dropdown, `#llm-model-select` dropdown, `#llm-tools-warn` warning indicator.
+  - **Right**: `#btn-cmd-k` (`⌘K` command palette), `#btn-toggle-theme` (`🌙/☀️`), `#btn-settings` (`⚙️ Settings`), mobile drawer toggles, `#conn-status` indicator dot.
+  - *Observation*: Topbar currently lacks a dedicated Stop/Interrupt button.
+- **Chat Input Row (`.chat-input-row`)**:
+  - `#chat-input`: Auto-growing `<textarea>` for prompt input (Enter to send, Shift+Enter newline).
+  - `#btn-send`: Primary send button with arrow SVG.
+  - `#btn-stop`: Secondary interrupt button (`<button id="btn-stop" class="btn btn-secondary hidden" title="Interrupt request">Stop ⏹</button>`).
 
-### Discriminated Union (`open_edit/ir/types.py:263-276`)
+### 2.3 Toast Notification System
+- **DOM Container**: `<div id="toast" class="toast hidden"></div>` located at line 297 of `index.html`.
+- **CSS Tokens**: `.toast`, `.toast.error`, `.toast.success`, `.toast.warn` in `style.css`.
+- **JS Implementation**: `showToast(message, kind = '')` in `static/js/dom.js`:
+  ```javascript
+  export function showToast(message, kind = '') {
+    const t = $('#toast');
+    if (!t) return;
+    t.textContent = message;
+    t.className = 'toast ' + kind;
+    setTimeout(() => t.classList.add('hidden'), 3000);
+  }
+  ```
 
-```python
-OperationUnion = Annotated[
-    Union[
-        AddClipOp, RemoveClipOp, MoveClipOp, TrimClipOp,
-        AddTransitionOp, RemoveTransitionOp, SetTransitionPropertyOp,
-        AddEffectOp, RemoveEffectOp, SetEffectParamOp,
-        SetKeyframeOp, RemoveKeyframeOp,
-        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp,
-        SplitClipOp, ReplaceClipSourceOp, SetClipSpeedRampOp,
-        SetAudioGainOp, NormalizeAudioOp,
-        GroupEditsOp, UngroupEditsOp,
-        RawMltXmlOp, FreeFormCodeOp,
-    ],
-    Field(discriminator="kind"),
-]
+---
+
+## 3. Agent Turn State Tracking
+
+### 3.1 UI State Machines
+1. **Chat Status Widget (`createChatStatus`)** (`static/js/chat.js`):
+   - State values: `'idle'` | `'thinking'` | `'tool_running'`.
+   - Transitions:
+     - `send()` → `'thinking'` (displays "AI thinking…").
+     - `text` WS event → `'thinking'` (if not currently running a tool).
+     - `tool_start` WS event → `'tool_running'` (displays "Running <tool_name>…").
+     - `tool_result` WS event → `'thinking'`.
+     - `done` / `error` WS event → `'idle'` (hides widget).
+2. **Verification Chip Widget (`createVerifyChip`)** (`static/js/chat.js`):
+   - State values: `'idle'` | `'checking'` | `'verified'` | `'failed'` | `'skipped'` | `'capped'`.
+   - Driven by `verification_started` and `verification_result` WS events.
+3. **Cost Badge Widget (`createCostBadge`)** (`static/js/chat.js`):
+   - Displays turn cost and cumulative session cost, driven by `cost_update` WS events.
+
+### 3.2 Input & Action Button Controls (`setChatEnabled`)
+In `static/app.js`:
+```javascript
+function setChatEnabled(enabled) {
+  const input = $('#chat-input');
+  const btnSend = $('#btn-send');
+  const btnStop = $('#btn-stop');
+  if (input) input.disabled = !enabled;
+  if (btnSend) {
+    btnSend.disabled = !enabled;
+    btnSend.classList.toggle('hidden', !enabled);
+  }
+  if (btnStop) {
+    btnStop.classList.toggle('hidden', enabled);
+  }
+  if (enabled && input) input.focus();
+}
 ```
-
-- Pydantic v2 `TypeAdapter(OperationUnion).validate_json(json_str)` uses `kind` to route deserialization to the exact concrete subclass.
-
----
-
-## 3. Detailed Operation Specifications (The 10 Target Operations)
-
-### 1. `AddClipOp` (`open_edit/ir/types.py:97-105`)
-- **`kind`**: `Literal["add_clip"] = "add_clip"`
-- **`asset_hash`**: `str` — Hash referencing ingested media asset in `project.assets`.
-- **`track_id`**: `str` — Target track identifier (e.g. `"v1"`, `"a1"`, `"video_graphics"`).
-- **`track_kind`**: `Literal["video", "audio"] = "video"` — Track type.
-- **`position_sec`**: `float` — Timeline start position in seconds (must be >= 0.0).
-- **`in_point_sec`**: `float = 0.0` — Sub-clip asset in-point in seconds (must be >= 0.0).
-- **`out_point_sec`**: `Optional[float] = None` — Sub-clip asset out-point in seconds (must be > `in_point_sec` when set).
-- **`clip_id`**: `str = Field(default_factory=new_id)` — Unique UUID for the created clip instance.
-- **Replay Behavior** (`apply.py:75-79`): Calls `_get_or_create_track(timeline, op.track_id, op.track_kind)`, constructs `Clip`, appends to `track.clips`.
-- **Validation Rules** (`validate.py:79-100`): Asserts `asset_hash` in `project.assets`, `position_sec >= 0`, `in_point_sec >= 0`, `out_point_sec > in_point_sec` if present.
-
-### 2. `RemoveClipOp` (`open_edit/ir/types.py:108-111`)
-- **`kind`**: `Literal["remove_clip"] = "remove_clip"`
-- **`clip_id`**: `str` — Target clip UUID to remove.
-- **Replay Behavior** (`apply.py:80-83`): Removes matching clip from all tracks: `track.clips = [c for c in track.clips if c.clip_id != op.clip_id]`.
-- **Validation Rules** (`validate.py:102-103`): No-op validation if unknown (passes safely).
-
-### 3. `MoveClipOp` (`open_edit/ir/types.py:113-118`)
-- **`kind`**: `Literal["move_clip"] = "move_clip"`
-- **`clip_id`**: `str` — Target clip UUID.
-- **`new_track_id`**: `str` — Destination track identifier.
-- **`new_position_sec`**: `float` — New timeline start position in seconds.
-- **Replay Behavior** (`apply.py:84-95`): Locates clip, removes from old track, creates/retrieves `new_track_id`, updates `track_id` and `position_sec`, appends to new track.
-- **Validation Rules** (`validate.py:105-110`): Asserts `clip_id` exists in project active clips.
-
-### 4. `TrimClipOp` (`open_edit/ir/types.py:120-125`)
-- **`kind`**: `Literal["trim_clip"] = "trim_clip"`
-- **`clip_id`**: `str` — Target clip UUID.
-- **`new_in_point_sec`**: `float` — New asset in-point in seconds.
-- **`new_out_point_sec`**: `float` — New asset out-point in seconds.
-- **Replay Behavior** (`apply.py:96-109`): Finds clip and updates `in_point_sec` and `out_point_sec`.
-- **Validation Rules** (`validate.py:112-123`): Asserts `clip_id` exists and `new_in_point_sec < new_out_point_sec`.
-
-### 5. `AddTransitionOp` (`open_edit/ir/types.py:127-133`)
-- **`kind`**: `Literal["add_transition"] = "add_transition"`
-- **`clip_a_id`**: `str` — Outgoing clip UUID.
-- **`clip_b_id`**: `str` — Incoming clip UUID.
-- **`transition_type`**: `Literal["luma", "dissolve", "wipe", "fade", "cut"]` — Allowed transition types.
-- **`duration_sec`**: `float` — Transition duration in seconds (must be > 0).
-- **Replay Behavior** (`apply.py:176-251`): Center-on-cut algorithm. Computes timeline cut point: `cut = clip_a.position_sec + (clip_a.out_point_sec - clip_a.in_point_sec)`. Adjusts `clip_a.out_point_sec` to `cut - duration/2` and `clip_b.in_point_sec` to `cut + duration/2`. Appends transition effect to `clip_a.effects`. Raises `ValueError` if transition duration exceeds clip bounds.
-- **Validation Rules** (`validate.py:125-140`): Asserts `clip_a_id` and `clip_b_id` exist and `duration_sec > 0`.
-
-### 6. `AddEffectOp` (`open_edit/ir/types.py:147-154`)
-- **`kind`**: `Literal["add_effect"] = "add_effect"`
-- **`target_kind`**: `Literal["clip", "track"]` — Target level.
-- **`target_id`**: `str` — Clip UUID or Track identifier.
-- **`effect_type`**: `str` — MLT service name (e.g. `"volume"`, `"brightness"`, `"luma"`, `"contrast"`, `"eq"`, `"saturation"`).
-- **`params`**: `dict[str, Any] = Field(default_factory=dict)` — Effect parameter dictionary.
-- **`effect_id`**: `str = Field(default_factory=new_id)` — Unique UUID for the effect instance.
-- **Replay Behavior** (`apply.py:254-280`): Appends `Effect(effect_id=op.effect_id, effect_type=op.effect_type, params=op.params)` to clip or track `effects`.
-- **Validation Rules** (`validate.py:142-162`): Asserts `effect_type` is known in `EffectCatalog`, `target_kind` matches catalog allowed targets, and `target_id` exists if `target_kind == "clip"`.
-
-### 7. `SetKeyframeOp` (`open_edit/ir/types.py:171-176`)
-- **`kind`**: `Literal["set_keyframe"] = "set_keyframe"`
-- **`effect_id`**: `str` — Target effect UUID.
-- **`param`**: `str` — Target parameter name.
-- **`keyframes`**: `list[tuple[float, float, str]]` — List of `(time_sec, value, interpolation)` tuples (where interpolation is `"discrete"`, `"linear"`, or `"smooth"`).
-- **Replay Behavior** (`apply.py:283-296`): Updates `effect.keyframes[op.param] = op.keyframes` on the matching `Effect`.
-- **Validation Rules** (`validate.py:164-169`): Asserts `effect_id` exists in project applied effects.
-
-### 8. `GroupEditsOp` (`open_edit/ir/types.py:238-242`)
-- **`kind`**: `Literal["group_edits"] = "group_edits"`
-- **`edit_ids`**: `list[str]` — List of child `edit_id` strings grouped together.
-- **`label`**: `str` — Human-readable description for the edit group.
-- **Replay Behavior** (`apply.py:120-121`): No-op during timeline derivation (returns `timeline` unmodified). Structural grouping metadata.
-
-### 9. `RawMltXmlOp` (`open_edit/ir/types.py:249-253`)
-- **`kind`**: `Literal["raw_mlt_xml"] = "raw_mlt_xml"`
-- **`xml`**: `str` — Raw MLT XML snippet/document string.
-- **`description`**: `str` — Explanation of the XML block.
-- **Replay Behavior** (`apply.py:124`): Replayed as no-op during timeline state derivation. Parsed by `render/ingest.py` into synthetic child operations (`AddClipOp`, `AddEffectOp`, etc.) during XML ingestion.
-
-### 10. `FreeFormCodeOp` (`open_edit/ir/types.py:255-260`)
-- **`kind`**: `Literal["free_form_code"] = "free_form_code"`
-- **`code`**: `str` — Python script string executed in the bwrap sandbox.
-- **`timeout_sec`**: `int = 30` — Sandbox execution timeout in seconds.
-- **`mem_mb`**: `int = 512` — Sandbox memory limit in megabytes.
-- **`label`**: `Optional[str] = None` — Optional script label.
-- **Replay Behavior** (`apply.py:122-123` & `317-341`): `apply_operation` skips execution (no-op) during `derive_timeline` to allow idempotent replay without re-executing code. `_apply_free_form_code` runs `run_free_form()` in sandbox and appends generated child ops (with `parent_id == op.edit_id`) to `project.edit_graph`.
+*Current Behavior Gap*: `setChatEnabled(false)` is NOT called inside `handleSend()` when a prompt is dispatched. Consequently, during active turns, `#chat-input` remains enabled and `#btn-stop` remains hidden (`hidden` class is retained).
 
 ---
 
-## 4. Serialization & Persistence Requirements
+## 4. Interactive Request Interrupt (Stop ⏹) Button Strategy
 
-1. **JSON Serialization**:
-   - Every operation model must serialize cleanly via `.model_dump_json()`.
-   - Deserialization uses `TypeAdapter(OperationUnion).validate_json(payload)`.
+### 4.1 UI Component Additions
+To ensure the Stop button is accessible in both the topbar and the prompt input row:
+1. **Topbar Stop Button**: Add `<button id="btn-topbar-stop" class="btn btn-danger btn-xs hidden" title="Interrupt turn">Stop ⏹</button>` to `.topbar-right` in `index.html` (alongside `#conn-status`).
+2. **Input Row Stop Button**: Keep and un-hide `#btn-stop` in `.chat-input-row`.
+3. **Event Binding**: Bind click listeners on both `#btn-stop` and `#btn-topbar-stop` to `cancelTurn()`.
 
-2. **SQLite Edit Graph Mapping** (`storage/edit_graph.py`):
-   - Table `edits`: `(edit_id TEXT PRIMARY KEY, parent_id TEXT, kind TEXT, author TEXT, timestamp TEXT, status TEXT, sequence_num INTEGER, payload TEXT)`.
-   - On `append(op)`: DB columns are populated directly from `op` attributes (`op.edit_id`, `op.parent_id`, `op.kind`, `op.author`, `op.timestamp`, `op.status`, `payload=op.model_dump_json()`).
-   - On `load_all()`: Loads `payload` and `status`, runs `op = TypeAdapter(OperationUnion).validate_json(payload)`, overrides `op.status = row['status']`.
+### 4.2 Turn Control State Rules
+When a turn starts (`handleSend()`):
+- Set `setChatEnabled(false)` (or dedicated `setTurnRunning(true)` helper):
+  - Disable `#chat-input`.
+  - Hide `#btn-send` (`btnSend.disabled = true; btnSend.classList.add('hidden')`).
+  - Un-hide `#btn-stop` AND `#btn-topbar-stop` (`classList.remove('hidden')`).
 
-3. **Immutability & Pydantic Config**:
-   - Operations are immutable data structures representing discrete events in the edit history. Updating status or copying operations uses `model_copy(update={...})`.
+When a turn finishes (`done` / `error` event, or user clicks Stop):
+- Call `setChatEnabled(true)` (or `setTurnRunning(false)`):
+  - Enable `#chat-input`.
+  - Show `#btn-send` (`btnSend.disabled = false; btnSend.classList.remove('hidden')`).
+  - Hide `#btn-stop` AND `#btn-topbar-stop` (`classList.add('hidden')`).
 
 ---
 
-## 5. Summary of Interface Compatibility Rules
+## 5. Stop Button Execution & WebSocket Protocol Flow
 
-1. **Inheritance & Discriminator**: All ops inherit from `Operation` and define explicit `kind: Literal["..."]` matching `OperationUnion`.
-2. **Deterministic Defaults**: Default factories must be callable (`new_id`, `now_iso8601`, `dict`, `list`).
-3. **Pure Timeline Derivation**: `apply_operation(timeline, op)` MUST remain a pure function (`Timeline -> Timeline`). Ops that produce child ops (`FreeFormCodeOp`, `RawMltXmlOp`, `GroupEditsOp`) are no-ops in `apply_operation` so replay remains fast, idempotent, and deterministic.
+### 5.1 Client-Side Execution (`cancelTurn`)
+Current `cancelTurn()` implementation in `static/app.js`:
+```javascript
+function cancelTurn() {
+  if (state.ws) {
+    try {
+      state.ws.send(JSON.stringify({ type: 'cancel' }));
+      state.ws.close();
+    } catch {}
+    state.ws = null;
+  }
+  markTurnDone();
+  if (state.chatStatus) state.chatStatus.onEvent({ type: 'done', stop_reason: 'cancelled' });
+  setChatEnabled(true);
+  showToast('Turn interrupted by user', 'warn');
+  setTimeout(() => connectWS(), 250);
+}
+```
+**Required Client Enhancements**:
+1. Send WebSocket frame `{"type": "cancel"}` immediately.
+2. Mark any in-flight tool cards as interrupted/cancelled (`completeToolCard`).
+3. Reset `chatStatus` and `verifyChip` state machines to `'idle'`.
+4. Re-enable prompt input via `setChatEnabled(true)`.
+5. Display visual warning toast via `showToast('Turn interrupted by user', 'warn')`.
+6. Schedule clean WebSocket reconnection.
+
+### 5.2 Server-Side WebSocket Handling (`open_edit/serve/app.py` & `agent.py`)
+- Currently, `ws_chat()` in `app.py` iterates `async for event in agent_mod.run_agent_turn(...)`. During turn execution, `ws_chat()` is blocked on generator iteration and does not read incoming WS text frames concurrently.
+- **Server Enhancement Requirement**:
+  - `ws_chat()` should run an `asyncio.Task` to listen for incoming client frames (`websocket.receive_text()`) concurrently with agent turn streaming.
+  - When `{"type": "cancel"}` is received, set a cancellation event/flag or cancel the `run_agent_turn` task.
+  - Yield/send `{"type": "done", "stop_reason": "cancelled"}` back to the client.
+
+---
+
+## 6. Connection Drop Toasts & Reconnect Feedback
+
+### 6.1 Current Connection State Handling
+- `setWsState(s)` in `static/js/ws.js` manages class name on `#conn-status`:
+  - `'connected'`: Green dot (`.conn-status.connected`).
+  - `'connecting'`: Yellow dot (`.conn-status.connecting`).
+  - `'disconnected'`: Red/gray dot (`.conn-status.disconnected`).
+- Reconnection logic (`scheduleReconnect` in `static/js/ws.js`):
+  - Uses exponential backoff capped at 10 seconds: `Math.min(1000 * Math.pow(1.5, attempts - 1), 10000)`.
+  - Window event listeners in `app.js` trigger `connectWS()` on `online` and tab `focus`.
+
+### 6.2 Recommended Connection Toast Enhancements
+1. **Connection Loss Toast**: In `ws.onclose` (when `state.currentProjectId` is present and disconnect was not user-initiated), invoke `showToast('Connection lost. Reconnecting…', 'warn')`.
+2. **Reconnection Success Toast**: In `ws.onopen`, if `state.reconnectAttempts > 0`, invoke `showToast('Reconnected to server', 'success')`.
+
+---
+
+## 7. Pytest Unit & Integration Test Architecture
+
+### 7.1 Test Suite Organization
+- **Location**: `/home/ah64/apps/mlt-pipeline/open_edit/tests/`
+- **Key Test Files**:
+  - `test_serve_ws.py`: FastAPI `TestClient.websocket_connect` integration tests for `/api/chat/{project_id}`.
+  - `test_serve_agent.py`: Agent turn loop unit tests (`run_agent_turn`, system prompt generation, tool execution).
+  - `test_serve_chat_status.py`: Node.js harness unit tests for `createChatStatus` state machine.
+  - `test_serve_cost_badge.py`: Unit tests for `createCostBadge` widget.
+  - `test_serve_verify_chip.py`: Unit tests for `createVerifyChip` widget.
+  - `test_serve_send_reconnect.py`: Tests for `handleSend` reconnect kick during `CONNECTING` socket state.
+  - `_node_harness.py`: Pytest utility that executes frontend JS modules inside Node.js scripts to validate `window.OpenEdit.__testHooks`.
+
+### 7.2 Running Pytest Tests
+- Command: `pytest tests/test_serve_*.py`
+- Test dependencies: `pytest`, `pytest-asyncio`, `fastapi`, `httpx`, Node.js (for JS harness tests).

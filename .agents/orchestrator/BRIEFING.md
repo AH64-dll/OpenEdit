@@ -1,30 +1,30 @@
-# BRIEFING — 2026-07-21T07:51:11Z
+# BRIEFING — 2026-07-22T13:25:59Z
 
 ## Mission
-Implement Phase 1 of the Open Edit platform: core IR runtime, operation schemas (Pydantic), SQLite edit log database, replay/derived state logic, and clean unit tests.
+Implement robust connection error handling, automatic dev server connectivity checks, provider failure fallback, and a topbar/input-row Request Interrupt (Stop ⏹) button for Open Edit.
 
 ## 🔒 My Identity
 - Archetype: Project Orchestrator
 - Roles: orchestrator, user_liaison, human_reporter, successor
 - Working directory: /home/ah64/apps/mlt-pipeline/.agents/orchestrator
 - Original parent: main agent
-- Original parent conversation ID: 43c44e99-24f5-406c-acd0-17ded5e82c59
+- Original parent conversation ID: 77f3cf77-bed3-48e3-b5d9-c98daaca7053
 
 ## 🔒 My Workflow
 - **Pattern**: Project Pattern
 - **Scope document**: /home/ah64/apps/mlt-pipeline/.agents/orchestrator/PROJECT.md
-1. **Decompose**: Decompose Phase 1 into milestones or direct iteration loops.
+1. **Decompose**: Decompose request into 4 milestones.
 2. **Dispatch & Execute**:
    - Iteration loop per milestone: 3 Explorers -> Worker -> 2 Reviewers -> 2 Challengers -> Forensic Auditor.
 3. **On failure**: Retry -> Replace -> Skip -> Redistribute -> Redesign.
 4. **Succession**: Self-succeed at spawn count >= 16.
 - **Work items**:
-  1. Milestone 1: Operations Data Models (open_edit/ir/types.py & unit tests) [pending]
-  2. Milestone 2: SQLite Edit Graph Store (open_edit/storage/edit_graph.py & unit tests) [pending]
-  3. Milestone 3: Operation Replay & Derived State (open_edit/ir/apply.py & unit tests) [pending]
-  4. Milestone 4: Full E2E & Unittest verification (python3 -m unittest discover -s tests) [pending]
-- **Current phase**: 1
-- **Current focus**: Milestone 1
+  1. Milestone 1: Architecture & Problem Exploration [done]
+  2. Milestone 2: Backend Connection Handling & Interrupt Logic [done]
+  3. Milestone 3: Frontend Stop Button & Connection Toasts [in-progress - fixing import bug]
+  4. Milestone 4: Test Suite Verification & Audit [pending]
+- **Current phase**: 3
+- **Current focus**: Remediation of frontend `markTurnDone` import bug in `app.js`
 
 ## 🔒 Key Constraints
 - DISPATCH-ONLY orchestrator: MUST NOT write code nor solve problems directly.
@@ -33,44 +33,36 @@ Implement Phase 1 of the Open Edit platform: core IR runtime, operation schemas 
 - Forensic Auditor verdict is a BINARY VETO — violation means immediate failure.
 
 ## Current Parent
-- Conversation ID: 43c44e99-24f5-406c-acd0-17ded5e82c59
-- Updated: 2026-07-21T07:51:11Z
+- Conversation ID: 77f3cf77-bed3-48e3-b5d9-c98daaca7053
+- Updated: 2026-07-22T13:25:59Z
 
 ## Key Decisions Made
-- Initialized Project Orchestrator workspace and state files.
+- Reviewer 2 issued VETO due to missing `markTurnDone` import in `open_edit/open_edit/serve/static/app.js`.
+- Dispatched Worker 2 (`e10dc94a-9cef-4c84-b0cc-1e9a3a06d385`) to fix `markTurnDone` import in `app.js`.
 
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |-------|------|-----------|--------|---------|
-| Explorer 1 | teamwork_preview_explorer | M1 IR Schemas Exploration | completed | 0cdd333a-e5e4-46b1-ac13-5455c9751aa3 |
-| Explorer 2 | teamwork_preview_explorer | M1 Test Suite Exploration | completed | 22ac79c0-d44b-4711-aefa-f9d898ee222e |
-| Explorer 3 | teamwork_preview_explorer | M1 Integration Exploration | completed | a4416d75-70c3-48cb-8da4-ef5d52275942 |
-| Worker 1 | teamwork_preview_worker | M1 Implementation & Unittest Refactor | completed | 9c6e8595-c49b-4d5a-bf05-ef8110fb4822 |
-| Reviewer 1 | teamwork_preview_reviewer | M1 Code & Architecture Review | completed | 34aa4f15-b5d2-4954-a1c9-8162522cadde |
-| Reviewer 2 | teamwork_preview_reviewer | M1 Quality & Schema Compatibility Review | completed | 359736e6-6930-475b-9ba5-8c6e19d95c26 |
-| Challenger 1 | teamwork_preview_challenger | M1 Empirical Deserialization Stress Test | completed | 44705896-c69c-4cad-aada-46bec14b102e |
-| Challenger 2 | teamwork_preview_challenger | M1 Empirical Boundary Verification | completed | 5cdfca31-1ae0-4477-b227-f929b906a7b8 |
-| Auditor 1 | teamwork_preview_auditor | M1 Forensic Integrity Audit | completed | 83eb5e9b-a902-4281-9147-7f1f57e46815 |
-| Explorer M2_1 | teamwork_preview_explorer | M2 SQLite Storage Implementation | completed | 80c0a1e8-ee1d-404f-a796-833e9d95c345 |
-| Explorer M2_2 | teamwork_preview_explorer | M2 SQLite Storage Test Suite | completed | ffd84f4a-5f7e-4211-a540-334bc42c8a72 |
-| Explorer M2_3 | teamwork_preview_explorer | M2 SQLite Storage Integration | completed | 1e6da6d3-81b7-4d45-945c-548c94a5484e |
-| Worker 2 | teamwork_preview_worker | M2 Storage Tests & Unittest Refactor | completed | e44e1f3b-bcf3-4a42-b8c2-02e6cd9fc2d2 |
-| Reviewer M2_1 | teamwork_preview_reviewer | M2 Architecture & SQLite Review | in-progress | 1345a331-4f5e-42f4-a085-de9b3d0e578f |
-| Reviewer M2_2 | teamwork_preview_reviewer | M2 Quality & Schema Compatibility Review | in-progress | aa4eb605-41aa-4f40-9c10-623015b9d253 |
-| Challenger M2_1 | teamwork_preview_challenger | M2 Empirical Stress Verifier | in-progress | a384ccc1-bacb-4812-acae-66042a63b44b |
-| Challenger M2_2 | teamwork_preview_challenger | M2 Empirical Boundary & Transaction Verifier | in-progress | 1225159f-38e9-4b33-806a-a07919ece6be |
-| Auditor M2 | teamwork_preview_auditor | M2 Forensic Integrity Audit | in-progress | 7cc57e9d-cc42-423d-92ba-516f56e8908c |
+| Explorer 1 | teamwork_preview_explorer | Backend WS & Turn Control | completed | b343622e-092a-4dc0-a851-97b119445a72 |
+| Explorer 2 | teamwork_preview_explorer | LLM Provider & Network Error | completed | 55976875-2649-450c-b04b-9b2913d8e074 |
+| Explorer 3 | teamwork_preview_explorer | Frontend UI & Stop Button | completed | 7d9c6237-25a6-4287-9ec1-70b3242af6ed |
+| Worker 1 | teamwork_preview_worker | M2 & M3 Backend/Frontend Implementation | completed | ed2a83ea-21bf-42ce-8130-8352b4d5e079 |
+| Reviewer 1 | teamwork_preview_reviewer | Backend Architecture & Code Review | completed (PASS) | a885671b-a293-49b5-94c2-5ee0a761c55c |
+| Reviewer 2 | teamwork_preview_reviewer | Frontend UI & Test Quality Review | completed (VETO) | d9e0e479-37d1-4bb9-9dd6-08efcba43725 |
+| Challenger 1 | teamwork_preview_challenger | WS Cancellation & Process Stress Test | completed | d0015074-44a1-4897-aa5e-02ec8e6485bd |
+| Challenger 2 | teamwork_preview_challenger | Provider Errors & Pytest Verification | completed | 49f3c26d-c66c-4593-ad72-cef218456a52 |
+| Auditor 1 | teamwork_preview_auditor | Forensic Integrity Audit | completed | 6323f8b6-145e-4526-a62f-b312e1dc8c34 |
+| Worker 2 | teamwork_preview_worker | Frontend app.js markTurnDone Fix | in-progress | e10dc94a-9cef-4c84-b0cc-1e9a3a06d385 |
 
 ## Succession Status
-- Succession required: yes (completed)
-- Spawn count: 18 / 16
-- Pending subagents: none
+- Succession required: no
+- Spawn count: 10 / 16
+- Pending subagents: e10dc94a-9cef-4c84-b0cc-1e9a3a06d385
 - Predecessor: none
-- Successor spawned: f3f599d7-d252-42af-bcca-709c0e7b996a
-- Successor generation: gen2
+- Successor: not yet spawned
 
 ## Active Timers
-- Heartbeat cron: pending
+- Heartbeat cron: task-19
 - Safety timer: none
 
 ## Artifact Index

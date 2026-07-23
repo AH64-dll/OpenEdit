@@ -1,41 +1,68 @@
-# Summary of Changes
+# Changes Report — Milestone 2 & Milestone 3 Implementation
 
-## Modified / Created Files
+## Summary of Changes
 
-1. `open_edit/tests/test_storage/__init__.py` (CREATED)
-   - Added package initializer to enable test discovery for `python3 -m unittest discover -s tests`.
+Milestone 2 & Milestone 3 for Open Edit have been fully implemented, covering Backend Connection Handling & Interrupt Logic, Frontend UI Request Interrupt (Stop ⏹) & Connection Toasts, and full test suite verification.
 
-2. `open_edit/tests/test_storage/test_edit_graph.py` (REFACTORED & EXPANDED)
-   - Converted test functions into `TestEditGraphStore(unittest.TestCase)` subclass.
-   - Implemented `setUp()` and `tearDown()` using `tempfile.TemporaryDirectory()` for DB file creation and cleanup.
-   - Implemented test assertions covering:
-     - SQLite table & PRAGMA initialization (`edits`, `jobs`, `project_meta`, WAL mode, foreign keys).
-     - `project_id` generation on initial access and persistent retrieval across re-reads and store reopens.
-     - Direct SQLite row assertions and `load_all()` payload deserialization for ALL 10 operation schemas (`AddClipOp`, `RemoveClipOp`, `MoveClipOp`, `TrimClipOp`, `AddTransitionOp`, `AddEffectOp`, `SetKeyframeOp`, `GroupEditsOp`, `RawMltXmlOp`, `FreeFormCodeOp`).
-     - Status updates (`applied`, `reverted`, `superseded`) via `update_status()`.
-     - History queries via `load_all()` preserving sequence ordering.
-     - Sequence reordering via `reorder()` and error handling for non-adjacent / missing operations.
+---
 
-3. `open_edit/tests/test_storage/test_assets.py` (REFACTORED)
-   - Refactored into `TestAssetStore(unittest.TestCase)` using `tempfile.TemporaryDirectory`.
-   - Used `@unittest.skipUnless(_ffprobe_available(), ...)` for conditional test execution.
+## Files Modified & Summary of Changes
 
-4. `open_edit/tests/test_storage/test_assets_alignment.py` (REFACTORED)
-   - Refactored into `TestAssetsAlignment(unittest.TestCase)` using `tempfile.TemporaryDirectory` and `unittest.mock.patch`.
+### 1. `open_edit/open_edit/serve/app.py`
+- **`ws_chat` Refactoring**: Refactored the WebSocket chat endpoint so `run_agent_turn` executes as a background `asyncio.Task` (`current_turn_task`). A concurrent loop listens on `websocket.receive_text()`.
+- **Cancel / Stop Handling**: When a `{"type": "cancel"}` or `{"type": "stop"}` JSON message is received, `_cancel_turn()` cancels the turn task cleanly (`task.cancel()`), awaits its cancellation, and emits `{"type": "cancelled"}` over WebSocket.
+- **Client Disconnect Cleanup**: When a WebSocket client disconnects (`WebSocketDisconnect` or socket teardown), `_cancel_turn()` cancels the active background task cleanly in exception handlers and `finally:` block.
+- **`GET /api/health` Endpoint**: Added health check endpoint returning `{"status": "ok"}`.
+- **`put_llm_config` Exception Handling**: Expanded exception handling during config persistence to catch `(llm_config_mod.LLMConfigError, OSError, Exception)` and return clean HTTP 500 error responses with detail.
+- **Async Event-Loop Safety**: Wrapped synchronous `available_models()` calls in `asyncio.to_thread` across `get_llm_config`, `put_llm_config`, and `get_provider_models`.
 
-5. `open_edit/tests/test_storage/test_job_lock.py` (REFACTORED)
-   - Refactored into `TestJobLock(unittest.TestCase)` using `tempfile.TemporaryDirectory`.
+### 2. `open_edit/open_edit/serve/agent.py`
+- **Cancellation Awareness**: Added `_is_cancelled()` helper checking `should_cancel` callback and `asyncio.current_task().cancelling() > 0`.
+- **Turn Loop Interruption**: Checked `_is_cancelled()` at turn loop starts, during LLM streaming, and before tool executions.
+- **`CancelledError` Propagation**: Ensured `asyncio.CancelledError` is re-raised immediately instead of caught as a generic exception.
+- **Async Tool Execution**: Updated `_execute_tool` to handle coroutines/awaitables when invoking `_execute_trigger_render`.
 
-6. `open_edit/tests/test_storage/test_notes.py` (REFACTORED)
-   - Refactored into `TestNotesStore(unittest.TestCase)` using `tempfile.TemporaryDirectory`.
+### 3. `open_edit/open_edit/serve/tool_executor.py`
+- **Async `execute_trigger_render`**: Refactored `execute_trigger_render` from synchronous `subprocess.run` to `asyncio.create_subprocess_exec`.
+- **Process Cancellation**: Wrapped process execution in `try...except asyncio.CancelledError:`. Upon cancellation or timeout, terminates running render processes via `proc.kill()` and `await proc.wait()`.
+- **Non-blocking Probe**: Wrapped `_probe_duration` in `asyncio.to_thread`.
 
-7. `open_edit/tests/test_storage/test_render_snapshots.py` (REFACTORED)
-   - Refactored into `TestRenderSnapshotStore(unittest.TestCase)` using `tempfile.TemporaryDirectory`.
+### 4. `open_edit/open_edit/serve/cli_adapter.py`
+- **Non-blocking Model Discovery**: Introduced `_run_subprocess_safe` helper that offloads synchronous `subprocess.run` calls in `_opencode_models_via_cli` and `_jcode_models_via_cli` to a thread pool executor when an event loop is running.
 
-8. `open_edit/tests/test_storage/test_transcription.py` (REFACTORED)
-   - Refactored into `TestTranscription(unittest.TestCase)` using `tempfile.TemporaryDirectory` and `unittest.mock.patch`.
+### 5. `open_edit/open_edit/serve/llm.py`
+- **Transient Network Dropout Handling**: Added retry loop (up to 2 retries with exponential backoff) in `stream_chat` for `(ConnectionError, TimeoutError, OSError)` and transient API network dropouts.
+- **Contract Coercion**: Restored `StreamEvent` TypedDict variants and `_coerce_event` contract helper.
 
-## Verification
-- Executed `python3 -m unittest discover -s tests` from `open_edit`: 87 tests discovered and passed with 0 failures.
-- Executed `pytest tests/test_storage/` from `open_edit`: 61 tests passed with 0 failures.
-- Executed `pytest tests/` from `open_edit`: 287 tests passed with 0 failures.
+### 6. `open_edit/open_edit/serve/static/index.html`
+- **Topbar Stop Button**: Added `<button id="btn-topbar-stop" class="btn btn-secondary hidden" title="Interrupt request">Stop ⏹</button>` to `.topbar-right`.
+
+### 7. `open_edit/open_edit/serve/static/app.js`
+- **Send & Chat Enable Control**: Updated `handleSend()` to invoke `setChatEnabled(false)` when sending a message.
+- **Dual Stop Button Toggle**: Updated `setChatEnabled(enabled)` to toggle visibility of both `#btn-stop` and `#btn-topbar-stop`.
+- **Turn Interruption Logic**: Updated `cancelTurn()` to send `{"type": "cancel"}` over WebSocket, reset chat status, re-enable `#chat-input`, restore ready UI state, and display toast `"Turn interrupted by user"`.
+- **Event Binding**: Wired `#btn-topbar-stop` to `cancelTurn()`.
+
+### 8. `open_edit/open_edit/serve/static/js/ws.js`
+- **Connection Drop Toast**: Added toast `"WebSocket connection dropped"` on `ws.onclose`.
+- **Auto-reconnect Toast**: Added toast `"WebSocket reconnected"` on `ws.onopen` when reconnecting.
+
+### 9. Test Updates & New Test Cases
+- `open_edit/tests/test_serve_agent.py`: Updated `test_execute_trigger_render_*` to be async and mock `asyncio.create_subprocess_exec`.
+- `open_edit/tests/test_tool_executor.py`: Updated `test_execute_trigger_render_missing_args` for async `execute_trigger_render`.
+- `open_edit/tests/test_serve_ws.py`: Added `test_ws_chat_cancellation_message` and `test_ws_chat_stop_message`.
+- `open_edit/tests/test_serve_llm_config_api.py`: Added `test_get_health_endpoint` and `test_put_llm_config_catches_oserror_and_returns_500`.
+
+---
+
+## Test Verification
+
+Command:
+```bash
+python3 -m pytest open_edit/tests
+```
+
+Result:
+```text
+747 passed, 5 skipped, 1 warning in 35.65s (100% pass rate)
+```

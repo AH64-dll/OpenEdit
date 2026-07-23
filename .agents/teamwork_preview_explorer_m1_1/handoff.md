@@ -1,97 +1,85 @@
-# Handoff Report: Milestone 1 — Operations Data Models (Pydantic)
+# Handoff Report: Open Edit Backend Architecture Exploration
 
 ## 1. Observation
 
-- **Environment**:
-  - Python version: `3.14.5`
-  - Pydantic version: `2.13.4`
-  - Command output from `python3 --version && python3 -c "import pydantic; print(pydantic.__version__)"`:
-    ```
-    Python 3.14.5
-    2.13.4
-    ```
+Direct observations from source inspection of `/home/ah64/apps/mlt-pipeline/open_edit`:
 
-- **File Locations**:
-  - Implementation file: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/ir/types.py` (286 lines)
-  - Validation module: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/ir/validate.py` (179 lines)
-  - Compatibility shim: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/pydantic_compat.py` (8 lines)
-  - Unit tests file: `/home/ah64/apps/mlt-pipeline/open_edit/tests/test_ir/test_types.py` (223 lines)
+1. **WebSocket Chat Endpoint (`open_edit/serve/app.py:636-731`)**:
+   - Route definition: `@app.websocket("/api/chat/{project_id}")`
+   - Initial check: Calls `_require_project(project_id)` (`app.py:658`). If 404, accepts connection, sends `{"type": "error", "message": detail}`, and closes socket with code `4404`.
+   - On success: accepts WebSocket connection and sends `{"type": "ready", "project_id": project_id}` (`app.py:673`).
+   - Inbound message handling loop (`app.py:680-725`):
+     ```python
+     while True:
+         raw = await websocket.receive_text()
+         ...
+         async for event in agent_mod.run_agent_turn(
+             project_id=project_id,
+             user_message=message,
+             conversation_history=history,
+             conv_id=conv_id,
+         ):
+             await websocket.send_text(json.dumps(event, default=str))
+     ```
+   - Inbound message parsing expects `{"message": "...", "conv_id": "..."}`.
+   - Outbound events emitted: `ready`, `text`, `tool_start`, `tool_result`, `render`, `verification_started`, `verification_result`, `error`, `done`, `cost_update`.
 
-- **Base Class & Discriminated Union**:
-  - `Operation(BaseModel)` defined in `open_edit/ir/types.py` lines 87–94 with fields `kind: str`, `edit_id: str`, `parent_id: Optional[str]`, `author: Literal["ai", "user"]`, `timestamp: str`, `status: Literal["applied", "reverted", "superseded"]`, `originating_note_id: Optional[str]`.
-  - `OperationUnion = Annotated[Union[...], Field(discriminator="kind")]` defined in `open_edit/ir/types.py` lines 263–276.
+2. **Agent Turn Loop (`open_edit/serve/agent.py:587-975`)**:
+   - Signature: `async def run_agent_turn(project_id, user_message, conversation_history, conv_id=None, should_cancel=None) -> AsyncIterator[AgentEvent]`.
+   - Iteration cap: `MAX_AGENT_ITERATIONS = int(os.environ.get("OPEN_EDIT_AGENT_MAX_ITERATIONS", "10"))` (`agent.py:83`).
+   - LLM Streaming: `stream_chat(...)` in `open_edit/serve/llm.py:126` streams tokens & tool calls from Anthropic, OpenAI, or CLI sub-processes (`pi`, `opencode`, `agy`, `jcode`).
+   - Tool Execution: Non-`trigger_render` tools execute first via `_execute_tool(tool_name, tool_input, project_path)` (`agent.py:834`). `trigger_render` executes last via `tool_executor.execute_trigger_render` (`tool_executor.py:55`).
+   - Cost tracking: Loaded from `.open_edit/cost.json` on turn start; saved off-loop via `_save_cost_state_async` (`agent.py:204`) after yielding `cost_update`.
 
-- **Required Schemas in `types.py`**:
-  - `AddClipOp` (lines 97–105)
-  - `RemoveClipOp` (lines 108–110)
-  - `MoveClipOp` (lines 113–117)
-  - `TrimClipOp` (lines 120–124)
-  - `AddTransitionOp` (lines 127–132)
-  - `AddEffectOp` (lines 147–153)
-  - `SetKeyframeOp` (lines 171–175)
-  - `GroupEditsOp` (lines 238–241)
-  - `RawMltXmlOp` (lines 249–252)
-  - `FreeFormCodeOp` (lines 255–260)
+3. **Task Cancellation Mechanisms & Gaps**:
+   - `ws_chat` in `app.py:709` awaits `run_agent_turn` directly inside `async for`.
+   - During `run_agent_turn` execution, `websocket.receive_text()` is **not** polled, preventing any incoming `{"type": "stop"}` or `{"type": "cancel"}` frame from being read while the agent turn is active.
+   - `should_cancel` parameter exists in `run_agent_turn` (`agent.py:592`) but is unused by `ws_chat` (called with `should_cancel=None`).
+   - `tool_executor.execute_trigger_render` (`tool_executor.py:78`) invokes `subprocess.run(["open_edit", "render", ...], timeout=RENDER_TIMEOUT_S)`, which is a synchronous blocking call that cannot be interrupted mid-flight by Python asyncio task cancellation.
+   - Subprocess driver `_stream_cli` in `llm.py:606` properly catches `asyncio.CancelledError` and terminates CLI subprocesses via `proc.kill()`.
 
-- **Test Suite Results**:
-  - Command: `python3 -m pytest tests/test_ir/test_types.py` (executed in `/home/ah64/apps/mlt-pipeline/open_edit`)
-  - Output: `26 passed in 0.09s`
-  - Command: `python3 -m unittest discover -s tests` returned `Ran 0 tests` because test functions in `tests/test_ir/test_types.py` are standalone pytest functions rather than `unittest.TestCase` subclasses.
+4. **Test Suite Structure & Config (`pyproject.toml:45-48` and `tests/`)**:
+   - `pytest` configured with `testpaths = ["tests"]`, `pythonpath = ["."]`, `addopts = "-ra -q"`.
+   - 91 test files organized into serve/web sockets (`test_serve_app.py`, `test_serve_agent.py`), CLI adapters (`test_cli_adapter.py`, `test_opencode_adapter.py`), IR & edit graph (`test_ir/*`), sandbox & tools (`test_sandbox_bridge.py`, `test_pyagent_*`), and QC (`test_qc/*`).
+   - Key fixtures in `tests/conftest.py`: `tmp_notes_db` and `tmp_project_with_assets`.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Step 1 (Inspection of Data Models)**:
-   - *Observation*: Inspected `open_edit/ir/types.py` (lines 87–276).
-   - *Reasoning*: All 10 operations required by Milestone 1 (`AddClipOp`, `RemoveClipOp`, `MoveClipOp`, `TrimClipOp`, `AddTransitionOp`, `AddEffectOp`, `SetKeyframeOp`, `GroupEditsOp`, `RawMltXmlOp`, `FreeFormCodeOp`) are fully declared as Pydantic models inheriting from `Operation`.
-   - *Deduction*: The required data schemas are already implemented in `open_edit/ir/types.py`.
-
-2. **Step 2 (Pydantic Version & Polymorphism Handling)**:
-   - *Observation*: Pydantic version is 2.13.4. `pydantic_compat.py` documents that `OperationUnion` is an `Annotated[Union[...], Field(discriminator="kind")]` type.
-   - *Reasoning*: In Pydantic v2, `Union` types cannot be instantiated or validated with `.model_validate()`. `pydantic.TypeAdapter(OperationUnion)` is required for deserialization.
-   - *Deduction*: Deserialization logic across open_edit must use `TypeAdapter(OperationUnion)` for polymorphic parsing.
-
-3. **Step 3 (Validation Analysis)**:
-   - *Observation*: `open_edit/ir/validate.py` performs contextual checking (e.g. checking asset existence, clip IDs, effect catalog match).
-   - *Reasoning*: Intrinsic constraints (e.g. non-negative position/in-point, positive duration) are validated in `validate_op()`.
-   - *Deduction*: Pydantic schemas in `types.py` handle structural type validation, while `validate_op()` handles referential and project-state validation.
-
-4. **Step 4 (Test Execution & Verification)**:
-   - *Observation*: `pytest tests/test_ir/test_types.py` passes 26 out of 26 tests.
-   - *Reasoning*: The existing model definitions and their validators pass all unit tests cleanly under pytest.
-   - *Deduction*: Milestone 1 schema implementation is verified and ready for downstream integration (Milestone 2 storage and Milestone 3 replay).
+1. **Observation 1** shows that `ws_chat` in `app.py` blocks synchronously awaiting `async for event in run_agent_turn(...)`.
+2. Because `websocket.receive_text()` is only called before `run_agent_turn` starts and after `run_agent_turn` finishes, any WebSocket message sent by the client (such as `{"type": "stop"}` or `{"type": "cancel"}`) while `run_agent_turn` is running cannot be read by the server until after the turn completes.
+3. **Observation 3** shows that while `_stream_cli` handles `asyncio.CancelledError` by calling `proc.kill()`, `execute_trigger_render` in `tool_executor.py` runs a synchronous `subprocess.run(...)` call, preventing task cancellation from aborting rendering operations immediately.
+4. Therefore, implementing clean task cancellation requires:
+   - Refactoring `ws_chat` to run `run_agent_turn` as a background `asyncio.Task` while concurrently listening on `websocket.receive_text()`.
+   - Passing an `asyncio.Event` / `should_cancel` callback into `run_agent_turn`.
+   - Refactoring `execute_trigger_render` from synchronous `subprocess.run` to `asyncio.create_subprocess_exec` so `asyncio.CancelledError` can catch and terminate active render processes.
+5. **Observation 4** shows that the existing 91 test files in `tests/` already cover `test_serve_app.py`, `test_serve_agent.py`, `test_cli_adapter.py`, `test_serve_errors.py`, and `test_serve_pi_bridge.py`, providing a solid foundation for verifying WebSocket and task cancellation enhancements.
 
 ---
 
 ## 3. Caveats
 
-- **Unittest Discover Compatibility**: `python3 -m unittest discover` does not detect standalone `def test_...()` functions without pytest. If `python3 -m unittest` is strictly required by CI scripts, test files would need `unittest.TestCase` wrapper classes or pytest test runner integration.
-- **Intrinsic Pydantic Validators**: Currently, numeric bound validation (e.g., `position_sec >= 0`) is enforced in `validate_op()` rather than `@field_validator` in `types.py`. If Pydantic-level field validation errors on model instantiation are required, `@field_validator` can be added to `types.py`.
+- Node.js runtime and external CLI binaries (`pi`, `opencode`, `agy`, `jcode`, `ffprobe`, `ffmpeg`, `hyperframes`) were inspected via python wrapper integration code rather than running full end-to-end renders.
+- Terminal execution of `pytest` in this environment returned sandbox restriction code, but static code inspection of all test files in `tests/` and configuration in `pyproject.toml` confirmed the test layout and structure.
 
 ---
 
 ## 4. Conclusion
 
-Milestone 1 Operation Data Models in `open_edit/open_edit/ir/types.py` are complete, fully specified, and pass 26 unit tests in `open_edit/tests/test_ir/test_types.py`. Polymorphic operations are correctly defined via `OperationUnion` and validated using Pydantic 2.13.4 `TypeAdapter`.
+The Open Edit backend has a well-structured, modular architecture:
+- WebSocket handling in `open_edit/serve/app.py` manages project authorization, message parsing, and event streaming.
+- Agent turn execution in `open_edit/serve/agent.py` orchestrates LLM streaming (`llm.py`), tool execution (`tool_executor.py`), cost sidecars (`cost.json`), and visual verification (`visual_verify.py`).
+- The primary architectural gap is the **lack of concurrent message polling during agent turn execution in `ws_chat`** and **synchronous subprocess blocking in `execute_trigger_render`**.
+- Implementing a task dispatcher pattern in `ws_chat` along with async subprocess creation in `tool_executor.py` will enable clean, instant cancellation for both WebSocket stop frames and abrupt client disconnects without state or lock corruption.
 
 ---
 
 ## 5. Verification Method
 
-1. **Inspect Types File**:
-   ```bash
-   view_file /home/ah64/apps/mlt-pipeline/open_edit/open_edit/ir/types.py
-   ```
-   *Verify*: Check definitions of `Operation`, `AddClipOp`, `RemoveClipOp`, `MoveClipOp`, `TrimClipOp`, `AddTransitionOp`, `AddEffectOp`, `SetKeyframeOp`, `GroupEditsOp`, `RawMltXmlOp`, `FreeFormCodeOp`, and `OperationUnion`.
-
-2. **Run Unit Tests**:
-   ```bash
-   cd /home/ah64/apps/mlt-pipeline/open_edit
-   python3 -m pytest tests/test_ir/test_types.py
-   ```
-   *Expected Output*: 26 passed tests with exit code 0.
-
-3. **Invalidation Conditions**:
-   - Any failure in `pytest tests/test_ir/test_types.py`.
-   - Addition of non-discriminating fields that prevent `TypeAdapter(OperationUnion)` from decoding JSON operations.
+To verify these observations independently:
+1. Inspect WebSocket endpoint: `open_edit/serve/app.py` at line 636 (`ws_chat`).
+2. Inspect Agent turn loop: `open_edit/serve/agent.py` at line 587 (`run_agent_turn`).
+3. Inspect LLM streaming & subprocess management: `open_edit/serve/llm.py` at line 126 (`stream_chat`) and line 428 (`_stream_cli`).
+4. Inspect Tool execution: `open_edit/serve/tool_executor.py` at line 39 (`execute_tool`) and line 55 (`execute_trigger_render`).
+5. Inspect Test suite setup: `open_edit/pyproject.toml` lines 45-48 and `open_edit/tests/conftest.py`.

@@ -1,28 +1,24 @@
-# Progress Log — Open Edit Phase 1 Orchestration
+# Progress Log — Open Edit Connection Handling & Interrupt Button
 
 ## Current Status
-Last visited: 2026-07-21T08:10:00Z
+Last visited: 2026-07-22T13:25:59Z
 
 ## Iteration Status
-Current iteration: 1 / 32
+Current iteration: 2 / 32
 
 ## Roadmap & Milestones
-- [x] Milestone 1: Operations Data Models (Pydantic schemas in open_edit/ir/types.py + tests)
-- [x] Milestone 2: SQLite Edit Graph Store (open_edit/storage/edit_graph.py + tests)
-- [/] Milestone 3: Operation Replay & Derived State (open_edit/ir/apply.py + tests)
-- [ ] Milestone 4: Full Test Suite Verification (`python3 -m unittest discover -s tests`)
+- [x] Milestone 1: Architecture & Problem Exploration (WS handlers, LLM config, Agent turn loop, Frontend UI)
+- [x] Milestone 2: Backend Connection Handling & Interrupt Logic (Provider fallback, WS cancel frame, tool/stream halt)
+- [/] Milestone 3: Frontend Stop Button & Connection Toasts (Remediating missing markTurnDone import in app.js)
+- [ ] Milestone 4: Test Suite Verification & Audit (`pytest tests/` 100% pass rate, WS cancel pytest, Forensic Audit)
 
 ## Activity Log
-- 2026-07-21T07:51:11Z: Initialized orchestrator workspace, BRIEFING.md, PROJECT.md, and ORIGINAL_REQUEST.md.
-- 2026-07-21T07:51:36Z: Dispatched 3 Explorer subagents for Milestone 1.
-- 2026-07-21T07:54:17Z: Synthesized Explorer findings and dispatched Worker 1 for Milestone 1.
-- 2026-07-21T07:56:17Z: Worker 1 completed. Dispatched Reviewer 1, Reviewer 2, Challenger 1, Challenger 2, and Forensic Auditor for Milestone 1 verification.
-- 2026-07-21T07:58:40Z: Milestone 1 Verification Complete — Forensic Auditor: CLEAN, Reviewer 1: PASS, Reviewer 2: PASS, Challenger 1: CONFIRMED, Challenger 2: CONFIRMED. Milestone 1 PASSED.
-- 2026-07-21T07:58:48Z: Dispatched 3 Explorer subagents for Milestone 2 (SQLite Edit Graph Store).
-- 2026-07-21T07:59:56Z: Synthesized Explorer findings and dispatched Worker 2 for Milestone 2 implementation and unittest refactor.
-- 2026-07-21T08:03:52Z: Worker 2 completed. Dispatched Reviewer 1, Reviewer 2, Challenger 1, Challenger 2, and Forensic Auditor for Milestone 2 verification.
-- 2026-07-21T08:09:09Z: Milestone 2 Verification Complete — Forensic Auditor: CLEAN, Reviewer 1: PASS, Reviewer 2: PASS, Challenger 1: CONFIRMED, Challenger 2: CONFIRMED. Milestone 2 PASSED. Initiating Succession Protocol for Generation 2 orchestrator.
-- 2026-07-21T08:09:25Z: Generation 2 Project Orchestrator resumed. Heartbeat cron re-established. Dispatched 3 Explorers for Milestone 3 (Operation Replay & Derived State).
-- 2026-07-21T08:12:45Z: Synthesized Explorer findings (missing 13 op handlers, unittest discovery incompatibility). Dispatched Worker 3 for Milestone 3 implementation and unittest refactor.
-- 2026-07-21T08:16:30Z: Worker 3 completed (123/123 tests passing). Dispatched 2 Reviewers, 2 Challengers, and Forensic Auditor for Milestone 3 verification.
-
+- 2026-07-22T13:17:10Z: Initialized Orchestrator for Open Edit Connection Error Handling & Stop Button feature set. Scheduled heartbeat cron.
+- 2026-07-22T13:17:46Z: Updated PROJECT.md, BRIEFING.md, and progress.md with 4-milestone execution plan.
+- 2026-07-22T13:17:53Z: Dispatched 3 Explorer subagents for Milestone 1.
+- 2026-07-22T13:19:19Z: All 3 Explorers completed. Synthesized findings and marked Milestone 1 DONE.
+- 2026-07-22T13:19:32Z: Dispatched Worker `ed2a83ea-21bf-42ce-8130-8352b4d5e079` for Milestones 2 & 3 implementation.
+- 2026-07-22T13:24:16Z: Worker 1 completed implementation with 747 pytest tests passing.
+- 2026-07-22T13:24:25Z: Dispatched 2 Reviewers, 2 Challengers, and Forensic Auditor for Milestone 4 verification gate.
+- 2026-07-22T13:25:53Z: Reviewer 2 reported VETO due to missing `markTurnDone` import in `open_edit/open_edit/serve/static/app.js`.
+- 2026-07-22T13:25:59Z: Dispatched Worker 2 (`e10dc94a-9cef-4c84-b0cc-1e9a3a06d385`) to fix `markTurnDone` import bug.

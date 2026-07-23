@@ -26,3 +26,26 @@ Implement pure functions in `open_edit/ir/apply.py` (specifically `apply_operati
 - [ ] Must write unit tests under `tests/` asserting that `derive_timeline` returns the correct, expected state after replaying sequence of operations (including revert/undo operations).
 - [ ] All unit tests must pass cleanly using the Python `unittest` framework.
 - [ ] The command `python3 -m unittest discover -s tests` must execute successfully with zero failures.
+
+## Follow-up — 2026-07-22T10:16:51Z
+
+Implement robust connection error handling, automatic dev server connectivity checks, provider failure fallback, and a topbar/input-row Request Interrupt (Stop ⏹) button for Open Edit.
+
+Working directory: /home/ah64/apps/mlt-pipeline/open_edit
+
+## Requirements
+
+### R1. Provider Connection Debugging & Auto-Recovery
+- Fix LLM config save network errors and provider connection dropouts.
+- Implement clear UI toasts for connection drops and auto-reconnect fallback.
+
+### R2. Request Interrupt (Stop ⏹) Button
+- Add an interactive Stop button during agent turns that halts WebSocket streaming and tool execution cleanly.
+- Re-enable input and return the UI to ready state instantly upon interruption.
+
+## Acceptance Criteria
+
+### Automated & E2E Verification
+- [ ] Unit tests pass in pytest tests/ (100% pass rate).
+- [ ] WebSocket cancel / disconnect handling verified via pytest.
+- [ ] Manual test: Changing provider or sending a turn handles network errors cleanly and allows clicking "Stop" to interrupt execution.

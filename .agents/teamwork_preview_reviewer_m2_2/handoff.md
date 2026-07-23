@@ -1,83 +1,88 @@
-# Handoff Report — Reviewer 2 (Milestone 2: SQLite Edit Graph Store)
+# Handoff Report — M2_2 Reviewer 2
+
+**Agent**: Reviewer 2 (`teamwork_preview_reviewer`)  
+**Working Directory**: `/home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_reviewer_m2_2`  
+**Verdict**: **VETO**
+
+---
 
 ## 1. Observation
 
-- **Implementation File**: `open_edit/open_edit/storage/edit_graph.py` (141 lines)
-- **Schema File**: `open_edit/open_edit/storage/schema.sql` (37 lines)
-- **Test File**: `open_edit/tests/test_storage/test_edit_graph.py` (297 lines)
-- **Storage Test Directory**: `open_edit/tests/test_storage/` (7 test files)
-
-**Operation Schema Coverage Test**:
-Line 92 of `open_edit/tests/test_storage/test_edit_graph.py`:
-`def test_append_and_load_all_10_operation_schemas(self) -> None:`
-Instantiates and tests all 10 schemas:
-- `AddClipOp`
-- `RemoveClipOp`
-- `MoveClipOp`
-- `TrimClipOp`
-- `AddTransitionOp`
-- `AddEffectOp`
-- `SetKeyframeOp`
-- `GroupEditsOp`
-- `RawMltXmlOp`
-- `FreeFormCodeOp`
-
-**TestCase Structure & Cleanup**:
-`TestEditGraphStore` inherits from `unittest.TestCase`:
-- `setUp`: `self.temp_dir = tempfile.TemporaryDirectory()`, `self.tmp_path = Path(self.temp_dir.name)`
-- `tearDown`: `self.temp_dir.cleanup()`
-
-**Command Execution Output**:
-1. Command: `python3 -m unittest discover -s tests` (Cwd: `/home/ah64/apps/mlt-pipeline/open_edit`)
-   Output: `Ran 87 tests in 0.558s` `OK`
-2. Command: `python3 -m unittest discover -s tests/test_storage` (Cwd: `/home/ah64/apps/mlt-pipeline/open_edit`)
-   Output: `Ran 61 tests in 0.503s` `OK`
-3. Command: `pytest tests/test_storage/test_edit_graph.py` (Cwd: `/home/ah64/apps/mlt-pipeline/open_edit`)
-   Output: `13 passed in 0.12s`
+- **`open_edit/open_edit/serve/static/index.html`**:
+  Line 53 contains `<button id="btn-topbar-stop" class="btn btn-secondary hidden" title="Interrupt request">Stop ⏹</button>` inside `.topbar-right`.
+- **`open_edit/open_edit/serve/static/app.js`**:
+  - Lines 28–36 import functions from `./js/chat.js`:
+    ```javascript
+    import {
+      clearChatLog,
+      appendUserMessage,
+      createChatStatus,
+      createCostBadge,
+      createVerifyChip,
+      sendChatMessage,
+      appendSearchResults,
+    } from './js/chat.js';
+    ```
+    Note: `markTurnDone` is NOT included in this import list.
+  - Lines 586–596 define `cancelTurn()`:
+    ```javascript
+    function cancelTurn() {
+      if (state.ws) {
+        try {
+          state.ws.send(JSON.stringify({ type: 'cancel' }));
+        } catch {}
+      }
+      markTurnDone();
+      if (state.chatStatus) state.chatStatus.onEvent({ type: 'done', stop_reason: 'cancelled' });
+      setChatEnabled(true);
+      showToast('Turn interrupted by user', 'warn');
+    }
+    ```
+    `markTurnDone()` is invoked on line 592.
+- **`open_edit/open_edit/serve/static/js/chat.js`**:
+  Line 303 exports `markTurnDone`: `export function markTurnDone() { ... }`.
+- **`open_edit/open_edit/serve/static/js/ws.js`**:
+  - Lines 70–72: `if (wasReconnecting) { showToast('WebSocket reconnected', 'success'); }` on `ws.onopen`.
+  - Line 89: `showToast('WebSocket connection dropped', 'error');` on `ws.onclose`.
+- **Unit Tests**:
+  Executing `pytest open_edit/tests/test_serve_ws.py open_edit/tests/test_serve_llm_config_api.py open_edit/tests/test_tool_executor.py open_edit/tests/test_serve_agent.py` passed all 28 test cases.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Schema Coverage Verification**: Observation of `test_append_and_load_all_10_operation_schemas` confirms that all 10 operation schemas defined in `open_edit.ir.types` are appended to SQLite, validated via raw SQL queries, and re-loaded using Pydantic JSON validation.
-2. **Structure & Cleanup Verification**: Inspection of `test_edit_graph.py` and other files in `tests/test_storage/` confirms all test classes inherit from `unittest.TestCase` and implement proper `setUp`/`tearDown` hooks with `tempfile.TemporaryDirectory.cleanup()`.
-3. **Execution Verification**: Execution of `python3 -m unittest discover -s tests` and `pytest tests/test_storage/test_edit_graph.py` produced 0 failures, 0 errors, confirming zero test failures and clean execution.
-4. **Integrity Audit**: Code inspection of `edit_graph.py` confirms real SQLite connections, WAL mode initialization, transaction rollbacks on failure, and schema creation from `schema.sql`. No facade or hardcoded shortcut implementations exist.
+1. **Premise**: In ES modules, top-level function calls must resolve to imported identifiers or module-local declarations; unimported external exports are not present in module scope.
+2. **Observation**: `markTurnDone` is defined and exported in `js/chat.js:303`, but `app.js:28-36` does not import `markTurnDone`.
+3. **Execution Analysis**: When a user clicks `#btn-stop` or `#btn-topbar-stop`, the browser executes `cancelTurn()`. On line 592, the engine attempts to evaluate `markTurnDone()`.
+4. **Failure Mode**: Since `markTurnDone` is neither imported nor declared locally in `app.js`, JavaScript throws `Uncaught ReferenceError: markTurnDone is not defined`.
+5. **Consequence**: Execution aborts immediately at line 592. Line 593 (`chatStatus.onEvent`), line 594 (`setChatEnabled(true)`), and line 595 (`showToast(...)`) are skipped.
+6. **Impact**: Ready state is NOT restored, the Stop buttons remain visible, Send button remains hidden, input remains disabled, chat status remains stuck on "Thinking", and warning toast is not displayed.
+7. **Conclusion**: The requirement for "state transition cleanliness (instant ready state restore on stop)" is broken by a critical runtime error.
 
 ---
 
 ## 3. Caveats
 
-No caveats. All 10 operation schemas and storage tests were fully verified against the implementation code and executed via standard test runners.
+- Python unit tests in `test_serve_ws.py` verify that the backend handles WS `type: "cancel"` and `type: "stop"` messages correctly. The issue is strictly isolated to the ES module import scope in the browser frontend code (`app.js`).
+- Python test files in `open_edit/tests/` pass cleanly when run directly.
 
 ---
 
 ## 4. Conclusion
 
-**Verdict: PASS**
+**Verdict: VETO**
 
-The SQLite Edit Graph Store implementation and test suite meet all criteria for Milestone 2.
+The code changes cannot be approved due to a Critical finding (Integrity Violation / Runtime Crash): `cancelTurn()` in `app.js` fails with an uncaught `ReferenceError: markTurnDone is not defined` because `markTurnDone` was not imported from `./js/chat.js`.
 
 ---
 
 ## 5. Verification Method
 
-To independently verify this review:
-
-1. Change working directory to `open_edit`:
+To independently verify the issue:
+1. Inspect `open_edit/open_edit/serve/static/app.js` lines 28–36 and line 592 to confirm `markTurnDone` is called without being imported.
+2. Inspect `open_edit/open_edit/serve/static/js/chat.js` line 303 to confirm `markTurnDone` is exported.
+3. Run the targeted unit test suite:
    ```bash
-   cd open_edit
+   pytest open_edit/tests/test_serve_ws.py open_edit/tests/test_serve_llm_config_api.py open_edit/tests/test_tool_executor.py open_edit/tests/test_serve_agent.py
    ```
-2. Run test discovery across the entire test suite:
-   ```bash
-   python3 -m unittest discover -s tests
-   ```
-3. Run storage-specific tests:
-   ```bash
-   python3 -m unittest discover -s tests/test_storage
-   ```
-4. Run `test_edit_graph.py` directly:
-   ```bash
-   pytest tests/test_storage/test_edit_graph.py
-   ```
-5. Inspect `open_edit/tests/test_storage/test_edit_graph.py` lines 92–219 to confirm coverage of all 10 operation schemas.
+4. Verify fix: Add `markTurnDone` to the `./js/chat.js` import statement in `app.js`.

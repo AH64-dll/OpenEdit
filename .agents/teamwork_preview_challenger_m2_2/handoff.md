@@ -1,88 +1,113 @@
-# Challenger 2 Verification Report: SQLite Edit Graph Store (Milestone 2)
-
-**Verdict: CONFIRMED**
-
----
+# Handoff Report — Challenger 2 (M2)
 
 ## 1. Observation
 
-### Verification Test Suite Execution Summary
-Four empirical test harnesses were constructed and executed in `/home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_challenger_m2_2`:
+1. **Test Suite Pass Rate**:
+   - Command executed: `.venv/bin/pytest tests/` in `/home/ah64/apps/mlt-pipeline/open_edit`.
+   - Initial test run (Task-19): `749 passed, 5 skipped, 1 warning in 36.33s`.
+   - Test run with Challenger 2 empirical test suite (Task-76 / local run): `754 passed, 5 skipped, 1 warning in 37.12s`.
+   - Total non-skipped tests: 754 passed / 754 total = **100.0% pass rate**.
+   - 5 skipped tests were in `tests/test_free_form_e2e.py` due to environment restriction: `SKIPPED [5] ... sandbox cannot run in this environment (bwrap missing, or namespace/loopback setup fails)`.
 
-1. **`test_1_roundtrip_10ops.py`** (Round-Trip Payload Fidelity):
-   - Tested operation types: `AddClipOp`, `RemoveClipOp`, `MoveClipOp`, `TrimClipOp`, `AddTransitionOp`, `AddEffectOp`, `SetKeyframeOp`, `GroupEditsOp`, `RawMltXmlOp`, `FreeFormCodeOp`.
-   - Verified Pydantic JSON serialization (`model_dump_json()`) into SQLite `edits.payload` TEXT column and deserialization via `TypeAdapter(OperationUnion).validate_json()` upon `load_all()`.
-   - Complex nested payloads included dictionary structures, floats, MLT XML strings, multiline Python code blocks, special characters, and quotes.
-   - **Result**: 10/10 operation types succeeded with 100% exact equality (`orig.model_dump() == loaded.model_dump()`).
+2. **GET /api/health Route**:
+   - File: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/serve/app.py` lines 368–371:
+     ```python
+     @app.get("/api/health")
+     async def get_health() -> dict[str, str]:
+         """Health check endpoint returning {"status": "ok"}."""
+         return {"status": "ok"}
+     ```
+   - Empirical test result in `tests/test_challenger_empirical.py::test_health_endpoint_returns_200_ok`: `PASSED`. `res.status_code == 200`, `res.json() == {"status": "ok"}`.
 
-2. **`test_2_sqli_resistance.py`** (SQL Injection Resistance):
-   - Tested parameterized queries in `EditGraphStore` across `append()`, `project_id`, `update_status()`, and `reorder()`.
-   - Payloads injected: `'; DROP TABLE edits; --`, `' UNION SELECT 1, 'hacked' --`, `' OR 1=1 --`, `1'; DELETE FROM project_meta --`, etc.
-   - **Results**:
-     - SQLite parameterized inputs `(?, ?, ...)` safely bound all malicious strings as raw text without executing SQL commands.
-     - Database schema (`edits`, `project_meta`, `jobs`) remained 100% intact across all injection attempts.
-     - Malicious `edit_id` inputs to `update_status()` and `reorder()` failed gracefully or updated zero matching rows as expected.
-     - Malicious `status` values (e.g. `'applied; DROP TABLE edits; --'`) were blocked by the SQLite `CHECK (status IN ('applied', 'reverted', 'superseded'))` schema constraint with `sqlite3.IntegrityError`.
+3. **PUT /api/projects/{id}/llm-config OSError Recovery**:
+   - File: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/serve/app.py` lines 432–435:
+     ```python
+     try:
+         llm_config_mod.save_llm_config(project_path, cfg)
+     except (llm_config_mod.LLMConfigError, OSError, Exception) as exc:
+         raise HTTPException(status_code=500, detail=f"failed to save LLM config: {exc}") from exc
+     ```
+   - Exception handler in `app.py` lines 200–206 converts `HTTPException` into structured JSON response `{"error": msg}` with matching `status_code`.
+   - Empirical test result in `tests/test_challenger_empirical.py::test_put_llm_config_oserror_handling`: `PASSED`. Status code `500`, body `{"error": "failed to save LLM config: [Errno 13] Permission denied: '/dummy/config.toml'"}`.
 
-3. **`test_3_reopen_persistence.py`** (Database Reopen Persistence & Concurrency):
-   - Verified `project_id` generation on first open and stable persistence across 3 sequential database reopens (`EditGraphStore` reinstantiations).
-   - Verified append log sequence and status modifications (`update_status`) persist across database reopens.
-   - Verified multi-connection WAL mode concurrency: edits appended in Connection A were instantly readable in Connection B without locks or corruptions.
-   - Verified project isolation across distinct SQLite database files (independent `project_id`s and empty initial logs).
-   - **Result**: 100% pass across all persistence scenarios.
-
-4. **`test_4_transaction_boundaries.py`** (Transaction Safety & Schema Boundary Conditions):
-   - Verified Foreign Key constraint on `parent_id REFERENCES edits(edit_id)`. Non-existent `parent_id` strings triggered `sqlite3.IntegrityError: FOREIGN KEY constraint failed`.
-   - Verified Primary Key constraint on `edit_id`. Inserting a duplicate `edit_id` triggered `sqlite3.IntegrityError: UNIQUE constraint failed: edits.edit_id`.
-   - Verified sequence number monotonicity post-rollback: after a failed insert, the next valid insert correctly received the next continuous integer (`sequence_num = 2`) without sequence gaps or collisions.
-   - Verified `reorder()` edge cases: duplicate edit IDs, non-adjacent edit IDs, and missing edit IDs raised explicit `ValueError`s.
-   - Verified transaction atomicity: unhandled exceptions inside `_conn()` trigger automatic `conn.rollback()`, leaving 0 invalid rows in the database.
-   - **Result**: 100% pass across all transaction boundary conditions.
+4. **Transient Network Dropout Retry Handling**:
+   - File: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/serve/llm.py` lines 188–234:
+     - `max_retries = 2` loop with `events_yielded == 0` guard.
+     - Catches `(ConnectionError, TimeoutError, OSError)` as well as `Exception` matching transient keywords (`"connection"`, `"timeout"`, `"network"`, or classes `APIConnectionError`, `NetworkError`, `TimeoutException`, `ConnectTimeout`, `ReadTimeout`).
+     - Backoff delay: `await asyncio.sleep(0.2 * (2 ** attempt))`.
+   - Empirical test results in `tests/test_challenger_empirical.py`:
+     - `test_llm_transient_network_error_retry_and_recovery`: `PASSED` (retried 2 transient errors and recovered on 3rd attempt).
+     - `test_llm_transient_network_error_retry_exhaustion`: `PASSED` (attempted 3 times total, then yielded structured `{"type": "error", "message": ...}`).
+     - `test_llm_no_retry_if_events_already_yielded`: `PASSED` (attempted 1 time when error occurred after `events_yielded > 0`).
 
 ---
 
 ## 2. Logic Chain
 
-1. **Observation 1 (Round-trip fidelity)**: `EditGraphStore.append()` serializes `OperationUnion` Pydantic models using `op.model_dump_json()`. `EditGraphStore.load_all()` uses `TypeAdapter(OperationUnion).validate_json()`. In `test_1_roundtrip_10ops.py`, all 10 operation variants (`AddClipOp`, `RemoveClipOp`, `MoveClipOp`, `TrimClipOp`, `AddTransitionOp`, `AddEffectOp`, `SetKeyframeOp`, `GroupEditsOp`, `RawMltXmlOp`, `FreeFormCodeOp`) were stored and loaded back, yielding identical type hierarchies and dict representations (`orig.model_dump() == loaded.model_dump()`).
-   *Logic*: The storage layer handles polymorphic serialization without loss of attributes, type discriminators, or nested data structures across all 10 operation types.
+1. **Pass Rate Verification**:
+   - Step 1: Executed `pytest tests/` in the project directory using the virtualenv Python.
+   - Step 2: Collected all test outputs. Observed zero test failures across all 754 executed non-skipped tests.
+   - Conclusion 1: 100% pass rate achieved for all non-skipped tests.
 
-2. **Observation 2 (SQL Injection)**: In `open_edit/storage/edit_graph.py`, SQL queries are constructed using parameterized placeholders (`?`). In `test_2_sqli_resistance.py`, SQL injection strings passed through parameters in `append()`, `project_id` storage, `update_status()`, and `reorder()` were safely escaped by SQLite. Furthermore, invalid status values were rejected by SQLite's CHECK constraint.
-   *Logic*: The persistence layer is immune to SQL injection through query parameters, and database schema constraints correctly guard state transition boundaries.
+2. **Health Endpoint Verification**:
+   - Step 1: Traced endpoint definition in `app.py` for `/api/health`.
+   - Step 2: Executed `GET /api/health` against `TestClient(app)`.
+   - Step 3: Response status code was `200` and body was `{"status": "ok"}`.
+   - Conclusion 2: Dev server health route is functional and contract-compliant.
 
-3. **Observation 3 (Reopen Persistence & Concurrency)**: In `test_3_reopen_persistence.py`, `store.project_id` reads from the `project_meta` table. When reopening the SQLite file across separate object lifecycles, `project_id` remained stable (`d9144b9b-e194-4448-bb12-394ff66ffa53`). Operations and status updates persisted reliably, and concurrent connections operating under WAL mode observed live writes.
-   *Logic*: The SQLite database file provides durable, multi-instance persistence for project metadata and edit graphs.
+3. **LLM Config Save Error Recovery Verification**:
+   - Step 1: Inspected `put_llm_config` in `app.py`. Observed explicit `try...except` block catching `OSError`.
+   - Step 2: Inspected custom `_http_exception_handler` in `app.py`. Verified HTTP exceptions are formatted as `{"error": "<detail>"}`.
+   - Step 3: Mocked `save_llm_config` to raise `OSError("Permission denied")` and issued `PUT /api/projects/{id}/llm-config`.
+   - Step 4: Confirmed response status code was 500 and response body was `{"error": "failed to save LLM config: [Errno 13] Permission denied..."}`.
+   - Conclusion 3: File permission and `OSError` failures are caught and returned as structured HTTP error responses without leaking unhandled 500 exceptions or tracebacks.
 
-4. **Observation 4 (Transaction Safety & Boundaries)**: In `test_4_transaction_boundaries.py`, schema constraints (`FOREIGN KEY`, `PRIMARY KEY`, `CHECK`) were enforced by SQLite under `PRAGMA foreign_keys=ON`. Transaction failures triggered automatic rollback via the context manager (`_conn()`), maintaining sequence number integrity and preventing corrupt database states.
-   *Logic*: The transaction boundary design in `EditGraphStore` guarantees ACID compliance and state consistency under error conditions.
+4. **Transient Network Dropout Retry Handling**:
+   - Step 1: Code inspection of `stream_chat` in `llm.py` confirmed `max_retries = 2` loop with exponential backoff (`0.2 * 2**attempt`) for `events_yielded == 0`.
+   - Step 2: Executed 3 distinct empirical scenarios (recovery after 2 dropouts, exhaustion after 3 dropouts, mid-stream failure non-retry).
+   - Step 3: Verified all 3 scenarios behaved exactly as designed.
+   - Conclusion 4: Transient network dropout retry mechanism in `llm.py` is robust and empirically verified.
 
 ---
 
 ## 3. Caveats
 
-- **SQLite Locking under extreme write contention**: While WAL mode permits concurrent readers alongside a single writer, high-frequency simultaneous writes across multiple processes rely on SQLite's default busy handler / timeout settings.
-- **Python type validation vs SQL escaping**: Pydantic validates domain types (e.g. `author: Literal["ai", "user"]`) before SQL execution, adding an extra layer of protection prior to database parameter binding.
+- **Skipped sandbox tests**: 5 end-to-end tests in `tests/test_free_form_e2e.py` are skipped when bubblewrap (`bwrap`) is not installed in the OS test environment. This is expected behavior per project test suite design.
+- **No caveats** regarding LLM error handling, health endpoint, config save error recovery, or test suite execution.
 
 ---
 
 ## 4. Conclusion
 
-**Verdict: CONFIRMED**
-
-`EditGraphStore` in `open_edit/open_edit/storage/edit_graph.py` meets all transaction safety, schema boundary, SQL injection resistance, database reopen persistence, and 10-operation round-trip payload fidelity requirements.
+**CONFIRMED**.
+All four verification targets meet requirements:
+1. Pytest suite pass rate is 100% (754 passed, 0 failed, 5 skipped).
+2. `/api/health` returns `200 OK` with `{"status": "ok"}`.
+3. `PUT /api/projects/{id}/llm-config` cleanly handles `OSError` file permission failures, returning structured HTTP 500 JSON without leaking unhandled exceptions.
+4. `llm.py` correctly handles transient network dropouts with exponential backoff retries when `events_yielded == 0`.
 
 ---
 
 ## 5. Verification Method
 
-To independently execute and verify Challenger 2's empirical test suite:
+To independently verify these results:
 
-```bash
-# 1. Run Challenger 2 empirical test harnesses
-python3 /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_challenger_m2_2/test_1_roundtrip_10ops.py
-python3 /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_challenger_m2_2/test_2_sqli_resistance.py
-python3 /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_challenger_m2_2/test_3_reopen_persistence.py
-python3 /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_challenger_m2_2/test_4_transaction_boundaries.py
+1. Run the full pytest test suite (including Challenger 2 empirical tests):
+   ```bash
+   cd /home/ah64/apps/mlt-pipeline/open_edit
+   .venv/bin/pytest tests/ -v
+   ```
+2. Run the dedicated Challenger 2 empirical test suite:
+   ```bash
+   cd /home/ah64/apps/mlt-pipeline/open_edit
+   .venv/bin/pytest tests/test_challenger_empirical.py -v
+   ```
+3. Inspect code implementation files:
+   - `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/serve/app.py`
+   - `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/serve/llm.py`
 
-# 2. Run standard project storage test suite
-pytest open_edit/tests/test_storage/ -v
-```
+Invalidation Conditions:
+- Any test failure in `pytest tests/`.
+- `GET /api/health` returning non-200 or missing `status: ok`.
+- `PUT /api/projects/{id}/llm-config` raising an unhandled exception or returning raw HTML traceback on `OSError`.
+- `llm.py` throwing unhandled network errors without retrying initial transient dropouts.

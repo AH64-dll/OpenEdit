@@ -1,90 +1,68 @@
-# Detailed Analysis: Milestone 2 SQLite Edit Graph Store
+# Backend Implementation Review Report
 
-## Review Summary
-- **Target Component**: SQLite Edit Graph Store (`open_edit/open_edit/storage/edit_graph.py`, `schema.sql`, `test_edit_graph.py`)
-- **Verdict**: **PASS**
-- **Integrity Status**: CLEAN (No hardcoded test results, facade implementations, or bypasses detected)
-
----
-
-## 1. Connection Management & SQLite PRAGMAs
-
-### Observation
-In `open_edit/open_edit/storage/edit_graph.py` lines 30-42:
-```python
-@contextmanager
-def _conn(self) -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(str(self.db_path))
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-```
-
-### Assessment
-- `_conn()` opens a connection to `self.db_path` per operation context.
-- PRAGMAs `journal_mode=WAL` and `foreign_keys=ON` are explicitly enabled upon establishing each connection.
-- Automatic transaction handling: commits on normal return, rolls back on exception, and guarantees connection closure via `finally: conn.close()`.
-- DB directory creation (`self.db_path.parent.mkdir(parents=True, exist_ok=True)`) occurs in `__init__` before schema initialization.
+**Date**: 2026-07-22  
+**Reviewer**: Reviewer 1 (`teamwork_preview_reviewer`)  
+**Scope**: `open_edit` backend implementation changes in `app.py`, `agent.py`, `tool_executor.py`, `cli_adapter.py`, `llm.py`.  
+**Overall Verdict**: **PASS**
 
 ---
 
-## 2. Store Functionality & Persistence
+## Executive Summary
 
-### Key Functionalities Verified:
-1. **Persistent `project_id`** (lines 49-67):
-   - Checked via `SELECT value FROM project_meta WHERE key = 'project_id'`.
-   - On initial access, generates a new stable ID via `new_id()` and persists it to `project_meta`.
-   - Subsequent calls or store reinstantiations return the identical `project_id`.
-2. **Append Operation (`append`)** (lines 69-89):
-   - Computes sequential IDs via `COALESCE(MAX(sequence_num), -1) + 1` if `sequence_num` is not provided.
-   - Inserts record into `edits` table with `edit_id`, `parent_id`, `kind`, `author`, `timestamp`, `status`, `sequence_num`, and serialized JSON `payload`.
-3. **History Loading (`load_all`)** (lines 91-102):
-   - Queries `payload, status` ordered by `sequence_num`.
-   - Reconstitutes concrete operation instances using `TypeAdapter(OperationUnion).validate_json(row[0])`.
-   - Updates `op.status` to match the current DB `status` column.
-4. **Status Updates (`update_status`)** (lines 104-110):
-   - Executes `UPDATE edits SET status = ? WHERE edit_id = ?`.
-   - Validated against SQLite check constraint `CHECK (status IN ('applied', 'reverted', 'superseded'))`.
-5. **Operation Reordering (`reorder`)** (lines 112-141):
-   - Fetches target edit records and validates that both exist (`len(rows) == 2`).
-   - Validates adjacency: `abs(seq1 - seq2) == 1`.
-   - Swaps `sequence_num` values in a single transaction.
+The backend implementation across `open_edit/serve/` demonstrates strong architecture correctness, asyncio task safety, proper resource cleanup (process killing on cancellation/timeout), and transient network retry resilience.
 
 ---
 
-## 3. Test Execution Verification
+## Key Review Findings by Component
 
-### Execution Commands & Results
+### 1. `open_edit/serve/app.py` (WebSocket, Tasks, Health & Config API)
+- **WebSocket Chat Cancellation (`ws_chat`)**:
+  - `_cancel_turn()` safely cancels `current_turn_task` and awaits it while catching `asyncio.CancelledError` and `Exception`.
+  - In `ws_chat`, `await _cancel_turn()` is called before starting any new turn, upon receiving `type: cancel` / `type: stop`, on `WebSocketDisconnect`, on generic exceptions, and in the `finally:` block.
+  - This guarantees idempotent cleanup and prevents orphaned/concurrent background turns.
+- **Background Turn Task**:
+  - Spawns `_run_agent_turn_task` which forwards streamed events to the client. Re-raises `asyncio.CancelledError` to preserve asyncio task cancellation semantics.
+- **`GET /api/health`**:
+  - Clean implementation returning `{"status": "ok"}`.
+- **`PUT /api/projects/{project_id}/llm-config`**:
+  - Validates provider and non-empty model. Wraps `save_llm_config` with a try/except mapping errors to `HTTPException(500)`. Uses `await asyncio.to_thread(adapter.available_models)` to keep model listing off the main event loop thread.
 
-1. **Unittest Discovery**:
-   - Command: `python3 -m unittest discover -s tests` (from `open_edit/`)
-   - Outcome: `Ran 87 tests in 0.505s - OK`
+### 2. `open_edit/serve/agent.py` (Agent Loop & Cancellation)
+- **`_is_cancelled()` Helper**:
+  - Combines `should_cancel()` callback with `asyncio.current_task().cancelling() > 0` check.
+  - Checked at iteration start, during LLM event streaming, before mutation tool calls, and before `trigger_render` calls.
+  - Yields `{"type": "done", "stop_reason": "cancelled"}` when cancellation is detected.
+- **`CancelledError` Handling**:
+  - Explicitly re-raises `asyncio.CancelledError` inside try/except blocks around `stream_chat`, mutation dispatch, and `_maybe_verify_render`.
+  - Ensures task cancellation bubbles up appropriately without being swallowed as generic tool errors.
 
-2. **Targeted Unittest Suite**:
-   - Command: `python3 -m unittest tests/test_storage/test_edit_graph.py` (from `open_edit/`)
-   - Outcome: `Ran 13 tests in 0.040s - OK`
+### 3. `open_edit/serve/tool_executor.py` (Subprocess Execution & Cleanup)
+- **Async `execute_trigger_render`**:
+  - Uses `asyncio.create_subprocess_exec` for non-blocking process invocation of `open_edit render`.
+- **Resource Cleanup (`proc.kill()`)**:
+  - On `TimeoutError` or `asyncio.CancelledError`, `proc.kill()` is executed and `await proc.wait()` is called within `with suppress(Exception):`.
+  - Reaps zombie subprocesses cleanly, preventing file handle or process leaks.
 
-3. **Pytest Storage Suite**:
-   - Command: `pytest tests/test_storage/` (from `open_edit/`)
-   - Outcome: `61 passed in 0.78s`
+### 4. `open_edit/serve/cli_adapter.py` (CLI Adapter Thread-Pool Wrapping)
+- **`_run_subprocess_safe` & `available_models()`**:
+  - `_opencode_models_via_cli()` and `_jcode_models_via_cli()` use `_run_subprocess_safe` to execute CLI model introspection with a 60s cache and fallback to `[]` on missing binaries.
+- **Observation / Critique**:
+  - In `_run_subprocess_safe`, calling `.result()` on `pool.submit()` synchronously blocks the calling thread. However, callers in `app.py` execute `adapter.available_models` inside `await asyncio.to_thread(...)`, which offloads execution to an `asyncio` worker thread where `get_running_loop()` raises `RuntimeError`. Thus, `_run_subprocess_safe` falls back to `subprocess.run` on the worker thread without blocking the event loop thread.
+
+### 5. `open_edit/serve/llm.py` (Network Retry & Fallback)
+- **Transient Retry Handling**:
+  - Implements exponential backoff (`0.2 * (2 ** attempt)`) up to `max_retries = 2`.
+  - Checks `events_yielded == 0` before retrying to prevent emitting duplicate text deltas or events to the client.
+  - Catches transient exceptions (`ConnectionError`, `TimeoutError`, `OSError`, `APIConnectionError`, `NetworkError`, `TimeoutException`, `ConnectTimeout`, `ReadTimeout`) and falls back cleanly to error events when retries are exhausted or non-transient errors occur.
 
 ---
 
-## 4. Adversarial & Integrity Analysis
+## Integrity & Verification Checklist
+- [x] Integrity Violation Check: No hardcoded test results, facade implementations, or task bypass shortcuts found.
+- [x] Code Quality Check: All components conform to type safety and proper error handling.
+- [x] Subprocess & Async Safety: Subprocesses reaped on cancellation; locks and tasks cleaned up.
 
-- **Integrity Violation Checks**:
-  - Hardcoded test results: None found.
-  - Facade/Dummy implementations: None found.
-  - Bypass of core logic: None found.
-  - Self-certifying work: None found.
-- **Edge Cases & Failure Modes**:
-  - Reordering non-existent or non-adjacent edits raises `ValueError` with clear message as expected.
-  - Invalid status values trigger SQLite schema `CHECK` constraint (`sqlite3.IntegrityError`).
-  - Foreign key constraint enforcement (`PRAGMA foreign_keys=ON`) prevents dangling `parent_id` references when non-NULL `parent_id` is supplied.
+---
+
+## Verdict
+**PASS**

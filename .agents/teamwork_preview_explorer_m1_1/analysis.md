@@ -1,121 +1,254 @@
-# Milestone 1: Operations Data Models (Pydantic) — Analysis Report
+# Open Edit Backend Architecture Exploration Report
 
 ## Executive Summary
-This report analyzes the existing Pydantic models in `open_edit/open_edit/ir/types.py`, validation logic in `open_edit/open_edit/ir/validate.py`, environment specifics (Python 3.14.5, Pydantic 2.13.4), and test framework compatibility for Milestone 1.
+
+This report presents an in-depth code investigation of the **Open Edit** backend codebase located at `/home/ah64/apps/mlt-pipeline/open_edit`. The investigation focuses on the WebSocket communication lifecycle, agent turn execution loop, task control and cancellation mechanics, and test suite layout.
 
 ---
 
-## 1. Existing Codebase Analysis
+## 1. WebSocket Communication Endpoints and Message Handling Loops
 
-### File Structure
-- Module path: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/ir/types.py`
-- Validation module: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/ir/validate.py`
-- Compatibility shim: `/home/ah64/apps/mlt-pipeline/open_edit/open_edit/pydantic_compat.py`
-- Tests module: `/home/ah64/apps/mlt-pipeline/open_edit/tests/test_ir/test_types.py`
+### 1.1 Route & Connection Lifecycle
+- **Endpoint Route**: `WS /api/chat/{project_id}` defined in `open_edit/serve/app.py:636`.
+- **Pre-Connection Validation**:
+  - Before accepting the WebSocket, `ws_chat` invokes `_require_project(project_id)` (`app.py:658`).
+  - If the project does not exist (`HTTPException(404)`), the server accepts the socket, sends a JSON error frame (`{"type": "error", "message": "project not found: ..."}`), and closes the socket with close code `4404` (`app.py:665-669`).
+- **Connection Handshake**:
+  - Upon successful project validation, the server accepts the connection (`websocket.accept()`) and immediately sends a `ready` event frame (`app.py:673`):
+    ```json
+    {"type": "ready", "project_id": "<project_id>"}
+    ```
 
-### Base Model: `Operation`
-Defined in `open_edit/ir/types.py` (lines 87–94):
-```python
-class Operation(BaseModel):
-    kind: str  # Overridden by each subclass as Literal[...]
-    edit_id: str = Field(default_factory=new_id)
-    parent_id: Optional[str] = None
-    author: Literal["ai", "user"]
-    timestamp: str = Field(default_factory=now_iso8601)
-    status: Literal["applied", "reverted", "superseded"] = "applied"
-    originating_note_id: Optional[str] = None
+### 1.2 Inbound Protocol & Frame Processing
+- **Inbound Message Format**:
+  - The client sends JSON strings:
+    ```json
+    {
+      "message": "User prompt string...",
+      "conv_id": "optional-conversation-id-uuid"
+    }
+    ```
+- **Parsing & Validation**:
+  - `raw = await websocket.receive_text()` (`app.py:681`).
+  - If JSON decoding fails: returns `{"type": "error", "message": "invalid JSON..."}` and keeps loop open.
+  - If `message` is missing or empty: returns `{"type": "error", "message": "missing 'message' field"}`.
+- **Conversation State Resolution**:
+  - If `conv_id` is omitted, `agent_mod.new_conversation_id()` (`agent.py:133`) generates a new UUID hex string.
+  - Per-connection in-memory history cache (`conversations: dict[str, list[dict]]`) stores active message threads (`app.py:677`).
+  - Disk persistence is loaded lazily from `.open_edit/conversations/<conv_id>.jsonl` via `load_conversation(project_id, conv_id)` (`agent.py:102`).
+
+### 1.3 Outbound Event Streaming Protocol
+The server streams events yielded by `agent_mod.run_agent_turn(...)` directly to the WebSocket via `websocket.send_text(json.dumps(event, default=str))` (`app.py:715`).
+
+**Event Types & Wire Shapes**:
+1. `ready`: `{"type": "ready", "project_id": "..."}`
+2. `text`: `{"type": "text", "text": "assistant text delta..."}`
+3. `tool_start`: `{"type": "tool_start", "name": "...", "input": {...}}`
+4. `tool_result`: `{"type": "tool_result", "name": "...", "result": {...}}`
+5. `render`: `{"type": "render", "path": "...", "mode": "proxy"|"final"}`
+6. `verification_started`: `{"type": "verification_started", "render_id": "...", "stage": "sampling"|"encoding"|"ready"}`
+7. `verification_result`: `{"type": "verification_result", "outcome": "pass"|"iterate"|"failed"|"skipped"|"capped", "verdict_source": "..."}`
+8. `error`: `{"type": "error", "message": "..."}`
+9. `done`: `{"type": "done", "stop_reason": "end_turn"|"error"|"max_iterations"}`
+10. `cost_update`: `{"type": "cost_update", "turn_tokens": int, "turn_cost_usd": float, "session_cost_usd": float, "source": "pi"|"computed"|"unavailable"}`
+
+### 1.4 Exception & Disconnect Handling in `ws_chat`
+- **Turn Exception Handling** (`app.py:716-725`):
+  - Any unhandled exception during `run_agent_turn` is caught by `except Exception as exc:`.
+  - Sends `{"type": "error", "message": f"agent turn crashed: {exc}"}` followed by `{"type": "done", "stop_reason": "error"}`.
+  - The WebSocket message loop (`while True`) remains active.
+- **Client Disconnect** (`app.py:726-727`):
+  - `WebSocketDisconnect` is caught outside the `while True` loop and returns `None` cleanly.
+
+---
+
+## 2. Current Agent Turn Execution Loop and Task Control Mechanisms
+
+### 2.1 Agent Turn Workflow (`run_agent_turn`)
+Located in `open_edit/serve/agent.py:587-975`, `run_agent_turn` is an `AsyncIterator[AgentEvent]`:
+
+1. **System Prompt Assembly** (`agent.py:239-266`):
+   - Reads `ProjectState` and constructs a deterministic system prompt containing project state JSON, tool summary, and IR model guides.
+2. **Conversation History Update** (`agent.py:627-631`):
+   - Appends user message to `conversation_history` list and appends to disk via `append_to_conversation` (`agent.py:122`).
+3. **Turn Iteration Loop** (`for _ in range(MAX_AGENT_ITERATIONS)`):
+   - `MAX_AGENT_ITERATIONS` defaults to `10` (configurable via `OPEN_EDIT_AGENT_MAX_ITERATIONS` env var, `agent.py:83`).
+   - Streams from LLM using `stream_chat(...)` (`open_edit/serve/llm.py:126`).
+   - Emits `text_delta` chunks and aggregates `tool_use` blocks.
+4. **Completion Check**:
+   - If no `tool_use` blocks were emitted, yields `{"type": "done", "stop_reason": stop_reason}` and `cost_update` event, saves session cost via `_save_cost_state_async`, and returns (`agent.py:791-815`).
+5. **Tool Execution**:
+   - Split into **mutations** (quick edit-graph operations) and **render tools** (`trigger_render`).
+   - Mutations executed first via `_execute_tool(tool_name, tool_input, project_path)` (`agent.py:834`).
+   - `trigger_render` executed last in batch via `_execute_tool("trigger_render", ...)` which maps to `tool_executor.execute_trigger_render` (`tool_executor.py:55`).
+6. **Visual Verification Stage** (`agent.py:877-927`):
+   - If visual verification is enabled (`verify_active`), calls `_maybe_verify_render` (`agent.py:340`) to extract JPEG frames via `ffmpeg` / `encode_jpeg` on worker thread.
+7. **History Synchronization**:
+   - Appends assistant response and `tool_result` messages to history and persists to `.jsonl` disk storage.
+   - Loops back to Step 3 for the next iteration.
+
+### 2.2 LLM Streaming Architecture & CLI Adapters
+Located in `open_edit/serve/llm.py` and `open_edit/serve/cli_adapter.py`:
+
+- **Providers**:
+  - `anthropic`: Direct async Anthropic SDK streaming (`_stream_anthropic`, `llm.py:644`).
+  - `openai`: Direct async OpenAI SDK streaming (`_stream_openai`, `llm.py:765`).
+  - `pi`, `opencode`, `antigravity`, `jcode`: Subprocess CLI drivers (`_stream_cli`, `llm.py:428`).
+- **CLI Subprocess Driver (`_stream_cli`)**:
+  - Uses `asyncio.create_subprocess_exec` (`llm.py:494`) to launch binary.
+  - Enforces per-adapter timeout (`adapter.default_timeout_s`, e.g. 60s for `pi`, 120s for `opencode`).
+  - Streams stdout line-by-line using `asyncio.wait_for(proc.stdout.readline(), timeout=...)`.
+
+### 2.3 Cost Tracking & Persistence
+- Session costs are tracked per conversation in `.open_edit/cost.json` (`agent.py:148-215`).
+- Read synchronously on turn start (`_load_cost_state`), written asynchronously off-loop via `asyncio.to_thread(_write_cost_json_sync)` after yielding `cost_update`.
+
+---
+
+## 3. Task Cancellation and Interruption Architecture
+
+### 3.1 Existing Limitations in Current Codebase
+
+1. **Synchronous/Blocking In-Turn Event Loop Execution in `ws_chat`**:
+   - In `app.py:709`, `ws_chat` runs `async for event in agent_mod.run_agent_turn(...)`.
+   - `websocket.receive_text()` is **not** called while `run_agent_turn` is iterating.
+   - Any inbound WebSocket frame sent by client during turn execution (e.g. `{"type": "stop"}`) remains unread in Starlette's network buffer until the entire agent turn finishes.
+2. **Unused `should_cancel` Hook**:
+   - `run_agent_turn` accepts `should_cancel: Callable[[], bool] | None = None` (`agent.py:592`), but `ws_chat` calls it with `should_cancel=None`.
+3. **Blocking Subprocess Execution in Tool Executor**:
+   - `execute_trigger_render` in `tool_executor.py:78` calls `subprocess.run(["open_edit", "render", ...], timeout=RENDER_TIMEOUT_S)`.
+   - `subprocess.run` is synchronous and blocks the Python process/thread for up to 1800s. Python asyncio task cancellation cannot interrupt a synchronous `subprocess.run` call in progress.
+
+### 3.2 Connection Drop & Disconnect Behavior
+
+When a client drops connection mid-turn:
+1. `websocket.send_text(...)` in `app.py:715` raises `WebSocketDisconnect` on the next frame yield.
+2. The `ws_chat` frame exits, closing the `run_agent_turn` async generator.
+3. If an LLM subprocess is running in `_stream_cli` (`llm.py:606`), `asyncio.CancelledError` is caught and invokes `proc.kill()`.
+4. However, if `execute_trigger_render` or an `ffmpeg` frame extraction step is running synchronously, the execution continues in background until complete before process resources are freed.
+
+### 3.3 Proposed Architecture for Clean Interruption & Stop/Cancel Frames
+
+To cleanly support client Stop/Cancel signals and connection drops:
+
+```
++-----------------------------------------------------------------------------------+
+| WS Endpoint (ws_chat)                                                             |
+|                                                                                   |
+|  +---------------------------+            +------------------------------------+  |
+|  | Message Receiver Loop     |            | Agent Turn Worker Task             |  |
+|  | (websocket.receive_text)  |            | (asyncio.create_task)              |  |
+|  +-------------+-------------+            +-----------------+------------------+  |
+|                |                                            |                     |
+|         Receives "stop"                                     | Yields events       |
+|                |                                            v                     |
+|                v                                   +-------------------+          |
+|      Set cancel_event.set()                        | Outbound Queue /  |          |
+|      Cancel turn_task.cancel() -------> Cancel --->| WS Send Loop      |          |
+|                                                    +-------------------+          |
++-----------------------------------------------------------------------------------+
+                                                              |
+                                                              v
+                                             +----------------------------------+
+                                             | Cleanup Hooks:                   |
+                                             | - Kill CLI subprocess (proc.kill)|
+                                             | - Kill render subprocess         |
+                                             | - Remove temporary verify dir    |
+                                             | - Save partial cost sidecar      |
+                                             | - Yield done (stop_reason=stop)  |
+                                             +----------------------------------+
 ```
 
-### Analysis of Required Operation Schemas
-All 10 operation schemas requested in Milestone 1 are defined in `types.py`:
+#### Step-by-Step Technical Design:
 
-| # | Operation Schema | Defined in `types.py` | Key Fields & Default Values |
-|---|---|---|---|
-| 1 | `AddClipOp` | Lines 97–105 | `kind = "add_clip"`, `asset_hash`, `track_id`, `track_kind` (`"video"\|"audio"` default `"video"`), `position_sec`, `in_point_sec` (default 0.0), `out_point_sec` (`Optional[float]`), `clip_id` |
-| 2 | `RemoveClipOp` | Lines 108–110 | `kind = "remove_clip"`, `clip_id` |
-| 3 | `MoveClipOp` | Lines 113–117 | `kind = "move_clip"`, `clip_id`, `new_track_id`, `new_position_sec` |
-| 4 | `TrimClipOp` | Lines 120–124 | `kind = "trim_clip"`, `clip_id`, `new_in_point_sec`, `new_out_point_sec` |
-| 5 | `AddTransitionOp` | Lines 127–132 | `kind = "add_transition"`, `clip_a_id`, `clip_b_id`, `transition_type` (`"luma"\|"dissolve"\|"wipe"\|"fade"\|"cut"`), `duration_sec` |
-| 6 | `AddEffectOp` | Lines 147–153 | `kind = "add_effect"`, `target_kind` (`"clip"\|"track"`), `target_id`, `effect_type`, `params` (default `{}`), `effect_id` |
-| 7 | `SetKeyframeOp` | Lines 171–175 | `kind = "set_keyframe"`, `effect_id`, `param`, `keyframes` (`list[tuple[float, float, str]]`) |
-| 8 | `GroupEditsOp` | Lines 238–241 | `kind = "group_edits"`, `edit_ids`, `label` |
-| 9 | `RawMltXmlOp` | Lines 249–252 | `kind = "raw_mlt_xml"`, `xml`, `description` |
-| 10 | `FreeFormCodeOp` | Lines 255–260 | `kind = "free_form_code"`, `code`, `timeout_sec` (default 30), `mem_mb` (default 512), `label` |
+1. **Concurrent Dispatcher in `ws_chat` (`app.py`)**:
+   - Refactor `ws_chat` to run a concurrent event loop pattern:
+     ```python
+     turn_task: asyncio.Task | None = None
+     cancellation_event = asyncio.Event()
 
-*Note*: Additional operations present in `types.py` include: `RemoveTransitionOp`, `SetTransitionPropertyOp`, `RemoveEffectOp`, `SetEffectParamOp`, `RemoveKeyframeOp`, `SlipClipOp`, `RippleDeleteClipOp`, `ChangeClipSpeedOp`, `SplitClipOp`, `ReplaceClipSourceOp`, `SetClipSpeedRampOp`, `SetAudioGainOp`, `NormalizeAudioOp`, and `UngroupEditsOp`.
+     async for raw_msg in receive_messages(websocket):
+         payload = json.loads(raw_msg)
+         msg_type = payload.get("type")
+         if msg_type in ("stop", "cancel"):
+             if turn_task and not turn_task.done():
+                 cancellation_event.set()
+                 turn_task.cancel()
+                 await websocket.send_text(json.dumps({
+                     "type": "done", "stop_reason": "cancelled"
+                 }))
+         elif payload.get("message"):
+             cancellation_event.clear()
+             turn_task = asyncio.create_task(
+                 run_turn_and_stream(websocket, payload, cancellation_event)
+             )
+     ```
+2. **Async Subprocess Wrapper for Renders (`tool_executor.py`)**:
+   - Convert `execute_trigger_render` from `subprocess.run` to `asyncio.create_subprocess_exec`:
+     ```python
+     proc = await asyncio.create_subprocess_exec(
+         "open_edit", "render", "--mode", mode,
+         stdout=asyncio.subprocess.PIPE,
+         stderr=asyncio.subprocess.PIPE,
+         cwd=str(project_path)
+     )
+     try:
+         stdout, stderr = await proc.communicate()
+     except asyncio.CancelledError:
+         proc.kill()
+         await proc.wait()
+         raise
+     ```
+3. **`CancelledError` & Resource Cleanup in `agent.py`**:
+   - Ensure `run_agent_turn` wraps loop iterations in `try ... except asyncio.CancelledError:`:
+     - Terminate active subprocesses (`proc.kill()`).
+     - Remove temporary directories created for visual verification (`oe_verify_*`).
+     - Persist current accumulated token usage & cost to `.open_edit/cost.json`.
+     - Release any edit graph locks cleanly.
 
-### Discriminated Union: `OperationUnion`
-Defined in `types.py` (lines 263–276):
-```python
-OperationUnion = Annotated[
-    Union[
-        AddClipOp, RemoveClipOp, MoveClipOp, TrimClipOp,
-        AddTransitionOp, RemoveTransitionOp, SetTransitionPropertyOp,
-        AddEffectOp, RemoveEffectOp, SetEffectParamOp,
-        SetKeyframeOp, RemoveKeyframeOp,
-        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp,
-        SplitClipOp, ReplaceClipSourceOp, SetClipSpeedRampOp,
-        SetAudioGainOp, NormalizeAudioOp,
-        GroupEditsOp, UngroupEditsOp,
-        RawMltXmlOp, FreeFormCodeOp,
-    ],
-    Field(discriminator="kind"),
-]
+---
+
+## 4. Existing Test Suite Structure and Pytest Configuration
+
+### 4.1 Pytest Configuration (`pyproject.toml`)
+Located in `pyproject.toml:45-48`:
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra -q"
 ```
 
----
+### 4.2 Test Suite Taxonomy & Organization
 
-## 2. Validation & Pydantic Specifics
+The `tests/` directory contains 91 test files organized as follows:
 
-### Pydantic Environment Specifics
-- **Python Version**: 3.14.5
-- **Pydantic Version**: 2.13.4
-- **Discriminated Union Polymorphic Deserialization**:
-  In Pydantic v2, `OperationUnion` is an `Annotated[Union[...], Field(discriminator="kind")]` type rather than a `BaseModel` subclass. Direct invocation like `OperationUnion.model_validate(...)` raises an exception.
-  **Correct Usage**:
-  ```python
-  from pydantic import TypeAdapter
-  op = TypeAdapter(OperationUnion).validate_python(payload_dict)
-  op_json = TypeAdapter(OperationUnion).validate_json(json_str)
-  ```
-  `open_edit/open_edit/pydantic_compat.py` documents this shim behavior.
+| Category | Primary Test Files | Purpose / Scope |
+| :--- | :--- | :--- |
+| **Serve & WebSockets** | `test_serve_app.py`<br>`test_serve_agent.py`<br>`test_serve_cost.py`<br>`test_serve_errors.py`<br>`test_serve_pi_bridge.py`<br>`test_serve_agent_visual_verify.py` | FastAPI routes, WS `ws_chat` flow, Agent turn loop events, cost sidecars, error JSON shapes (`{"error": "..."}`), and visual verification. |
+| **LLM & CLI Adapters** | `test_cli_adapter.py`<br>`test_opencode_adapter.py`<br>`test_providers.py`<br>`test_serve_llm_config_api.py`<br>`test_serve_llm_pi.py`<br>`test_serve_llm_usage.py` | CLI adapter discovery (`pi`, `opencode`, `agy`, `jcode`), JSON event parsing, LLM config endpoints, model dropdown listings. |
+| **Runtime & Key Store** | `test_runtimes_registry.py`<br>`test_runtimes_keys_store.py` | Environment and `keys.json` API key discovery and masking. |
+| **IR & Edit Graph** | `tests/test_ir/test_apply.py`<br>`tests/test_ir/test_catalog.py`<br>`tests/test_ir/test_commutativity.py`<br>`tests/test_ir/test_types.py`<br>`tests/test_ir/test_validate.py`<br>`test_edit_graph_project_id.py` | Intermediate Representation (IR), timeline derivation, operation validation, edit graph persistence in `edit_graph.db`. |
+| **Agent Tools & Sandbox** | `test_sandbox_bridge.py`<br>`test_sandbox/test_render_sandbox.py`<br>`test_pyagent_run_python.py`<br>`test_pyagent_import_asset.py`<br>`test_pyagent_search_assets.py` | Sandboxed Python code execution, asset store ingestion, tool security and execution. |
+| **QC (Quality Control)** | `tests/test_qc/test_black_frames.py`<br>`tests/test_qc/test_gate.py`<br>`tests/test_qc/test_silence.py`<br>`tests/test_qc/test_thumbnail.py` | Video quality control checks (black frame detection, silence detection, thumbnail generation). |
+| **Render Engine** | `tests/test_render/test_cache.py`<br>`tests/test_render/test_orchestrator.py`<br>`tests/test_render/test_validators.py` | Render caching, job queue management, timeouts, MLT rendering. |
 
-### Intrinsic vs Contextual Validation
-Currently, schema validation is divided into two layers:
-1. **Intrinsic Model Constraints (Pydantic models)**:
-   - Field types (`str`, `float`, `int`, `Optional[...]`)
-   - Enum literals (`Literal["video", "audio"]`, `Literal["luma", "dissolve", ...]`)
-   - Default values (`edit_id`, `timestamp`, `clip_id`, `effect_id`)
-2. **Contextual & Semantic Validation (`open_edit/ir/validate.py`)**:
-   - `validate_op(op, project)` checks project-level constraints:
-     - `position_sec >= 0` and `in_point_sec >= 0` for `AddClipOp`
-     - `out_point_sec > in_point_sec` if `out_point_sec` is provided
-     - `new_in_point_sec < new_out_point_sec` for `TrimClipOp`
-     - `duration_sec > 0` for `AddTransitionOp`
-     - Asset existence (`op.asset_hash in project.assets`)
-     - Referenced clip existence (`clip_id in project`)
-     - Effect catalog compatibility (`effect_type` in catalog, target kind match)
-
-### Optional Missing Field Validators in Schemas
-If intrinsic Pydantic validators are desired directly on model classes, `@field_validator` / `@model_validator` in Pydantic v2 can be added:
-- `AddClipOp`: Validate `position_sec >= 0`, `in_point_sec >= 0`, `out_point_sec > in_point_sec` if not None.
-- `TrimClipOp`: Validate `new_in_point_sec < new_out_point_sec`.
-- `AddTransitionOp`: Validate `duration_sec > 0` and `clip_a_id != clip_b_id`.
-- `FreeFormCodeOp`: Validate `timeout_sec > 0` and `mem_mb > 0`.
+### 4.3 Key Test Fixtures (`tests/conftest.py`)
+- `tmp_notes_db`: Creates an isolated temporary SQLite `NotesStore`.
+- `tmp_project_with_assets`: Creates a mock project pre-populated with a CAS video asset (sidecar JSON + CAS byte placeholder) and pre-seeded `edit_graph.db` with `AddClipOp`, enabling standalone testing of freeform agent tools without running full video renders.
 
 ---
 
-## 3. Test Runner Specifics
+## 5. Code Locations Reference Summary Table
 
-- The existing unit tests in `open_edit/tests/test_ir/test_types.py` consist of 26 pytest test functions.
-- Command execution result: `python3 -m pytest tests/test_ir/test_types.py` succeeds with **26 passed in 0.09s**.
-- Note on `python3 -m unittest discover -s tests`: Standard `unittest` runner looks for `unittest.TestCase` subclasses. Because test functions use pytest conventions (`def test_...()`), `unittest discover` reports 0 tests unless run via `pytest`.
-
----
-
-## 4. Recommended Implementation Strategy
-
-1. **Schema Integrity**: Preserve existing class hierarchy in `open_edit/open_edit/ir/types.py` as it matches specification requirements for all 10 operations.
-2. **Deserialization Pattern**: Ensure all parsers use `TypeAdapter(OperationUnion)` for polymorphic operation decoding.
-3. **Validator Cohesion**: Ensure any new Pydantic validators added to `types.py` produce standard `ValidationError`s that complement `validate_op()` checks without breaking existing tests.
-4. **Verification**: Run `python3 -m pytest tests/test_ir/test_types.py` to confirm all 26 tests pass cleanly.
+| Functional Area | Source File Path | Key Functions / Classes / Lines |
+| :--- | :--- | :--- |
+| **WebSocket Chat Endpoint** | `open_edit/serve/app.py` | `ws_chat` (lines 636-731), `_require_project` (lines 754-759) |
+| **Agent Turn Loop** | `open_edit/serve/agent.py` | `run_agent_turn` (lines 587-975), `_build_system_prompt` (lines 239-266), `_maybe_verify_render` (lines 343-527) |
+| **LLM Streaming & CLI Drivers** | `open_edit/serve/llm.py` | `stream_chat` (lines 126-222), `_stream_cli` (lines 428-638), `_stream_pi` (lines 252-300), `_stream_anthropic` (lines 644-759) |
+| **CLI Adapter Interface** | `open_edit/serve/cli_adapter.py` | `CLIAdapter` (lines 28-49), `_PiAdapter` (lines 96-157), `_OpenCodeAdapter` (lines 159-208), `_AntigravityAdapter` (lines 210-259) |
+| **Tool Execution** | `open_edit/serve/tool_executor.py` | `execute_tool` (lines 39-53), `execute_trigger_render` (lines 55-130) |
+| **TS Extension Python Bridge** | `open_edit/serve/pi_bridge.py` | `_run_agent_tool` (lines 68-105), `_run_trigger_render` (lines 293-353) |
+| **Cost Tracking Sidecar** | `open_edit/serve/agent.py` | `_load_cost_state` (lines 153-172), `_save_cost_state_async` (lines 204-215) |
+| **Pytest Configuration** | `open_edit/pyproject.toml` | `[tool.pytest.ini_options]` (lines 45-48) |
+| **Test Fixtures** | `open_edit/tests/conftest.py` | `tmp_notes_db`, `tmp_project_with_assets` |

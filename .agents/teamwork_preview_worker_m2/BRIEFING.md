@@ -1,62 +1,58 @@
-# BRIEFING — 2026-07-21T05:03:38Z
+# BRIEFING — 2026-07-22T13:24:00Z
 
 ## Mission
-Refactor and add comprehensive unit tests for SQLite Edit Graph Store (`open_edit/open_edit/storage/edit_graph.py`) using `unittest.TestCase` subclasses, covering all 10 operation schemas, status updates, history queries, and project_id persistence. Ensure `unittest discover` and `pytest` pass cleanly.
+Implement Milestone 2 & Milestone 3 for Open Edit: Backend connection handling & interrupt logic, Frontend UI request interrupt & toasts, tests and verification.
 
 ## 🔒 My Identity
-- Archetype: implementer/qa/specialist
+- Archetype: worker
 - Roles: implementer, qa, specialist
 - Working directory: /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_worker_m2
-- Original parent: 89056cac-33c2-4630-b56c-9549fb3a73ee
-- Milestone: Milestone 2: SQLite Edit Graph Store (Worker 2)
+- Original parent: 91e161b8-8b53-4d1a-9c24-70df83a3c73d
+- Milestone: Milestone 2 & 3
 
 ## 🔒 Key Constraints
-- DO NOT CHEAT. Genuine implementations and genuine test verifications.
-- Must use `unittest.TestCase` subclasses (e.g. `TestEditGraphStore(unittest.TestCase)`).
-- Must use `tempfile.TemporaryDirectory` in `setUp`/`tearDown` for DB files.
-- `open_edit/tests/test_storage/__init__.py` must exist for package discovery.
-- Test assertions must cover all 10 operation schemas (AddClipOp, RemoveClipOp, MoveClipOp, TrimClipOp, AddTransitionOp, AddEffectOp, SetKeyframeOp, GroupEditsOp, RawMltXmlOp, FreeFormCodeOp), status updates via `update_status()`, history queries via `load_all()`, project_id generation and persistent retrieval.
-- Must execute and pass `python3 -m unittest discover -s tests` from inside `/home/ah64/apps/mlt-pipeline/open_edit` and `pytest tests/test_storage/`.
+- CODE_ONLY network mode: no external requests.
+- Integrity: no cheating, hardcoding, or facade implementations.
+- Write files only to /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_worker_m2 and target codebase /home/ah64/apps/mlt-pipeline/open_edit & tests.
 
 ## Current Parent
-- Conversation ID: 89056cac-33c2-4630-b56c-9549fb3a73ee
-- Updated: 2026-07-21T05:03:38Z
+- Conversation ID: 91e161b8-8b53-4d1a-9c24-70df83a3c73d
+- Updated: 2026-07-22T13:24:00Z
 
 ## Task Summary
-- **What to build**: Unit test suite in `open_edit/tests/test_storage/` testing `open_edit/open_edit/storage/edit_graph.py`.
-- **Success criteria**: All 10 operations tested, `load_all`, `update_status`, project_id generation/persistence tested. Clean test execution under both `python3 -m unittest discover -s tests` (87/87 pass) and `pytest tests/test_storage/` (61/61 pass).
-- **Interface contracts**: `open_edit/open_edit/storage/edit_graph.py` and `open_edit/open_edit/ir/types.py`.
-- **Code layout**: `open_edit/tests/test_storage/`
+- **What to build**: Milestone 2 & 3 backend & frontend interrupt & connection logic for Open Edit.
+- **Success criteria**: All pytest tests pass, clean background task cancellation, proper UI stop buttons and toast alerts, error handling.
+- **Interface contracts**: open_edit/serve files & static UI.
 
 ## Change Tracker
 - **Files modified**:
-  - `open_edit/tests/test_storage/__init__.py` (Created package initializer)
-  - `open_edit/tests/test_storage/test_edit_graph.py` (Refactored to unittest.TestCase, added 10 operation tests, status update tests, load_all tests, project_id tests)
-  - `open_edit/tests/test_storage/test_assets.py` (Refactored to unittest.TestCase)
-  - `open_edit/tests/test_storage/test_assets_alignment.py` (Refactored to unittest.TestCase)
-  - `open_edit/tests/test_storage/test_job_lock.py` (Refactored to unittest.TestCase)
-  - `open_edit/tests/test_storage/test_notes.py` (Refactored to unittest.TestCase)
-  - `open_edit/tests/test_storage/test_render_snapshots.py` (Refactored to unittest.TestCase)
-  - `open_edit/tests/test_storage/test_transcription.py` (Refactored to unittest.TestCase)
-- **Build status**: PASS (87 unittest tests pass, 61 storage pytest tests pass)
+  - `open_edit/open_edit/serve/app.py`: Background task WS chat, cancel/stop handling, disconnect cleanup, health endpoint, LLM config OSError handling, async available_models.
+  - `open_edit/open_edit/serve/agent.py`: `_is_cancelled()` checks, `CancelledError` re-raise, async `_execute_tool`.
+  - `open_edit/open_edit/serve/tool_executor.py`: Async `execute_trigger_render`, process kill on `CancelledError`.
+  - `open_edit/open_edit/serve/cli_adapter.py`: `_run_subprocess_safe` non-blocking execution in model discovery.
+  - `open_edit/open_edit/serve/llm.py`: Provider retry loop for transient network dropouts, `_coerce_event` contract.
+  - `open_edit/open_edit/serve/static/index.html`: Added `#btn-topbar-stop` button.
+  - `open_edit/open_edit/serve/static/app.js`: Updated `handleSend()`, `setChatEnabled()`, `cancelTurn()`, and event binding.
+  - `open_edit/open_edit/serve/static/js/ws.js`: Added connection drop and reconnect toasts.
+- **Build status**: PASS (747 passed, 5 skipped)
 - **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: PASS
-- **Lint status**: OK
-- **Tests added/modified**: `test_edit_graph.py` expanded and refactored; all storage tests converted to `unittest.TestCase`.
+- **Build/test result**: PASS (747 passed, 5 skipped)
+- **Lint status**: PASS
+- **Tests added/modified**: `test_serve_ws.py`, `test_serve_llm_config_api.py`, `test_tool_executor.py`, `test_serve_agent.py`
 
 ## Loaded Skills
 - None
 
 ## Key Decisions Made
-- Used `unittest.TestCase` subclasses across all files in `open_edit/tests/test_storage/`.
-- Cleaned up test files in `setUp`/`tearDown` using `tempfile.TemporaryDirectory`.
-- Added `__init__.py` to `open_edit/tests/test_storage/` for unittest package discovery.
+- Used `asyncio.create_subprocess_exec` for `execute_trigger_render` with process kill cleanup on `CancelledError`.
+- Used background `asyncio.Task` in `ws_chat` to allow concurrent websocket message processing during active turns.
+- Preserved backward compatibility for sync/async tool execution in tests via `inspect.isawaitable`.
 
 ## Artifact Index
-- `.agents/teamwork_preview_worker_m2/ORIGINAL_REQUEST.md` — Original request prompt
-- `.agents/teamwork_preview_worker_m2/BRIEFING.md` — Briefing file
-- `.agents/teamwork_preview_worker_m2/progress.md` — Progress tracker
-- `.agents/teamwork_preview_worker_m2/changes.md` — Summary of file changes
-- `.agents/teamwork_preview_worker_m2/handoff.md` — 5-Component Handoff report
+- ORIGINAL_REQUEST.md — Original user request log
+- BRIEFING.md — Persistent working memory
+- progress.md — Liveness heartbeat
+- changes.md — Implementation report
+- handoff.md — 5-component handoff report

@@ -1,39 +1,33 @@
-# BRIEFING — 2026-07-21T04:52:47Z
+# BRIEFING — 2026-07-22T13:19:00Z
 
 ## Mission
-Analyze open_edit tests, test execution environment, test helpers, and test expectations for operation schemas / Pydantic validators.
+Explore LLM provider configuration and network connection layer in Open Edit (settings persistence, error handling, failover design, unhandled errors).
 
 ## 🔒 My Identity
 - Archetype: Teamwork explorer
-- Roles: Explorer 2 for Milestone 1 (Operations Data Models Pydantic)
+- Roles: Explorer 2 (teamwork_preview_explorer)
 - Working directory: /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2
-- Original parent: 89056cac-33c2-4630-b56c-9549fb3a73ee
-- Milestone: Milestone 1 - Operations Data Models (Pydantic)
+- Original parent: 91e161b8-8b53-4d1a-9c24-70df83a3c73d
+- Milestone: m1_2
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement code changes in project source tree
-- Output reports in working directory: analysis.md, handoff.md, BRIEFING.md, progress.md
-- Notify parent via send_message when complete
+- Read-only investigation — do NOT implement
+- Operating in CODE_ONLY network mode
+- Write output to working directory (/home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2)
 
 ## Current Parent
-- Conversation ID: 89056cac-33c2-4630-b56c-9549fb3a73ee
-- Updated: 2026-07-21T04:52:47Z
+- Conversation ID: 91e161b8-8b53-4d1a-9c24-70df83a3c73d
+- Updated: 2026-07-22T13:19:00Z
 
 ## Investigation State
-- **Explored paths**: `/home/ah64/apps/mlt-pipeline/.agents/ORIGINAL_REQUEST.md`, `/home/ah64/apps/mlt-pipeline/.agents/orchestrator/PROJECT.md`, `open_edit/tests/`, `open_edit/tests/test_ir/test_types.py`, `open_edit/tests/test_ir/test_apply.py`, `open_edit/tests/test_ir/test_validate.py`, `open_edit/tests/test_storage/test_edit_graph.py`, `open_edit/tests/conftest.py`.
-- **Key findings**:
-  1. Unit tests are located at `open_edit/tests/` (executed from `/home/ah64/apps/mlt-pipeline/open_edit`).
-  2. `python3 -m unittest discover -s tests` requires tests to be structured as `unittest.TestCase` subclasses, whereas standalone `def test_*()` functions are ignored by unittest discover.
-  3. `pytest` executes both `unittest.TestCase` subclasses and standalone functions.
-  4. Standardizing `test_types.py` into `unittest.TestCase` classes satisfies both `unittest discover` and `pytest`.
-- **Unexplored areas**: None. Scope fully investigated.
+- **Explored paths**: `open_edit/serve/app.py`, `open_edit/serve/llm.py`, `open_edit/serve/llm_config.py`, `open_edit/serve/providers.py`, `open_edit/serve/cli_adapter.py`, `open_edit/serve/agent.py`, `open_edit/serve/runtimes/keys_store.py`, `open_edit/serve/runtimes/registry.py`, `open_edit/serve/static/js/api.js`, `open_edit/serve/static/js/ws.js`, `open_edit/serve/static/app.js`, `tests/test_llm_config.py`, `tests/test_serve_llm_config_api.py`, `tests/test_serve_errors.py`.
+- **Key findings**: Complete investigation report and handoff documented in `analysis.md` and `handoff.md`. Identified 4 key error leak/blocking code locations, settings persistence architecture, error handling flow, and proposed provider failover & auto-reconnect design.
+- **Unexplored areas**: None for milestone m1_2.
 
 ## Key Decisions Made
-- Completed read-only investigation and generated `analysis.md` and `handoff.md`.
+- Completed read-only exploration and written `analysis.md` and `handoff.md`.
 
 ## Artifact Index
-- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/ORIGINAL_REQUEST.md — Original request log
-- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/BRIEFING.md — Persistent briefing state
-- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/progress.md — Progress log & heartbeat
-- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/analysis.md — Comprehensive test suite & schema analysis
-- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/handoff.md — 5-component handoff report
+- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/ORIGINAL_REQUEST.md — Original user request
+- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/analysis.md — Exploration report
+- /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_explorer_m1_2/handoff.md — 5-component Handoff report

@@ -1,15 +1,23 @@
-## 2026-07-21T05:03:52Z
-<USER_REQUEST>
-You are Forensic Auditor for Milestone 2: SQLite Edit Graph Store.
-Your working directory is /home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_auditor_m2.
-Your parent orchestrator is 89056cac-33c2-4630-b56c-9549fb3a73ee.
+## 2026-07-22T10:24:25Z
+Perform a forensic integrity audit on all changes made to `/home/ah64/apps/mlt-pipeline/open_edit`:
+1. Perform static code analysis and git diff / file change inspection across:
+   - `open_edit/serve/app.py`
+   - `open_edit/serve/agent.py`
+   - `open_edit/serve/tool_executor.py`
+   - `open_edit/serve/cli_adapter.py`
+   - `open_edit/serve/llm.py`
+   - `open_edit/serve/static/index.html`
+   - `open_edit/serve/static/app.js`
+   - `open_edit/serve/static/js/ws.js`
+   - `tests/` / `open_edit/tests/`
+2. Verify that implementations are genuine:
+   - No hardcoded test responses or fake verification outputs.
+   - No dummy/facade implementations that bypass real logic.
+   - Genuine WebSocket task cancellation and process termination via `asyncio.create_subprocess_exec` and `proc.kill()`.
+   - Genuine UI Stop button DOM elements, click handlers, and WebSocket frame emissions.
+   - Genuine connection error catching and toast triggers.
+3. Run the full pytest test suite to independently verify test outcomes.
 
-Task:
-Perform forensic integrity audit on open_edit/open_edit/storage/edit_graph.py and open_edit/tests/test_storage/.
-Systematically verify:
-1. Code authenticity: confirm genuine SQLite operations via sqlite3 connection and WAL mode, not fake in-memory dicts or mocked returns.
-2. Test authenticity: confirm unittest.TestCase methods perform real database queries and Pydantic model assertions.
-3. Test execution: run python3 -m unittest discover -s tests inside /home/ah64/apps/mlt-pipeline/open_edit and inspect trace output.
-
-Document audit findings in audit_report.md and handoff.md with explicit Verdict: CLEAN or INTEGRITY VIOLATION. Notify parent via send_message when complete.
-</USER_REQUEST>
+Deliverables:
+- Write forensic audit report to `/home/ah64/apps/mlt-pipeline/.agents/teamwork_preview_auditor_m2/audit_report.md` and `handoff.md`.
+- Send summary message back to orchestrator via `send_message`. State your verdict clearly (CLEAN or INTEGRITY VIOLATION).

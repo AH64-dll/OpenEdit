@@ -1,51 +1,52 @@
-# Handoff Report — Milestone 2: SQLite Edit Graph Store Unit Testing
+# Handoff Report — Milestone 2 & Milestone 3 (Open Edit)
 
 ## 1. Observation
-- Inspected `open_edit/open_edit/storage/edit_graph.py` defining `EditGraphStore` backed by SQLite database with `edits`, `jobs`, and `project_meta` tables.
-- Discovered that `open_edit/tests/test_storage/__init__.py` was missing, preventing `python3 -m unittest discover -s tests` from discovering tests inside `open_edit/tests/test_storage/`.
-- Observed that existing test files in `open_edit/tests/test_storage/` were written as pytest-style functions using pytest fixtures (`tmp_path`, `monkeypatch`, `caplog`), which are incompatible with `unittest.TestCase` discovery and execution.
-- Verified all 10 operation schemas defined in `open_edit.ir.types`:
-  - `AddClipOp` (`kind = "add_clip"`)
-  - `RemoveClipOp` (`kind = "remove_clip"`)
-  - `MoveClipOp` (`kind = "move_clip"`)
-  - `TrimClipOp` (`kind = "trim_clip"`)
-  - `AddTransitionOp` (`kind = "add_transition"`)
-  - `AddEffectOp` (`kind = "add_effect"`)
-  - `SetKeyframeOp` (`kind = "set_keyframe"`)
-  - `GroupEditsOp` (`kind = "group_edits"`)
-  - `RawMltXmlOp` (`kind = "raw_mlt_xml"`)
-  - `FreeFormCodeOp` (`kind = "free_form_code"`)
-- Refactored all storage unit tests under `open_edit/tests/test_storage/` into `unittest.TestCase` subclasses using `tempfile.TemporaryDirectory` in `setUp`/`tearDown`. Created `open_edit/tests/test_storage/__init__.py`.
-- Ran command `python3 -m unittest discover -s tests` from inside `/home/ah64/apps/mlt-pipeline/open_edit`. Result output:
-  `Ran 87 tests in 0.578s OK`
-- Ran command `pytest tests/test_storage/` from inside `/home/ah64/apps/mlt-pipeline/open_edit`. Result output:
-  `61 passed in 0.72s`
-- Ran command `pytest tests/` from inside `/home/ah64/apps/mlt-pipeline/open_edit`. Result output:
-  `287 passed, 4 warnings in 6.00s`
+- Target Codebase: `/home/ah64/apps/mlt-pipeline/open_edit`
+- Implemented Files:
+  - `open_edit/open_edit/serve/app.py`
+  - `open_edit/open_edit/serve/agent.py`
+  - `open_edit/open_edit/serve/tool_executor.py`
+  - `open_edit/open_edit/serve/cli_adapter.py`
+  - `open_edit/open_edit/serve/llm.py`
+  - `open_edit/open_edit/serve/static/index.html`
+  - `open_edit/open_edit/serve/static/app.js`
+  - `open_edit/open_edit/serve/static/js/ws.js`
+- Test Files Updated / Added:
+  - `open_edit/tests/test_serve_ws.py`
+  - `open_edit/tests/test_serve_llm_config_api.py`
+  - `open_edit/tests/test_tool_executor.py`
+  - `open_edit/tests/test_serve_agent.py`
+- Test Output:
+  ```text
+  python3 -m pytest open_edit/tests
+  747 passed, 5 skipped, 1 warning in 35.65s
+  ```
 
 ## 2. Logic Chain
-1. To enable package discovery under Python's stdlib `unittest` discovery runner (`python3 -m unittest discover -s tests`), `open_edit/tests/test_storage/__init__.py` must exist.
-2. To allow both `unittest` and `pytest` test runners to discover and execute unit tests without fixture mismatch errors, all storage test files in `open_edit/tests/test_storage/` must be structured as `unittest.TestCase` subclasses (`TestEditGraphStore`, `TestAssetStore`, `TestAssetsAlignment`, `TestJobLock`, `TestNotesStore`, `TestRenderSnapshotStore`, `TestTranscription`).
-3. Using `tempfile.TemporaryDirectory` within `setUp()` and `tearDown()` guarantees isolated DB files and clean directory teardown per test method.
-4. `TestEditGraphStore` explicitly tests:
-   - All 10 operation schemas (`AddClipOp`, `RemoveClipOp`, `MoveClipOp`, `TrimClipOp`, `AddTransitionOp`, `AddEffectOp`, `SetKeyframeOp`, `GroupEditsOp`, `RawMltXmlOp`, `FreeFormCodeOp`) appended to `EditGraphStore`, asserting direct SQLite row content and deserialized model instances returned by `load_all()`.
-   - Status updates (`applied`, `reverted`, `superseded`) via `update_status()`, verifying both SQLite table content and `load_all()` deserialization.
-   - History queries via `load_all()`, preserving sequence ordering across multi-operation sequences.
-   - `project_id` generation on first access, persistent retrieval across re-accesses and reopening the store on the same DB file.
+- **Requirement 1 (Backend Interrupt & Connection Logic)**:
+  - In `app.py`: `ws_chat` was refactored so `run_agent_turn` is launched in a background `asyncio.Task` (`current_turn_task`). The main WS loop remains free to receive incoming text messages (`websocket.receive_text()`). Receiving `{"type": "cancel"}` or `{"type": "stop"}` triggers `_cancel_turn()` which calls `task.cancel()`, awaits cancellation, and sends `{"type": "cancelled"}` over the WebSocket. On abrupt disconnects (`WebSocketDisconnect`), `_cancel_turn()` is invoked in exception handlers and `finally:` block.
+  - In `agent.py`: Added `_is_cancelled()` checks checking `should_cancel` / `task.cancelling() > 0` before iterations, during streaming, and before tool executions. `asyncio.CancelledError` is re-raised to break turn loops immediately.
+  - In `tool_executor.py`: `execute_trigger_render` refactored from `subprocess.run` to `asyncio.create_subprocess_exec`. When `asyncio.CancelledError` is caught, `proc.kill()` and `await proc.wait()` terminate the render process cleanly.
+  - In `cli_adapter.py`: Synchronous `subprocess.run` in `available_models()` helpers is offloaded via `_run_subprocess_safe` to a thread pool executor when an event loop is running. In `app.py`, calls to `available_models()` are wrapped in `asyncio.to_thread`.
+  - In `app.py`: `put_llm_config` now catches `(LLMConfigError, OSError, Exception)` and surfaces HTTP 500 error responses with detail.
+  - In `app.py`: Added `GET /api/health` returning `{"status": "ok"}`.
+  - In `llm.py`: Added provider retry loop (up to 2 retries) with exponential backoff for transient network dropouts in `stream_chat`.
+- **Requirement 2 (Frontend UI Request Interrupt & Connection Toasts)**:
+  - In `index.html`: Added `<button id="btn-topbar-stop" class="btn btn-secondary hidden" title="Interrupt request">Stop ⏹</button>` to `.topbar-right`.
+  - In `app.js`: `handleSend()` invokes `setChatEnabled(false)` when sending. `setChatEnabled(enabled)` toggles visibility of both `#btn-stop` and `#btn-topbar-stop`. Both Stop buttons are bound to `cancelTurn()`. `cancelTurn()` sends `{"type": "cancel"}` over WebSocket, resets chat status, re-enables `#chat-input`, restores ready UI state, and displays toast `"Turn interrupted by user"`.
+  - In `ws.js`: Added connection drop toast (`"WebSocket connection dropped"`) on `ws.onclose` and auto-reconnect toast (`"WebSocket reconnected"`) on `ws.onopen`.
+- **Requirement 3 (Verification & Tests)**:
+  - Updated existing tests for async `execute_trigger_render`. Added unit test coverage for WS cancellation messages, health check route, and LLM config OSError handling. All tests pass 100%.
 
 ## 3. Caveats
-- `test_assets.py` uses `_ffprobe_available()` helper and `@unittest.skipUnless` when `ffprobe` binary is unavailable on host; on systems without `ffprobe`, `test_assets.py` tests will be skipped as intended.
+- 5 tests in `test_free_form_e2e.py` are skipped due to missing bubblewrap (`bwrap`) sandbox binary in the execution environment, which is expected and standard for this environment.
 
 ## 4. Conclusion
-- Storage unit tests in `open_edit/tests/test_storage/` have been fully refactored into `unittest.TestCase` subclasses using `tempfile.TemporaryDirectory`.
-- Package discovery is established via `open_edit/tests/test_storage/__init__.py`.
-- Test assertions cover all 10 operation schemas, status updates, sequence ordering, and project_id persistence.
-- Execution via `python3 -m unittest discover -s tests` and `pytest tests/test_storage/` passes cleanly with zero failures.
+Milestones 2 and 3 implementation for Open Edit is 100% complete and fully verified with genuine async task cancellation, process termination, UI stop buttons, connection toasts, error handling, and a passing pytest test suite.
 
 ## 5. Verification Method
-Execute the following commands from `/home/ah64/apps/mlt-pipeline/open_edit`:
-1. `python3 -m unittest discover -s tests`
-   Expected result: 87 tests run, 0 failures.
-2. `pytest tests/test_storage/`
-   Expected result: 61 passed with zero failures.
-3. Inspect `open_edit/tests/test_storage/test_edit_graph.py` to confirm all 10 operation schemas and required assertions are present.
+Run the following command in terminal:
+```bash
+python3 -m pytest open_edit/tests
+```
+Expected result: 747 passed, 5 skipped, 0 failures.
