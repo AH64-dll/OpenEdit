@@ -12,13 +12,18 @@ from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,
     AddTransitionOp,
+    ChangeClipSpeedOp,
     MoveClipOp,
     OperationUnion,
     Project,
     RemoveClipOp,
+    ReplaceClipSourceOp,
+    RippleDeleteClipOp,
     SetAudioGainOp,
+    SetClipSpeedRampOp,
     SetKeyframeOp,
-    Timeline,
+    SlipClipOp,
+    SplitClipOp,
     TrimClipOp,
 )
 
@@ -216,39 +221,70 @@ def validate_timeline(timeline: Timeline) -> list[str]:
     return errors
 
 
-def validate_op_for_append(op: OperationUnion, store) -> list[str]:
-    """Validate one op against the store's current project state.
+def validate_op_references(op: OperationUnion, project: Project) -> list[str]:
+    """Reference-integrity check only (used at the append / vault door).
 
-    Builds a lightweight Project from the store (current ops + assets) and
-    delegates to :func:`validate_op`. ``store`` is duck-typed (must expose
-    ``load_all()``, ``db_path``, ``project_id``). No runtime import of
-    EditGraphStore here to avoid a circular import.
+    Ensures a clip / transition / effect target actually exists in the
+    current project. Deliberately does NOT check asset existence or
+    effect-catalog membership — those are enforced by the sandbox layer and
+    at render time, so the agent stays free to operate. Returns a list of
+    error strings (empty = valid).
     """
-    from open_edit.storage.assets import AssetStore
+    errors: list[str] = []
+    known_clips = _known_clip_ids(project)
+    known_effects = _known_effect_ids(project)
 
+    clip_targeting = (
+        MoveClipOp, TrimClipOp, RemoveClipOp, SlipClipOp,
+        RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
+        ReplaceClipSourceOp, SetClipSpeedRampOp, SetAudioGainOp,
+    )
+    if isinstance(op, clip_targeting):
+        if op.clip_id not in known_clips:
+            errors.append(
+                f"{type(op).__name__}: clip_id {op.clip_id!r} not found in project."
+            )
+
+    if isinstance(op, AddTransitionOp):
+        if op.clip_a_id not in known_clips:
+            errors.append(
+                f"AddTransitionOp: clip_a_id {op.clip_a_id!r} not found in project."
+            )
+        if op.clip_b_id not in known_clips:
+            errors.append(
+                f"AddTransitionOp: clip_b_id {op.clip_b_id!r} not found in project."
+            )
+
+    if isinstance(op, AddEffectOp) and op.target_kind == "clip":
+        if op.target_id not in known_clips:
+            errors.append(
+                f"AddEffectOp: target clip {op.target_id!r} not found in project."
+            )
+
+    if isinstance(op, SetKeyframeOp):
+        if op.effect_id not in known_effects:
+            errors.append(
+                f"SetKeyframeOp: effect_id {op.effect_id!r} not found in project."
+            )
+
+    return errors
+
+
+def validate_op_for_append(op: OperationUnion, store) -> list[str]:
+    """Validate one op's references against the store's current project state.
+
+    Only reference integrity is enforced at the append (vault) door: a clip /
+    transition / effect target must exist. Asset existence and effect-catalog
+    membership are intentionally NOT enforced here. ``store`` is duck-typed
+    (must expose ``load_all()``, ``db_path``, ``project_id``). No runtime
+    import of EditGraphStore here to avoid a circular import.
+    """
     ops = store.load_all()
-    assets: dict = {}
-    db_parent = store.db_path.parent
-    direct = db_parent / "assets"
-    assets_dir = direct if direct.is_dir() else db_parent / ".open_edit" / "assets"
-    if assets_dir.is_dir():
-        astore = AssetStore(assets_dir)
-        for o in ops:
-            if isinstance(o, AddClipOp) and o.asset_hash not in assets:
-                a = astore.get(o.asset_hash)
-                if a is not None:
-                    assets[o.asset_hash] = a
-        # Also include any asset referenced by the op being validated, so a
-        # freshly-ingested asset (not yet referenced by an existing op) passes.
-        if isinstance(op, AddClipOp) and op.asset_hash not in assets:
-            a = astore.get(op.asset_hash)
-            if a is not None:
-                assets[op.asset_hash] = a
     project = Project(
         project_id=store.project_id,
-        name=db_parent.name,
-        workdir=db_parent,
-        assets=assets,
+        name=store.db_path.parent.name,
+        workdir=store.db_path.parent,
+        assets={},
         edit_graph=ops,
     )
-    return validate_op(op, project)
+    return validate_op_references(op, project)
