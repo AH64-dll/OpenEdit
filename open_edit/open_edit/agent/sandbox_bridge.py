@@ -640,19 +640,25 @@ def _load_project_for_validation(workdir: Path) -> Project:
 
 
 def _load_assets_via_store(store: EditGraphStore, workdir: Path) -> dict[str, Asset]:
-    asset_hashes: set[str] = set()
-    for op in store.load_all():
-        if isinstance(op, AddClipOp):
-            asset_hashes.add(op.asset_hash)
+    """Build ``project.assets`` from every asset physically present in the
+    store's on-disk sidecars.
+
+    Previously this only included asset hashes already referenced by an
+    existing ``add_clip`` op, which created a chicken-and-egg: the first
+    clip for a freshly imported asset could never validate because
+    ``project.assets`` was empty. Loading the full inventory lets any
+    ingested asset be used immediately.
+    """
     assets_dir = _assets_dir_for_workdir(workdir)
     if not assets_dir.exists():
         return {}
-    asset_store = AssetStore(assets_dir)
     assets: dict[str, Asset] = {}
-    for h in asset_hashes:
-        asset = asset_store.get(h)
-        if asset is not None:
-            assets[h] = asset
+    for meta in assets_dir.rglob("*.meta.json"):
+        try:
+            asset = Asset.model_validate_json(meta.read_text())
+        except Exception:
+            continue
+        assets[asset.asset_hash] = asset
     return assets
 
 

@@ -16,9 +16,11 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from open_edit.agent.sandbox_bridge import (
-    _render_bootstrap, _FlushingBuffer,
+    _render_bootstrap, _FlushingBuffer, _load_assets_via_store,
 )
 from open_edit.agent.exceptions import FreeFormResult
+from open_edit.ir.types import Asset
+from open_edit.storage.edit_graph import EditGraphStore
 
 
 @pytest.fixture(autouse=True)
@@ -1187,3 +1189,27 @@ def test_validate_references_raw_mlt_and_free_form_skip(tmp_path):
     # No reference error means validation passed.
     _validate_references(op_raw, timeline, assets, edit_graph)
     _validate_references(op_free, timeline, assets, edit_graph)
+
+
+def test_load_assets_via_store_includes_unreferenced_assets(tmp_path):
+    """An asset present on disk (ingested, not yet used by any add_clip) must
+    still be visible to project.assets, otherwise the first clip for it can
+    never validate (chicken-and-egg)."""
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    assets_dir = workdir / "assets"
+    hh = "ab"
+    (assets_dir / hh).mkdir(parents=True)
+    h = "ab" * 32
+    asset = Asset(
+        asset_hash=h, original_path="/x.mp4", stored_path="/x",
+        type="video", duration_sec=1.0, fps=30.0, width=1920, height=1080,
+        codec="h264", has_audio=True,
+    )
+    (assets_dir / hh / (h + ".meta.json")).write_text(asset.model_dump_json())
+
+    db = workdir / "edit_graph.db"
+    store = EditGraphStore(db)  # empty edits table
+    assets = _load_assets_via_store(store, workdir)
+    assert h in assets
+    assert assets[h].asset_hash == h
