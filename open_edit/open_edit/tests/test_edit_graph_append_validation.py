@@ -1,7 +1,7 @@
 import pytest
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.ir.validate import OpValidationError, TimelineValidationError
-from open_edit.ir.types import TrimClipOp, AddClipOp, Project
+from open_edit.ir.types import TrimClipOp, AddClipOp, SplitClipOp, Project
 from open_edit.ir.apply import derive_or_load_timeline
 
 
@@ -81,3 +81,20 @@ def test_render_derive_strict_rejects_overlap(tmp_path):
     proj = Project(project_id="p", name="p", workdir=tmp_path, assets={}, edit_graph=ops)
     with pytest.raises(TimelineValidationError):
         derive_or_load_timeline(proj, store, strict=True)
+
+
+def test_append_split_then_trim_half_passes(tmp_path):
+    # SplitClipOp creates left/right clip ids during timeline replay; a
+    # follow-up op targeting the split half must not be rejected at the door.
+    store = EditGraphStore(tmp_path / "edit_graph.db")
+    c1 = AddClipOp(asset_hash="h", track_id="V1", position_sec=0.0,
+                   in_point_sec=0.0, out_point_sec=10.0, author="ai")
+    split = SplitClipOp(clip_id=c1.clip_id, at_sec=5.0, author="ai")
+    trim = TrimClipOp(clip_id=split.left_clip_id, new_in_point_sec=0.0,
+                     new_out_point_sec=3.0, author="ai")
+    store.append(c1)
+    store.append(split)
+    n = store.append(trim)  # must not raise
+    assert n == 2
+    assert store.load_all()[2].clip_id == trim.clip_id
+

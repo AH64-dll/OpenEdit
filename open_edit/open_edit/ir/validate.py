@@ -14,6 +14,7 @@ from open_edit.ir.types import (
     AddTransitionOp,
     ChangeClipSpeedOp,
     MoveClipOp,
+    NormalizeAudioOp,
     OperationUnion,
     Project,
     RemoveClipOp,
@@ -221,18 +222,52 @@ def validate_timeline(timeline: Timeline) -> list[str]:
     return errors
 
 
+def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
+    """Clip/effect ids that exist after replaying ``ops`` (tolerant).
+
+    Mirrors the clip/effect creation done by ``apply_operation`` for
+    split / ripple / speed-ramp / normalize ops so reference checks
+    recognise derived identities (e.g. ``SplitClipOp`` halves, ramp
+    effects). It does NOT run the full timeline math and never raises, so a
+    semantically-invalid *prior* op (e.g. an oversized transition) does not
+    block appending an unrelated, valid op.
+    """
+    clips: set[str] = set()
+    effects: set[str] = set()
+    for op in ops:
+        if isinstance(op, AddClipOp):
+            clips.add(op.clip_id)
+        elif isinstance(op, RemoveClipOp):
+            clips.discard(op.clip_id)
+        elif isinstance(op, SplitClipOp):
+            clips.discard(op.clip_id)
+            clips.add(op.left_clip_id)
+            clips.add(op.right_clip_id)
+        elif isinstance(op, RippleDeleteClipOp):
+            clips.discard(op.clip_id)
+        elif isinstance(op, AddEffectOp):
+            effects.add(op.effect_id)
+        elif isinstance(op, (SetClipSpeedRampOp, NormalizeAudioOp)):
+            effects.add(op.edit_id)
+        # ReplaceClipSourceOp / MoveClipOp / TrimClipOp / SlipClipOp keep ids
+    return clips, effects
+
+
 def validate_op_references(op: OperationUnion, project: Project) -> list[str]:
     """Reference-integrity check only (used at the append / vault door).
 
     Ensures a clip / transition / effect target actually exists in the
-    current project. Deliberately does NOT check asset existence or
-    effect-catalog membership — those are enforced by the sandbox layer and
-    at render time, so the agent stays free to operate. Returns a list of
-    error strings (empty = valid).
+    current project. Identity is computed from the replayed ops (via
+    ``_known_ids_from_ops``), not a raw Add-op scan, so clips produced by
+    ``SplitClipOp`` and effects produced by speed-ramp / normalize ops are
+    recognised — a ``split → trim the left half`` workflow must not be
+    rejected. Deliberately does NOT check asset existence or effect-catalog
+    membership — those are enforced by the sandbox layer and at render time,
+    so the agent stays free to operate. Returns a list of error strings
+    (empty = valid).
     """
     errors: list[str] = []
-    known_clips = _known_clip_ids(project)
-    known_effects = _known_effect_ids(project)
+    known_clips, known_effects = _known_ids_from_ops(project.edit_graph)
 
     clip_targeting = (
         MoveClipOp, TrimClipOp, RemoveClipOp, SlipClipOp,
