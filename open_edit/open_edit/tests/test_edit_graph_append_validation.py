@@ -1,7 +1,8 @@
 import pytest
 from open_edit.storage.edit_graph import EditGraphStore
-from open_edit.ir.validate import OpValidationError
-from open_edit.ir.types import TrimClipOp, AddClipOp
+from open_edit.ir.validate import OpValidationError, TimelineValidationError
+from open_edit.ir.types import TrimClipOp, AddClipOp, Project
+from open_edit.ir.apply import derive_or_load_timeline
 
 
 def test_append_dangling_reference_rejected(tmp_path):
@@ -68,3 +69,15 @@ def test_append_valid_op_persists(monkeypatch, tmp_path):
     n = store.append(op)
     assert n == 0
     assert store.load_all()[0].clip_id == op.clip_id
+
+
+def test_render_derive_strict_rejects_overlap(tmp_path):
+    store = EditGraphStore(tmp_path / "edit_graph.db")
+    store.append(AddClipOp(asset_hash="h", track_id="V1", position_sec=0.0,
+                           in_point_sec=0.0, out_point_sec=5.0, author="ai"))
+    store.append(AddClipOp(asset_hash="h", track_id="V1", position_sec=4.0,
+                           in_point_sec=0.0, out_point_sec=5.0, author="ai"))
+    ops = store.load_all()
+    proj = Project(project_id="p", name="p", workdir=tmp_path, assets={}, edit_graph=ops)
+    with pytest.raises(TimelineValidationError):
+        derive_or_load_timeline(proj, store, strict=True)

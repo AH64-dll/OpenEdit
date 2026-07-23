@@ -80,7 +80,7 @@ def render_project(
 
     project = Project(name=project_id)
     project.edit_graph = list(applied_ops)
-    timeline = derive_or_load_timeline(project, store)
+    timeline = derive_or_load_timeline(project, store, strict=True)
 
     asset_paths: dict[str, str] = {}
     asset_store = AssetStore(project_dir / ".open_edit" / "assets")
