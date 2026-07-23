@@ -10,4 +10,7 @@ from open_edit.style.retrieve import get_slice
 
 def get_style_profile(args: dict, project_path: str) -> dict:
     """Return the style profile slice for args['op_type']."""
-    return get_slice(args["op_type"])
+    try:
+        return get_slice(args["op_type"])
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

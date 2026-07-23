@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
@@ -43,6 +44,7 @@ class CLIAdapter(Protocol):
         session_id: str,
         extension_path: str | None,
         system_prompt: str,
+        project_path: str | None = None,
     ) -> list[str]: ...
 
 
@@ -93,7 +95,7 @@ def _opencode_models_via_cli() -> list[str]:
 
 class _PiAdapter:
     name = "pi"
-    default_timeout_s = 60
+    default_timeout_s = 3600
 
     def default_model(self) -> str:
         return "minimax-m3"
@@ -123,6 +125,7 @@ class _PiAdapter:
         session_id: str,
         extension_path: str | None,
         system_prompt: str,
+        project_path: str | None = None,
     ) -> list[str]:
         # Resolve the pi binary the same way the legacy _pi_binary() did:
         # OPEN_EDIT_PI_BINARY env var (absolute path) wins; otherwise
@@ -135,10 +138,10 @@ class _PiAdapter:
             "--model", model,
             "--mode", "json",
             "--no-extensions",
-            "--session-id", session_id,
             "--print", user_text,
             "--append-system-prompt", system_prompt,
         ]
+        cmd += ["--session-id", session_id]
         if extension_path:
             # Insert --extension after --no-extensions so the user's
             # extension wins over any default.
@@ -150,7 +153,7 @@ class _PiAdapter:
 
 class _OpenCodeAdapter:
     name = "opencode"
-    default_timeout_s = 120
+    default_timeout_s = 3600
 
     def default_model(self) -> str:
         return "opencode-go/minimax-m3"
@@ -174,6 +177,7 @@ class _OpenCodeAdapter:
         session_id: str,
         extension_path: str | None,
         system_prompt: str,
+        project_path: str | None = None,
     ) -> list[str]:
         # opencode has no --append-system-prompt flag; we prepend the
         # system prompt to the user message so the model still sees it.
@@ -185,8 +189,6 @@ class _OpenCodeAdapter:
             "run",
             "--format", "json",
             "--model", model,
-            "-s", session_id,
-            "--title", f"oe-{session_id}",
             full_message,
         ]
         if extension_path:
@@ -195,9 +197,47 @@ class _OpenCodeAdapter:
         return cmd
 
 
+class _AntigravityAdapter:
+    name = "antigravity"
+    default_timeout_s = 3600
+
+    def default_model(self) -> str:
+        return "gemini-2.5-flash"
+
+    def available_models(self) -> list[str]:
+        from .runtimes.registry import RUNTIME_SPECS
+        for spec in RUNTIME_SPECS:
+            if spec["id"] == "antigravity":
+                return list(spec.get("models", []))
+        return ["gemini-2.5-flash", "gemini-3.5-flash-high"]
+
+    def supports_tools(self) -> bool:
+        return False
+
+    def supports_images(self) -> bool:
+        return False
+
+    def manages_own_auth(self) -> bool:
+        return True
+
+    def build_command(
+        self,
+        model: str,
+        user_text: str,
+        session_id: str,
+        extension_path: str | None,
+        system_prompt: str,
+        project_path: str | None = None,
+    ) -> list[str]:
+        agy_bin = shutil.which("agy") or shutil.which("antigravity") or "antigravity"
+        full_message = f"[system]\n{system_prompt}\n\n[user]\n{user_text}"
+        return [agy_bin, "--print", full_message, "--model", model]
+
+
 _ADAPTERS: dict[str, CLIAdapter] = {
     "pi": _PiAdapter(),
     "opencode": _OpenCodeAdapter(),
+    "antigravity": _AntigravityAdapter(),
 }
 
 

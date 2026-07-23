@@ -67,51 +67,43 @@ for ev in EVENTS:
 # Mirror real pi's behavior: append an assistant-message entry to
 # the session JSONL. Real pi writes per-call usage; we do the same
 # so the LLM layer's delta parser has something to read.
-sessions_dir = os.environ.get("OPEN_EDIT_PI_SESSIONS_DIR", "")
-# Find the session id from --session-id <sid>
 session_id = ""
 for i, a in enumerate(sys.argv):
     if a == "--session-id" and i + 1 < len(sys.argv):
         session_id = sys.argv[i + 1]
         break
 
+sessions_dir = os.environ.get("OPEN_EDIT_PI_SESSIONS_DIR", "")
 if sessions_dir and session_id:
-    # Encode our CWD the way real pi does: replace "/" with "-",
-    # wrap in leading/trailing "-".
     cwd = os.getcwd()
     encoded = "-" + cwd.replace("/", "-") + "-"
     sess_dir = Path(sessions_dir) / encoded
     suffix = "_" + session_id + ".jsonl"
-    # Find the existing session file (there should be exactly one
-    # for this session id in the encoded-CWD dir).
-    target = None
     if sess_dir.exists():
         for entry in sess_dir.iterdir():
             if entry.is_file() and entry.name.endswith(suffix):
-                target = entry
-                break
-    if target is not None:
-        with target.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({
-                "type": "message",
-                "id": "m-fake-1",
-                "timestamp": "2026-07-21T00:00:00.000Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "ok"}],
-                    "model": "minimax-m3",
-                    "usage": {
-                        "input": 100, "output": 50,
-                        "cacheRead": 0, "cacheWrite": 0,
-                        "totalTokens": 150,
-                        "cost": {
-                            "input": 0.0001, "output": 0.0002,
-                            "cacheRead": 0, "cacheWrite": 0,
-                            "total": 0.0003,
+                with entry.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({
+                        "type": "message",
+                        "id": "m-fake-1",
+                        "timestamp": "2026-07-21T00:00:00.000Z",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "ok"}],
+                            "model": "minimax-m3",
+                            "usage": {
+                                "input": 100, "output": 50,
+                                "cacheRead": 0, "cacheWrite": 0,
+                                "totalTokens": 150,
+                                "cost": {
+                                    "input": 0.0001, "output": 0.0002,
+                                    "cacheRead": 0, "cacheWrite": 0,
+                                    "total": 0.0003,
+                                },
+                            },
                         },
-                    },
-                },
-            }) + "\\n")
+                    }) + "\\n")
+                break
 sys.exit(0)
 """
 
@@ -143,45 +135,32 @@ def _write_session_jsonl(path: Path, assistant_messages: list[dict]) -> None:
 
 @pytest.fixture
 def fake_pi_with_usage(tmp_path, monkeypatch):
-    """Fake pi binary + a session JSONL pre-populated with one
-    assistant message. Point ``OPEN_EDIT_PI_BINARY`` at the fake
-    and ``OPEN_EDIT_PI_SESSIONS_DIR`` at the tmp_path so the LLM
-    layer can find the session file via the encoded CWD name.
-
-    The fake pi runs in the test's actual CWD (the worktree, or
-    whatever the test runner's cwd is). We mirror that here by
-    computing the encoded CWD of os.getcwd() at fixture time and
-    placing the session file at the matching path under the
-    redirected sessions dir."""
+    """Fake pi binary + a pi session dir with a pre-created session file.
+    The session file has a session header but no assistant messages yet.
+    When pi runs (fake pi), it finds this file via ``--session-id`` and
+    appends an assistant message with usage data.
+    """
     script = tmp_path / "fake-pi"
     script.write_text(FAKE_PI_SCRIPT_WITH_USAGE)
     script.chmod(0o755)
     monkeypatch.setenv("OPEN_EDIT_PI_BINARY", str(script))
     monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "pi")
     monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "minimax-m3")
-    # The actual cwd the fake pi will see inside the subprocess
-    # is the test runner's cwd, not project_path (which is just
-    # forwarded to the extension). Mirror real pi's encoding.
-    test_cwd = Path(os.getcwd())
-    encoded_cwd = "-" + str(test_cwd).replace("/", "-") + "-"
-    sessions_dir = tmp_path / "sessions"
-    encoded_dir = sessions_dir / encoded_cwd
-    encoded_dir.mkdir(parents=True)
-    session_file = encoded_dir / "2026-07-21T00-00-00-000Z_test-session.jsonl"
-    # Pre-populate the session JSONL with the SESSION HEADER only
-    # (no assistant message yet) — the fake pi will append an
-    # assistant message to simulate one LLM call. The LLM layer
-    # reads the delta.
-    _write_session_jsonl(session_file, [])
+    # Set up pi sessions dir (mimics ~/.pi/agent/sessions/).
+    sessions_dir = tmp_path / "pi-sessions"
+    sessions_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("OPEN_EDIT_PI_SESSIONS_DIR", str(sessions_dir))
-    from open_edit.serve import cost as cost_mod
-    monkeypatch.setattr(cost_mod, "PRICING_PATH",
-                        str(Path(cost_mod._PRICING_PATH_DEFAULT)))
+    # Create the encoded-cwd subdirectory and session file.
+    cwd = os.getcwd()
+    encoded = "-" + cwd.replace("/", "-") + "-"
+    sess_subdir = sessions_dir / encoded
+    sess_subdir.mkdir(parents=True, exist_ok=True)
+    session_file = sess_subdir / f"2026-07-21T00-00-00-000Z_test-session.jsonl"
+    _write_session_jsonl(session_file, [])
     return {
         "script": script,
         "session_file": session_file,
-        "encoded_dir": encoded_dir,
-        "test_cwd": test_cwd,
+        "test_cwd": cwd,
     }
 
 
@@ -242,12 +221,16 @@ def test_pi_path_yields_unavailable_when_session_file_missing(
         Path(ext).parent.mkdir(parents=True, exist_ok=True)
         Path(ext).write_text("// stub\n")
 
+    # Create the project dir so the --session path resolves correctly.
+    project_dir = tmp_path / "project-unavailable"
+    project_dir.mkdir(parents=True)
+
     events = asyncio.run(_collect(stream_chat(
         messages=[{"role": "user", "content": "hi"}],
         tools=[],
         system="",
         session_id="missing-session",
-        project_path="/tmp/oe-test-missing",
+        project_path=str(project_dir),
     )))
     usage = next((e for e in events if e["type"] == "usage"), None)
     assert usage is not None, f"no usage event in {[e['type'] for e in events]}"

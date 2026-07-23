@@ -21,7 +21,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from open_edit.ir.apply import derive_timeline
+from open_edit.ir.apply import derive_or_load_timeline, derive_timeline
 from open_edit.ir.types import AddClipOp, Project
 from open_edit.render.cache import RenderCache, canonical_json_hash
 from open_edit.render.emitter import EmitterConfig, emit_timeline
@@ -80,7 +80,7 @@ def render_project(
 
     project = Project(name=project_id)
     project.edit_graph = list(applied_ops)
-    timeline = derive_timeline(project)
+    timeline = derive_or_load_timeline(project, store)
 
     asset_paths: dict[str, str] = {}
     asset_store = AssetStore(project_dir / ".open_edit" / "assets")

@@ -52,7 +52,7 @@ async def _mock_stream_chat(
         yield {"type": "done", "stop_reason": "end_turn"}
 
 
-def _mock_execute_tool(name, args, project_path):
+def _mock_execute_tool(name, args, project_path, command_id=None):
     return {"tool": name, "args": args, "result": {"assets": [{"hash": "h1"}]}}
 
 

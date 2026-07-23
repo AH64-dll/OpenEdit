@@ -9,12 +9,13 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
 from pydantic import TypeAdapter
 
-from open_edit.ir.types import OperationUnion
+from open_edit.ir.types import OperationUnion, new_id
 
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
@@ -43,8 +44,14 @@ class EditGraphStore:
             conn.close()
 
     def _init_schema(self) -> None:
+        from open_edit.storage.migrations import ensure_schema
+
         with self._conn() as conn:
-            conn.executescript(SCHEMA_PATH.read_text())
+            ensure_schema(conn)
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
 
     @property
     def project_id(self) -> str:
@@ -105,7 +112,8 @@ class EditGraphStore:
             )
 
     def append(
-        self, op: OperationUnion, sequence_num: int | None = None
+        self, op: OperationUnion, sequence_num: int | None = None,
+        command_id: str | None = None,
     ) -> int:
         """Append an operation. Returns the assigned sequence_num."""
         with self._conn() as conn:
@@ -124,6 +132,16 @@ class EditGraphStore:
                     op.status, sequence_num, op.model_dump_json(),
                 ),
             )
+            conn.execute(
+                "INSERT INTO edit_status_events "
+                "(event_id, edit_id, from_status, to_status, command_id, "
+                " reason, changed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    new_id(), op.edit_id, None, op.status or "applied",
+                    command_id, "append", op.timestamp or self._now_iso(),
+                ),
+            )
         return sequence_num
 
     def load_all(self) -> list[OperationUnion]:
@@ -140,13 +158,116 @@ class EditGraphStore:
                 ops.append(op)
             return ops
 
-    def update_status(self, edit_id: str, new_status: str) -> None:
+    def update_status(
+        self, edit_id: str, new_status: str,
+        command_id: str | None = None, reason: str | None = None,
+    ) -> None:
         """Update an operation's status (e.g. for undo/revert or supersede)."""
         with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT status FROM edits WHERE edit_id = ?", (edit_id,)
+            )
+            row = cur.fetchone()
+            from_status = row[0] if row is not None else None
             conn.execute(
                 "UPDATE edits SET status = ? WHERE edit_id = ?",
                 (new_status, edit_id),
             )
+            conn.execute(
+                "INSERT INTO edit_status_events "
+                "(event_id, edit_id, from_status, to_status, command_id, "
+                " reason, changed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    new_id(), edit_id, from_status, new_status,
+                    command_id, reason, self._now_iso(),
+                ),
+            )
+
+    def record_command(
+        self, command_id: str, project_id: str, tool_name: str,
+        status: str = "pending", payload_hash: str | None = None,
+    ) -> None:
+        """Record a command for idempotency. No-op if command_id exists."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO commands "
+                "(command_id, project_id, tool_name, status, created_at, "
+                " payload_hash, result_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, NULL)",
+                (
+                    command_id, project_id, tool_name, status,
+                    self._now_iso(), payload_hash,
+                ),
+            )
+
+    def command_exists(self, command_id: str) -> bool:
+        """Return True if a command with the given id has been recorded."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT 1 FROM commands WHERE command_id = ? LIMIT 1",
+                (command_id,),
+            )
+            return cur.fetchone() is not None
+
+    def finish_command(
+        self, command_id: str, status: str = "done",
+        result_json: str | None = None,
+    ) -> None:
+        """Mark a command as finished with a status and optional result."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE commands SET status = ?, result_json = ? "
+                "WHERE command_id = ?",
+                (status, result_json, command_id),
+            )
+
+    def get_command_result(self, command_id: str) -> str | None:
+        """Return the stored result_json for a command, or None."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT result_json FROM commands WHERE command_id = ?",
+                (command_id,),
+            )
+            row = cur.fetchone()
+            return row[0] if row is not None else None
+
+    def get_command_status(self, command_id: str) -> str | None:
+        """Return the stored status for a command, or None."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT status FROM commands WHERE command_id = ?",
+                (command_id,),
+            )
+            row = cur.fetchone()
+            return row[0] if row is not None else None
+
+    def save_timeline_snapshot(
+        self, edit_graph_hash: str, project_id: str, timeline_json: str,
+    ) -> None:
+        """Store a derived timeline snapshot keyed by edit-graph hash."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO timeline_snapshots "
+                "(edit_graph_hash, project_id, timeline_json, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (edit_graph_hash, project_id, timeline_json, self._now_iso()),
+            )
+
+    def load_timeline_snapshot(self, edit_graph_hash: str) -> str | None:
+        """Return the stored timeline_json for a hash, or None."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "SELECT timeline_json FROM timeline_snapshots "
+                "WHERE edit_graph_hash = ?",
+                (edit_graph_hash,),
+            )
+            row = cur.fetchone()
+            return row[0] if row is not None else None
+
+    def set_edit_graph_hash(self, h: str) -> None:
+        """Store the canonical edit-graph hash in project_meta."""
+        self.set_project_meta_field("edit_graph_hash", h)
 
     def delete_op(self, edit_id: str) -> bool:
         """Remove an operation from the edit graph by id.

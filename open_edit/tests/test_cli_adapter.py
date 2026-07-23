@@ -22,8 +22,8 @@ def test_get_adapter_returns_opencode() -> None:
 
 
 def test_get_adapter_unknown_raises() -> None:
-    with pytest.raises(KeyError, match="antigravity"):
-        get_adapter("antigravity")
+    with pytest.raises(KeyError, match="does_not_exist"):
+        get_adapter("does_not_exist")
 
 
 def test_get_adapter_unknown_raises_for_arbitrary() -> None:
@@ -31,9 +31,9 @@ def test_get_adapter_unknown_raises_for_arbitrary() -> None:
         get_adapter("nope")
 
 
-def test_list_adapters_returns_two() -> None:
+def test_list_adapters_returns_three() -> None:
     names = sorted(list_adapters())
-    assert names == ["opencode", "pi"]
+    assert names == ["antigravity", "opencode", "pi"]
 
 
 def test_pi_default_timeout_s_is_set() -> None:
@@ -41,14 +41,14 @@ def test_pi_default_timeout_s_is_set() -> None:
     a = get_adapter("pi")
     assert isinstance(a.default_timeout_s, int)
     assert a.default_timeout_s > 0
-    assert a.default_timeout_s <= 600  # no absurd values
+    assert a.default_timeout_s <= 86400  # no absurd values
 
 
 def test_opencode_default_timeout_s_is_set() -> None:
     a = get_adapter("opencode")
     assert isinstance(a.default_timeout_s, int)
     assert a.default_timeout_s > 0
-    assert a.default_timeout_s <= 600
+    assert a.default_timeout_s <= 86400
 
 
 def test_pi_supports_tools_is_true() -> None:

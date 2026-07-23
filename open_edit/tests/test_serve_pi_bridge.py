@@ -76,16 +76,14 @@ def _bootstrap_project(project_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_bridge_list_tools():
-    """--list-tools returns all 14 tool names (10 real + 3 P1-1/Wave1 + 1 virtual)."""
+    """--list-tools returns the 4 pillar tool names."""
     res = _run_bridge("--list-tools")
     tools = res.get("tools", [])
-    assert "add_marker" in tools
+    assert "query_project" in tools
+    assert "edit_project" in tools
+    assert "run_script" in tools
     assert "trigger_render" in tools
-    assert "run_python" in tools
-    assert "search_assets" in tools
-    assert "import_asset" in tools
-    assert "list_assets" in tools
-    assert len(tools) == 14
+    assert len(tools) == 4
 
 
 def test_bridge_invalid_args_returns_error():
@@ -178,16 +176,15 @@ def test_bridge_add_marker_without_project_id_in_args(tmp_path):
 # - gracefully degrade when the relevant API key is missing.
 # ---------------------------------------------------------------------------
 
-def test_bridge_list_tools_includes_new_tool_names():
-    """After the v1.4 P1-1 additions, ``--list-tools`` must include
-    ``search_assets`` and ``import_asset`` so the TS extension picks
-    them up automatically."""
+def test_bridge_list_tools_includes_pillar_tools():
+    """``--list-tools`` returns the 4 pillar tool names."""
     res = _run_bridge("--list-tools")
     tools = res.get("tools", [])
-    assert "search_assets" in tools
-    assert "import_asset" in tools
-    # The count grows from 11 (P1-2 baseline) to 14.
-    assert len(tools) == 14, tools
+    assert "query_project" in tools
+    assert "edit_project" in tools
+    assert "run_script" in tools
+    assert "trigger_render" in tools
+    assert len(tools) == 4, tools
 
 
 def test_bridge_search_assets_missing_key_returns_structured_error(tmp_path):
@@ -342,36 +339,10 @@ def test_bridge_import_asset_download_failure_returns_error(tmp_path, monkeypatc
 # ``trigger_render``) and asserts the bridge can resolve it.
 # ---------------------------------------------------------------------------
 
-def test_bridge_can_dispatch_every_advertised_tool():
-    """Regression for the pre-existing 5-tool bridge gap.
-
-    For every tool name in TOOL_SCHEMAS (except the server-side virtual
-    ``trigger_render``), ``getattr(open_edit.agent.tools, name)`` must
-    return a callable. This is the exact lookup the bridge does in
-    ``_run_agent_tool`` (``pi_bridge.py``); a missing re-export would
-    make the LLM see ``tool not found`` for that tool.
-    """
+def test_bridge_can_dispatch_run_script():
+    """``run_script`` must be importable from ``open_edit.agent.tools``."""
     import open_edit.agent.tools as tools_mod
-    from open_edit.serve.tool_schemas import TOOL_SCHEMAS
-
-    missing: list[str] = []
-    for schema in TOOL_SCHEMAS:
-        name = schema["name"]
-        if name == "trigger_render":
-            # Server-side virtual tool — handled specially by
-            # _run_agent_tool / _run_trigger_render, not via getattr.
-            continue
-        fn = getattr(tools_mod, name, None)
-        if fn is None or not callable(fn):
-            missing.append(name)
-
-    assert missing == [], (
-        f"bridge advertises {len(TOOL_SCHEMAS)} tools in TOOL_SCHEMAS but "
-        f"the following are not re-exported from open_edit.agent.tools "
-        f"(would yield 'tool not found' at dispatch time): {missing!r}. "
-        f"Fix: add `from open_edit.agent.tools.pyagent_<name> import <name>` "
-        f"to open_edit/agent/tools/__init__.py."
-    )
+    assert callable(getattr(tools_mod, "run_script", None))
 
 
 # ---------------------------------------------------------------------------

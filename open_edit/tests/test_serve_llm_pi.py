@@ -38,6 +38,7 @@ from open_edit.serve.llm import (  # noqa: E402
 FAKE_PI_SCRIPT = """\
 #!/usr/bin/env python3
 import json, sys
+from pathlib import Path
 
 # Canned events: text, toolCall, toolResult, done.
 EVENTS = [
@@ -62,6 +63,53 @@ EVENTS = [
 # Echo any extra args (for visibility / debugging).
 import os
 sys.stderr.write("fake-pi args: " + " ".join(repr(a) for a in sys.argv[1:]) + "\\n")
+
+# Handle --session <path> flag: write fake usage data to the session file
+session_path_arg = ""
+for i, a in enumerate(sys.argv):
+    if a == "--session" and i + 1 < len(sys.argv):
+        session_path_arg = sys.argv[i + 1]
+        break
+    if a == "--session-id" and i + 1 < len(sys.argv):
+        session_id = sys.argv[i + 1]
+        # For --session-id, write to PROJECT_PATH/.open_edit/conversations/<sid>.jsonl
+        sessions_dir = os.environ.get("OPEN_EDIT_PI_SESSIONS_DIR", "")
+        if sessions_dir:
+            import os
+            cwd = os.getcwd()
+            encoded = "-" + cwd.replace("/", "-") + "-"
+            sess_dir = Path(sessions_dir) / encoded
+            suffix = "_" + session_id + ".jsonl"
+            if sess_dir.exists():
+                for entry in sess_dir.iterdir():
+                    if entry.is_file() and entry.name.endswith(suffix):
+                        session_path_arg = str(entry)
+                        break
+
+if session_path_arg:
+    target = Path(session_path_arg)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "message",
+            "id": "m-fake-1",
+            "timestamp": "2026-07-21T00:00:00.000Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "ok"}],
+                "model": "minimax-m3",
+                "usage": {
+                    "input": 10, "output": 5,
+                    "cacheRead": 0, "cacheWrite": 0,
+                    "totalTokens": 15,
+                    "cost": {
+                        "input": 0.001, "output": 0.002,
+                        "cacheRead": 0, "cacheWrite": 0,
+                        "total": 0.003,
+                    },
+                },
+            },
+        }) + "\\n")
 
 for ev in EVENTS:
     sys.stdout.write(json.dumps(ev) + "\\n")

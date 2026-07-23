@@ -32,6 +32,29 @@ _LOG = logging.getLogger("open_edit.serve.visual_verify")
 _VERDICT_RE = re.compile(r"^\s*verification\s*:\s*(pass|fail|uncertain)\b", re.IGNORECASE | re.MULTILINE)
 
 
+def _strip_verification_frames(result: dict) -> dict:
+    """Return a copy of ``result`` with ``verification.frames`` removed.
+
+    Frame data is already passed as separate ``type: "image"`` blocks
+    in the tool_result message — there's no need to duplicate the base64
+    in the text summary. The stripped version keeps ``frame_count`` and
+    ``render_id`` for context.
+    """
+    if "verification" not in result:
+        return result
+    out = dict(result)
+    verification = dict(out["verification"])
+    frames = verification.pop("frames", [])
+    frame_count = len(frames)
+    if frame_count:
+        verification["frame_count"] = frame_count
+    if not verification:
+        out.pop("verification", None)
+    else:
+        out["verification"] = verification
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Frame sampling (spec §3)
 # ---------------------------------------------------------------------------
@@ -214,13 +237,16 @@ def build_verification_tool_result(
     """Build the structured ``trigger_render`` tool result with verification block."""
     render_id = render_output.get("render_id", "render_unknown")
     supports_images = capability.get("supports_images", False)
+    out_path = render_output.get("output_path", "")
     return {
-        "output_path": render_output.get("output_path", ""),
+        "output_path": out_path,
+        "video_path": out_path,
         "mode": mode,
         "duration_s": render_output.get("duration_s", 0.0),
         "render_id": render_id,
         "verification": {
             "verdict_required": supports_images,
+            "video_path": out_path,
             "frames": frames,
             "model_supports_images": supports_images,
             "render_mode": mode,
@@ -356,9 +382,16 @@ def prune_images(
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     inner = block.get("content")
                     if isinstance(inner, list):
-                        stripped = [b for b in inner if not (isinstance(b, dict) and b.get("type") == "image")]
-                        if len(stripped) < len(inner):
-                            block = {**block, "content": stripped}
+                        stripped_inner = [b for b in inner if not (isinstance(b, dict) and b.get("type") == "image")]
+                        if len(stripped_inner) < len(inner):
+                            for sb in stripped_inner:
+                                if isinstance(sb, dict) and sb.get("type") == "text":
+                                    try:
+                                        parsed = json.loads(sb["text"])
+                                        sb["text"] = json.dumps(_strip_verification_frames(parsed), default=str)
+                                    except (json.JSONDecodeError, TypeError):
+                                        pass
+                            block = {**block, "content": stripped_inner}
                             new_blocks.append(block)
                             stripped_summary = True
                             continue

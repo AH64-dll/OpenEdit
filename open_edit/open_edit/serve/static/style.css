@@ -9,6 +9,15 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
 
+/* ---- SVG icon helper (used by inline SVGs throughout the HTML) ---- */
+.icon-svg {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
 :root {
   /* ---- Depth layers (deep → elevated → surface) ---- */
   --bg-deep:      #090d13;

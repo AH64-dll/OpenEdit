@@ -10,5 +10,8 @@ from open_edit.style.aggregate import set_pinned
 
 def set_pinned_value(args: dict, project_path: str) -> dict:
     """Set pinned key=value in the global style profile."""
-    set_pinned(args["key"], args["value"])
-    return {"status": "ok"}
+    try:
+        set_pinned(args["key"], args["value"])
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

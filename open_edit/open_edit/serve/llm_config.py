@@ -5,7 +5,7 @@ Reads ``<project_dir>/.open_edit/config.toml`` to find an ``[llm]`` table:
 .. code-block:: toml
 
     [llm]
-    provider = "opencode"        # anthropic | openai | pi | opencode
+    provider = "opencode"        # anthropic | openai | pi | opencode | antigravity
     model = "opencode-go/minimax-m3"
 
     [llm.cli]
@@ -13,18 +13,12 @@ Reads ``<project_dir>/.open_edit/config.toml`` to find an ``[llm]`` table:
 
 If the file is missing or has no ``[llm]`` table, falls back to env vars:
 
-- ``OPEN_EDIT_LLM_PROVIDER`` — must be one of ``anthropic|openai|pi|opencode``.
+- ``OPEN_EDIT_LLM_PROVIDER`` — must be one of ``anthropic|openai|pi|opencode|antigravity``.
   Default: ``anthropic``.
 - ``OPEN_EDIT_LLM_MODEL``   — model name passed to the adapter. Per-adapter
   default if unset (``claude-sonnet-4-5`` for anthropic, ``gpt-4o`` for
-  openai, ``minimax-m3`` for pi, ``opencode-go/minimax-m3`` for opencode).
-
-The provider ``antigravity`` is intentionally NOT in the enum. Antigravity
-is a UI label in the chat frontend; the UI preset writes
-``provider = "opencode"`` plus ``model = "omniroute/antigravity/<model>"``
-into this file. The server never sees the string ``antigravity`` as a
-provider value; it only appears as a model-name prefix inside the opencode
-adapter.
+  openai, ``minimax-m3`` for pi, ``opencode-go/minimax-m3`` for opencode,
+  ``gemini-2.5-flash`` for antigravity).
 """
 from __future__ import annotations
 
@@ -42,7 +36,7 @@ class LLMConfigError(Exception):
     """Raised when the per-project LLM config is malformed."""
 
 
-ProviderName = Literal["anthropic", "openai", "pi", "opencode"]
+ProviderName = Literal["anthropic", "openai", "pi", "opencode", "antigravity"]
 
 
 class LLMConfig(BaseModel):
@@ -63,6 +57,7 @@ _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
     "openai": "gpt-4o",
     "pi": "minimax-m3",
     "opencode": "opencode-go/minimax-m3",
+    "antigravity": "gemini-2.5-flash",
 }
 
 

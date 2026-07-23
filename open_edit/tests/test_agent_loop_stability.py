@@ -75,7 +75,7 @@ async def test_cli_owned_turn_does_not_reexecute_tools(monkeypatch, tmp_path):
     local_calls: list[str] = []
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: local_calls.append(name) or {},
+        lambda name, args, path, command_id=None: local_calls.append(name) or {},
     )
 
     history: list[dict[str, Any]] = []
@@ -111,7 +111,7 @@ async def test_cli_owned_turn_history_pairs_every_tool_use(monkeypatch, tmp_path
         yield {"type": "done", "stop_reason": "end_turn"}
 
     monkeypatch.setattr(agent_mod, "stream_chat", pi_stream)
-    monkeypatch.setattr(agent_mod, "_execute_tool", lambda *a: {})
+    monkeypatch.setattr(agent_mod, "_execute_tool", lambda *a, **k: {})
 
     history: list[dict[str, Any]] = []
     async for _ev in agent_mod.run_agent_turn("pid", "check stuff", history):
@@ -146,7 +146,7 @@ async def test_cli_owned_turn_no_second_stream_call(monkeypatch, tmp_path):
         yield {"type": "done", "stop_reason": "end_turn"}
 
     monkeypatch.setattr(agent_mod, "stream_chat", pi_stream)
-    monkeypatch.setattr(agent_mod, "_execute_tool", lambda *a: {})
+    monkeypatch.setattr(agent_mod, "_execute_tool", lambda *a, **k: {})
 
     async for _ev in agent_mod.run_agent_turn("pid", "list", []):
         pass
@@ -173,7 +173,7 @@ async def test_circuit_breaker_aborts_identical_failures(monkeypatch, tmp_path):
 
     monkeypatch.setattr(agent_mod, "stream_chat", loop_stream)
 
-    def failing_execute(name, args, path):
+    def failing_execute(name, args, path, command_id=None):
         raise RuntimeError("sandbox exploded")
 
     monkeypatch.setattr(agent_mod, "_execute_tool", failing_execute)
@@ -201,7 +201,7 @@ async def test_tool_level_error_payloads_count_toward_breaker(monkeypatch, tmp_p
     monkeypatch.setattr(agent_mod, "stream_chat", loop_stream)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: {"status": "error", "error": "preflight_failed"},
+        lambda name, args, path, command_id=None: {"status": "error", "error": "preflight_failed"},
     )
 
     events = [ev async for ev in agent_mod.run_agent_turn("pid", "do it", [])]
@@ -239,7 +239,7 @@ async def test_skipped_trigger_renders_get_tool_results(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_mod, "stream_chat", two_render_stream)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: {"output_path": "", "mode": "proxy", "render_id": "x"},
+        lambda name, args, path, command_id=None: {"output_path": "", "mode": "proxy", "render_id": "x"},
     )
     # Disable verification to keep the test focused on history shape.
     monkeypatch.setattr(agent_mod, "is_verify_disabled", lambda p: True)

@@ -29,7 +29,7 @@ from open_edit.agent.tools.pyagent_import_asset import import_asset
 from open_edit.agent.tools.pyagent_list_assets import list_assets
 from open_edit.agent.tools.pyagent_place_sfx import place_sfx
 from open_edit.agent.tools.pyagent_propose_silence_cuts import propose_silence_cuts
-from open_edit.agent.tools.pyagent_run_python import run_python
+from open_edit.agent.tools.pyagent_run_python import run_python, run_script
 from open_edit.agent.tools.pyagent_search_assets import search_assets
 from open_edit.agent.tools.pyagent_select_music import select_music
 from open_edit.agent.tools.pyagent_set_pinned_value import set_pinned_value
@@ -45,6 +45,7 @@ __all__ = [
     "place_sfx",
     "propose_silence_cuts",
     "run_python",
+    "run_script",
     "search_assets",
     "select_music",
     "set_pinned_value",

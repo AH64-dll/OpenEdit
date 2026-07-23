@@ -343,11 +343,11 @@ def test_serve_env_defaults():
         cfg = serve_env.get_visual_verify_config()
     assert cfg["enabled"] is True
     assert cfg["frames"] == 3
-    assert cfg["max_renders"] == 3
-    assert cfg["max_edge_px"] == 1024
-    assert cfg["jpeg_quality"] == 85
-    assert cfg["total_timeout_seconds"] == 30
-    assert cfg["max_image_bytes"] == 5_242_880
+    assert cfg["max_renders"] == 100
+    assert cfg["max_edge_px"] == 4096
+    assert cfg["jpeg_quality"] == 95
+    assert cfg["total_timeout_seconds"] == 3600
+    assert cfg["max_image_bytes"] == 100_000_000
     assert cfg["debug_dir"] is None
     assert cfg["render_mode"] == "proxy"
     assert cfg["allow_no_change_skip"] is True

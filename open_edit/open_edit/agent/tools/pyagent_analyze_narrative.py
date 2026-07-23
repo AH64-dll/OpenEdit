@@ -13,19 +13,26 @@ def analyze_narrative(args: dict, project_path: str) -> dict:
     """Return narrative segments for `args['asset_hash']`.
 
     Args:
-        args: {"asset_hash": str, "use_llm": bool (optional, default False)}
+        args: {"asset_hash": str (optional, omit to analyse whole timeline),
+               "use_llm": bool (optional, default False)}
         project_path: path to the project directory (or .kdenlive file).
 
     Returns:
         {"status": "ok", "segments": [NarrativeSegment.model_dump(), ...]}
         or {"status": "error", "error": "..."} on failure.
     """
-    asset_store = get_asset_store(project_path)
-    asset = asset_store.get(args["asset_hash"])
-    if asset is None:
-        return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
-    if not asset.alignment:
-        return {"status": "error", "error": "asset has no word-level alignment"}
-    from open_edit.agent.skills.narrative_analyzer import analyze
-    segments = analyze(asset, use_llm=args.get("use_llm", False))
-    return {"status": "ok", "segments": [s.model_dump() for s in segments]}
+    try:
+        asset_hash = args.get("asset_hash")
+        if not asset_hash:
+            return {"status": "error", "error": "asset_hash is required"}
+        asset_store = get_asset_store(project_path)
+        asset = asset_store.get(asset_hash)
+        if asset is None:
+            return {"status": "error", "error": f"asset {asset_hash} not found"}
+        if not asset.alignment:
+            return {"status": "error", "error": "asset has no word-level alignment"}
+        from open_edit.agent.skills.narrative_analyzer import analyze
+        segments = analyze(asset, use_llm=args.get("use_llm", False))
+        return {"status": "ok", "segments": [s.model_dump() for s in segments]}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

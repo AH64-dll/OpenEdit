@@ -12,21 +12,24 @@ from open_edit.storage.notes import NotesStore
 
 def get_pending_notes(args: dict, project_path: str) -> dict:
     """List pending notes. Default: first 10 full + count of rest."""
-    db_path = _notes_db_path(project_path)
-    store = NotesStore(db_path)
-    pending = store.list_pending(args["project_id"])
-    if args.get("summary_only", False):
+    try:
+        db_path = _notes_db_path(project_path)
+        store = NotesStore(db_path)
+        pending = store.list_pending(args["project_id"])
+        if args.get("summary_only", False):
+            return {
+                "notes": [
+                    {
+                        "note_id": n.note_id,
+                        "anchor": n.anchor.model_dump(),
+                        "text_preview": n.text[:80],
+                    }
+                    for n in pending
+                ],
+            }
         return {
-            "notes": [
-                {
-                    "note_id": n.note_id,
-                    "anchor": n.anchor.model_dump(),
-                    "text_preview": n.text[:80],
-                }
-                for n in pending
-            ],
+            "notes": [n.model_dump(mode="json") for n in pending[:10]],
+            "remaining_count": max(0, len(pending) - 10),
         }
-    return {
-        "notes": [n.model_dump(mode="json") for n in pending[:10]],
-        "remaining_count": max(0, len(pending) - 10),
-    }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

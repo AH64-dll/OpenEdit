@@ -17,12 +17,58 @@ from open_edit.serve.cli_adapter import get_adapter
 from open_edit.serve.llm import stream_chat
 
 _FAKE_PI = """#!/usr/bin/env python3
-import json, sys
+import json, os, sys
+from pathlib import Path
+
+# Handle --session <path> flag: write fake usage data to the session file
+session_path_arg = ""
+for i, a in enumerate(sys.argv):
+    if a == "--session" and i + 1 < len(sys.argv):
+        session_path_arg = sys.argv[i + 1]
+        break
+    if a == "--session-id" and i + 1 < len(sys.argv):
+        session_id = sys.argv[i + 1]
+        sessions_dir = os.environ.get("OPEN_EDIT_PI_SESSIONS_DIR", "")
+        if sessions_dir:
+            cwd = os.getcwd()
+            encoded = "-" + cwd.replace("/", "-") + "-"
+            sess_dir = Path(sessions_dir) / encoded
+            suffix = "_" + session_id + ".jsonl"
+            if sess_dir.exists():
+                for entry in sess_dir.iterdir():
+                    if entry.is_file() and entry.name.endswith(suffix):
+                        session_path_arg = str(entry)
+                        break
+
+if session_path_arg:
+    target = Path(session_path_arg)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "type": "message",
+            "id": "m-fake-1",
+            "timestamp": "2026-07-21T00:00:00.000Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Hello back"}],
+                "model": "minimax-m3",
+                "usage": {
+                    "input": 10, "output": 5,
+                    "cacheRead": 0, "cacheWrite": 0,
+                    "totalTokens": 15,
+                    "cost": {
+                        "input": 0.001, "output": 0.002,
+                        "cacheRead": 0, "cacheWrite": 0,
+                        "total": 0.003,
+                    },
+                },
+            },
+        }) + "\\n")
+
 print(json.dumps({"type":"session","version":3,"id":"$SID","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/tmp"}))
 print(json.dumps({"type":"agent_start"}))
 print(json.dumps({"type":"turn_start"}))
 print(json.dumps({"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}))
-# Streamed text deltas (these are what _pi_normalize_event converts to text_delta).
 print(json.dumps({"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Hello back"}}))
 print(json.dumps({"type":"message_start","message":{"role":"assistant","content":[],"api":"anthropic-messages","provider":"opencode-go","model":"x","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1}}))
 print(json.dumps({"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Hello back"}],"api":"anthropic-messages","provider":"opencode-go","model":"x","usage":{"input":10,"output":5,"cacheRead":0,"cacheWrite":0,"totalTokens":15,"cost":{"input":0.001,"output":0.002,"cacheRead":0,"cacheWrite":0,"total":0.003}},"stopReason":"stop","timestamp":2}}))
@@ -75,7 +121,7 @@ async def test_pi_adapter_lookup_works(fake_pi: Path) -> None:
     """The pi adapter from cli_adapter.py has the same name + timeout."""
     a = get_adapter("pi")
     assert a.name == "pi"
-    assert a.default_timeout_s == 60
+    assert a.default_timeout_s == 3600
     cmd = a.build_command(
         model="minimax-m3",
         user_text="hi",

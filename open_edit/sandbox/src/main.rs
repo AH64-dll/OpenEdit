@@ -7,6 +7,7 @@ use std::process::{ExitCode, Stdio};
 
 mod jail;
 mod network_denylist;
+mod nproc;
 
 #[derive(Parser, Debug)]
 #[command(name = "open-edit-sandbox", about = "Free-form Python sandbox")]
@@ -181,6 +182,13 @@ fn build_bwrap_args(cli: &Cli) -> Vec<String> {
     args.push("--setenv".into()); args.push("HOME".into()); args.push("/tmp".into());
     args.push("--setenv".into()); args.push("XDG_CACHE_HOME".into()); args.push("/tmp/cache".into());
 
+    // Make the Python venv (and its site-packages, e.g. pydantic) reachable.
+    // The host venv lives under /home, which we mount as an empty tmpfs below,
+    // so we recreate its ancestor dirs as empty and ro-bind ONLY the venv
+    // itself. This lets `<venv>/bin/python` (a symlink to /usr/bin/python3,
+    // already bound) resolve without exposing the rest of /home.
+    add_venv_binds(&mut args, &cli.python_bin);
+
     args.push("--new-session".into());
 
     // The Python invocation: version check, then exec _bootstrap.py then code.py.
@@ -194,4 +202,40 @@ fn build_bwrap_args(cli: &Cli) -> Vec<String> {
     args.push("-c".into());
     args.push(py_check);
     args
+}
+
+/// Recreate the venv directory inside the namespace so the interpreter and its
+/// site-packages are resolvable, without exposing the rest of `/home`.
+///
+/// `python_bin` is typically `<venv>/bin/python`. We ro-bind `<venv>` at its
+/// real path and materialize its (otherwise-empty) ancestor directories so the
+/// symlink `<venv>/bin/python -> /usr/bin/python3` resolves to the already
+/// bound system interpreter. System interpreters under `/usr` need no action.
+fn add_venv_binds(args: &mut Vec<String>, python_bin: &str) {
+    let pb = std::path::Path::new(python_bin);
+    let Some(bin_dir) = pb.parent() else { return; };
+    let Some(venv) = bin_dir.parent() else { return; };
+    if !venv.starts_with("/home") {
+        return;
+    }
+    // Collect ancestor directories between /home (exclusive) and the venv
+    // (exclusive), shallowest first, and materialize them as empty dirs.
+    let mut parts: Vec<&std::path::Path> = Vec::new();
+    let mut cur = venv.parent();
+    while let Some(p) = cur {
+        if p == std::path::Path::new("/home") {
+            break;
+        }
+        parts.push(p);
+        cur = p.parent();
+    }
+    parts.reverse();
+    for d in parts {
+        args.push("--dir".into());
+        args.push(d.to_string_lossy().into_owned());
+    }
+    let venv_s = venv.to_string_lossy().into_owned();
+    args.push("--ro-bind".into());
+    args.push(venv_s.clone());
+    args.push(venv_s);
 }

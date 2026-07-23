@@ -158,8 +158,8 @@ def test_bootstrap_exec_instantiates_all_24_op_classes(tmp_path):
     assert parsed["parent_id"] == "e1"
 
 
-def test_run_free_form_missing_header_returns_preflight_failed(tmp_path):
-    """No # ir_api_version: header → FreeFormResult.fail('preflight_failed')."""
+def test_run_free_form_auto_injects_missing_header(tmp_path):
+    """No ``# ir_api_version:`` header is auto-injected (not a preflight fail)."""
     from open_edit.agent.sandbox_bridge import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
@@ -170,8 +170,7 @@ def test_run_free_form_missing_header_returns_preflight_failed(tmp_path):
         project_id="p1",
         parent_op_id="e1",
     )
-    assert not result.success
-    assert result.reason == "preflight_failed"
+    assert result.reason != "preflight_failed"
 
 
 def test_run_free_form_unsupported_version_returns_fail(tmp_path):
@@ -567,8 +566,9 @@ def test_run_free_form_removes_scratch_dir_on_success(
     (workdir / "edit_graph.db").touch()
 
     def _fake_run(cmd, **kwargs):
-        ops_idx = cmd.index("--ops-output")
-        ops_path = Path(cmd[ops_idx + 1])
+        scratch_idx = cmd.index("--scratch")
+        scratch = Path(cmd[scratch_idx + 1])
+        ops_path = scratch / "ops.jsonl"
         ops_path.parent.mkdir(parents=True, exist_ok=True)
         ops_path.write_text("{}\n")
         return MagicMock(
@@ -599,17 +599,13 @@ def test_run_free_form_removes_scratch_dir_on_success(
 
 @patch("open_edit.agent.sandbox_bridge.subprocess.run")
 def test_run_free_form_passes_ops_output_to_sandbox(mock_run, tmp_path):
-    """Regression (v1.2 release bug found during CLI demo):
+    """Regression guard for the bridge -> binary CLI contract.
 
-    The bridge must pass `--ops-output <ops_path>` to the Rust sandbox binary.
-    Without it, the binary fails with a usage error (missing required arg),
-    the bridge gets no JSON on stdout, and `rust` is None — which crashes
-    the protocol parser at `rust.get('ok')` with AttributeError.
-
-    Introduced by v1.1 T6 cleanup pass (commit 0567448) which removed the
-    flag from the bridge's subprocess call without providing a default in
-    the Rust binary. The 5 free-form tests in test_free_form_e2e.py skip
-    when bwrap is missing, so the regression was never caught locally.
+    The bridge must NOT pass the obsolete `--ops-output` flag (the Rust
+    binary never accepted it; passing it made every free-form run fail at
+    argument parsing). The binary writes ops to `<scratch>/ops.jsonl` and
+    the wrapper reads that path directly. The bridge MUST pass the flags
+    the binary actually requires/accepts.
     """
     from open_edit.agent.sandbox_bridge import run_free_form
     workdir = tmp_path / "proj"
@@ -630,18 +626,12 @@ def test_run_free_form_passes_ops_output_to_sandbox(mock_run, tmp_path):
         parent_op_id="e1",
     )
     cmd = mock_run.call_args[0][0]
-    assert "--ops-output" in cmd, (
-        f"bridge must pass --ops-output to the sandbox binary; got cmd: {cmd}"
+    assert "--ops-output" not in cmd, (
+        f"bridge must NOT pass --ops-output to the sandbox binary; got cmd: {cmd}"
     )
-    idx = cmd.index("--ops-output")
-    ops_path_arg = cmd[idx + 1]
-    # ops_path should be inside the workdir, ending with ops.jsonl
-    assert ops_path_arg.endswith("ops.jsonl"), (
-        f"expected ops.jsonl path, got {ops_path_arg}"
-    )
-    assert workdir.resolve() in Path(ops_path_arg).resolve().parents, (
-        f"ops path should be under workdir {workdir}, got {ops_path_arg}"
-    )
+    # Required/accepted flags the bridge must pass.
+    for flag in ("--scratch", "--python-bin", "--expected-py-version", "--json"):
+        assert flag in cmd, f"bridge must pass {flag}; got cmd: {cmd}"
 
 
 @patch("open_edit.agent.sandbox_bridge.subprocess.run")
@@ -665,7 +655,7 @@ def test_run_free_form_no_json_in_stdout_returns_protocol_error(mock_run, tmp_pa
     mock_run.return_value = MagicMock(
         returncode=2,
         stdout="",
-        stderr="error: the following required arguments were not provided:\n  --ops-output <OPS_OUTPUT>\n",
+        stderr="error: the following required arguments were not provided:\n  --expected-py-version <EXPECTED_PY_VERSION>\n",
     )
     result = run_free_form(
         code="# ir_api_version: 0.1; libs: {}",

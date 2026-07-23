@@ -9,6 +9,8 @@ The Bug A fix lives in `_apply_add_transition`:
 """
 from __future__ import annotations
 
+import contextlib
+
 from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,
@@ -803,3 +805,34 @@ def derive_timeline(project: Project) -> Timeline:
             max_end = end
     timeline.duration_sec = max_end
     return timeline
+
+
+def derive_or_load_timeline(project: Project, store=None) -> Timeline:
+    """Return the Timeline for ``project``, using a cached snapshot when the
+    edit graph's canonical hash matches a stored snapshot.
+
+    If ``store`` (an EditGraphStore) is provided and a snapshot exists for the
+    current ``compute_edit_graph_hash(project.edit_graph)``, deserialize and
+    return it. Otherwise derive via ``derive_timeline``, and if ``store`` is
+    given, persist the snapshot keyed by that hash. If ``store`` is None,
+    always derive. Any storage error degrades gracefully to a fresh derive.
+    """
+    from open_edit.ir.hash import compute_edit_graph_hash
+
+    h = compute_edit_graph_hash(project.edit_graph)
+
+    if store is not None:
+        try:
+            snap = store.load_timeline_snapshot(h)
+            if snap is not None:
+                return Timeline.model_validate_json(snap)
+        except Exception:
+            pass
+
+    tl = derive_timeline(project)
+
+    if store is not None:
+        with contextlib.suppress(Exception):
+            store.save_timeline_snapshot(h, project.project_id, tl.model_dump_json())
+
+    return tl

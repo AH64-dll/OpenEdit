@@ -29,12 +29,14 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
+from . import cli_adapter as cli_adapter_mod
 from . import projects as projects_mod
 from . import visual_verify
 from .llm import _coerce_event, effective_provider, stream_chat
 from .pi_bridge import _probe_duration
 from .project_meta import is_verify_disabled
 from .providers import resolve_provider
+from .result_capper import cap_tool_result
 from .serve_env import get_visual_verify_config
 from .tool_schemas import (
     IR_MODEL_SUMMARY,
@@ -88,6 +90,9 @@ MAX_AGENT_ITERATIONS = int(os.environ.get("OPEN_EDIT_AGENT_MAX_ITERATIONS", "10"
 # Conversation persistence
 # ---------------------------------------------------------------------------
 
+_append_counters: dict[str, int] = {}
+_COMPACTION_INTERVAL = 50
+
 def _conversations_dir(project_path: Path) -> Path:
     d = project_path / ".open_edit" / "conversations"
     d.mkdir(parents=True, exist_ok=True)
@@ -122,6 +127,38 @@ def append_to_conversation(project_id: str, conv_id: str, message: dict[str, Any
     f = _conversations_dir(path) / f"{conv_id}.jsonl"
     with f.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(message, sort_keys=True, default=str) + "\n")
+
+    key = f"{project_id}:{conv_id}"
+    count = _append_counters.get(key, 0) + 1
+    _append_counters[key] = count
+    if count % _COMPACTION_INTERVAL == 0:
+        _compact_jsonl(f)
+
+
+def _compact_jsonl(path: Path) -> None:
+    from .context_budget import compact_history as _compact_history
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if not lines:
+            return
+        messages = []
+        for line in lines:
+            line = line.strip()
+            if line:
+                try:
+                    messages.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+        if not messages:
+            return
+        compacted = _compact_history(messages)
+        tmp = path.with_suffix(".jsonl.tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            for msg in compacted:
+                fh.write(json.dumps(msg, sort_keys=True, default=str) + "\n")
+        tmp.replace(path)
+    except OSError:
+        pass
 
 
 def new_conversation_id() -> str:
@@ -234,19 +271,68 @@ the turn after repeated identical failures.
 """
 
 
-def _build_system_prompt(state: projects_mod.ProjectState) -> str:
+_TEXT_ONLY_PREAMBLE = """\
+You are the Open Edit assistant — an AI helper for the Open Edit video editor.
+You operate on ONE project at a time. The user's intent is to make edits or ask questions about their project's media.
+
+Answer the user's questions clearly, concisely, and directly. Provide advice on video editing, timeline structure, asset usage, and creative decisions.
+Do NOT attempt to invoke function calls or JSON tool schemas.
+"""
+
+
+def _build_state_summary(state: projects_mod.ProjectState) -> str:
+    """Return a brief summary of the project state (under 1KB)."""
+    name = getattr(state, "name", "untitled")
+    assets = getattr(state, "assets", []) or []
+    timeline = getattr(state, "timeline", None)
+    num_tracks = timeline.num_tracks if timeline and hasattr(timeline, "num_tracks") else 0
+    notes = getattr(state, "notes", []) or []
+    lines = [
+        f"Project: {name}",
+        f"Asset count: {len(assets)}",
+        f"Track count: {num_tracks}",
+        f"Pending notes: {len(notes)}",
+    ]
+    if notes:
+        last = notes[-1]
+        if isinstance(last, dict):
+            lines.append(f"Last pending note: {last.get('text', '')[:80]}")
+        else:
+            lines.append(f"Last pending note: {str(last)[:80]}")
+    return "\n".join(lines)
+
+
+def _build_system_prompt(state: projects_mod.ProjectState, supports_tools: bool = True, state_summary_only: bool = False) -> str:
     """Build the system prompt.
 
     Deterministic: the same ``state`` always produces the same prompt,
     so prompt caching works.
     """
-    # Project state as sorted/indented JSON — deterministic.
-    state_json = json.dumps(
-        state.model_dump(),
-        sort_keys=True,
-        indent=2,
-        default=str,
-    )
+    if state_summary_only:
+        state_json = _build_state_summary(state)
+    else:
+        # Project state as sorted/indented JSON — deterministic.
+        state_json = json.dumps(
+            state.model_dump(),
+            sort_keys=True,
+            indent=2,
+            default=str,
+        )
+
+        max_state_chars = int(os.environ.get("OPEN_EDIT_CONTEXT_MAX_STATE_CHARS", "10000"))
+        if len(state_json) > max_state_chars:
+            state_json = state_json[:max_state_chars] + "\n... [state truncated]"
+
+    state_block = "## Project state\n```\n" + state_json + "\n```"
+    if not state_summary_only:
+        state_block = "## Project state\n```json\n" + state_json + "\n```"
+
+    if not supports_tools:
+        return "\n\n".join([
+            _TEXT_ONLY_PREAMBLE,
+            state_block,
+            IR_MODEL_SUMMARY,
+        ])
 
     # Tool name + description summary (full schemas are passed via `tools`).
     tool_lines = []
@@ -256,7 +342,7 @@ def _build_system_prompt(state: projects_mod.ProjectState) -> str:
 
     return "\n\n".join([
         _SYSTEM_PREAMBLE,
-        "## Project state\n```json\n" + state_json + "\n```",
+        state_block,
         IR_MODEL_SUMMARY,
         "## Available tools\n" + tool_summary,
         TOOL_USAGE_GUIDE,
@@ -291,16 +377,19 @@ def _resolve_project_path(project_id: str) -> Path | None:
     return projects_mod._resolve_project_by_id(project_id)
 
 
-async def _execute_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+async def _execute_tool(
+    name: str, args: dict[str, Any], project_path: Path,
+    command_id: str | None = None,
+) -> dict[str, Any]:
     """Dispatch a tool call. ``trigger_render`` is server-side; the rest
     live in ``open_edit.agent.tools``.
     """
     if name == "trigger_render":
-        res = _execute_trigger_render(args, project_path)
+        res = _execute_trigger_render(args, project_path, command_id=command_id)
         if inspect.isawaitable(res):
             return await res
         return res
-    res = _execute_agent_tool(name, args, project_path)
+    res = _execute_agent_tool(name, args, project_path, command_id=command_id)
     if inspect.isawaitable(res):
         return await res
     return res
@@ -545,11 +634,17 @@ def _build_tool_result_message(
     When the result carries verification frames, the content is a list
     of content blocks (text summary + image blocks) so the LLM can
     actually see the frames.
+
+    The text summary uses ``_strip_verification_frames`` to remove
+    embedded base64 data — frame data is already in the separate
+    ``type: "image"`` blocks.
     """
+    from .visual_verify import _strip_verification_frames
+
     verification = result.get("verification") or {}
     frames = verification.get("frames") or []
     if frames:
-        text_summary = json.dumps(result, default=str)
+        text_summary = json.dumps(_strip_verification_frames(result), default=str)
         blocks: list[dict[str, Any]] = [{"type": "text", "text": text_summary}]
         for frame in frames:
             blocks.append({
@@ -577,17 +672,41 @@ def _make_slim_history(
     pending: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     """Build the slim LLM-facing view of ``history``."""
+    from .context_budget import ContextBudget, compact_history
+
+    budget = ContextBudget()
+
+    slimmed = compact_history(list(history))
+
     if pending is None:
-        return visual_verify.prune_images(list(history))
-    return visual_verify.prune_images(
-        list(history),
-        last_verdict=(
-            pending["render_id"],
-            pending.get("verdict", "unknown"),
-            pending.get("supports_images", False),
-            pending.get("notes", ""),
-        ),
-    )
+        slimmed = visual_verify.prune_images(slimmed)
+    else:
+        slimmed = visual_verify.prune_images(
+            slimmed,
+            last_verdict=(
+                pending["render_id"],
+                pending.get("verdict", "unknown"),
+                pending.get("supports_images", False),
+                pending.get("notes", ""),
+            ),
+        )
+
+    slimmed = budget.truncate(slimmed)
+
+    for msg in slimmed:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    inner = block.get("content")
+                    if isinstance(inner, str) and len(inner) > 2000:
+                        try:
+                            parsed = json.loads(inner)
+                            block["content"] = json.dumps(budget.summarize_tool_result(parsed), default=str)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+    return slimmed
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +742,7 @@ async def _run_cli_owned_turn(
     tool_use_blocks: list[dict[str, Any]] = []
     forwarded_results: dict[str, dict[str, Any]] = {}  # tool_use_id -> result
     unmatched_result_queue: list[dict[str, Any]] = []  # results without ids (FIFO)
+    _assistant_saved = False
     stop_reason = "end_turn"
 
     try:
@@ -669,6 +789,7 @@ async def _run_cli_owned_turn(
                     "id": tu_id,
                     "name": event.get("name", ""),
                     "result": result,
+                    "is_error": bool(event.get("is_error")),
                 }
                 # A render result carries output_path — surface it so the
                 # UI refreshes the renders list.
@@ -678,6 +799,33 @@ async def _run_cli_owned_turn(
                         "path": result["output_path"],
                         "mode": result.get("mode", "proxy"),
                     }
+                # Save partial progress after each tool_result so
+                # mid-turn crashes don't lose accumulated state.
+                if conv_id and tu_id:
+                    if not _assistant_saved:
+                        _assistant_saved = True
+                        ac: list[dict[str, Any]] = []
+                        if current_text_parts:
+                            ac.append({
+                                "type": "text",
+                                "text": "".join(current_text_parts),
+                            })
+                        ac.extend(tool_use_blocks)
+                        append_to_conversation(
+                            project_id, conv_id,
+                            {"role": "assistant", "content": ac},
+                        )
+                    append_to_conversation(
+                        project_id, conv_id,
+                        {
+                            "role": "user",
+                            "content": [{
+                                "type": "tool_result",
+                                "tool_use_id": tu_id,
+                                "content": json.dumps(result, default=str),
+                            }],
+                        },
+                    )
             elif etype == "usage":
                 try:
                     cost_ctx["turn_tokens"] += int(event.get("tokens", 0) or 0)
@@ -715,7 +863,7 @@ async def _run_cli_owned_turn(
     if assistant_content:
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": assistant_content}
         conversation_history.append(assistant_msg)
-        if conv_id:
+        if conv_id and not _assistant_saved:
             append_to_conversation(project_id, conv_id, assistant_msg)
 
     if tool_use_blocks:
@@ -733,7 +881,7 @@ async def _run_cli_owned_turn(
             })
         results_msg: dict[str, Any] = {"role": "user", "content": result_blocks}
         conversation_history.append(results_msg)
-        if conv_id:
+        if conv_id and not _assistant_saved:
             append_to_conversation(project_id, conv_id, results_msg)
 
     yield {"type": "done", "stop_reason": stop_reason}
@@ -798,7 +946,14 @@ async def run_agent_turn(
         yield {"type": "done", "stop_reason": "error"}
         return
 
-    system_prompt = _build_system_prompt(state)
+    provider_name = effective_provider(str(project_path))
+    try:
+        adapter = cli_adapter_mod.get_adapter(provider_name)
+        supports_tools = adapter.supports_tools()
+    except KeyError:
+        supports_tools = True
+
+    system_prompt = _build_system_prompt(state, supports_tools=supports_tools)
 
     # Append the user message to history
     user_msg: dict[str, Any] = {"role": "user", "content": user_message}
@@ -853,7 +1008,7 @@ async def run_agent_turn(
     # ended every pi turn with a spurious "no user message found" error).
     # Divert to the single-stream implementation and return.
     try:
-        provider_spec = resolve_provider(effective_provider(str(project_path)))
+        provider_spec = resolve_provider(provider_name)
     except KeyError:
         provider_spec = None
     if provider_spec is not None and provider_spec.owns_agent_loop:
@@ -1099,11 +1254,12 @@ async def run_agent_turn(
 
             yield {"type": "tool_start", "id": tu["id"], "name": tool_name, "input": tool_input}
             try:
-                res = _execute_tool(tool_name, tool_input, project_path)
+                res = _execute_tool(tool_name, tool_input, project_path, command_id=tu["id"])
                 if inspect.isawaitable(res):
                     result = await res
                 else:
                     result = res
+                result = cap_tool_result(result)
                 # A tool-level error payload (status: error) counts as a
                 # failure for the circuit breaker even though the call
                 # didn't raise.
@@ -1134,6 +1290,16 @@ async def run_agent_turn(
                         "with the same arguments; change your approach or "
                         "explain the blocker to the user]"
                     )
+                # Complete the tool card with the error (a bare ``error``
+                # event left the card's spinner running forever) and echo
+                # it to the chat log for visibility.
+                yield {
+                    "type": "tool_result",
+                    "id": tu["id"],
+                    "name": tool_name,
+                    "result": {"error": err_msg},
+                    "is_error": True,
+                }
                 yield {"type": "error", "message": err_msg}
                 tool_result_messages.append({
                     "role": "user",
@@ -1175,11 +1341,12 @@ async def run_agent_turn(
                 tool_input["project_id"] = project_id
             yield {"type": "tool_start", "id": tu["id"], "name": tool_name, "input": tool_input}
             try:
-                res = _execute_tool(tool_name, tool_input, project_path)
+                res = _execute_tool(tool_name, tool_input, project_path, command_id=tu["id"])
                 if inspect.isawaitable(res):
                     result = await res
                 else:
                     result = res
+                result = cap_tool_result(result)
                 yield {"type": "tool_result", "id": tu["id"], "name": tool_name, "result": result}
                 if isinstance(result, dict):
                     output_path = result.get("output_path", "")
@@ -1253,6 +1420,13 @@ async def run_agent_turn(
                         "with the same arguments; change your approach or "
                         "explain the blocker to the user]"
                     )
+                yield {
+                    "type": "tool_result",
+                    "id": tu["id"],
+                    "name": tool_name,
+                    "result": {"error": err_msg},
+                    "is_error": True,
+                }
                 yield {"type": "error", "message": err_msg}
                 tool_result_messages.append({
                     "role": "user",
@@ -1271,7 +1445,10 @@ async def run_agent_turn(
             if conv_id:
                 append_to_conversation(project_id, conv_id, trm)
 
-        # Loop back: LLM will be called again with the tool results.
+        # Re-read state after tool mutations so the next LLM call sees
+        # up-to-date project state (without duplicating JSON in tool results).
+        state = await projects_mod.get_project_state(project_id)
+        system_prompt = _build_system_prompt(state, supports_tools=supports_tools, state_summary_only=True)
 
     # Hit the iteration cap — surface a soft error and stop.
     # Also emit the cost_update so the user sees how much this

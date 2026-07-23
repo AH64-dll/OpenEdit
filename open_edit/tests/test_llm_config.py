@@ -55,11 +55,11 @@ def test_load_llm_config_validates_provider_enum(
     cfg_dir = tmp_path / ".open_edit"
     cfg_dir.mkdir()
     (cfg_dir / "config.toml").write_text(
-        '[llm]\nprovider = "antigravity"\nmodel = "x"\n'
+        '[llm]\nprovider = "nonexistent_provider"\nmodel = "x"\n'
     )
     monkeypatch.delenv("OPEN_EDIT_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("OPEN_EDIT_LLM_MODEL", raising=False)
-    with pytest.raises(LLMConfigError, match="antigravity"):
+    with pytest.raises(LLMConfigError, match="nonexistent_provider"):
         load_llm_config(tmp_path)
 
 

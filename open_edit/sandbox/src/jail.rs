@@ -28,12 +28,15 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        // nproc default raised from 64 to 1024: in real Linux desktop
-        // environments a single user routinely has 100+ processes, and
-        // 64 caused "Creating new namespace failed: Resource temporarily
-        // unavailable" before bwrap could even start. 1024 still prevents
-        // trivial fork bombs while leaving headroom for normal use.
-        Self { mem_mb: 2048, cpu_secs: 30, nofile: 256, nproc: 1024 }
+        // NPROC is NOT a fixed cap. A hard-coded ceiling (e.g. 1024) fails
+        // with EAGAIN on hosts where the current user already runs at least
+        // that many processes, which makes bwrap's namespace-creation fork
+        // fail ("Creating new namespace failed: Resource temporarily
+        // unavailable") — the bug that left the sandbox dead. We use the
+        // current UID process count plus headroom instead, bounding a fork
+        // bomb without ever dropping below the host's existing count.
+        // See crate::nproc.
+        Self { mem_mb: 2048, cpu_secs: 30, nofile: 256, nproc: crate::nproc::relative_nproc_limit() }
     }
 }
 

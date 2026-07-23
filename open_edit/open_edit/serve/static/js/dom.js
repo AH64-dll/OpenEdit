@@ -68,9 +68,18 @@ export function showModal(id) {
 export function hideModal(id) {
   const node = $('#' + id);
   if (node) node.classList.add('hidden');
+  stopModalMedia(id);
 }
 export function hideAllModals() {
-  $$('.modal').forEach(m => m.classList.add('hidden'));
+  $$('.modal').forEach(m => { m.classList.add('hidden'); stopModalMedia(m.id); });
+}
+export function stopModalMedia(id) {
+  if (id) {
+    const video = $(`#${id} video`);
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+    return;
+  }
+  $$('.modal video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); });
 }
 
 export function truncate(s, n) {

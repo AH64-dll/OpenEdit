@@ -29,12 +29,78 @@ the WS task for the full ``RENDER_TIMEOUT_S`` window.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Any
 
+from open_edit.agent.tools._helpers import _db_path
+from open_edit.ir.hash import compute_edit_graph_hash
+from open_edit.storage.edit_graph import EditGraphStore
+
 from .pi_bridge import _probe_duration
+from .schema_validator import validate_or_error
 from .serve_env import RENDER_TIMEOUT_S
+
+
+def _payload_hash(args: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(args, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+def _is_error_result(result: Any) -> bool:
+    return isinstance(result, dict) and (
+        result.get("status") == "error" or bool(result.get("error"))
+    )
+
+
+def _record_done_command(
+    store: EditGraphStore | None, project_path: Path, command_id: str,
+    name: str, args: dict[str, Any], result: Any,
+) -> None:
+    """Best-effort idempotency bookkeeping. Never raises. Only records a
+    ``done`` command for a normal (non-error) result."""
+    if _is_error_result(result):
+        return
+    try:
+        if store is None:
+            store = EditGraphStore(_db_path(project_path))
+        store.record_command(
+            command_id, store.project_id, name,
+            status="pending", payload_hash=_payload_hash(args),
+        )
+        store.finish_command(
+            command_id, status="done",
+            result_json=json.dumps(result, default=str),
+        )
+        try:
+            store.set_edit_graph_hash(compute_edit_graph_hash(store.load_all()))
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _cached_done_result(
+    project_path: Path, command_id: str,
+) -> tuple[EditGraphStore | None, Any, bool]:
+    """Return ``(store, cached_result, hit)``. ``hit`` is True only for a
+    previously SUCCESSFUL (``done``) command with a stored result."""
+    try:
+        store = EditGraphStore(_db_path(project_path))
+    except Exception:
+        return None, None, False
+    try:
+        if store.command_exists(command_id):
+            if (store.get_command_status(command_id) or "") == "done":
+                cached = store.get_command_result(command_id)
+                if cached is not None:
+                    return store, json.loads(cached), True
+    except Exception:
+        return None, None, False
+    return store, None, False
 
 
 class ToolNotFound(LookupError):  # noqa: N818
@@ -42,13 +108,51 @@ class ToolNotFound(LookupError):  # noqa: N818
     registered in ``open_edit.agent.tools``."""
 
 
-def execute_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+def execute_tool(
+    name: str, args: dict[str, Any], project_path: Path,
+    command_id: str | None = None,
+) -> dict[str, Any]:
     """Run a tool from ``open_edit.agent.tools.<name>``.
 
     The tool signature is ``fn(args: dict, project_path: str) -> dict``.
     Raises :class:`ToolNotFound` if the tool module/function is missing
     or not callable.
+
+    When ``command_id`` is given, a re-delivered call that previously
+    succeeded is short-circuited to its cached result (idempotency).
     """
+    store: EditGraphStore | None = None
+    if command_id is not None:
+        store, cached, hit = _cached_done_result(project_path, command_id)
+        if hit:
+            return cached
+
+    result = _run_tool(name, args, project_path)
+
+    if command_id is not None:
+        _record_done_command(store, project_path, command_id, name, args, result)
+    return result
+
+
+def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    err = validate_or_error(name, args)
+    if err is not None:
+        return err
+
+    # Pillar tool routing (Plan D).
+    if name == "query_project":
+        from .pillar_tools import dispatch_query
+
+        return dispatch_query(args.get("query", ""), args.get("params", {}), project_path)
+
+    if name == "edit_project":
+        from .pillar_tools import dispatch_edit, dispatch_generate
+
+        generate = args.get("generate")
+        if generate:
+            return dispatch_generate(generate, args.get("generate_params", {}), project_path)
+        return dispatch_edit(args.get("operation", ""), args.get("params", {}), project_path)
+
     import open_edit.agent.tools as tools_mod  # type: ignore
 
     fn = getattr(tools_mod, name, None)
@@ -58,7 +162,9 @@ def execute_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[st
     return fn(args, str(project_path))
 
 
-async def execute_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+async def execute_trigger_render(
+    args: dict[str, Any], project_path: Path, command_id: str | None = None,
+) -> dict[str, Any]:
     """Server-side virtual tool: shell out to ``open_edit render``.
 
     v1.6: ``mode=="overlay"`` is the composited HTML-overlay path. We
@@ -76,6 +182,24 @@ async def execute_trigger_render(args: dict[str, Any], project_path: Path) -> di
     ``await`` it. Cancellation propagates via ``asyncio.CancelledError``
     and the subprocess is killed before re-raising.
     """
+    store: EditGraphStore | None = None
+    if command_id is not None:
+        store, cached, hit = _cached_done_result(project_path, command_id)
+        if hit:
+            return cached
+
+    result = await _run_trigger_render(args, project_path)
+
+    if command_id is not None:
+        _record_done_command(store, project_path, command_id, "trigger_render", args, result)
+    return result
+
+
+async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    err = validate_or_error("trigger_render", args)
+    if err is not None:
+        return err
+
     mode = (args.get("mode") or "proxy").lower()
     if mode == "overlay":
         from .pi_bridge import _run_trigger_render as _bridge_trigger_render
@@ -96,6 +220,7 @@ async def execute_trigger_render(args: dict[str, Any], project_path: Path) -> di
             cwd=str(project_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=16 * 1024 * 1024,
         )
     except FileNotFoundError as exc:
         raise RuntimeError("`open_edit` CLI not found on PATH.") from exc

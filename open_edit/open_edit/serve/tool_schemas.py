@@ -2,18 +2,16 @@
 
 These schemas are NOT auto-generated. Each one is a hand-tuned JSON Schema
 matching the actual ``args: dict`` shape that the corresponding function in
-``open_edit/agent/tools/`` expects. Keep them in sync with the tool
+``open_edit.agent.tools`` expects. Keep them in sync with the tool
 docstrings when the underlying tools change.
 
-The 13 tools below mirror ``open_edit/agent/tools/`` 1:1. A 14th virtual
-tool ``trigger_render`` is included: it is **server-side only** (not in
-``open_edit.agent.tools``) and is handled specially by the agent loop to
-shell out to ``open_edit render``.
+The 14 individual tools from v1.x have been consolidated into **4 pillar
+tools** (Plan D, pillar-tool-consolidation):
 
-v1.4 P1-1 added ``search_assets`` and ``import_asset``. Wave 1.2 added
-``list_assets`` (13 real + 1 virtual = 14 in total). The pi TS extension
-auto-discovers new entries from this list, so no extension changes are
-needed when tools are added.
+- ``query_project`` — 5 read-only queries
+- ``edit_project`` — all mutations + creative generation
+- ``run_script`` — sandboxed Python (renamed from ``run_python``)
+- ``trigger_render`` — server-side render (unchanged)
 
 Each schema follows the Anthropic tools shape::
 
@@ -27,433 +25,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from open_edit.serve import tool_registry
+from open_edit.serve.tool_registry import (
+    TOOL_REGISTRY,
+    build_tool_schemas,
+    validate_tool_args,
+)
+
 # ---------------------------------------------------------------------------
-# Tool schemas
+# Pillar tool schemas (generated from the Pydantic registry)
 # ---------------------------------------------------------------------------
 
-TOOL_SCHEMAS: list[dict[str, Any]] = [
-    # 1 -----------------------------------------------------------------
-    {
-        "name": "add_marker",
-        "description": (
-            "Append a ReviewNote (a marker) at a specific timestamp on the "
-            "timeline. Use this to flag something for the user to review — "
-            "e.g. a silence cut suggestion, a beat where the music should "
-            "drop, or a moment that needs B-roll. The note is created with "
-            "source='agent' so the UI can distinguish agent notes from "
-            "user notes."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "t_start": {
-                    "type": "number",
-                    "description": "Position on the timeline in seconds (float).",
-                },
-                "t_end": {
-                    "type": "number",
-                    "description": "Optional end timestamp in seconds; defaults to t_start.",
-                },
-                "text": {
-                    "type": "string",
-                    "description": "The review note text. Be specific and actionable.",
-                },
-            },
-            "required": ["t_start", "text"],
-        },
-    },
-    # 2 -----------------------------------------------------------------
-    {
-        "name": "analyze_narrative",
-        "description": (
-            "Analyse the narrative structure of an asset (or the whole "
-            "timeline if no asset_hash is given). Returns a list of "
-            "segments with start/end timestamps, a label, and a one-line "
-            "summary. Use this BEFORE proposing cuts, music, SFX, or "
-            "motion graphics — every other creative tool benefits from "
-            "knowing the narrative arc."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "asset_hash": {
-                    "type": "string",
-                    "description": "Hash of the asset to analyse. Omit to analyse the whole timeline.",
-                },
-                "granularity": {
-                    "type": "string",
-                    "enum": ["coarse", "medium", "fine"],
-                    "description": "How granular the segments should be. Default 'medium'.",
-                },
-            },
-        },
-    },
-    # 3 -----------------------------------------------------------------
-    {
-        "name": "generate_visual_for_segment",
-        "description": (
-            "Return an AddClipOp for a templated motion graphic matched to "
-            "a narrative segment (e.g. 'title card', 'lower-third', "
-            "'end-card'). The op is returned to the LLM — it is NOT "
-            "automatically inserted into the edit graph. The LLM should "
-            "review the op and then call run_python to commit it if it "
-            "looks right, or modify it first."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "segment_id": {
-                    "type": "string",
-                    "description": "The segment id returned by analyze_narrative.",
-                },
-                "template": {
-                    "type": "string",
-                    "description": "Template key, e.g. 'title_card', 'lower_third', 'end_card'.",
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Text to render in the graphic.",
-                },
-                "duration_s": {
-                    "type": "number",
-                    "description": "Optional duration. Defaults to the segment length.",
-                },
-            },
-            "required": ["segment_id", "template"],
-        },
-    },
-    # 4 -----------------------------------------------------------------
-    {
-        "name": "get_pending_notes",
-        "description": (
-            "List pending review notes. Returns the first 10 notes in full "
-            "plus a count of how many more are pending. Use this at the "
-            "start of a turn to see what the user (or a previous agent "
-            "turn) has flagged."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "offset": {
-                    "type": "integer",
-                    "description": "Skip this many notes. Default 0.",
-                    "default": 0,
-                },
-            },
-        },
-    },
-    # 5 -----------------------------------------------------------------
-    {
-        "name": "get_style_profile",
-        "description": (
-            "Return the slice of the project's pinned style profile that "
-            "applies to a given op type. Use this before generating ops "
-            "of that type so the new ops respect the project's established "
-            "look & feel (e.g. lower-third font, transition duration)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "op_type": {
-                    "type": "string",
-                    "description": "Op type key, e.g. 'AddClipOp', 'AddEffectOp'.",
-                },
-            },
-            "required": ["op_type"],
-        },
-    },
-    # 6 -----------------------------------------------------------------
-    {
-        "name": "place_sfx",
-        "description": (
-            "Return SFX AddEffectOps for an asset — e.g. whooshes on "
-            "transitions, impacts on cuts, ambient beds under quiet "
-            "segments. The ops are returned to the LLM for review; they "
-            "are NOT committed automatically."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "asset_hash": {
-                    "type": "string",
-                    "description": "Hash of the asset to place SFX on.",
-                },
-                "mood": {
-                    "type": "string",
-                    "description": "Optional mood hint, e.g. 'tense', 'playful', 'epic'.",
-                },
-            },
-            "required": ["asset_hash"],
-        },
-    },
-    # 7 -----------------------------------------------------------------
-    {
-        "name": "propose_silence_cuts",
-        "description": (
-            "Return silence-cut suggestions for an asset. Each suggestion "
-            "has a start/end timestamp and a confidence score. Use this "
-            "when the user asks to tighten pacing or remove dead air. The "
-            "suggestions are returned to the LLM — committing them is a "
-            "separate step (run_python)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "asset_hash": {
-                    "type": "string",
-                    "description": "Hash of the asset to analyse.",
-                },
-                "min_duration_s": {
-                    "type": "number",
-                    "description": "Minimum silence length to flag, in seconds. Default 0.5.",
-                    "default": 0.5,
-                },
-                "threshold_db": {
-                    "type": "number",
-                    "description": "Volume threshold in dBFS below which audio counts as silence. Default -40.",
-                    "default": -40,
-                },
-            },
-            "required": ["asset_hash"],
-        },
-    },
-    # 8 -----------------------------------------------------------------
-    {
-        "name": "run_python",
-        "description": (
-            "Run free-form Python in the bwrap+seccomp sandbox to commit "
-            "ops to the edit graph, query the DB, or compose multi-step "
-            "edits. Use this when no single dedicated tool fits — e.g. "
-            "'add a fade-out to the first clip' needs to fetch the first "
-            "clip op, build an AddEffectOp with type='fade_out', and "
-            "append it. Output (print/return value) is captured and "
-            "returned as the tool result. "
-            "MANDATORY HEADER: the code MUST begin with a header comment "
-            "of the form `# ir_api_version: 0.1; libs: {}` or the sandbox "
-            "rejects it at preflight. Declare third-party libs you import "
-            "(allowed: numpy 1.26.4|2.1.3, pillow 10.4.0|11.0.0, "
-            "opencv-python 4.8.1.78|4.10.0.84), e.g. "
-            "`# ir_api_version: 0.1; libs: {\"numpy\": \"2.1.3\"}`. "
-            "Inside the sandbox, `ir` (an open_edit.ir.api.IR instance) "
-            "and all op classes (AddClipOp, AddEffectOp, ...) are ALREADY "
-            "injected — do NOT `import open_edit` (it is unavailable). "
-            "Build ops with `ir.add_clip(...)`, `ir.add_effect(...)` etc.; "
-            "they are committed automatically on success. Do NOT call "
-            "subprocess — the sandbox forbids it."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string",
-                    "description": (
-                        "Python source to execute. Must be self-contained "
-                        "and MUST start with the header comment "
-                        "`# ir_api_version: 0.1; libs: {...}`."
-                    ),
-                },
-                "timeout_s": {
-                    "type": "integer",
-                    "description": "Timeout in seconds. Default 30.",
-                    "default": 30,
-                },
-            },
-            "required": ["code"],
-        },
-    },
-    # 9 -----------------------------------------------------------------
-    {
-        "name": "select_music",
-        "description": (
-            "Return music-bed AddEffectOps for an asset. Picks a track "
-            "from the music library based on the asset's mood/pace (as "
-            "inferred from the narrative analysis) and the project's "
-            "style profile. Ops are returned for review; not committed "
-            "automatically."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "asset_hash": {
-                    "type": "string",
-                    "description": "Hash of the asset to score.",
-                },
-                "mood": {
-                    "type": "string",
-                    "description": "Optional mood hint to override the inferred one.",
-                },
-                "bpm_target": {
-                    "type": "integer",
-                    "description": "Optional target BPM. Default: pick from style profile.",
-                },
-            },
-            "required": ["asset_hash"],
-        },
-    },
-    # 10 ----------------------------------------------------------------
-    {
-        "name": "set_pinned_value",
-        "description": (
-            "Pin a key=value pair in the project's global style profile. "
-            "Use this when the user expresses a stylistic preference that "
-            "should apply to future ops too — e.g. 'always use 12px lower "
-            "thirds' or 'transitions should be 0.3s cross-dissolves'. "
-            "Pinned values override inferred defaults."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "Dotted key path, e.g. 'lower_third.font_size' or 'transition.default_duration_s'.",
-                },
-                "value": {
-                    "description": "Any JSON value (string, number, bool, object, array).",
-                },
-            },
-            "required": ["key", "value"],
-        },
-    },
-    # 11 (virtual / server-side) ---------------------------------------
-    {
-        "name": "trigger_render",
-        "description": (
-            "Trigger a render of the current edit graph. Use this when "
-            "the user says 'render it', 'give me a preview', or 'export "
-            "the final cut'. Modes: 'proxy' (fast, low-res preview), "
-            "'final' (full quality), or 'overlay' (v1.6 HTML overlay "
-            "composited pipeline; requires at least one HtmlOverlay in "
-            "the timeline). Returns the output path when done. This is a "
-            "server-side tool — it is handled by the agent loop, not by "
-            "open_edit.agent.tools."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "mode": {
-                    "type": "string",
-                    "enum": ["proxy", "final", "overlay"],
-                    "description": "Render mode. 'overlay' triggers the v1.6 HTML overlay composited pipeline (requires at least one AddHtmlOverlayOp in the timeline). Default 'proxy'.",
-                    "default": "proxy",
-                },
-            },
-        },
-    },
-    # 12 (v1.4 P1-1) ---------------------------------------------------
-    {
-        "name": "search_assets",
-        "description": (
-            "Search the internet for stock media (video, photo, or audio) "
-            "to use in the project. Dispatches to Pexels (video/photo) or "
-            "Freesound (audio). Returns a normalised list of results with "
-            "id, source, kind, title, thumbnail_url, preview_url, "
-            "duration_seconds, license, and attribution_required — the UI "
-            "renders the thumbnails with the license badge and an 'Add to "
-            "project' button that fires import_asset. Cached in-memory for "
-            "5 minutes so an iterative search loop doesn't burn the Pexels "
-            "20k/month cap. If the relevant API key is missing, returns a "
-            "structured error (not a crash) — surface it to the user."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": (
-                        "Free-text search query, e.g. 'rain b-roll', "
-                        "'whoosh sound effect', 'sunset over mountains'."
-                    ),
-                },
-                "kind": {
-                    "type": "string",
-                    "enum": ["video", "photo", "audio"],
-                    "description": (
-                        "Which kind of media to search for. 'video' and "
-                        "'photo' go to Pexels; 'audio' goes to Freesound."
-                    ),
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": (
-                        "Max number of results to return. Default 8. "
-                        "Capped at 40 to keep responses tractable."
-                    ),
-                    "default": 8,
-                },
-            },
-            "required": ["query", "kind"],
-        },
-    },
-    # 13 (v1.4 P1-1) ---------------------------------------------------
-    {
-        "name": "import_asset",
-        "description": (
-            "Import a third-party media asset (returned by a prior "
-            "search_assets call, or a direct HTTPS URL) into the project's "
-            "content-addressed asset store. Downloads the file, ingests it "
-            "via AssetStore, and tags the resulting Asset with license + "
-            "attribution metadata so the credit line is visible later. "
-            "For a result_id, the license/attribution are pulled from the "
-            "search cache (so the LLM doesn't have to re-pass them); for "
-            "a bare source_url, supply license + attribution explicitly "
-            "or accept the 'Unknown' default. Requires HTTPS."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "result_id": {
-                    "type": "string",
-                    "description": (
-                        "ID of a result from a prior search_assets call. "
-                        "Preferred over source_url because the cached "
-                        "metadata (license, attribution) is reused."
-                    ),
-                },
-                "source_url": {
-                    "type": "string",
-                    "description": (
-                        "Direct HTTPS URL to the media file. Use this when "
-                        "you don't have a result_id (e.g. the user pasted "
-                        "a link). Must be HTTPS."
-                    ),
-                },
-                "license": {
-                    "type": "string",
-                    "description": (
-                        "Human-readable license string, e.g. 'Pexels "
-                        "License', 'CC BY 4.0', 'CC0 1.0'. Defaults to "
-                        "'Unknown' when neither this nor a cached result "
-                        "provides one."
-                    ),
-                },
-                "attribution": {
-                    "type": "string",
-                    "description": (
-                        "Credit line to display, e.g. \"'rain' by "
-                        "alice (CC BY 4.0)\" or 'Source: Pexels'. "
-                        "Defaults to empty when unknown."
-                    ),
-                },
-            },
-        },
-    },
-    # 14 (Wave 1.2) ----------------------------------------------------
-    {
-        "name": "list_assets",
-        "description": (
-            "List all ingested media assets in the project. "
-            "Returns each asset's hash, filename, duration, type "
-            "(video/audio/image), dimensions, fps, codec, and "
-            "whether it has an audio track. Call this whenever you "
-            "need to discover what media is available in the project."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    },
-]
+TOOL_SCHEMAS: list[dict[str, Any]] = build_tool_schemas()
 
 
 # Convenience lookup
@@ -470,55 +53,30 @@ def get_tool_schema(name: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 TOOL_USAGE_GUIDE = """\
-## When to use each tool
+# Tool usage guide
 
-- **Always start with context.** If the user's request is about the project
-  as a whole, call `list_assets` and `get_pending_notes` first. If it's
-  about a specific asset but you don't know its hash, call `list_assets`.
-- **For creative edits on a single asset**, call `analyze_narrative` first
-  to understand the asset's structure, then propose ops with the dedicated
-  tools (`place_sfx`, `select_music`, `generate_visual_for_segment`,
-  `propose_silence_cuts`).
-- **Dedicated tools return op drafts, not committed ops.** To actually
-  insert an op into the edit graph, call `run_python` with code that
-  builds and appends the op using the open_edit IR helpers.
-- **For one-off edits that don't fit a dedicated tool** (e.g. "add a
-  fade-out to the first clip"), call `run_python` directly. Compose the
-  op, append it to the graph, and print a short confirmation. The code
-  MUST start with `# ir_api_version: 0.1; libs: {}` and must NOT
-  `import open_edit` — an `ir` object and all op classes are pre-injected.
-  Example:
-  ```python
-  # ir_api_version: 0.1; libs: {}
-  clip_id = ir.add_clip(asset_hash="ab12...", track_id="video_main",
-                        position_sec=0.0, in_point_sec=0.0, out_point_sec=5.0)
-  print("added clip", clip_id)
-  ```
-- **If a tool returns `status: "error"` or raises, do NOT retry the same
-  call with the same arguments.** Read the error, change the approach
-  (different tool, different args), or explain the blocker to the user.
-  A circuit breaker aborts the turn after repeated identical failures.
-- **For style decisions the user states explicitly**, call
-  `set_pinned_value` so the preference sticks for future turns.
-- **Before generating ops of a given type**, call `get_style_profile` to
-  respect the project's pinned style.
-- **To render**, call `trigger_render` with `mode: "proxy"` (default) or
-  `mode: "final"`. Do NOT try to call `open_edit render` from inside
-  `run_python` — the sandbox doesn't allow subprocess calls.
-- **After every render, you MUST look at the sampled frames** attached to
-  the tool result and respond with `VERIFICATION: PASS|FAIL|UNCERTAIN` on
-  its own line. "PASS" only if the frames look correct; iterate otherwise.
-- **To leave a flag for the user**, call `add_marker` at the relevant
-  timestamp with a short, specific note.
-- **To find stock media** (b-roll, SFX, ambience), call `search_assets`
-  with `kind` in ('video', 'photo', 'audio'). Results surface in the UI
-  with thumbnails + license badges; the user clicks "Add to project"
-  (or you can call `import_asset` directly with a result_id). Audio
-  results are preview-quality (lossy MP3); full-quality audio is a
-  fast-follow requiring Freesound OAuth2.
-- **To import a third-party asset** the user picked from a search,
-  call `import_asset` with the result_id (license/attribution come from
-  the search cache) or a direct `source_url` (supply them yourself).
+You have 4 tools available. Use them in this order of priority:
+
+## 1. query_project (preferred first)
+Use this for ALL read-only queries about the project:
+- "list_assets" → list all assets
+- "get_pending_notes" → get pending review notes
+- "get_style_profile" → get the project's style profile
+- "analyze_narrative" → analyze narrative structure of assets
+- "search_assets" → search external asset libraries
+
+## 2. edit_project (preferred for mutations)
+Use this for ALL project edits:
+- Operations are APPLIED IMMEDIATELY
+- For creative suggestions (SFX, music, visuals, silence cuts), use the "generate" parameter
+- Generated ops are returned for review; commit them with operation="apply_generated_ops"
+
+## 3. run_script (only when edit_project can't do it)
+Write Python that calls the ir module. The sandbox header is auto-injected.
+For complex multi-step edits that can't be expressed as a single edit_project operation.
+
+## 4. trigger_render (when you need to see the result)
+Render the current timeline to a video file for preview or verification.
 """
 
 
@@ -585,7 +143,7 @@ by ``EditGraphStore``), ``payload`` (JSON blob of op-specific data).
 
 **To build an op programmatically**, use ``open_edit.ir.api.IR``. Each
 op type has a method on the ``IR`` class (e.g. ``ir.add_clip(...)``,
-``ir.add_effect(...)``, ``ir.slip_clip(...)``). The agent's ``run_python``
+``ir.add_effect(...)``, ``ir.slip_clip(...)``). The agent's ``run_script``
 tool gives you access to ``IR`` and the op classes inside the bwrap
 sandbox.
 
@@ -593,11 +151,12 @@ sandbox.
 with fields ``note_id, project_id, anchor_type, anchor, text, source,
 status, created_at, processed_at, commit_token, resulting_op_ids``.
 ``anchor`` is JSON-encoded (e.g. ``'{"t_start": 3.2, "t_end": 3.5}'`` for a
-timestamp anchor). Use the ``add_marker`` tool to create agent-sourced
-notes.
+timestamp anchor). Use ``add_marker`` (via ``edit_project``) to create
+agent-sourced notes.
 
 **Style profile** is a separate key/value store pinned at the project
 level. Pinned values override inferred defaults when generating new ops.
-Use ``set_pinned_value`` to pin, ``get_style_profile`` to read the slice
-for a given op kind.
+Use ``edit_project`` with ``operation=\"set_pinned_value\"`` to pin,
+and ``query_project`` with ``query=\"get_style_profile\"`` to read the
+slice for a given op kind.
 """

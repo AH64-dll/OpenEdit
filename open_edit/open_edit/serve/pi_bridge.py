@@ -32,6 +32,8 @@ from typing import Any
 
 from open_edit.serve import html_overlay  # noqa: E402
 from open_edit.serve.serve_env import RENDER_TIMEOUT_S, get_overlay_config  # noqa: E402
+from open_edit.serve.result_capper import cap_tool_result
+from open_edit.serve.schema_validator import validate_or_error
 from open_edit.serve.visual_verify import build_failure_tool_result
 
 _LOG = logging.getLogger("open_edit.serve.pi_bridge")
@@ -93,16 +95,37 @@ def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) ->
             try:
                 args = {**args, "project_id": EditGraphStore(db_path).project_id}
             except Exception as exc:
-                # Don't silently swallow — surface the failure so the user
-                # can see why project_id didn't get injected.
                 raise RuntimeError(
                     f"failed to inject project_id from {db_path}: {exc}"
                 ) from exc
 
+    # Validate AFTER project_id injection so injected fields don't fail
+    # schema required-field checks (e.g. add_marker requires project_id
+    # but the bridge auto-injects it).
+    from .schema_validator import validate_or_error as _validate_or_error
+    err = _validate_or_error(tool_name, args)
+    if err is not None:
+        return err
+
+    # Pillar tool routing (Plan D).
+    if tool_name == "query_project":
+        from .pillar_tools import dispatch_query
+
+        return dispatch_query(args.get("query", ""), args.get("params", {}), project_path)
+
+    if tool_name == "edit_project":
+        from .pillar_tools import dispatch_edit, dispatch_generate
+
+        generate = args.get("generate")
+        if generate:
+            return dispatch_generate(generate, args.get("generate_params", {}), project_path)
+        return dispatch_edit(args.get("operation", ""), args.get("params", {}), project_path)
+
     fn = getattr(tools_mod, tool_name, None)
     if fn is None or not callable(fn):
         raise RuntimeError(f"tool not found in open_edit.agent.tools: {tool_name!r}")
-    return fn(args, str(project_path))
+    result = fn(args, str(project_path))
+    return cap_tool_result(result)
 
 
 def _probe_duration(mp4_path: Path) -> float:
@@ -303,6 +326,10 @@ def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, A
     event loop``. We detect the running loop and dispatch the coroutine
     to a worker thread so it blocks waiting for its result.
     """
+    err = validate_or_error("trigger_render", args)
+    if err is not None:
+        return err
+
     mode = (args.get("mode") or "proxy").lower()
     if mode not in ("proxy", "final", "overlay"):
         mode = "proxy"

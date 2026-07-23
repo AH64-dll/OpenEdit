@@ -72,10 +72,10 @@ def test_overlay_config_overlay_tmpdir_set_is_resolved_path():
 
 
 def test_overlay_config_hyperframes_timeout_s_default():
-    """OPEN_EDIT_HYPERFRAMES_TIMEOUT_SECONDS defaults to 120 (int)."""
+    """OPEN_EDIT_HYPERFRAMES_TIMEOUT_SECONDS defaults to 3600 (int)."""
     with mock.patch.dict(os.environ, {}, clear=True):
         cfg = serve_env.get_overlay_config()
-    assert cfg["hyperframes_timeout_s"] == 120
+    assert cfg["hyperframes_timeout_s"] == 3600
     assert isinstance(cfg["hyperframes_timeout_s"], int)
 
 

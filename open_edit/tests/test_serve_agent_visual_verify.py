@@ -149,7 +149,7 @@ async def test_verify_loop_runs_after_trigger_render(monkeypatch, tmp_path):
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
 
     async def _stream_with_tool_result(*args, **kwargs):
@@ -191,7 +191,7 @@ async def test_verify_skipped_for_text_only_model(monkeypatch, tmp_path):
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
 
     async def _stream_with_tool_result(*args, **kwargs):
@@ -217,7 +217,7 @@ async def test_render_count_capped_at_three(monkeypatch, tmp_path):
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
 
     turns = []
@@ -254,7 +254,7 @@ async def test_iteration_within_cap(monkeypatch, tmp_path):
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -281,10 +281,10 @@ async def test_mutation_tools_executed_before_render_in_batch(monkeypatch, tmp_p
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
     calls: list[str] = []
-    def fake_execute(name, args, path):
+    def fake_execute(name, args, path, command_id=None):
         calls.append(name)
         if name == "trigger_render":
             return render_result
@@ -319,7 +319,7 @@ async def test_only_one_render_per_batch_even_if_multiple_called(monkeypatch, tm
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
     stream_fn, _ = _make_mock_stream([
         [
@@ -352,7 +352,7 @@ async def test_pass_line_drives_pass_outcome(monkeypatch, tmp_path):
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -379,7 +379,7 @@ async def test_fail_no_tool_calls_emits_uncertain(monkeypatch, tmp_path):
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -406,7 +406,7 @@ async def test_no_verdict_line_emits_no_verdict_line_verdict_source(monkeypatch,
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
     stream_fn, _ = _make_mock_stream([
         [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}, {"type": "done", "stop_reason": "tool_use"}],
@@ -432,7 +432,7 @@ async def test_tool_result_with_images_does_not_bloat_persistent_history(monkeyp
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
-        lambda name, args, path: render_result,
+        lambda name, args, path, command_id=None: render_result,
     )
     seen_messages: list[list[dict]] = []
     async def _spy_stream(messages, **kwargs):
@@ -493,7 +493,7 @@ async def test_no_change_render_returns_no_change_tool_result(monkeypatch, tmp_p
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     render_calls = {"n": 0}
 
-    def fake_execute(name, args, path):
+    def fake_execute(name, args, path, command_id=None):
         render_calls["n"] += 1
         if render_calls["n"] >= 2:
             return {

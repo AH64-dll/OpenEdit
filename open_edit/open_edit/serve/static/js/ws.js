@@ -37,10 +37,18 @@ export function setOnTurnDone(callback) {
   _onTurnDone = (typeof callback === 'function') ? callback : () => {};
 }
 
+// Track whether the current socket was closed on purpose (project
+// switch, settings save) so onclose doesn't scream "dropped" or start
+// a reconnect storm against the new socket.
+let _intentionalClose = false;
+const MAX_RECONNECT_ATTEMPTS = 8;
+
 export function connectWS() {
-  if (!state.currentProjectId) return;
-  // Close any existing socket.
+  // Always tear down the previous socket FIRST — even when the new
+  // project id is empty ("— select —"), otherwise the old socket leaks
+  // and keeps streaming the previous project's events.
   if (state.ws) {
+    _intentionalClose = true;
     try { state.ws.close(); } catch {}
     state.ws = null;
   }
@@ -48,6 +56,10 @@ export function connectWS() {
   if (state.reconnectTimer) {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
+  }
+  if (!state.currentProjectId) {
+    setWsState('disconnected');
+    return;
   }
 
   setWsState('connecting');
@@ -64,6 +76,8 @@ export function connectWS() {
   state.ws = ws;
 
   ws.onopen = () => {
+    // Stale socket: a newer connectWS() already replaced us.
+    if (state.ws !== ws) { try { ws.close(); } catch {} return; }
     const wasReconnecting = state.reconnectAttempts > 0;
     setWsState('connected');
     state.reconnectAttempts = 0;
@@ -73,6 +87,9 @@ export function connectWS() {
   };
 
   ws.onmessage = (ev) => {
+    // Stale socket: drop its events so an old project's stream can't
+    // bleed into the new project's chat log.
+    if (state.ws !== ws) return;
     let data;
     try { data = JSON.parse(ev.data); }
     catch { return; }
@@ -83,9 +100,22 @@ export function connectWS() {
     // onclose will fire next; we'll reconnect there.
   };
 
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
+    const intentional = _intentionalClose;
+    _intentionalClose = false;
+    // Stale socket: a newer socket is already in place — do NOT null it
+    // out, flip state, or schedule a reconnect (that used to kill the
+    // fresh socket and duplicate the event stream).
+    if (state.ws !== ws) return;
     setWsState('disconnected');
     state.ws = null;
+    if (intentional) return;  // closed by us on purpose — stay quiet
+    // 4404 = project not found (server-side close code): reconnecting
+    // would loop forever against a dead project.
+    if (ev && ev.code === 4404) {
+      showToast('Project not found on server', 'error');
+      return;
+    }
     showToast('WebSocket connection dropped', 'error');
     if (state.currentProjectId) scheduleReconnect();
   };
@@ -93,6 +123,11 @@ export function connectWS() {
 
 export function scheduleReconnect() {
   if (state.reconnectTimer) return;
+  if (state.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    setWsState('disconnected');
+    showToast('Connection lost — giving up. Reload to retry.', 'error');
+    return;
+  }
   state.reconnectAttempts += 1;
   // Exponential backoff capped at 10s.
   const delay = Math.min(1000 * Math.pow(1.5, state.reconnectAttempts - 1), 10000);
@@ -124,15 +159,10 @@ export function handleWsEvent(ev) {
       appendToolCard(ev.id || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `t-${Date.now()}`), ev.name, ev.input || {});
       break;
     case 'tool_result':
-      completeToolCard(ev.id || '', ev.result, false);
+      completeToolCard(ev.id || '', ev.result, !!ev.is_error);
       break;
     case 'error':
-      // Could be a tool-level error (has tool_use_id) or a turn-level error.
-      if (ev.tool_use_id && state.pendingToolCards.has(ev.tool_use_id)) {
-        completeToolCard(ev.tool_use_id, { error: ev.message }, true);
-      } else {
-        appendErrorMessage(ev.message || 'Unknown error');
-      }
+      appendErrorMessage(ev.message || 'Unknown error');
       break;
     case 'render':
       appendRenderEvent(ev.path || '', ev.mode || 'proxy');
@@ -141,6 +171,12 @@ export function handleWsEvent(ev) {
       markTurnDone();
       // Auto-refresh project state so new ops / assets / notes show up.
       _onTurnDone();
+      break;
+    case 'cancelled':
+      // Server ack of a cancel/stop request. The turn's ``done`` event
+      // follows; we just settle the UI state here so the Stop button
+      // doesn't look dead.
+      markTurnDone();
       break;
     case 'cost_update':
       // The cost badge's onEvent was already invoked above the

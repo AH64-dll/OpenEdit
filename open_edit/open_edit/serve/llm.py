@@ -28,12 +28,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal, TypedDict
+
+_LOG = logging.getLogger("open_edit.serve.llm")
 
 from . import cost as cost_mod
 from .cli_adapter import CLIAdapter, get_adapter
@@ -352,9 +355,10 @@ async def _stream_pi(
     a single ``done`` at the very end, after the ``usage`` event.
     """
     sid = session_id or f"oe-{os.getpid()}"
-    sessions_dir = cost_mod.default_pi_sessions_dir()
-    session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
-    baseline_size = session_path.stat().st_size if session_path is not None else 0
+
+    # Pi stores sessions in ~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<sid>.jsonl.
+    # We locate it by suffix after pi finishes, but compute a baseline size now.
+    baseline_size = 0
 
     adapter = get_adapter("pi")
     async for ev in _stream_cli(
@@ -365,8 +369,7 @@ async def _stream_pi(
     # Cost extraction (v1.4 P1-3). _stream_cli did NOT emit a trailing
     # ``done`` for the pi branch — we own it here so the final order is
     # usage → done. Pi cost is read from the session JSONL delta.
-    if session_path is None:
-        session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
+    session_path = cost_mod.find_pi_session_file(sid, cost_mod.default_pi_sessions_dir())
     if session_path is None or not session_path.exists():
         yield {
             "type": "usage", "source": "unavailable",
@@ -563,6 +566,7 @@ async def _stream_cli(
         session_id=sid,
         extension_path=extension_path,
         system_prompt=system,
+        project_path=project_path,
     )
 
     env = dict(os.environ)
@@ -575,7 +579,11 @@ async def _stream_cli(
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env,
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            limit=16 * 1024 * 1024,
         )
     except FileNotFoundError as exc:
         yield {"type": "error", "message": f"{adapter.name} binary not found: {exc}"}
@@ -584,16 +592,26 @@ async def _stream_cli(
 
     async def _read_with_timeout() -> AsyncIterator[bytes]:
         assert proc.stdout is not None
+        buf = b""
+        max_line_bytes = 1_048_576  # 1 MB
         while True:
             try:
-                line = await asyncio.wait_for(proc.stdout.readline(), timeout=adapter.default_timeout_s)
+                chunk = await asyncio.wait_for(proc.stdout.read(65536), timeout=adapter.default_timeout_s)
             except TimeoutError:
                 with suppress(ProcessLookupError):
                     proc.kill()
                 raise
-            if not line:
+            if not chunk:
+                if buf:
+                    yield buf
                 return
-            yield line
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                if len(line) > max_line_bytes:
+                    _LOG.warning("oversized pi line (%d bytes), truncating", len(line))
+                    line = line[:max_line_bytes] + b"... [truncated]"
+                yield line + b"\n"
 
     saw_text = False
     try:

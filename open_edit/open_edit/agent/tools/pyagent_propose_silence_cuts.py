@@ -20,15 +20,18 @@ def propose_silence_cuts(args: dict, project_path: str) -> dict:
         {"status": "ok", "gaps": [{"t_start", "t_end", "suggested_kind"}, ...]}
         or {"status": "error", "error": "..."} on failure.
     """
-    asset_store = get_asset_store(project_path)
-    asset = asset_store.get(args["asset_hash"])
-    if asset is None:
-        return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
-    if not asset.alignment:
-        return {
-            "status": "error",
-            "error": "asset has no word-level alignment (Whisper not run?)",
-        }
-    from open_edit.agent.skills.silence_cutter import propose_cuts
-    gaps = propose_cuts(asset, silence_threshold_ms=args.get("threshold_ms", 400))
-    return {"status": "ok", "gaps": gaps}
+    try:
+        asset_store = get_asset_store(project_path)
+        asset = asset_store.get(args["asset_hash"])
+        if asset is None:
+            return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
+        if not asset.alignment:
+            return {
+                "status": "error",
+                "error": "asset has no word-level alignment (Whisper not run?)",
+            }
+        from open_edit.agent.skills.silence_cutter import propose_cuts
+        gaps = propose_cuts(asset, silence_threshold_ms=args.get("threshold_ms", 400))
+        return {"status": "ok", "gaps": gaps}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

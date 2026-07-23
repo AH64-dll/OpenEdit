@@ -7,7 +7,7 @@ Per phase4-design-revised.md section 4.3 (W7): the agent picks a beat
 """
 from __future__ import annotations
 
-from open_edit.agent.tools._helpers import get_asset_store
+from open_edit.agent.tools._helpers import _project_root, get_asset_store
 
 
 def generate_visual_for_segment(args: dict, project_path: str) -> dict:
@@ -27,23 +27,22 @@ def generate_visual_for_segment(args: dict, project_path: str) -> dict:
         {"status": "ok", "op": AddClipOp.model_dump()}
         or {"status": "error", "error": "..."} on failure.
     """
-    asset_store = get_asset_store(project_path)
-    asset = asset_store.get(args["asset_hash"])
-    if asset is None:
-        return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
-    from open_edit.agent.skills.motion_graphics.engine import generate_visual
-    from open_edit.agent.skills.narrative_analyzer import analyze
-    segments = analyze(asset, use_llm=False)
-    beat_type = args.get("beat_type")
-    segment = next((s for s in segments if s.beat_type == beat_type), None)
-    if segment is None:
-        return {
-            "status": "error",
-            "error": f"no narrative segment with beat_type {beat_type!r}",
-        }
-    from pathlib import Path
-    workdir = Path(project_path).parent if Path(project_path).is_file() else Path(project_path)
     try:
+        asset_store = get_asset_store(project_path)
+        asset = asset_store.get(args["asset_hash"])
+        if asset is None:
+            return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
+        from open_edit.agent.skills.motion_graphics.engine import generate_visual
+        from open_edit.agent.skills.narrative_analyzer import analyze
+        segments = analyze(asset, use_llm=False)
+        beat_type = args["beat_type"]
+        segment = next((s for s in segments if s.beat_type == beat_type), None)
+        if segment is None:
+            return {
+                "status": "error",
+                "error": f"no narrative segment with beat_type {beat_type!r}",
+            }
+        workdir = _project_root(project_path)
         op = generate_visual(
             segment=segment,
             template=args["template"],
@@ -51,6 +50,6 @@ def generate_visual_for_segment(args: dict, project_path: str) -> dict:
             project_id=args["project_id"],
             workdir=workdir,
         )
-    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        return {"status": "ok", "op": op.model_dump()}
+    except (RuntimeError, FileNotFoundError, ValueError, KeyError) as e:
         return {"status": "error", "error": str(e)}
-    return {"status": "ok", "op": op.model_dump()}

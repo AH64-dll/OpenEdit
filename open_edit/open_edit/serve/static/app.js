@@ -33,6 +33,7 @@ import {
   createVerifyChip,
   sendChatMessage,
   appendSearchResults,
+  markTurnDone,
 } from './js/chat.js';
 import { connectWS, setWsState, setOnTurnDone, scheduleReconnect } from './js/ws.js';
 
@@ -92,6 +93,23 @@ export function selectProject(id) {
   state.conversationId = null;
   try { localStorage.removeItem('open_edit.conversation_id'); } catch {}
   clearChatLog();
+
+  // Reset right-panel state: edit detail, timeline, status widgets
+  hideEditDetail();
+  selectedEditId = null;
+  const tracksArea = $('#timeline-tracks-area');
+  const labelsCol = $('#timeline-track-labels');
+  if (tracksArea) tracksArea.innerHTML = '';
+  if (labelsCol) labelsCol.innerHTML = '';
+  const ruler = $('#timeline-ruler');
+  if (ruler) ruler.innerHTML = '';
+  const durationLabel = $('#timeline-duration-label');
+  if (durationLabel) durationLabel.textContent = '';
+  const emptyMsg = $('#timeline-empty-msg');
+  if (emptyMsg) emptyMsg.classList.remove('hidden');
+  if (state.chatStatus) state.chatStatus.reset();
+  if (state.costBadge) state.costBadge.reset();
+  if (state.verifyChip) state.verifyChip.reset();
 
   $('#project-select').value = id || '';
   loadProjectState();
@@ -425,14 +443,18 @@ async function saveSettingsKeys() {
     const val = $(`#key-${p}`)?.value.trim();
     if (val) {
       try {
-        await fetch('/api/settings/keys', {
+        const r = await fetch('/api/settings/keys', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ provider: p, key: val }),
         });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || `HTTP ${r.status}`);
+        }
         savedCount++;
       } catch (err) {
-        console.error(`Save key failed for ${p}:`, err);
+        showToast(`Failed to save ${p} key: ${err.message}`, 'error');
       }
     }
   }
@@ -599,6 +621,16 @@ function handleSend() {
   const input = $('#chat-input');
   const text = input.value.trim();
   if (!text) return;
+  sendText(text);
+  input.value = '';
+  autoGrowInput();
+}
+
+// The single path every user-originated message takes (chat input,
+// search-result "Add to project", prompt chips). Locks the input,
+// shows the user's bubble, activates the status pill.
+function sendText(text) {
+  if (!text) return;
   if (!state.currentProjectId) {
     showToast('Select or create a project first.', 'error');
     return;
@@ -606,8 +638,6 @@ function handleSend() {
   setChatEnabled(false);
   if (sendChatMessage(text)) {
     appendUserMessage(text);
-    input.value = '';
-    autoGrowInput();
     if (state.chatStatus) state.chatStatus.send();
   } else {
     setChatEnabled(true);
@@ -840,6 +870,14 @@ function bindEvents() {
     }
   });
 
+  // Quick-send requests from auxiliary widgets (search-result "Add to
+  // project" buttons). Routed through the same path as the chat input
+  // so the turn is visible and the input locks while it runs.
+  document.addEventListener('open-edit:quick-send', (e) => {
+    const text = e.detail && e.detail.text;
+    if (text) sendText(text);
+  });
+
   // Mobile panel toggles
   $('#btn-left-panel').addEventListener('click', () => $('#left-panel').classList.toggle('open'));
   $('#btn-right-panel').addEventListener('click', () => $('#right-panel').classList.toggle('open'));
@@ -1039,6 +1077,10 @@ if (llmProviderSelect) {
     const provider = llmProviderSelect.value;
     const models = await fetchProviderModels(provider);
     const firstModel = (models && models.length > 0) ? models[0] : '';
+    if (!firstModel) {
+      showToast(`No models available for ${provider}`, 'warn');
+      return;
+    }
     await saveLLMConfig(provider, firstModel);
     await loadLLMConfig();
   });

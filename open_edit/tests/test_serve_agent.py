@@ -69,7 +69,9 @@ async def _mock_stream_chat(
         yield {"type": "done", "stop_reason": "end_turn"}
 
 
-def _mock_execute_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+def _mock_execute_tool(
+    name: str, args: dict[str, Any], project_path: Path, command_id: str | None = None,
+) -> dict[str, Any]:
     """Return a canned result for any tool."""
     return {
         "tool": name,
@@ -188,7 +190,7 @@ async def test_agent_loop_two_turn_with_tool_call(patched_agent):
 @pytest.mark.asyncio
 async def test_agent_loop_tool_error_surfaced(patched_agent, monkeypatch):
     """When a tool raises, the loop emits an error event and continues."""
-    def failing_tool(name, args, project_path):
+    def failing_tool(name, args, project_path, command_id=None):
         raise RuntimeError("boom")
     monkeypatch.setattr(agent_mod, "_execute_tool", failing_tool)
 

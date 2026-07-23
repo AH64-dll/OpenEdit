@@ -50,14 +50,22 @@ def add_serve_subparser(subparsers: Any) -> None:
     )
     p.add_argument(
         "--host",
-        default=os.environ.get("OPEN_EDIT_SERVE_HOST", "0.0.0.0"),
-        help="Bind host (default 0.0.0.0, env OPEN_EDIT_SERVE_HOST)",
+        default=os.environ.get("OPEN_EDIT_SERVE_HOST", "127.0.0.1"),
+        help="Bind host (default 127.0.0.1, env OPEN_EDIT_SERVE_HOST)",
     )
     p.add_argument(
         "--port",
         type=int,
         default=int(os.environ.get("OPEN_EDIT_SERVE_PORT", "8000")),
         help="Bind port (default 8000, env OPEN_EDIT_SERVE_PORT)",
+    )
+    p.add_argument(
+        "--token",
+        default=os.environ.get("OPEN_EDIT_TOKEN"),
+        help=(
+            "Optional bearer token required for remote (non-localhost) "
+            "requests (env OPEN_EDIT_TOKEN). If unset, no auth is required."
+        ),
     )
     p.add_argument(
         "--reload",
@@ -89,6 +97,12 @@ def _run_serve(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Propagate the token into the environment so the auth middleware
+    # (which reads OPEN_EDIT_TOKEN at request time) picks it up. Optional:
+    # if no token was supplied, auth stays off.
+    if getattr(args, "token", None):
+        os.environ["OPEN_EDIT_TOKEN"] = args.token
 
     uvicorn.run(
         "open_edit.serve.app:app",

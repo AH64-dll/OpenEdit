@@ -19,11 +19,13 @@ import asyncio
 import collections
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -39,11 +41,18 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from . import agent as agent_mod
 from . import cli_adapter as cli_adapter_mod
 from . import llm_config as llm_config_mod
 from . import projects as projects_mod
+from .diagnostics import collect_diagnostics
+from .diagnostics import get_health as _collect_health
+from .errors import ErrorCodes, make_error
+from .logging_setup import CorrelationIdMiddleware, setup_logging
 
 _LOG = logging.getLogger("open_edit.serve.app")
 
@@ -160,6 +169,7 @@ async def _run_render_job(job: RenderJobResponse, project_path: Path) -> None:
             cwd=str(project_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=16 * 1024 * 1024,
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
@@ -214,9 +224,63 @@ def _check_rate_limit(key: str, max_requests: int = 10, window_sec: float = 60.0
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Structured logging with correlation ids. Idempotent.
+    setup_logging()
     # Touch the projects root so GET /api/projects doesn't 500 on a fresh install.
     projects_mod.projects_root()
     yield
+
+
+# Local clients are always exempt from token auth. ``testclient`` is the
+# host Starlette's TestClient uses; a ``None`` client means a unix socket.
+_LOCAL_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
+
+# Paths that never require auth (liveness must always be reachable).
+_AUTH_EXEMPT_PATHS = frozenset({"/health"})
+
+
+def _is_localhost(request: Request) -> bool:
+    client = request.client
+    if client is None:
+        return True
+    return client.host in _LOCAL_HOSTS
+
+
+def _extract_token(request: Request) -> str | None:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[len("Bearer "):].strip() or None
+    return request.query_params.get("token") or None
+
+
+class TokenAuthMiddleware(BaseHTTPMiddleware):
+    """Fail-safe bearer-token auth with a localhost bypass.
+
+    Auth is only enforced when ``OPEN_EDIT_TOKEN`` is set (read at request
+    time) AND the client is not localhost. This preserves the open/local
+    behaviour the desktop integration relies on.
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if request.url.path in _AUTH_EXEMPT_PATHS or _is_localhost(request):
+            return await call_next(request)
+        token = os.environ.get("OPEN_EDIT_TOKEN", "").strip()
+        if not token:
+            return await call_next(request)
+        if _extract_token(request) != token:
+            return JSONResponse(
+                status_code=401,
+                content=make_error(
+                    ErrorCodes.AUTH_REQUIRED,
+                    "Authentication required",
+                    retriable=False,
+                ),
+            )
+        return await call_next(request)
 
 
 app = FastAPI(
@@ -225,6 +289,21 @@ app = FastAPI(
     description="Chat-driven backend for the Open Edit AI-native video editor.",
     lifespan=_lifespan,
 )
+
+app.add_middleware(TokenAuthMiddleware)
+app.add_middleware(CorrelationIdMiddleware)
+
+
+@app.get("/health")
+async def health() -> dict[str, Any]:
+    """Liveness/health check. Never requires auth and never raises."""
+    return _collect_health()
+
+
+@app.get("/diagnostics")
+async def diagnostics() -> dict[str, Any]:
+    """Redacted system diagnostics. Protected by token auth (localhost exempt)."""
+    return collect_diagnostics()
 
 
 # ---------------------------------------------------------------------------

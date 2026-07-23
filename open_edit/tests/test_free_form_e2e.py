@@ -4,6 +4,7 @@ All tests skip if the sandbox can't actually run (bwrap missing, or the
 container/environment can't create user+network namespaces). Tests use the
 real Rust binary.
 """
+import os
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,11 @@ import textwrap
 from pathlib import Path
 
 import pytest
+
+# The e2e fixtures build projects under the pytest temp dir (/tmp/...). Allow
+# that as a project root so the P9 workdir security check doesn't reject them
+# (the sandbox itself is what's under test here, not the root allow-list).
+os.environ.setdefault("OPEN_EDIT_PROJECTS_ROOT", tempfile.gettempdir())
 
 
 def _sandbox_runnable() -> bool:
@@ -33,7 +39,6 @@ def _sandbox_runnable() -> bool:
                  "--scratch", str(scratch),
                  "--python-bin", "python3",
                  "--expected-py-version", "3.14",
-                 "--ops-output", str(scratch / "ops.jsonl"),
                  "--timeout", "5", "--mem", "512", "--cpu", "5", "--json",
                 ],
                 capture_output=True, text=True, timeout=15,
@@ -117,7 +122,7 @@ def test_free_form_then_render(tmp_project_with_assets):
     tmp_project_with_assets.edit_graph.extend(result.ops)
     timeline = derive_timeline(tmp_project_with_assets)
     xml = emit_timeline(timeline)
-    assert "<mlt>" in xml or "<tractor>" in xml  # sanity check
+    assert '<mlt' in xml or '<tractor>' in xml or '<playlist>' in xml  # sanity check
 
 
 def test_free_form_failure_does_not_corrupt_graph(tmp_project_with_assets):

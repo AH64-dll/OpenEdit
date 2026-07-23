@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 mod render_jail;
+mod nproc;
 
 #[derive(Parser, Debug)]
 #[command(name = "open-edit-render-sandbox")]
@@ -47,7 +48,7 @@ fn main() -> Result<()> {
         mem_mb: args.mem,
         cpu_secs: args.timeout,
         nofile: 4096,
-        nproc: 4096,
+        nproc: crate::nproc::relative_nproc_limit(),
     };
 
     // Translate the user-supplied code/output paths to in-sandbox paths.
@@ -60,8 +61,19 @@ fn main() -> Result<()> {
     // Set cgroup + rlimit in pre_exec
     unsafe {
         cmd.pre_exec(move || -> std::io::Result<()> {
-            render_jail::apply_cgroup_limits(&limits)
-                .map_err(|e| std::io::Error::other(format!("cgroup: {e:#}")))?;
+            // cgroup memory/CPU limits are best-effort. On most unprivileged
+            // desktop installs the cgroup v2 subtree isn't user-writable, so
+            // we can't apply them. Degrade gracefully to rlimit-only
+            // isolation (RLIMIT_AS/CPU/nproc are still applied below) instead
+            // of aborting the entire render — otherwise the render sandbox is
+            // unusable off a properly delegated cgroup hierarchy.
+            if let Err(e) = render_jail::apply_cgroup_limits(&limits) {
+                eprintln!(
+                    "warning: render sandbox cgroup limits not applied ({}); \
+                     falling back to rlimit-only isolation",
+                    e
+                );
+            }
             render_jail::apply_rlimits(&limits)
                 .map_err(|e| std::io::Error::other(format!("rlimit: {e:#}")))?;
             Ok(())
