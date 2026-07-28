@@ -150,14 +150,13 @@ def run_node_script(
 
 
 def app_js_path() -> Path:
-    """The absolute path to the app's entry-point ES module. Resolved
-    relative to the mlt-pipeline repo root (two levels up from the
-    ``tests/`` directory: ``tests/`` → ``open_edit/`` → the worktree
-    root, and one more level to the repo root that hosts the
-    ``open_edit/`` package)."""
+    """Absolute path to the app entry-point ES module.
+
+    Flat layout: ``tests/`` sits next to the ``open_edit/`` package at the
+    repo root, so ``parents[1]`` is the repo root.
+    """
     return (
-        Path(__file__).resolve().parents[2]
-        / "open_edit"
+        Path(__file__).resolve().parents[1]
         / "open_edit"
         / "serve"
         / "static"

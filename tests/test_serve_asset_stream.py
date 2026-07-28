@@ -58,7 +58,7 @@ assert APP_JS.exists(), f"missing {APP_JS}"
 # Fixtures
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 TESTDATA_MP4 = REPO_ROOT / "testdata" / "clip_short.mp4"
 
 

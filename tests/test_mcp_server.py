@@ -220,9 +220,9 @@ def test_packaged_harness_skills_match_repo() -> None:
     """Wheel-bundled copies must stay in sync with repo skills/."""
     from pathlib import Path
 
-    # tests/test_mcp_server.py → open_edit/ (pkg root) → mlt-pipeline/
+    # Flat layout: tests/ sits at the repo root next to open_edit/.
     pkg_root = Path(__file__).resolve().parents[1]
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     packaged = pkg_root / "open_edit" / "harness_skills"
     repo_skills = repo_root / "skills"
     for name in ("open-edit-mcp.md", "open-edit-mcp-reference.md"):

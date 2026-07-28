@@ -49,7 +49,7 @@ def test_cost_badge_present_in_html():
     to the chat-status pill (P1-2). The wire shape requires a
     stable id we can target from the JS."""
     INDEX_HTML = (
-        Path(__file__).resolve().parents[2]
+        Path(__file__).resolve().parents[1]
         / "open_edit" / "open_edit" / "serve" / "static" / "index.html"
     )
     html = INDEX_HTML.read_text()

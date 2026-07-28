@@ -13,15 +13,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install
+      - name: Install package
         run: |
           python -m pip install -U pip
           pip install -e ".[mcp,dev]"
-      - name: Unit tests (no sandbox / no melt required)
+      - name: Core unit tests
         run: |
           pytest -q \
-            --ignore=tests/test_sandbox \
-            --ignore=tests/test_free_form_e2e.py \
-            -k "not bwrap and not melt" \
-            || true
-        # Prefer a green subset; full suite may need melt/ffmpeg on the runner.
+            tests/test_windows_mcp.py \
+            tests/test_sandbox_backends.py \
+            tests/test_ingest_local.py \
+            tests/test_tool_executor.py \
+            tests/test_schema_validator.py \
+            tests/test_tool_registry.py \
+            tests/test_pillar_tools.py \
+            tests/test_mcp_server.py \
+            tests/test_ir \
+            tests/test_storage \
+            tests/test_render_encoder.py \
+            tests/test_serve_module_structure.py \
+            --tb=short

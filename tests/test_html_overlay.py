@@ -920,7 +920,7 @@ def test_render_composited_overlay_render_error_carries_bg_path(tmp_path):
 
 # Resolve the pinned binary against the repo root (one level up from
 # open_edit/), not CWD — pytest is typically run from `open_edit/`.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 _HYPERFRAMES_AVAILABLE = (_REPO_ROOT / "node_modules" / ".bin" / "hyperframes").is_file()
 
 

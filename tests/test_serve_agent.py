@@ -28,7 +28,7 @@ from unittest import mock
 import pytest
 
 _THIS_DIR = Path(__file__).resolve()
-_REPO_ROOT = _THIS_DIR.parents[2]
+_REPO_ROOT = _THIS_DIR.parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

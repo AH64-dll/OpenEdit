@@ -67,7 +67,7 @@ def remotion_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     fake.write_text(_FAKE_REMOTION)
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("OPEN_EDIT_REMOTION_BIN", str(fake))
-    media = Path(__file__).resolve().parents[2] / "testdata" / "video_with_audio.mp4"
+    media = Path(__file__).resolve().parents[1] / "testdata" / "video_with_audio.mp4"
     if not media.is_file():
         media = Path("/home/ah64/apps/mlt-pipeline/testdata/video_with_audio.mp4")
     monkeypatch.setenv("OPEN_EDIT_REMOTION_FAKE_MEDIA", str(media))
