@@ -1,35 +1,21 @@
-# Go build artifacts
-bin/
-!bin/*.sh
-*.exe
-*.out
-
-# Python virtual environments
 .venv/
 venv/
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
 htmlcov/
+dist/
+build/
+node_modules/
 
-# Generated test data (committed; uncomment if regenerating)
-# testdata/clip_short.mp4
-# testdata/clip_short.expected.preview.mp4
-
-# Per-project working directories
-projects/*/footage/
-projects/*/preview.mp4
-projects/*/final.mp4
-projects/*/metadata.json
-projects/*/project.mlt
-projects/*/edl.json
-projects/*/edl.v*.json
-projects/*/edl.failed.json
-projects/*/preview.mp4.lck
-projects/*/final.mp4.lck
+# Runtime / local projects
+.open_edit/
+OpenEditProjects/
+projects/
 
 # Editor / OS
 .DS_Store
@@ -37,16 +23,7 @@ projects/*/final.mp4.lck
 .idea/
 .vscode/
 
-# Subagent-driven development working directory (transient, not source)
-.superpowers/
-!.superpowers/sdd/v1.2-followup.md
-!.superpowers/sdd/v1.2.1-followup.md
-!.superpowers/sdd/v1.3-followup.md
-!.superpowers/sdd/v1.4-plan.md
-!.superpowers/sdd/v1.5-followup.md
-
-# Git worktrees (transient, not source)
-.worktrees/
-
-# Node.js (v1.6 hyperframes binary)
-node_modules/
+# Local env
+.env
+*.log
+.venv/

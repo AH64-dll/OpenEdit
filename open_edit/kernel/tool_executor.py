@@ -1,0 +1,228 @@
+"""Shared tool execution (Wave 3.2).
+
+The agent loop (``agent.py``) and the TS-extension shim
+(``pi_bridge.py``) both need to run tools on the server side. Before
+this module existed, ``agent.py`` had its own ``_execute_agent_tool``
+and ``_execute_trigger_render`` functions, and ``pi_bridge.py`` had a
+parallel copy of the trigger-render logic. The two could drift
+(``agent.py`` accepts a ``mode`` field, ``pi_bridge.py`` rejected it,
+etc.), and the bug was a latent source of "the agent sees different
+behavior than the TS extension" reports.
+
+This module owns the canonical implementations. Both callers import
+from here. If the behavior needs to change, it changes in one place.
+
+v1.6 note: ``execute_trigger_render`` preserves the three-way split
+between ``proxy``, ``final`` (shell out to ``open_edit render`` CLI)
+and ``overlay`` (delegate to ``pi_bridge._run_trigger_render`` for the
+composited HTML-overlay path). The proxy/final branch is intentionally
+NOT collapsed into the overlay branch: those paths write different
+``render_id`` shapes and the agent's verification stage reads them
+differently (see test_serve_agent.py V4 tests).
+
+v1.7+ polish: ``execute_trigger_render`` is async and uses
+``asyncio.create_subprocess_exec`` so the event loop stays responsive
+during long renders. This is what makes the Stop button interrupt
+a render cleanly: the previous synchronous ``subprocess.run`` blocked
+the WS task for the full ``RENDER_TIMEOUT_S`` window.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from open_edit.agent.tools._helpers import _db_path
+from open_edit.ir.hash import compute_edit_graph_hash
+from open_edit.storage.edit_graph import EditGraphStore
+
+from open_edit.serve.pi_bridge import _probe_duration
+from open_edit.kernel.schema_validator import validate_or_error
+from open_edit.serve.serve_env import RENDER_TIMEOUT_S
+
+
+def _payload_hash(args: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(args, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+def _is_error_result(result: Any) -> bool:
+    return isinstance(result, dict) and (
+        result.get("status") == "error" or bool(result.get("error"))
+    )
+
+
+def _record_done_command(
+    store: EditGraphStore | None, project_path: Path, command_id: str,
+    name: str, args: dict[str, Any], result: Any,
+) -> None:
+    """Best-effort idempotency bookkeeping. Never raises. Only records a
+    ``done`` command for a normal (non-error) result."""
+    if _is_error_result(result):
+        return
+    try:
+        if store is None:
+            store = EditGraphStore(_db_path(project_path))
+        store.record_command(
+            command_id, store.project_id, name,
+            status="pending", payload_hash=_payload_hash(args),
+        )
+        store.finish_command(
+            command_id, status="done",
+            result_json=json.dumps(result, default=str),
+        )
+        try:
+            store.set_edit_graph_hash(compute_edit_graph_hash(store.load_all()))
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _cached_done_result(
+    project_path: Path, command_id: str,
+) -> tuple[EditGraphStore | None, Any, bool]:
+    """Return ``(store, cached_result, hit)``. ``hit`` is True only for a
+    previously SUCCESSFUL (``done``) command with a stored result."""
+    try:
+        store = EditGraphStore(_db_path(project_path))
+    except Exception:
+        return None, None, False
+    try:
+        if store.command_exists(command_id):
+            if (store.get_command_status(command_id) or "") == "done":
+                cached = store.get_command_result(command_id)
+                if cached is not None:
+                    return store, json.loads(cached), True
+    except Exception:
+        return None, None, False
+    return store, None, False
+
+
+class ToolNotFound(LookupError):  # noqa: N818
+    """Raised by :func:`execute_tool` when the named tool is not
+    registered in ``open_edit.agent.tools``."""
+
+
+def execute_tool(
+    name: str, args: dict[str, Any], project_path: Path,
+    command_id: str | None = None,
+) -> dict[str, Any]:
+    """Run a tool from ``open_edit.agent.tools.<name>``.
+
+    The tool signature is ``fn(args: dict, project_path: str) -> dict``.
+    Raises :class:`ToolNotFound` if the tool module/function is missing
+    or not callable.
+
+    When ``command_id`` is given, a re-delivered call that previously
+    succeeded is short-circuited to its cached result (idempotency).
+    """
+    store: EditGraphStore | None = None
+    if command_id is not None:
+        store, cached, hit = _cached_done_result(project_path, command_id)
+        if hit:
+            return cached
+
+    result = _run_tool(name, args, project_path)
+
+    if command_id is not None:
+        _record_done_command(store, project_path, command_id, name, args, result)
+    return result
+
+
+def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    err = validate_or_error(name, args)
+    if err is not None:
+        return err
+
+    # Pillar tool routing (Plan D).
+    if name == "query_project":
+        from open_edit.kernel.pillar_tools import dispatch_query
+
+        return dispatch_query(args.get("query", ""), args.get("params", {}), project_path)
+
+    if name == "edit_project":
+        from open_edit.kernel.pillar_tools import dispatch_edit, dispatch_generate
+
+        generate = args.get("generate")
+        if generate:
+            return dispatch_generate(generate, args.get("generate_params", {}), project_path)
+        return dispatch_edit(args.get("operation", ""), args.get("params", {}), project_path)
+
+    import open_edit.agent.tools as tools_mod  # type: ignore
+
+    fn = getattr(tools_mod, name, None)
+    if fn is None or not callable(fn):
+        raise ToolNotFound(f"tool not found in open_edit.agent.tools: {name!r}")
+
+    return fn(args, str(project_path))
+
+
+async def execute_trigger_render(
+    args: dict[str, Any], project_path: Path, command_id: str | None = None,
+) -> dict[str, Any]:
+    """Server-side virtual tool: shell out to ``open_edit render``.
+
+    v1.6: ``mode=="overlay"`` is the composited HTML-overlay path. We
+    delegate to ``pi_bridge._run_trigger_render`` so the in-process
+    agent loop and the TS extension see identical behavior.
+
+    v1.6 V4: the returned dict must use the same structured shape as
+    the pi subprocess path (``{output_path, mode, duration_s, render_id}``)
+    so the verification stage's ``result.get("render_id", ...)`` always
+    sees a real render id (not "render_unknown") regardless of which
+    path was taken.
+
+    v1.7: async + ``asyncio.create_subprocess_exec`` so the event loop
+    stays responsive. The function is now an awaitable; callers must
+    ``await`` it. Cancellation propagates via ``asyncio.CancelledError``
+    and the subprocess is killed before re-raising.
+    """
+    store: EditGraphStore | None = None
+    if command_id is not None:
+        store, cached, hit = _cached_done_result(project_path, command_id)
+        if hit:
+            return cached
+
+    result = await _run_trigger_render(args, project_path)
+
+    if command_id is not None:
+        _record_done_command(store, project_path, command_id, "trigger_render", args, result)
+    return result
+
+
+async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    err = validate_or_error("trigger_render", args)
+    if err is not None:
+        return err
+
+    mode = (args.get("mode") or "proxy").lower()
+    if mode not in ("proxy", "final", "overlay"):
+        mode = "proxy"
+
+    encoder = args.get("encoder")
+    if encoder is not None and str(encoder).lower() not in ("gpu", "cpu"):
+        encoder = None
+
+    from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE, RenderEnqueueError
+
+    # The agent waits for the same durable job REST clients poll. This keeps
+    # queueing, timeout, cancellation, output contracts, and audit history
+    # identical across both entry points — including overlay.
+    try:
+        job = DEFAULT_RENDER_SERVICE.enqueue(
+            project_path.name, project_path, mode, encoder_backend=encoder,
+        )
+    except RenderEnqueueError as exc:
+        return {"ok": False, "error": str(exc), "error_code": "render_enqueue_rejected"}
+    completed = await DEFAULT_RENDER_SERVICE.wait(project_path, job.job_id)
+    if completed.status != "succeeded" or completed.result is None:
+        raise RuntimeError(completed.error or f"render ended as {completed.status}")
+    result = dict(completed.result)
+    result["render_id"] = completed.job_id
+    result["duration_s"] = result.get("duration_sec", 0.0)
+    return result

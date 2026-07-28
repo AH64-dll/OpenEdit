@@ -1,0 +1,303 @@
+"""v1.7 — CLI adapter interface.
+
+A ``CLIAdapter`` is a thin facade over a single CLI LLM backend
+(currently ``pi`` and ``opencode``). The interface is deliberately
+minimal — every method exists because a real provider difference
+required it (see the design spec, §3).
+
+The two adapters register themselves via ``_ADAPTERS`` and are looked
+up by ``get_adapter(name)``. This is a plain dict, not a factory or
+DI container; adding a third CLI is one import + one entry.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
+from typing import Protocol, runtime_checkable
+
+
+# A lightweight copy of the StreamEvent TypedDict shape from llm.py.
+# We don't import llm.py here to avoid a cycle (llm.py imports adapters).
+class _StreamEvent(dict):
+    """Marker subclass; consumers treat as dict[str, Any]."""
+
+
+@runtime_checkable
+class CLIAdapter(Protocol):
+    """One CLI backend. Stateless; methods only."""
+
+    name: str
+    default_timeout_s: int
+
+    def default_model(self) -> str: ...
+    def available_models(self) -> list[str]: ...
+    def supports_tools(self) -> bool: ...
+    def supports_images(self) -> bool: ...
+    def manages_own_auth(self) -> bool: ...
+    def build_command(
+        self,
+        model: str,
+        user_text: str,
+        session_id: str,
+        extension_path: str | None,
+        system_prompt: str,
+        project_path: str | None = None,
+    ) -> list[str]: ...
+
+
+# --- opencode adapter: cheap shell-out to `opencode models` -----------
+
+_OPENCODE_CACHE: dict[str, tuple[float, list[str]]] = {}
+_OPENCODE_CACHE_TTL_S = 60.0
+
+
+def _opencode_models_via_cli() -> list[str]:
+    """Run ``opencode models`` and return the list of model ids.
+
+    Cached for 60s. If the binary is missing or fails, returns []. Never
+    raises — the dropdown can show an empty list rather than 500ing the
+    project config page.
+    """
+    now = time.monotonic()
+    cached = _OPENCODE_CACHE.get("__all__")
+    if cached is not None and (now - cached[0]) < _OPENCODE_CACHE_TTL_S:
+        return list(cached[1])
+    bin_path = shutil.which("opencode")
+    if bin_path is None:
+        return []
+    try:
+        out = subprocess.run(
+            [bin_path, "models"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if out.returncode != 0:
+        return []
+    models: list[str] = []
+    for line in out.stdout.splitlines():
+        line = line.strip()
+        # The CLI output is a mix of headers and one model per line. We
+        # accept lines that look like "<provider>/<model>" or
+        # "<provider>/<provider>/<model>" (three-segment for omniroute).
+        if not line or line.startswith(("┌", "│", "└", "─")) or " " in line:
+            continue
+        if "/" in line and line.count("/") in (1, 2):
+            models.append(line)
+    _OPENCODE_CACHE["__all__"] = (now, models)
+    return list(models)
+
+
+# --- adapter implementations ------------------------------------------
+
+class _PiAdapter:
+    name = "pi"
+    default_timeout_s = 3600
+
+    def default_model(self) -> str:
+        return "minimax-m3"
+
+    def available_models(self) -> list[str]:
+        # Hand-curated; pi has no clean introspection.
+        return [
+            "minimax-m3",
+            "minimax-m2.7",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+        ]
+
+    def supports_tools(self) -> bool:
+        return True
+
+    def supports_images(self) -> bool:
+        return True
+
+    def manages_own_auth(self) -> bool:
+        return True  # reads ~/.pi/agent/auth.json
+
+    def build_command(
+        self,
+        model: str,
+        user_text: str,
+        session_id: str,
+        extension_path: str | None,
+        system_prompt: str,
+        project_path: str | None = None,
+    ) -> list[str]:
+        # Resolve the pi binary the same way the legacy _pi_binary() did:
+        # OPEN_EDIT_PI_BINARY env var (absolute path) wins; otherwise
+        # fall back to PATH lookup; otherwise just "pi" (which will
+        # surface a FileNotFoundError in _stream_cli if missing).
+        pi_bin = os.environ.get("OPEN_EDIT_PI_BINARY", "").strip() or shutil.which("pi") or "pi"
+        cmd = [
+            pi_bin,
+            "--provider", "opencode-go",
+            "--model", model,
+            "--mode", "json",
+            "--no-extensions",
+            "--print", user_text,
+            "--append-system-prompt", system_prompt,
+        ]
+        cmd += ["--session-id", session_id]
+        if extension_path:
+            # Insert --extension after --no-extensions so the user's
+            # extension wins over any default.
+            cmd[cmd.index("--no-extensions") + 1:cmd.index("--no-extensions") + 1] = [
+                "--extension", extension_path,
+            ]
+        return cmd
+
+
+class _OpenCodeAdapter:
+    name = "opencode"
+    default_timeout_s = 3600
+
+    def default_model(self) -> str:
+        return "opencode-go/minimax-m3"
+
+    def available_models(self) -> list[str]:
+        return _opencode_models_via_cli()
+
+    def supports_tools(self) -> bool:
+        return False  # v1.7: no opencode-side extension yet
+
+    def supports_images(self) -> bool:
+        return False  # v1.7: chat mode only
+
+    def manages_own_auth(self) -> bool:
+        return True  # reads ~/.local/share/opencode/auth.json
+
+    def build_command(
+        self,
+        model: str,
+        user_text: str,
+        session_id: str,
+        extension_path: str | None,
+        system_prompt: str,
+        project_path: str | None = None,
+    ) -> list[str]:
+        # opencode has no --append-system-prompt flag; we prepend the
+        # system prompt to the user message so the model still sees it.
+        # When user_text is already role-tagged (full_history strategy),
+        # do not wrap it again in a second [user] envelope.
+        body = user_text if user_text.lstrip().startswith("[") else f"[user]\n{user_text}"
+        full_message = f"[system]\n{system_prompt}\n\n{body}"
+        cmd = [
+            "opencode",
+            "run",
+            "--format", "json",
+            "--model", model,
+            full_message,
+        ]
+        if extension_path:
+            cmd.insert(cmd.index(full_message), "--extension")
+            cmd.insert(cmd.index("--extension") + 1, extension_path)
+        return cmd
+
+
+class _AnthropicAdapter:
+    """SDK adapter stub for model discovery. No CLI binary involved."""
+    name = "anthropic"
+    default_timeout_s = 120
+
+    def default_model(self) -> str:
+        return "claude-sonnet-4-5"
+
+    def available_models(self) -> list[str]:
+        return ["claude-sonnet-4-5", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"]
+
+    def supports_tools(self) -> bool:
+        return True
+
+    def supports_images(self) -> bool:
+        return True
+
+    def manages_own_auth(self) -> bool:
+        return False
+
+    def build_command(self, **kwargs) -> list[str]:
+        raise NotImplementedError("anthropic is an SDK provider, not a CLI adapter")
+
+
+class _OpenAIAdapter:
+    """SDK adapter stub for model discovery. No CLI binary involved."""
+    name = "openai"
+    default_timeout_s = 120
+
+    def default_model(self) -> str:
+        return "gpt-4o"
+
+    def available_models(self) -> list[str]:
+        return ["gpt-4o", "gpt-4o-mini", "o3-mini"]
+
+    def supports_tools(self) -> bool:
+        return True
+
+    def supports_images(self) -> bool:
+        return True
+
+    def manages_own_auth(self) -> bool:
+        return False
+
+    def build_command(self, **kwargs) -> list[str]:
+        raise NotImplementedError("openai is an SDK provider, not a CLI adapter")
+
+
+class _AntigravityAdapter:
+    name = "antigravity"
+    default_timeout_s = 3600
+
+    def default_model(self) -> str:
+        return "gemini-2.5-flash"
+
+    def available_models(self) -> list[str]:
+        from .providers import PROVIDERS
+        spec = PROVIDERS.get("antigravity")
+        if spec and spec.models:
+            return list(spec.models)
+        return ["gemini-2.5-flash", "gemini-3.5-flash-high"]
+
+    def supports_tools(self) -> bool:
+        return False
+
+    def supports_images(self) -> bool:
+        return False
+
+    def manages_own_auth(self) -> bool:
+        return True
+
+    def build_command(
+        self,
+        model: str,
+        user_text: str,
+        session_id: str,
+        extension_path: str | None,
+        system_prompt: str,
+        project_path: str | None = None,
+    ) -> list[str]:
+        agy_bin = shutil.which("agy") or shutil.which("antigravity") or "antigravity"
+        body = user_text if user_text.lstrip().startswith("[") else f"[user]\n{user_text}"
+        full_message = f"[system]\n{system_prompt}\n\n{body}"
+        return [agy_bin, "--print", full_message, "--model", model]
+
+
+_ADAPTERS: dict[str, CLIAdapter] = {
+    "anthropic": _AnthropicAdapter(),
+    "openai": _OpenAIAdapter(),
+    "pi": _PiAdapter(),
+    "opencode": _OpenCodeAdapter(),
+    "antigravity": _AntigravityAdapter(),
+}
+
+
+def get_adapter(name: str) -> CLIAdapter:
+    """Look up an adapter by name. Raises ``KeyError`` on unknown."""
+    return _ADAPTERS[name]
+
+
+def list_adapters() -> list[str]:
+    """Return the names of all registered adapters (sorted)."""
+    return sorted(_ADAPTERS.keys())
