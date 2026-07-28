@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=Open Edit — Stop
-Comment=Stop the Open Edit server
-Exec=/home/ah64/apps/mlt-pipeline/.open-edit-stop.sh
-Terminal=true
-Type=Application
-Icon=process-stop
-Categories=Development;
-StartupNotify=false

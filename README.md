@@ -1,184 +1,45 @@
-# Open Edit / mlt-pipeline
+# Open Edit
 
-**GitHub:** [https://github.com/AH64-dll/OpenEdit](https://github.com/AH64-dll/OpenEdit)
+AI-native video editor driven as a local **MCP server** (Cursor, OpenCode, Claude Code).
 
-Autonomous video-editing pipeline. Raw footage → Kdenlive-editable `project.mlt`
-via an OpenCode-driven agent, plus the experimental **Open Edit** MCP / IR
-editor under `open_edit/`.
+**GitHub:** https://github.com/AH64-dll/OpenEdit
 
-## Install (Linux + Windows)
+## What this repo is
 
-**Start here:** [`INSTALL.md`](INSTALL.md) — clone, venv, Cursor MCP config, and
-uninstall steps for **Linux** and **Windows**.
+Functional Open Edit product code only:
 
-Quick MCP pointers:
+- IR / edit graph (`open_edit/ir`, `open_edit/storage`)
+- Tool kernel (`open_edit/kernel`)
+- MCP stdio server (`open_edit/mcp`)
+- Render pipeline: melt / ffmpeg / Remotion (`open_edit/render`)
+- Agent tools + skills (`open_edit/agent`, `skills/`)
+- Optional review UI (`open_edit/serve`)
 
-- Package path: `open_edit/`
-- MCP docs: [`docs/MCP.md`](docs/MCP.md)
-- Windows uses `.\.venv\Scripts\open-edit-mcp.exe` (no bwrap sandbox)
+Not included (removed as dead / out of scope):
 
-## Design
+- Go `mlt-pipeline` CLIs
+- Rust bwrap sandbox crate (use `OPEN_EDIT_SANDBOX_BACKEND=dev`; default on Windows)
+- Planning dumps, agent scratch, Kdenlive guide forks
 
-- **Spec:** [`docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md`](docs/superpowers/specs/2026-07-13-mlt-pipeline-design.md)
-- **Plan:** [`docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md`](docs/superpowers/plans/2026-07-13-mlt-pipeline-impl.md)
-- **Architecture boundary:** [`docs/architecture-boundary.md`](docs/architecture-boundary.md)
+## Install
 
-## Architecture status
-
-The supported production path is the Go pipeline in `cmd/`, `internal/`,
-`run.sh`, and `edit.sh`.
-
-`open_edit/` is an experimental prototype for a larger AI-native editor. It is
-kept in this repository for exploration, but production scripts do not depend on
-it. See [`open_edit/README.md`](open_edit/README.md) before installing or using
-that package.
-
-## Setup
-
-Production Go pipeline:
-
-1. Install Go 1.22+, `ffmpeg`/`ffprobe`, `melt`, `opencode`, and Kdenlive.
-2. Build the Go CLIs with the commands in [Build](#build).
-
-Experimental `open_edit/` prototype / MCP:
-
-1. Follow [`INSTALL.md`](INSTALL.md) (`pip install -e ".[mcp]"` inside `open_edit/`).
-2. Optional: `npm install` at the repo root — HyperFrames + Remotion packages.
-3. Remotion is optional. See [`docs/REMOTION_LICENSE.md`](docs/REMOTION_LICENSE.md)
-   before using Remotion in a commercial deployment with 4+ employees.
-
-## Dependencies
-
-- Go 1.22+
-- `ffmpeg` / `ffprobe` (with libass for completeness — not strictly required for v1)
-- `melt` 7.x (MLT framework command-line renderer)
-- `opencode` Go binary, 1.17+ — https://github.com/sandonair/opencode or the upstream
-- `nice` (standard on Linux/macOS)
-- Kdenlive 26.x for the human-review step (open `project.mlt` after the agent runs)
-
-## Build
+See **[INSTALL.md](INSTALL.md)** for Linux and Windows (clone → venv → Cursor `mcp.json`).
 
 ```bash
-go build -o bin/analyze ./cmd/analyze
-go build -o bin/compile ./cmd/compile
-go build -o bin/render  ./cmd/render
+git clone https://github.com/AH64-dll/OpenEdit.git
+cd OpenEdit
+python -m venv .venv
+source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+pip install -e ".[mcp]"
 ```
 
-Or use the test-driven build: `go test ./...` builds and runs every test.
+## Docs
 
-## Use
+- [INSTALL.md](INSTALL.md) — Linux + Windows setup
+- [docs/MCP.md](docs/MCP.md) — MCP tools and Cursor config
+- [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md) — Remotion licensing
+- [skills/open-edit-mcp.md](skills/open-edit-mcp.md) — agent playbook
 
-### 1. Set up a project
+## License / status
 
-```bash
-mkdir -p projects/my-clip/footage
-cp /path/to/raw/*.mp4 projects/my-clip/footage/
-```
-
-### 2. Run the pipeline
-
-```bash
-./run.sh my-clip
-```
-
-The driver:
-1. Runs `analyze` → `projects/my-clip/metadata.json`
-2. Invokes OpenCode with `prompts/edl_writer.md` → agent writes `edl.json`
-3. Runs `compile` → `projects/my-clip/project.mlt`
-4. Runs `render --dry-run` → `projects/my-clip/preview.mp4`
-
-By default, final `render` is skipped (use `--render` to enable). The driver's output is a `project.mlt` you open in Kdenlive.
-
-### 3. Open in Kdenlive
-
-```bash
-xdg-open projects/my-clip/project.mlt
-# or just: open it from Kdenlive's File menu
-```
-
-Kdenlive opens it as an "Untitled" project. Refine the cut, save as `.kdenlive` if you want a full project, or render to MP4 from Kdenlive.
-
-### 4. (Optional) Bake a final MP4 from the pipeline
-
-```bash
-./run.sh my-clip --render
-```
-
-This skips Kdenlive and runs `melt` directly to `projects/my-clip/final.mp4`.
-
-## One-shot usage
-
-If you just have a folder of raw clips and want the pipeline to do everything end-to-end, use `edit.sh`:
-
-```bash
-./edit.sh ~/Videos/wedding-raw
-```
-
-This single command:
-
-1. Derives a project name from the folder (`wedding-raw`)
-2. Creates `projects/wedding-raw/footage/` and **symlinks** the raw clips into it (no copying)
-3. Runs the pipeline (analyze → agent → compile → render --dry-run)
-4. Opens the resulting `project.mlt` in Kdenlive (via `xdg-open`)
-
-You can override the project name, force a final render, and re-run from scratch:
-
-```bash
-./edit.sh ~/Videos/wedding-raw my-wedding --render --force
-```
-
-Flags:
-
-- `<source>` (required) — a directory of `.mp4` / `.mov` / `.mkv` / `.webm` files, or a single video file.
-- `<project-name>` (optional) — override the auto-derived name.
-- `--render` — also produce a final `final.mp4` (skip the Kdenlive refinement step entirely).
-- `--force` — wipe the existing project outputs (`metadata.json`, `edl.json`, `project.mlt`, `preview.mp4`, `final.mp4`, `*.lck`) and re-run. **Does NOT remove `footage/` symlinks.** To re-point symlinks (e.g., you want to point at a different source folder), run `rm -rf projects/<name>/footage` first.
-- `-h`, `--help` — show usage.
-
-`edit.sh` is idempotent: re-running it on the same source is a no-op (existing symlinks are detected, finished pipeline stages are skipped) and re-opens the project in Kdenlive.
-
-## Re-running stages
-
-`run.sh` is idempotent. To re-run from scratch:
-
-```bash
-rm projects/my-clip/{metadata.json,edl.json,project.mlt,preview.mp4,final.mp4}
-./run.sh my-clip
-```
-
-Or with one flag:
-
-```bash
-./run.sh my-clip --force
-```
-
-## Testing
-
-```bash
-go test ./...                                    # all unit + e2e tests
-go test -tags=agent_canary ./test/...            # agent canary (requires opencode + model)
-```
-
-## Project layout
-
-```
-mlt-pipeline/
-├── cmd/                # three CLI entry points
-├── internal/           # metadata, edl, mlt libraries
-├── schema/             # JSON Schema for edl.json
-├── testdata/           # synthetic fixtures
-├── prompts/            # system prompt for the agent
-├── test/               # e2e + agent canary
-├── projects/           # working directories, one per user project (gitignored)
-├── run.sh              # the driver
-└── docs/               # spec + plan
-```
-
-## Limits (v1)
-
-- `transition: "dissolve"` is not supported (use `cut` or `fade`).
-- Single-tractor timeline (no nested tracks).
-- No captions / subtitles.
-- No music / voiceover generation.
-- Footage must already be on disk; no remote sources.
-- Minimal MLT only — Kdenlive opens the file as "Untitled." For a full `.kdenlive` project, save the file in Kdenlive after opening.
+Experimental prototype. Remotion usage may require a company license — see `docs/REMOTION_LICENSE.md`.

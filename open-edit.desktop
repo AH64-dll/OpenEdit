@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=Open Edit
-Comment=AI-native video editing chat server — starts the server and opens the browser
-Exec=/home/ah64/apps/mlt-pipeline/.open-edit-launcher.sh
-Terminal=false
-Type=Application
-Icon=video-player
-Categories=Development;AudioVideo;
-StartupNotify=true

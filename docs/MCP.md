@@ -12,7 +12,7 @@ your machine.
 
 ### Linux / macOS
 
-From the `open_edit/` package directory (use your project venv):
+From the repo root (use your project venv):
 
 ```bash
 python -m venv .venv
@@ -25,7 +25,6 @@ That installs the `mcp` SDK and the `open-edit-mcp` console script.
 ### Windows (native)
 
 ```powershell
-cd open_edit
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[mcp]"
@@ -120,7 +119,7 @@ If `open-edit-mcp` is not on `PATH`, use the venv binary:
 {
   "mcpServers": {
     "open-edit": {
-      "command": "/absolute/path/to/open_edit/.venv/bin/open-edit-mcp",
+      "command": "/absolute/path/to/OpenEdit/.venv/bin/open-edit-mcp",
       "args": ["--project", "/absolute/path/to/project"]
     }
   }
@@ -133,7 +132,7 @@ If `open-edit-mcp` is not on `PATH`, use the venv binary:
 {
   "mcpServers": {
     "open-edit": {
-      "command": "C:\\absolute\\path\\to\\open_edit\\.venv\\Scripts\\open-edit-mcp.exe",
+      "command": "C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe",
       "args": ["--project", "C:\\Users\\you\\OpenEditProjects\\my-talk"],
       "env": {
         "OPEN_EDIT_RENDER_BACKEND": "cpu",
@@ -245,7 +244,7 @@ Prefer Node 24 for Remotion CLI:
 {
   "mcpServers": {
     "open-edit": {
-      "command": "/path/to/open_edit/.venv/bin/open-edit-mcp",
+      "command": "/path/to/OpenEdit/.venv/bin/open-edit-mcp",
       "args": ["--project", "/absolute/path/to/project"],
       "env": {
         "OPEN_EDIT_NODE_BIN": "/path/to/node24/bin/node",

@@ -2,14 +2,13 @@
 
 **Repository:** [https://github.com/AH64-dll/OpenEdit](https://github.com/AH64-dll/OpenEdit)
 
-This guide covers cloning the repo and installing the **Open Edit MCP server**
-(for Cursor / OpenCode / Claude Code) on **Linux** and **Windows**.
+Clone this repo, install the Python package at the **repo root**, then point
+Cursor (or another MCP host) at `open-edit-mcp`.
 
-The Python package lives in the `open_edit/` folder. You also need a separate
-**edit project** directory (created with `open_edit init`) where media and the
-edit graph live.
+You also need a separate **edit project** directory (created with
+`open_edit init`) where media and the edit graph live.
 
-For deeper MCP details see [`docs/MCP.md`](docs/MCP.md).
+More MCP detail: [`docs/MCP.md`](docs/MCP.md).
 
 ---
 
@@ -22,10 +21,10 @@ For deeper MCP details see [`docs/MCP.md`](docs/MCP.md).
 | ffmpeg / ffprobe | recommended | recommended | media probe, overlays |
 | melt (MLT) | recommended | recommended | proxy/final render |
 | Node.js 24 (optional) | optional | optional | Remotion compositions |
-| bubblewrap / Rust sandbox | Linux only | **not used** | free-form jail (Linux) |
 
 On Windows, `run_script` defaults to unsandboxed `dev` mode. Moviepy
-`generate_visual_for_segment` is unsupported on Windows.
+`generate_visual_for_segment` is unsupported on Windows. The Rust bwrap
+sandbox is **not** shipped in this repo.
 
 ---
 
@@ -41,11 +40,9 @@ cd OpenEdit
 ### Windows (PowerShell)
 
 ```powershell
-git clone https://github.com/AH64-dll/OpenEdit.git
-cd OpenEdit
+git clone https://github.com/AH64-dll/OpenEdit.git C:\OpenEdit
+cd C:\OpenEdit
 ```
-
-Example install location: `C:\OpenEdit` (or `C:\open_edit` if you rename the folder).
 
 ---
 
@@ -54,14 +51,13 @@ Example install location: `C:\OpenEdit` (or `C:\open_edit` if you rename the fol
 ### Linux / macOS
 
 ```bash
-cd open_edit
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -e ".[mcp]"
 ```
 
-Optional extras:
+Optional:
 
 ```bash
 pip install -e ".[mcp,serve]"     # review UI
@@ -71,27 +67,19 @@ pip install -e ".[mcp,whisper]"   # local transcription
 ### Windows (PowerShell)
 
 ```powershell
-cd open_edit
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
 pip install -e ".[mcp]"
 ```
 
-If execution policy blocks activation:
+If activation is blocked:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-Optional extras:
-
-```powershell
-pip install -e ".[mcp,serve]"
-pip install -e ".[mcp,whisper]"
-```
-
-Confirm the console script exists:
+Confirm:
 
 ```powershell
 .\.venv\Scripts\open-edit-mcp.exe --help
@@ -106,8 +94,6 @@ Linux:
 ---
 
 ## 3. Create an edit project
-
-The MCP server needs a project folder that contains `.open_edit/`.
 
 ### Linux / macOS
 
@@ -127,8 +113,6 @@ open_edit init "$env:USERPROFILE\OpenEditProjects\my-talk"
 
 ## 4. Configure Cursor MCP
 
-Edit user MCP config:
-
 - Linux / macOS: `~/.cursor/mcp.json`
 - Windows: `%USERPROFILE%\.cursor\mcp.json`
 
@@ -138,7 +122,7 @@ Edit user MCP config:
 {
   "mcpServers": {
     "open-edit": {
-      "command": "/ABSOLUTE/PATH/TO/OpenEdit/open_edit/.venv/bin/open-edit-mcp",
+      "command": "/ABSOLUTE/PATH/TO/OpenEdit/.venv/bin/open-edit-mcp",
       "args": ["--project", "/home/YOU/OpenEditProjects/my-talk"],
       "env": {
         "OPEN_EDIT_RENDER_BACKEND": "cpu",
@@ -155,7 +139,7 @@ Edit user MCP config:
 {
   "mcpServers": {
     "open-edit": {
-      "command": "C:\\OpenEdit\\open_edit\\.venv\\Scripts\\open-edit-mcp.exe",
+      "command": "C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe",
       "args": ["--project", "C:\\Users\\YOU\\OpenEditProjects\\my-talk"],
       "env": {
         "OPEN_EDIT_RENDER_BACKEND": "cpu",
@@ -166,90 +150,51 @@ Edit user MCP config:
 }
 ```
 
-Notes:
+Use absolute paths. On Windows, allowlist roots use `;`. Reload MCP in Cursor.
 
-- Use **absolute** paths.
-- On Windows, ingest allowlist roots are separated by `;` (not `:`).
-- Reload MCP in Cursor (Settings → MCP → refresh) or restart Cursor.
-- You should see tools: `query_project`, `edit_project`, `run_script`,
-  `trigger_render`, `get_render_job`, `cancel_render_job`.
+Tools: `query_project`, `edit_project`, `run_script`, `trigger_render`,
+`get_render_job`, `cancel_render_job`.
 
 ---
 
 ## 5. Optional: review UI
 
-### Linux / macOS
-
 ```bash
-cd open_edit
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
 pip install -e ".[mcp,serve]"
 open_edit serve --review-only --port 8000
 ```
 
 Open `http://127.0.0.1:8000` and select the same project.
 
-### Windows (PowerShell)
-
-```powershell
-cd open_edit
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[mcp,serve]"
-open_edit serve --review-only --port 8000
-```
-
-Open `http://127.0.0.1:8000`.
-
 ---
 
 ## 6. Smoke check
 
-1. Cursor lists the `open-edit` MCP server as connected.
-2. Call `query_project` (e.g. list assets / pending notes).
-3. `edit_project` with `ingest_local` on a file under the project or allowlist.
-4. `run_script` with a minimal `ir.add_clip(...)` (works on Windows via `dev`).
-5. `trigger_render` with `"mode": "proxy"` if `melt` and `ffmpeg` are on PATH.
-6. On Windows, moviepy `generate_visual` is expected to report unsupported.
+1. Cursor shows `open-edit` MCP connected.
+2. `query_project` works.
+3. `edit_project` / `ingest_local` on an allowlisted file.
+4. `run_script` minimal `ir.add_clip(...)`.
+5. `trigger_render` proxy if melt+ffmpeg are on PATH.
 
 ---
 
-## Updating from GitHub
-
-### Linux / macOS
+## Updating
 
 ```bash
 cd OpenEdit
 git pull
-cd open_edit
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
 pip install -e ".[mcp]"
 ```
 
-### Windows (PowerShell)
-
-```powershell
-cd C:\OpenEdit
-git pull
-cd open_edit
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[mcp]"
-```
-
-Then reload MCP in Cursor.
+Reload MCP in Cursor.
 
 ---
 
-## Uninstall / remove from Windows
+## Uninstall (Windows)
 
 1. Remove the `open-edit` entry from `%USERPROFILE%\.cursor\mcp.json`.
-2. Delete the clone folder (e.g. `C:\OpenEdit`).
-3. Optionally delete edit projects under `%USERPROFILE%\OpenEditProjects`.
+2. Delete `C:\OpenEdit`.
+3. Optionally delete `%USERPROFILE%\OpenEditProjects`.
 4. Restart Cursor.
-
----
-
-## More docs
-
-- [`docs/MCP.md`](docs/MCP.md) — MCP tools, skills, security notes
-- [`open_edit/README.md`](open_edit/README.md) — package overview and limits
-- [`docs/architecture-boundary.md`](docs/architecture-boundary.md) — Open Edit vs Go pipeline
