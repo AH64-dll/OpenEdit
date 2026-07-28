@@ -1,6 +1,21 @@
-# mlt-pipeline
+# Open Edit / mlt-pipeline
 
-Autonomous video-editing pipeline. Raw footage → Kdenlive-editable `project.mlt` via an OpenCode-driven agent.
+**GitHub:** [https://github.com/AH64-dll/OpenEdit](https://github.com/AH64-dll/OpenEdit)
+
+Autonomous video-editing pipeline. Raw footage → Kdenlive-editable `project.mlt`
+via an OpenCode-driven agent, plus the experimental **Open Edit** MCP / IR
+editor under `open_edit/`.
+
+## Install (Linux + Windows)
+
+**Start here:** [`INSTALL.md`](INSTALL.md) — clone, venv, Cursor MCP config, and
+uninstall steps for **Linux** and **Windows**.
+
+Quick MCP pointers:
+
+- Package path: `open_edit/`
+- MCP docs: [`docs/MCP.md`](docs/MCP.md)
+- Windows uses `.\.venv\Scripts\open-edit-mcp.exe` (no bwrap sandbox)
 
 ## Design
 
@@ -25,11 +40,10 @@ Production Go pipeline:
 1. Install Go 1.22+, `ffmpeg`/`ffprobe`, `melt`, `opencode`, and Kdenlive.
 2. Build the Go CLIs with the commands in [Build](#build).
 
-Experimental `open_edit/` prototype only:
+Experimental `open_edit/` prototype / MCP:
 
-1. `pip install -e open_edit/` (Python deps)
-2. `npm install` at the repo root — installs `hyperframes@0.7.65` for HTML
-   overlays and pinned Remotion / React packages for React motion graphics.
+1. Follow [`INSTALL.md`](INSTALL.md) (`pip install -e ".[mcp]"` inside `open_edit/`).
+2. Optional: `npm install` at the repo root — HyperFrames + Remotion packages.
 3. Remotion is optional. See [`docs/REMOTION_LICENSE.md`](docs/REMOTION_LICENSE.md)
    before using Remotion in a commercial deployment with 4+ employees.
 

@@ -1,5 +1,8 @@
 # Open Edit Experimental Prototype
 
+**Install (Linux + Windows):** [`../INSTALL.md`](../INSTALL.md)  
+**GitHub:** [https://github.com/AH64-dll/OpenEdit](https://github.com/AH64-dll/OpenEdit)
+
 This directory is **experimental**. It is not the production implementation of `mlt-pipeline`.
 
 The supported production path for this repository is the Go pipeline in `cmd/`, `internal/`, `run.sh`, and `edit.sh`.
