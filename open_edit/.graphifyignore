@@ -1,0 +1,30 @@
+# Exclude non-functional / non-source content from the OpenEdit graph.
+# Only the actual implementation should be graphed (no dead code, no
+# orchestration scratch files, no caches, no vendored/external symlinks).
+
+# Caches & build artifacts
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+sandbox/target/
+*.pyc
+*.egg-info/
+
+# Agent orchestration scratch space (not part of the product)
+.agents/
+
+# Runtime state / generated project data (not source)
+.open_edit/
+
+# Planning docs (not code) - keep out of the code graph
+plans/
+docs/
+
+# External projects symlinked in for local testing - not part of OpenEdit
+open_edit/o-2
+open_edit/test
+
+# Misc
+.git/

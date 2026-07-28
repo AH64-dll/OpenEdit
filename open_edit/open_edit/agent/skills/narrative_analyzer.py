@@ -1,6 +1,12 @@
-"""Narrative analyzer skill: classify transcript segments into 7 beat types.
+"""Narrative analyzer skill: classify transcript segments into beat types.
 
 Per phase4-design-revised.md section 4.1 (W4).
+
+NOTE: the LLM-backed analysis path is NOT implemented. `analyze(use_llm=True)`
+emits a warning and falls back to the rule-based stub. The returned beat types
+are positional heuristics (first window -> hook, last -> button, ...), NOT a
+real narrative analysis. Do not use them for structural edit decisions
+(reordering, cuts) without independent verification.
 """
 from __future__ import annotations
 
@@ -25,10 +31,9 @@ class NarrativeSegment(BaseModel):
 def analyze(asset: Asset, use_llm: bool = True) -> list[NarrativeSegment]:
     """Analyze the asset's transcript and return narrative segments.
 
-    With use_llm=True, calls the LLM to classify beats.
-    With use_llm=False, falls back to a simple rule-based segmentation
-    that produces one segment per ~5 seconds of transcript, classified
-    by position (first -> hook, last -> button, middle -> mechanism).
+    With use_llm=True, this currently warns and falls back to the
+    rule-based segmentation (the LLM path is not implemented). With
+    use_llm=False it directly returns the rule-based result.
     """
     if not asset.alignment:
         return []
@@ -75,13 +80,15 @@ def _analyze_rule_based(asset: Asset) -> list[NarrativeSegment]:
 
 
 def _analyze_with_llm(asset: Asset) -> list[NarrativeSegment]:
-    """Call the LLM to classify beats.
+    """LLM-backed beat classification.
 
-    Implementation note: the actual LLM call is out of scope for v1; this
-    function is a stub that returns the rule-based result with a warning.
-    Future: route through the agent loop (e.g., pyagent_run_python that
-    emits NarrativeSegment + AddClipOp).
+    NOT IMPLEMENTED. Warns and returns the rule-based fallback so callers
+    do not silently believe they received intelligent analysis.
     """
     import warnings
-    warnings.warn("LLM-based narrative analysis is not yet implemented; using rule-based fallback")
+    warnings.warn(
+        "LLM-based narrative analysis is not implemented; returning "
+        "rule-based fallback (beat types are positional heuristics, not "
+        "a real analysis)."
+    )
     return _analyze_rule_based(asset)

@@ -128,3 +128,63 @@ async def test_stream_cli_kills_hung_subprocess_and_emits_error(
     assert "timeout" in err["message"].lower()
     done = next(e for e in events if e["type"] == "done")
     assert done["stop_reason"] == "error"
+
+
+_FAKE_OPENCODE_CAPTURE = """#!/usr/bin/env python3
+import json, sys, pathlib
+pathlib.Path(sys.argv[0] + ".last_msg").write_text(sys.argv[-1], encoding="utf-8")
+print(json.dumps({"type":"step_start","timestamp":1,"sessionID":"oc","part":{"id":"p1","messageID":"m1","sessionID":"oc","type":"step-start"}}))
+print(json.dumps({"type":"text","timestamp":2,"sessionID":"oc","part":{"id":"p2","messageID":"m1","sessionID":"oc","type":"text","text":"remembered"}}))
+print(json.dumps({"type":"step_finish","timestamp":3,"sessionID":"oc","part":{"id":"p3","messageID":"m1","sessionID":"oc","type":"step-finish","reason":"stop","tokens":{"total":10,"input":5,"output":5,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}))
+sys.exit(0)
+"""
+
+
+@pytest.mark.asyncio
+async def test_opencode_second_turn_includes_prior_user_fact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OE-P1-007: OpenCode full_history must retain turn-1 facts."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    oc = bin_dir / "opencode"
+    oc.write_text(_FAKE_OPENCODE_CAPTURE)
+    oc.chmod(stat.S_IRWXU)
+    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "opencode")
+    monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "opencode-go/minimax-m3")
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+
+    messages = [
+        {"role": "user", "content": "Remember the codeword is nebula-42."},
+        {"role": "assistant", "content": "Got it."},
+        {"role": "user", "content": "What was the codeword?"},
+    ]
+    events: list[dict] = []
+    async for ev in stream_chat(
+        messages=messages,
+        tools=[],
+        system="be brief",
+        session_id="oc-history",
+    ):
+        events.append(ev)
+
+    assert any(e["type"] == "done" for e in events)
+    captured = (oc.with_name(oc.name + ".last_msg")).read_text(encoding="utf-8")
+    assert "nebula-42" in captured
+    assert "What was the codeword?" in captured
+    assert "[assistant]" in captured
+    assert "[user]" in captured
+
+
+def test_serialize_cli_conversation_drops_oldest_under_budget() -> None:
+    from open_edit.serve.llm import _serialize_cli_conversation
+
+    messages = [
+        {"role": "user", "content": "AAAA"},
+        {"role": "assistant", "content": "BBBB"},
+        {"role": "user", "content": "CCCC"},
+    ]
+    text = _serialize_cli_conversation(messages, char_budget=40)
+    assert "CCCC" in text
+    assert "AAAA" not in text
+

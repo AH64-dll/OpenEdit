@@ -31,9 +31,9 @@ def test_get_adapter_unknown_raises_for_arbitrary() -> None:
         get_adapter("nope")
 
 
-def test_list_adapters_returns_three() -> None:
+def test_list_adapters_includes_all_providers() -> None:
     names = sorted(list_adapters())
-    assert names == ["antigravity", "opencode", "pi"]
+    assert names == ["anthropic", "antigravity", "openai", "opencode", "pi"]
 
 
 def test_pi_default_timeout_s_is_set() -> None:

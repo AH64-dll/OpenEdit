@@ -29,6 +29,13 @@ export const state = {
   // chat-status pill in the DOM; the agent loop's
   // ``cost_update`` WS event drives the label.
   costBadge: null,
+  reviewOnly: false,
+  autoProxy: false,
+  playheadSec: 0,
+  lastGraphRevision: null,
+  proxyRenderInFlight: false,
+  renderPollTimer: null,
+  previewRenderId: null,
 };
 
 // Hydrate from localStorage if it's available (browser). Tests stub
@@ -101,7 +108,10 @@ export function normalizeEdits(rawState) {
 
 export function summarizeOpPayload(p) {
   if (!p || typeof p !== 'object') return '';
-  const keys = ['label', 'filename', 'asset_hash', 'type', 'mode'];
+  const keys = [
+    'label', 'filename', 'asset_hash', 'type', 'mode',
+    'composition_id', 'entry_point', 'template_path', 'track_id',
+  ];
   for (const k of keys) if (p[k]) return `${k}=${String(p[k]).slice(0, 60)}`;
   return JSON.stringify(p).slice(0, 80);
 }
@@ -114,6 +124,7 @@ export function normalizeTimeline(raw) {
     clip_count: raw.clip_count ?? raw.num_clips ?? 0,
     tracks: raw.tracks || [],
     overlays: raw.overlays || [],
+    remotion_compositions: raw.remotion_compositions || [],
   };
 }
 
@@ -139,6 +150,7 @@ export function normalizeNotes(rawState) {
       list: rawState.notes.map(n => ({
         id: n.id || '',
         timestamp: n.timestamp || 0,
+        t_end: n.t_end ?? n.timestamp ?? 0,
         source: n.source || 'agent',
         text: n.text || '',
         status: n.status || 'pending',

@@ -90,3 +90,55 @@ def test_save_then_load_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     save_llm_config(tmp_path, cfg)
     loaded = load_llm_config(tmp_path)
     assert loaded == cfg
+
+
+def test_save_preserves_non_llm_toml_sections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPEN_EDIT_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("OPEN_EDIT_LLM_MODEL", raising=False)
+    cfg_dir = tmp_path / ".open_edit"
+    cfg_dir.mkdir()
+    cfg_path = cfg_dir / "config.toml"
+    cfg_path.write_text(
+        "[llm]\n"
+        'provider = "opencode"\n'
+        'model = "x"\n'
+        "\n"
+        "[render]\n"
+        'mode = "proxy"\n'
+        'bitrate = "10M"\n'
+        "\n"
+        "[ui]\n"
+        'theme = "dark"\n'
+    )
+    cfg = LLMConfig(provider="pi", model="minimax-m3")
+    save_llm_config(tmp_path, cfg)
+
+    text = cfg_path.read_text()
+    assert "provider = \"pi\"" in text
+    assert "minimax-m3" in text
+    assert "[render]" in text, f"render section lost:\n{text}"
+    assert "mode = \"proxy\"" in text
+    assert "[ui]" in text, f"ui section lost:\n{text}"
+    assert "theme = \"dark\"" in text
+
+
+def test_save_preserves_similarly_named_table_and_utf8(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".open_edit"
+    cfg_dir.mkdir()
+    cfg_path = cfg_dir / "config.toml"
+    cfg_path.write_text('[llm_extra]\nlabel = "café"\n\n[llm]\nprovider = "pi"\nmodel = "old"\n')
+    save_llm_config(tmp_path, LLMConfig(provider="openai", model="gpt-4o"))
+    parsed = __import__("tomllib").loads(cfg_path.read_text())
+    assert parsed["llm_extra"] == {"label": "café"}
+    assert parsed["llm"] == {"provider": "openai", "model": "gpt-4o"}
+
+
+def test_save_refuses_to_overwrite_malformed_toml(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".open_edit"
+    cfg_dir.mkdir()
+    cfg_path = cfg_dir / "config.toml"
+    original = "[render\nmode = 'proxy'\n"
+    cfg_path.write_text(original)
+    with pytest.raises(LLMConfigError, match="refusing to overwrite malformed"):
+        save_llm_config(tmp_path, LLMConfig(provider="pi", model="minimax-m3"))
+    assert cfg_path.read_text() == original

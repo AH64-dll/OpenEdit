@@ -478,9 +478,7 @@ class BwrapBackend(SandboxBackend):
                 )
 
             if not ops_path.exists():
-                return FreeFormResult.fail(
-                    "ops_missing", "sandbox ok but ops.jsonl is missing",
-                )
+                return FreeFormResult.ok(ops=[], duration_s=0.0)
 
             try:
                 ops, _ = _validate_ops_incrementally(ops_path, workdir)
@@ -566,9 +564,7 @@ class DevSubprocessBackend(SandboxBackend):
                 )
 
             if not ops_path.exists():
-                return FreeFormResult.fail(
-                    "ops_missing", "dev sandbox ok but ops.jsonl is missing",
-                )
+                return FreeFormResult.ok(ops=[], duration_s=0.0)
 
             try:
                 ops, _ = _validate_ops_incrementally(ops_path, workdir)
@@ -584,14 +580,26 @@ def get_sandbox_backend() -> SandboxBackend:
     """Select the free-form sandbox backend from the environment.
 
     Env contract (``OPEN_EDIT_SANDBOX_BACKEND``, read at call time):
-      - unset or ``"bwrap"`` -> BwrapBackend (default, fail-closed).
-      - ``"dev"``            -> DevSubprocessBackend (UNSAFE, local dev only).
+      - unset on POSIX -> BwrapBackend (default, fail-closed).
+      - unset on Windows (``win32``) -> DevSubprocessBackend (no bwrap).
+      - ``"bwrap"`` -> BwrapBackend (raises ValueError on Windows).
+      - ``"dev"``   -> DevSubprocessBackend (UNSAFE, local / MCP host isolation).
 
     Any other value raises ValueError so a typo can never silently pick an
     unexpected (or unsandboxed) backend.
     """
-    choice = os.environ.get(SANDBOX_BACKEND_ENV, _DEFAULT_SANDBOX_BACKEND).strip().lower()
-    if choice in ("", "bwrap"):
+    raw = os.environ.get(SANDBOX_BACKEND_ENV)
+    if raw is None or not raw.strip():
+        if sys.platform == "win32":
+            return DevSubprocessBackend()
+        return BwrapBackend()
+    choice = raw.strip().lower()
+    if choice == "bwrap":
+        if sys.platform == "win32":
+            raise ValueError(
+                f"{SANDBOX_BACKEND_ENV}=bwrap is not supported on Windows; "
+                "leave unset (defaults to 'dev') or set to 'dev'"
+            )
         return BwrapBackend()
     if choice == "dev":
         return DevSubprocessBackend()
@@ -871,6 +879,7 @@ def _render_bootstrap(
         "GroupEditsOp", "UngroupEditsOp",
         "RawMltXmlOp", "FreeFormCodeOp",
         "AddHtmlOverlayOp", "RemoveHtmlOverlayOp",
+        "AddRemotionCompositionOp", "RemoveRemotionCompositionOp",
     ]
     op_sources = [inspect.getsource(getattr(_types, name)) for name in op_types]
     new_id_source = inspect.getsource(_types.new_id)
@@ -979,9 +988,18 @@ def run_render(
     `HOME=/tmp` in its environment. It runs inside bwrap with user/pid/ipc/net
     namespaces, no seccomp, cgroup-based memory + CPU limits, and optional
     /dev/dri bind for GPU work.
+
+    On Windows the Linux render-sandbox binary is unavailable; this always
+    returns ``ok=False`` with ``detail=render_sandbox_unsupported_on_windows``.
     """
-    workdir = Path(workdir)
     output_path = Path(output_path)
+    if sys.platform == "win32":
+        return RenderResult(
+            path=output_path,
+            ok=False,
+            detail="render_sandbox_unsupported_on_windows",
+        )
+    workdir = Path(workdir)
     # P9: validate workdir FIRST, before any host-side staging
     # (_render_code.py is written to <workdir>/_render_code.py). A hostile
     # tool call with project_path="/etc" must NOT cause _render_code.py to

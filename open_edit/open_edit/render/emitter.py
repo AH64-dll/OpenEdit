@@ -21,11 +21,75 @@ class EmitterConfig(BaseModel):
         "frame_rate_num": 30, "frame_rate_den": 1,
     })
     project_meta: dict = Field(default_factory=dict)
+    enable_audio_micro_fades: bool = True
+    micro_fade_duration_sec: float = 0.030
 
 
 def _format_timecode(seconds: float, fps_num: int, fps_den: int) -> str:
     """Convert seconds to MLT frame count (integer)."""
     return str(int(round(seconds * fps_num / fps_den)))
+
+
+def _emit_audio_micro_fade(
+    parent: etree._Element,
+    clip_id: str,
+    clip_dur_sec: float,
+    fps_num: int,
+    fps_den: int,
+    micro_fade_dur_sec: float = 0.030,
+) -> None:
+    """Inject 30ms audio micro-fade-in and fade-out filter into clip entry.
+
+    Resolves keyframe collisions cleanly so short clips (<60ms) and 1-frame clips
+    are never muted and always contain peak volume (1.0).
+    """
+    fade_dur = micro_fade_dur_sec
+    if clip_dur_sec < 0.060:
+        fade_dur = clip_dur_sec / 2.0
+
+    clip_end_frame = int(round(clip_dur_sec * fps_num / fps_den))
+
+    if clip_end_frame == 0:
+        # 1-frame clip: preserve full volume 1.0 (not muted)
+        deduped = [(0, 1.0)]
+    else:
+        fade_in_end_frame = int(round(fade_dur * fps_num / fps_den))
+        fade_out_start_frame = int(round((clip_dur_sec - fade_dur) * fps_num / fps_den))
+
+        if fade_in_end_frame == 0:
+            fade_in_end_frame = 1
+        if fade_out_start_frame == 0:
+            fade_out_start_frame = 1
+
+        fade_in_end_frame = min(fade_in_end_frame, clip_end_frame)
+        fade_out_start_frame = min(fade_out_start_frame, clip_end_frame)
+
+        kf_dict: dict[int, float] = {}
+
+        # 1. Start frame (0) is 0.0 for multi-frame clips
+        kf_dict[0] = 0.0
+
+        # 2. Fade peak frames set to 1.0 (peak volume takes priority)
+        kf_dict[fade_in_end_frame] = 1.0
+        kf_dict[fade_out_start_frame] = 1.0
+
+        # 3. Clip end frame set to 0.0 ONLY if it occurs strictly after start (0) AND after all fade peak frames
+        max_peak_frame = max(fade_in_end_frame, fade_out_start_frame)
+        if clip_end_frame > 0 and clip_end_frame > max_peak_frame:
+            kf_dict[clip_end_frame] = 0.0
+
+        deduped = [(f, kf_dict[f]) for f in sorted(kf_dict.keys())]
+
+    filter_el = etree.SubElement(parent, "filter", attrib={
+        "id": f"microfade_{clip_id}",
+        "service": "volume",
+    })
+    for frame, val in deduped:
+        etree.SubElement(filter_el, "kf", attrib={
+            "frame": str(frame),
+            "value": str(val),
+            "interp": "linear",
+        })
 
 
 def _emit_filter(
@@ -159,6 +223,15 @@ def emit_timeline(
                 "in": _format_timecode(clip.in_point_sec, fps_num, fps_den),
                 "out": _format_timecode(clip.out_point_sec, fps_num, fps_den),
             })
+            if config.enable_audio_micro_fades:
+                _emit_audio_micro_fade(
+                    entry,
+                    clip.clip_id,
+                    clip_dur,
+                    fps_num,
+                    fps_den,
+                    config.micro_fade_duration_sec,
+                )
             for effect in clip.effects:
                 if effect.effect_type.startswith("transition_"):
                     _emit_transition(entry, effect)
@@ -175,6 +248,27 @@ def emit_timeline(
         etree.SubElement(multitrack, "track", attrib={
             "producer": f"playlist_{track.track_id}",
         })
+
+    # Composite higher video tracks over lower ones. Without this, melt's
+    # multitrack can render blank/silent when more than one video track exists
+    # (e.g. Remotion graphics on video_graphics over v1 talk footage).
+    video_track_indices = [
+        i for i, track in enumerate(timeline.tracks) if track.kind == "video"
+    ]
+    for upper in video_track_indices[1:]:
+        lower = video_track_indices[0]
+        trans = etree.SubElement(tractor, "transition", attrib={
+            "id": f"composite_{lower}_{upper}",
+            "service": "composite",
+        })
+        for name, value in (
+            ("a_track", str(lower)),
+            ("b_track", str(upper)),
+            ("progressive", "1"),
+            ("operator", "over"),
+        ):
+            prop = etree.SubElement(trans, "property", attrib={"name": name})
+            prop.text = value
 
     xml_bytes = etree.tostring(
         root, pretty_print=True, xml_declaration=True, encoding="UTF-8",

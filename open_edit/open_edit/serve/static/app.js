@@ -35,7 +35,7 @@ import {
   appendSearchResults,
   markTurnDone,
 } from './js/chat.js';
-import { connectWS, setWsState, setOnTurnDone, scheduleReconnect } from './js/ws.js';
+import { connectWS, disconnectWS, setReviewConnStatus, setWsState, setOnTurnDone, scheduleReconnect } from './js/ws.js';
 
 // ----------------------------------------------------------
 // Project selector
@@ -113,8 +113,13 @@ export function selectProject(id) {
 
   $('#project-select').value = id || '';
   loadProjectState();
-  loadLLMConfig();
-  connectWS();
+  if (state.reviewOnly) {
+    disconnectWS();
+    setReviewConnStatus();
+  } else {
+    loadLLMConfig();
+    connectWS();
+  }
 }
 
 // ----------------------------------------------------------
@@ -171,16 +176,7 @@ export async function loadProjectState() {
   try {
     const s = await api.getProjectState(state.currentProjectId);
     state.currentProjectState = s;
-    renderAssets(normalizeAssets(s.assets));
-    renderEditGraph(normalizeEdits(s));
-    renderNotesSummary(normalizeNotes(s));
-    const inlineRenders = normalizeRenders(s);
-    if (inlineRenders) renderRendersList(inlineRenders);
-    else refreshRendersList();
-    // Render the timeline panel if full timeline data is included
-    if (s.timeline_full) {
-      renderTimeline(s.timeline_full);
-    }
+    paintProjectSnapshot(s);
   } catch (e) {
     // The fetch failed — clear the loading state so the list isn't
     // stuck on a spinner, and toast the actual reason. The user gets
@@ -188,6 +184,50 @@ export async function loadProjectState() {
     // successful load has somewhere to render into.
     clearAssetsList();
     showToast(`Failed to load project: ${e.message}`, 'error');
+  }
+}
+
+function paintProjectSnapshot(s) {
+  renderAssets(normalizeAssets(s.assets), { onAddToTimeline: addAssetToTimeline });
+  renderEditGraph(normalizeEdits(s));
+  renderNotesSummary(normalizeNotes(s));
+  const inlineRenders = normalizeRenders(s);
+  if (inlineRenders) renderRendersList(inlineRenders);
+  else refreshRendersList();
+  if (s.timeline_full) {
+    const newDur = Number(s.timeline_full.duration_sec || 0);
+    if (Math.abs(newDur - tlDurationSec) > 0.5) tlAutoFitPending = false;
+    renderTimeline(s.timeline_full, {
+      edits: normalizeEdits(s),
+      notes: normalizeNotes(s).list,
+    });
+  }
+  if (s.timeline_status === 'invalid') {
+    showToast(`Timeline invalid: ${s.timeline_error_code || 'derivation failed'}`, 'warn');
+  }
+}
+
+async function addAssetToTimeline(asset) {
+  if (!state.currentProjectId || !asset?.hash) return;
+  const expectedRevision = state.currentProjectState?.graph_revision;
+  const positionSec = Number(state.currentProjectState?.timeline?.total_duration_s || 0);
+  try {
+    const result = await api.applyTimelineCommand(
+      state.currentProjectId,
+      'add_clip',
+      {
+        asset_hash: asset.hash,
+        track_id: 'V1',
+        position_sec: positionSec,
+        in_point_sec: 0,
+        out_point_sec: asset.duration_s || null,
+      },
+      expectedRevision,
+    );
+    showToast(`Added ${asset.filename || 'clip'} to V1`, 'success');
+    await loadProjectState();
+  } catch (err) {
+    showToast(`Add to timeline failed: ${err.message}`, 'error');
   }
 }
 
@@ -277,10 +317,15 @@ function hideEditDetail() {
 async function undoEdit(e) {
   if (!state.currentProjectId) return;
   const newStatus = e.status === 'reverted' ? 'applied' : 'reverted';
+  const expectedRevision = state.currentProjectState?.graph_revision;
   try {
     const r = await fetch(
       `/api/projects/${encodeURIComponent(state.currentProjectId)}/ops/${encodeURIComponent(e.edit_id)}/status`,
-      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) },
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus, expected_revision: expectedRevision }),
+      },
     );
     if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
     showToast(`${newStatus === 'reverted' ? 'Undid' : 'Redid'} ${e.kind}`, 'success');
@@ -292,18 +337,20 @@ async function undoEdit(e) {
 
 async function deleteEdit(e) {
   if (!state.currentProjectId) return;
-  if (!confirm(`Delete ${e.kind}? This cannot be undone.`)) return;
+  if (!confirm(`Revert ${e.kind}? The operation stays in history as reverted.`)) return;
+  const expectedRevision = state.currentProjectState?.graph_revision;
   try {
+    const q = expectedRevision != null ? `?expected_revision=${encodeURIComponent(expectedRevision)}` : '';
     const r = await fetch(
-      `/api/projects/${encodeURIComponent(state.currentProjectId)}/ops/${encodeURIComponent(e.edit_id)}`,
+      `/api/projects/${encodeURIComponent(state.currentProjectId)}/ops/${encodeURIComponent(e.edit_id)}${q}`,
       { method: 'DELETE' },
     );
     if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
     hideEditDetail();
-    showToast(`Deleted ${e.kind}`, 'success');
+    showToast(`Reverted ${e.kind}`, 'success');
     await loadProjectState();
   } catch (err) {
-    showToast(`Failed to delete: ${err.message}`, 'error');
+    showToast(`Failed to revert: ${err.message}`, 'error');
   }
 }
 
@@ -317,6 +364,16 @@ function renderNotesSummary(notes) {
   }
 }
 
+function setRenderButtonsBusy(busy, label) {
+  for (const id of ['btn-render-proxy', 'btn-render-final']) {
+    const btn = $(`#${id}`);
+    if (!btn) continue;
+    if (!btn.dataset.origLabel) btn.dataset.origLabel = btn.textContent;
+    btn.disabled = !!busy;
+    btn.textContent = busy && label ? label : btn.dataset.origLabel;
+  }
+}
+
 function renderRendersList(renders) {
   const list = $('#renders-list');
   if (!list) return;
@@ -325,28 +382,45 @@ function renderRendersList(renders) {
     list.appendChild(el('div', { class: 'empty-state' }, ['No renders yet.']));
     return;
   }
+  const active = renders.some(r => r.status === 'queued' || r.status === 'running');
+  setRenderButtonsBusy(active, active ? 'Rendering…' : null);
   // Newest first.
   for (const r of [...renders].reverse()) {
-    const name = (r.path || '').split('/').pop() || 'render.mp4';
-    const item = el('div', { class: 'render-item' }, [
-      el('div', { class: 'render-thumb' }, ['🎞️']),
+    const name = (r.path || '').split('/').pop() || r.id?.slice(0, 8) || 'render';
+    const modeLabel = r.mode === 'final' ? 'Final 1080p' : (r.mode === 'proxy' ? 'Proxy 720p' : r.mode || 'proxy');
+    const status = r.status || 'succeeded';
+    const statusLabel = status === 'running' ? 'Rendering…'
+      : status === 'queued' ? 'Queued'
+      : status === 'failed' ? `Failed: ${r.error || 'error'}`
+      : status === 'succeeded' ? 'Ready'
+      : status;
+    const item = el('div', { class: `render-item render-status-${status}` }, [
+      el('div', { class: 'render-thumb' }, [status === 'running' ? '⏳' : '🎞️']),
       el('div', { class: 'render-meta' }, [
         el('div', { class: 'render-name' }, [name]),
         el('div', { class: 'render-sub' }, [
-          r.mode || 'proxy',
+          modeLabel,
           ' · ',
-          fmtBytes(r.size_bytes),
+          statusLabel,
+          r.size_bytes ? ` · ${fmtBytes(r.size_bytes)}` : '',
           r.timestamp ? ` · ${fmtTime(r.timestamp)}` : '',
         ]),
       ]),
     ]);
     item.addEventListener('click', () => {
-      // Try to play it directly via the path; if the path isn't a URL,
-      // we can't easily serve it without a route — open the path as a link.
+      if (status !== 'succeeded') {
+        showToast(status === 'running' || status === 'queued'
+          ? 'Render still in progress — check back in a few minutes.'
+          : (r.error || 'Render not available'), 'info');
+        return;
+      }
+      if (r.id && state.currentProjectId) {
+        loadRenderInPreview(r.id, r.mode || 'proxy');
+        return;
+      }
       if (r.path && /^https?:/.test(r.path)) {
         window.open(r.path, '_blank');
       } else if (r.path) {
-        // Fall back: copy the path to clipboard and toast.
         navigator.clipboard?.writeText(r.path).catch(() => {});
         showToast(`Render path: ${r.path}`);
       }
@@ -360,8 +434,27 @@ export async function refreshRendersList() {
   try {
     const renders = await api.listRenders(state.currentProjectId);
     renderRendersList(renders);
-  } catch {
-    // Silent fail — renders list is non-critical.
+    const active = renders.some(r => r.status === 'queued' || r.status === 'running');
+    if (active && !state.renderPollTimer) {
+      state.renderPollTimer = setInterval(() => refreshRendersList(), 5000);
+    } else if (!active && state.renderPollTimer) {
+      clearInterval(state.renderPollTimer);
+      state.renderPollTimer = null;
+      setRenderButtonsBusy(false);
+    }
+    maybeAutoLoadPreview(renders);
+    const warn = $('#renders-degraded-warn');
+    if (warn) warn.classList.add('hidden');
+  } catch (err) {
+    let warn = $('#renders-degraded-warn');
+    if (!warn) {
+      const list = $('#renders-list');
+      warn = el('div', { id: 'renders-degraded-warn', class: 'empty-state' }, []);
+      if (list && list.parentElement) list.parentElement.insertBefore(warn, list);
+    }
+    warn.classList.remove('hidden');
+    warn.textContent = `Render list unavailable: ${err.message || err}`;
+    showToast(`Render list unavailable: ${err.message || err}`, 'error');
   }
 }
 
@@ -580,18 +673,43 @@ function filterCmdList(query) {
 // ----------------------------------------------------------
 // Chat input
 // ----------------------------------------------------------
-function setChatEnabled(enabled) {
+let chatBaseEnabled = false;
+let sendDisabledReason = '';
+
+function refreshSendGate() {
   const input = $('#chat-input');
   const btnSend = $('#btn-send');
-  const btnStop = $('#btn-stop');
-  const btnTopbarStop = $('#btn-topbar-stop');
+  const provider = llmProviderSelect?.value || '';
+  const model = llmModelSelect?.value || '';
+  const capability = providerCapabilities.get(provider);
+  let reason = '';
+  if (!chatBaseEnabled) {
+    reason = 'Select a project and connect chat first.';
+  } else if (!provider) {
+    reason = 'Select an LLM provider.';
+  } else if (!model) {
+    reason = 'Select a model for the current provider.';
+  } else if (!capability) {
+    reason = `Provider ${provider} is unavailable.`;
+  }
+  sendDisabledReason = reason;
+  const enabled = !reason;
   if (input) input.disabled = !enabled;
   if (btnSend) {
     btnSend.disabled = !enabled;
+    btnSend.title = reason || 'Send message';
     if (btnSend.classList && typeof btnSend.classList.toggle === 'function') {
-      btnSend.classList.toggle('hidden', !enabled);
+      btnSend.classList.toggle('hidden', !chatBaseEnabled);
     }
   }
+}
+
+function setChatEnabled(enabled) {
+  chatBaseEnabled = !!enabled;
+  const input = $('#chat-input');
+  const btnStop = $('#btn-stop');
+  const btnTopbarStop = $('#btn-topbar-stop');
+  refreshSendGate();
   if (btnStop) {
     if (btnStop.classList && typeof btnStop.classList.toggle === 'function') {
       btnStop.classList.toggle('hidden', enabled);
@@ -602,7 +720,7 @@ function setChatEnabled(enabled) {
       btnTopbarStop.classList.toggle('hidden', enabled);
     }
   }
-  if (enabled && input) input.focus();
+  if (enabled && input && !input.disabled) input.focus();
 }
 
 function cancelTurn() {
@@ -667,20 +785,37 @@ async function handleFiles(files) {
   prog.appendChild(el('div', {}, [`Uploading ${files.length} file${files.length === 1 ? '' : 's'}…`]));
   const bar = el('div', { class: 'bar' }, [el('div', { class: 'bar-fill', style: 'width:0%' })]);
   prog.appendChild(bar);
+  const detail = el('div', { class: 'upload-detail' }, []);
+  prog.appendChild(detail);
 
   try {
-    await api.ingestFiles(state.currentProjectId, files, (p) => {
+    const result = await api.ingestFiles(state.currentProjectId, files, (p) => {
       bar.querySelector('.bar-fill').style.width = `${Math.round(p * 100)}%`;
     });
-    prog.querySelector('div').textContent = `Ingested ${files.length} file${files.length === 1 ? '' : 's'}.`;
-    showToast(`Ingested ${files.length} file${files.length === 1 ? '' : 's'}`, 'success');
-    // Reload state to show new assets.
+    const accepted = result.accepted || [];
+    const rejected = result.rejected || [];
+    detail.innerHTML = '';
+    for (const a of accepted) {
+      detail.appendChild(el('div', {}, [`✓ ${a.filename || a.hash || 'file'}`]));
+    }
+    for (const r of rejected) {
+      detail.appendChild(el('div', {}, [`✗ ${r.filename || 'file'}: ${r.error || 'rejected'}`]));
+    }
+    prog.querySelector('div').textContent =
+      `Ingested ${accepted.length}/${files.length}` +
+      (rejected.length ? ` (${rejected.length} rejected)` : '');
+    if (accepted.length) {
+      showToast(`Ingested ${accepted.length} file${accepted.length === 1 ? '' : 's'}`, 'success');
+    }
+    if (rejected.length) {
+      showToast(`${rejected.length} file${rejected.length === 1 ? '' : 's'} rejected`, 'error');
+    }
     await loadProjectState();
   } catch (e) {
     prog.querySelector('div').textContent = `Upload failed: ${e.message}`;
     showToast(`Upload failed: ${e.message}`, 'error');
   } finally {
-    setTimeout(() => prog.classList.add('hidden'), 3000);
+    setTimeout(() => prog.classList.add('hidden'), 5000);
   }
 }
 
@@ -692,12 +827,37 @@ async function triggerRender(mode) {
     showToast('Select or create a project first.', 'error');
     return;
   }
-  showToast(`Rendering ${mode}…`);
+  // #region agent log
+  fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H4',location:'app.js:triggerRender',message:'render requested',data:{mode,projectId:state.currentProjectId,graphRevision:state.currentProjectState?.graph_revision},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (mode === 'final') {
+    const stale = await isProxyStale();
+    if (stale) {
+      const ok = confirm(
+        'No proxy render matches the current edit graph. Render a proxy first to review, or continue with final anyway?',
+      );
+      if (!ok) return;
+    }
+  }
+  showToast(`Rendering ${mode}… (32 min timeline may take 10+ minutes)`, 'info');
+  setRenderButtonsBusy(true, 'Rendering…');
+  if (mode === 'proxy') state.proxyRenderInFlight = true;
   try {
-    const job = await api.renderProject(state.currentProjectId, mode);
-    // Poll job status (best-effort).
+    const expectedRevision = state.currentProjectState?.graph_revision;
+    const r = await fetch(`/api/projects/${encodeURIComponent(state.currentProjectId)}/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, expected_revision: expectedRevision }),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.detail || body.error || `HTTP ${r.status}`);
+    }
+    const job = await r.json();
+    refreshRendersList();
     pollRenderJob(job.job_id, mode);
   } catch (e) {
+    setRenderButtonsBusy(false);
     showToast(`Render failed: ${e.message}`, 'error');
   }
 }
@@ -713,13 +873,22 @@ async function pollRenderJob(jobId, mode) {
       const r = await fetch(`/api/projects/${encodeURIComponent(state.currentProjectId)}/render_jobs/${encodeURIComponent(jobId)}`);
       if (!r.ok) return;
       const job = await r.json();
-      if (job.status === 'complete') {
+      if (job.status === 'succeeded') {
         showToast(`Render complete: ${job.output_path || '(output)'}`, 'success');
         refreshRendersList();
+        if (mode === 'proxy') state.proxyRenderInFlight = false;
+        loadRenderInPreview(job.job_id, mode);
+        // #region agent log
+        fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H4',location:'app.js:pollRenderJob',message:'render succeeded',data:{jobId:job.job_id,outputPath:job.output_path,mode},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         return;
       }
-      if (job.status === 'failed') {
+      if (['failed', 'cancelled', 'orphaned'].includes(job.status)) {
         showToast(`Render failed: ${job.error || 'unknown'}`, 'error');
+        // #region agent log
+        fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H4',location:'app.js:pollRenderJob',message:'render failed',data:{jobId:job.job_id,status:job.status,error:job.error},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        if (mode === 'proxy') state.proxyRenderInFlight = false;
         return;
       }
       setTimeout(poll, 2000);
@@ -740,12 +909,18 @@ function startEditGraphRefresh() {
     if (!state.currentProjectId) return;
     try {
       const s = await api.getProjectState(state.currentProjectId);
+      const prevRev = state.currentProjectState?.graph_revision;
       state.currentProjectState = s;
+      // Skip full UI repaint when the graph revision is unchanged.
+      if (prevRev != null && s.graph_revision === prevRev) return;
+      if (prevRev != null && s.graph_revision !== prevRev) {
+        showToast('Edit graph updated — render proxy to preview changes.', 'info');
+        if (state.autoProxy && !state.proxyRenderInFlight) {
+          triggerRender('proxy');
+        }
+      }
+      paintProjectSnapshot(s);
       const edits = normalizeEdits(s);
-      renderAssets(normalizeAssets(s.assets));
-      renderEditGraph(edits);
-      renderNotesSummary(normalizeNotes(s));
-      // If an edit is selected, re-show its detail panel with fresh data
       if (selectedEditId) {
         const selected = edits.find(e => e.edit_id === selectedEditId);
         if (selected) showEditDetail(selected);
@@ -838,6 +1013,17 @@ function bindEvents() {
   $('#btn-render-proxy').addEventListener('click', () => triggerRender('proxy'));
   $('#btn-render-final').addEventListener('click', () => triggerRender('final'));
   $('#btn-refresh-renders').addEventListener('click', refreshRendersList);
+  $('#btn-copy-timecode')?.addEventListener('click', copyPlayheadTimecode);
+  $('#btn-add-note-playhead')?.addEventListener('click', addNoteAtPlayhead);
+
+  const previewPlayer = $('#preview-player');
+  if (previewPlayer) {
+    previewPlayer.addEventListener('timeupdate', () => {
+      state.playheadSec = previewPlayer.currentTime || 0;
+      updatePlayheadUi();
+    });
+    previewPlayer.addEventListener('loadedmetadata', updatePlayheadUi);
+  }
 
   // Notes & Settings & Theme & Cmd+K
   $('#btn-show-notes').addEventListener('click', openNotesModal);
@@ -881,6 +1067,18 @@ function bindEvents() {
   // Mobile panel toggles
   $('#btn-left-panel').addEventListener('click', () => $('#left-panel').classList.toggle('open'));
   $('#btn-right-panel').addEventListener('click', () => $('#right-panel').classList.toggle('open'));
+  $('#btn-toggle-left-panel')?.addEventListener('click', () => {
+    document.body.classList.toggle('panel-left-collapsed');
+    // #region agent log
+    fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H3',location:'app.js:toggle-left-panel',message:'left panel toggled',data:{collapsed:document.body.classList.contains('panel-left-collapsed')},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  });
+  $('#btn-toggle-right-panel')?.addEventListener('click', () => {
+    document.body.classList.toggle('panel-right-collapsed');
+    // #region agent log
+    fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H3',location:'app.js:toggle-right-panel',message:'right panel toggled',data:{collapsed:document.body.classList.contains('panel-right-collapsed')},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  });
 
   // Modal close buttons + backdrop click
   $$('[data-modal-close]').forEach((b) => {
@@ -901,15 +1099,15 @@ function bindEvents() {
 
   // Online/offline awareness for WS reconnect
   window.addEventListener('online', () => {
-    if (state.wsState !== 'connected') connectWS();
+    if (!state.reviewOnly && state.wsState !== 'connected') connectWS();
   });
   window.addEventListener('offline', () => {
-    setWsState('disconnected');
+    if (!state.reviewOnly) setWsState('disconnected');
   });
 
   // Reconnect on tab focus (covers cases where the laptop slept)
   window.addEventListener('focus', () => {
-    if (state.currentProjectId && state.wsState !== 'connected') connectWS();
+    if (!state.reviewOnly && state.currentProjectId && state.wsState !== 'connected') connectWS();
   });
 }
 
@@ -940,7 +1138,7 @@ const llmModelSelect = $('#llm-model-select');
 const llmToolsWarn = $('#llm-tools-warn');
 
 const ANTIGRAVITY_DEFAULT_MODEL = 'gemini-2.5-flash';
-const TOOL_UNSUPPORTED_PROVIDERS = new Set([]);
+let providerCapabilities = new Map();
 
 async function fetchProviderModels(provider) {
   try {
@@ -985,13 +1183,14 @@ async function putLLMConfigRequest(projectId, provider, model) {
 
 export async function loadLLMConfig() {
   const projectId = state.currentProjectId;
-  if (!projectId) {
+  if (!projectId || state.reviewOnly) {
     if (llmProviderSelect) llmProviderSelect.disabled = true;
     if (llmModelSelect) llmModelSelect.disabled = true;
     return;
   }
   try {
     const cfg = await fetchLLMConfig(projectId);
+    providerCapabilities = new Map((cfg.provider_capabilities || []).map(p => [p.id, p]));
     populateProviderDropdown(cfg.available_providers, cfg.provider);
     populateModelDropdown(cfg.available_models, cfg.model);
     if (llmProviderSelect) llmProviderSelect.disabled = false;
@@ -1010,7 +1209,13 @@ function populateProviderDropdown(providers, current) {
   for (const p of allProviders) {
     const opt = document.createElement('option');
     opt.value = p;
-    opt.textContent = p;
+    const capability = providerCapabilities.get(p);
+    const modeLabel = capability?.agent_mode === 'openedit_loop'
+      ? 'Full editing agent'
+      : capability?.agent_mode === 'external_loop'
+        ? 'Full editing agent (external)'
+        : 'Chat only';
+    opt.textContent = `${capability?.label || p} — ${modeLabel}`;
     if (p === current) opt.selected = true;
     llmProviderSelect.appendChild(opt);
   }
@@ -1049,11 +1254,12 @@ function populateModelDropdown(models, current) {
 
 function updateToolsWarning(provider) {
   if (!llmToolsWarn) return;
-  if (TOOL_UNSUPPORTED_PROVIDERS.has(provider)) {
+  if (providerCapabilities.get(provider)?.agent_mode === 'chat_only') {
     llmToolsWarn.classList.remove('hidden');
   } else {
     llmToolsWarn.classList.add('hidden');
   }
+  refreshSendGate();
 }
 
 async function saveLLMConfig(provider, model) {
@@ -1061,6 +1267,7 @@ async function saveLLMConfig(provider, model) {
   if (!projectId) return;
   try {
     const cfg = await putLLMConfigRequest(projectId, provider, model);
+    providerCapabilities = new Map((cfg.provider_capabilities || []).map(p => [p.id, p]));
     populateProviderDropdown(cfg.available_providers, cfg.provider);
     populateModelDropdown(cfg.available_models, cfg.model);
     updateToolsWarning(cfg.provider);
@@ -1101,6 +1308,16 @@ if (llmModelSelect) {
 // ----------------------------------------------------------
 async function boot() {
   initTheme();
+  try {
+    const cfg = await api.getUiConfig();
+    state.reviewOnly = !!cfg.review_only;
+    state.autoProxy = !!cfg.auto_proxy;
+    if (state.reviewOnly) {
+      document.body.classList.add('review-only-mode', 'panel-left-collapsed');
+    }
+  } catch {
+    state.reviewOnly = false;
+  }
   bindEvents();
   // v1.4 P1-2: chat-status indicator. Lives in the DOM between the
   // chat log and the input row; ``createChatStatus`` keeps it in sync
@@ -1131,8 +1348,13 @@ async function boot() {
   await refreshProjects();
   if (state.currentProjectId) {
     await loadProjectState();
-    loadLLMConfig();
-    connectWS();
+    if (!state.reviewOnly) {
+      loadLLMConfig();
+      connectWS();
+    } else {
+      disconnectWS();
+      setReviewConnStatus();
+    }
   } else {
     setChatEnabled(false);
     setWsState('disconnected');
@@ -1178,6 +1400,165 @@ window.OpenEdit = {
 };
 
 // ============================================================
+// Review studio: preview player + timeline playhead
+// ============================================================
+
+function formatTimecode(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${r.toFixed(2).padStart(5, '0')}`;
+  }
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, '0')}:${r.toFixed(2).padStart(5, '0')}`;
+}
+
+function maybeAutoLoadPreview(renders) {
+  if (!state.reviewOnly || !state.currentProjectId || !renders?.length) return;
+  const player = $('#preview-player');
+  if (!player) return;
+  const latest = [...renders].reverse().find(r => r.status === 'succeeded' && r.mode === 'proxy')
+    || [...renders].reverse().find(r => r.status === 'succeeded');
+  if (!latest?.id) return;
+  if (state.previewRenderId === latest.id && player.src) return;
+  loadRenderInPreview(latest.id, latest.mode || 'proxy');
+}
+
+function loadRenderInPreview(renderId, mode = 'proxy') {
+  if (!state.currentProjectId || !renderId) return;
+  const player = $('#preview-player');
+  const badge = $('#preview-mode-badge');
+  const empty = $('#preview-empty');
+  if (!player) return;
+  state.previewRenderId = renderId;
+  player.src = api.renderFileUrl(state.currentProjectId, renderId);
+  player.load();
+  if (empty) empty.classList.add('hidden');
+  if (badge) {
+    badge.textContent = mode === 'final' ? 'Final 1080p' : 'Proxy 720p';
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',runId:'post-fix',hypothesisId:'H6',location:'app.js:loadRenderInPreview',message:'preview loaded',data:{renderId,mode,url:player.src},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+}
+
+async function isProxyStale() {
+  if (!state.currentProjectId) return false;
+  const currentHash = state.currentProjectState?.edit_graph_hash;
+  if (!currentHash) return false;
+  try {
+    const renders = await api.listRenders(state.currentProjectId);
+    const latestProxy = [...renders].reverse().find(r => r.mode === 'proxy' && r.status === 'succeeded');
+    if (!latestProxy) return true;
+    return latestProxy.edit_graph_hash && latestProxy.edit_graph_hash !== currentHash;
+  } catch {
+    return false;
+  }
+}
+
+function updatePlayheadUi() {
+  const label = $('#timeline-timecode-label');
+  if (label) label.textContent = formatTimecode(state.playheadSec);
+  const playhead = $('#timeline-playhead');
+  if (playhead) playhead.style.left = `${secToPx(state.playheadSec)}px`;
+}
+
+function seekToSec(sec) {
+  const clamped = Math.max(0, Math.min(Number(sec) || 0, tlDurationSec || 0));
+  state.playheadSec = clamped;
+  const player = $('#preview-player');
+  if (player && player.src) {
+    try { player.currentTime = clamped; } catch { /* ignore */ }
+  }
+  updatePlayheadUi();
+  const rulerCol = $('#timeline-ruler-col');
+  if (rulerCol && tlDurationSec > 0) {
+    const px = secToPx(clamped);
+    const viewW = rulerCol.clientWidth;
+    if (px < rulerCol.scrollLeft + 40 || px > rulerCol.scrollLeft + viewW - 40) {
+      rulerCol.scrollLeft = Math.max(0, px - viewW / 2);
+    }
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H1',location:'app.js:seekToSec',message:'playhead moved',data:{requested:sec,clamped,duration:tlDurationSec,zoom:tlZoom},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+}
+
+function timelineSecFromEvent(evt, container) {
+  const rect = container.getBoundingClientRect();
+  const x = evt.clientX - rect.left + (container.scrollLeft || 0);
+  return x / (TL_BASE_PPS * tlZoom);
+}
+
+function fitTimelineToWindow() {
+  const col = $('#timeline-ruler-col');
+  if (!col || !tlDurationSec) return false;
+  const availWidth = col.clientWidth - 20;
+  tlZoom = availWidth / (tlDurationSec * TL_BASE_PPS);
+  tlZoom = Math.max(0.05, Math.min(tlZoom, 8));
+  return true;
+}
+
+let tlScrubbing = false;
+let tlAutoFitPending = false;
+
+function bindTimelineScrubbing() {
+  const rulerCol = $('#timeline-ruler-col');
+  if (!rulerCol || rulerCol.dataset.scrubBound === '1') return;
+  rulerCol.dataset.scrubBound = '1';
+  rulerCol.addEventListener('mousedown', (evt) => {
+    if (evt.button !== 0) return;
+    if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
+    tlScrubbing = true;
+    seekToSec(timelineSecFromEvent(evt, rulerCol));
+    evt.preventDefault();
+  });
+  document.addEventListener('mousemove', (evt) => {
+    if (!tlScrubbing) return;
+    const col = $('#timeline-ruler-col');
+    if (!col) return;
+    seekToSec(timelineSecFromEvent(evt, col));
+  });
+  document.addEventListener('mouseup', () => { tlScrubbing = false; });
+}
+
+function opPositionSec(edit) {
+  const p = edit?.payload || {};
+  if (typeof p.position_sec === 'number') return p.position_sec;
+  return null;
+}
+
+async function copyPlayheadTimecode() {
+  const text = `[${formatTimecode(state.playheadSec)}]`;
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(`Copied ${text}`, 'success');
+  } catch {
+    showToast(text, 'info');
+  }
+}
+
+async function addNoteAtPlayhead() {
+  if (!state.currentProjectId) return;
+  const text = prompt('Note for the agent at this time:', '');
+  if (!text || !text.trim()) return;
+  try {
+    await api.createNote(state.currentProjectId, {
+      text: text.trim(),
+      t_start: state.playheadSec,
+      t_end: state.playheadSec,
+    });
+    showToast('Note added at playhead', 'success');
+    await loadProjectState();
+  } catch (err) {
+    showToast(`Note failed: ${err.message}`, 'error');
+  }
+}
+
+// ============================================================
 // Timeline Panel (added: HTML Overlay support)
 // ============================================================
 
@@ -1186,6 +1567,8 @@ const TL_BASE_PPS = 60;
 let tlZoom = 1.0;
 let tlDurationSec = 0;
 let tlCurrentData = null;
+let tlEditMarkers = [];
+let tlNoteMarkers = [];
 
 /** Convert seconds to pixels using current zoom level */
 function secToPx(sec) { return sec * TL_BASE_PPS * tlZoom; }
@@ -1211,16 +1594,20 @@ function renderRuler(durationSec) {
 }
 
 /** Main render function — draws tracks, clips, and overlay markers */
-export function renderTimeline(timelineData) {
+export function renderTimeline(timelineData, context = {}) {
   tlCurrentData = timelineData;
+  tlEditMarkers = context.edits || [];
+  tlNoteMarkers = context.notes || [];
   const labelsCol = $('#timeline-track-labels');
   const tracksArea = $('#timeline-tracks-area');
   const emptyMsg = $('#timeline-empty-msg');
   const durationLabel = $('#timeline-duration-label');
+  const rulerCol = $('#timeline-ruler-col');
   if (!labelsCol || !tracksArea) return;
 
   const tracks = timelineData?.tracks ?? [];
   const overlays = timelineData?.overlays ?? [];
+  const remotions = timelineData?.remotion_compositions ?? [];
   const durationSec = timelineData?.duration_sec ?? 0;
   tlDurationSec = durationSec;
 
@@ -1229,20 +1616,37 @@ export function renderTimeline(timelineData) {
       ? `${durationSec.toFixed(1)}s`
       : '—';
   }
+  updatePlayheadUi();
 
   // Clear previous content (keep the ruler header placeholder in labels)
   labelsCol.innerHTML = '<div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>';
   tracksArea.innerHTML = '';
 
+  const onSeekClick = (evt) => {
+    if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
+    const col = $('#timeline-ruler-col');
+    const sec = timelineSecFromEvent(evt, col || evt.currentTarget);
+    // #region agent log
+    fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H1',location:'app.js:onSeekClick',message:'timeline click seek',data:{sec,target:(evt.target.className||'').slice(0,80),onClip:!!evt.target.closest('.timeline-clip')},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    seekToSec(sec);
+  };
+
   if (tracks.length === 0) {
     if (emptyMsg) tracksArea.appendChild(emptyMsg);
     emptyMsg && (emptyMsg.style.display = '');
     renderRuler(10);
+    const ruler = $('#timeline-ruler');
+    ruler?.addEventListener('click', onSeekClick);
+    tracksArea.addEventListener('click', onSeekClick);
     return;
   }
   if (emptyMsg) emptyMsg.style.display = 'none';
 
   renderRuler(Math.max(durationSec, 10));
+  const ruler = $('#timeline-ruler');
+  ruler?.addEventListener('click', onSeekClick);
+  tracksArea.addEventListener('click', onSeekClick);
 
   // Calculate total overlay height (one row per overlay track in the future;
   // for now, overlay markers live on top of all tracks)
@@ -1289,26 +1693,92 @@ export function renderTimeline(timelineData) {
       trackRow.appendChild(marker);
     });
 
+    // Remotion composition markers (pending until asset_hash is set)
+    remotions.forEach((rc) => {
+      if (rc.track_id && track.track_id && rc.track_id !== track.track_id) return;
+      const left = secToPx(rc.position_sec ?? 0);
+      const width = Math.max(secToPx(rc.duration_sec ?? 0), 4);
+      const pending = !rc.asset_hash;
+      const marker = el('div', {
+        class: 'timeline-remotion-marker' + (pending ? ' pending' : ''),
+        style: `left:${left}px;width:${width}px`,
+        title: pending
+          ? `Remotion (pending materialize): ${rc.composition_id ?? ''}`
+          : `Remotion: ${rc.composition_id ?? ''}\n${rc.asset_hash ?? ''}`,
+      });
+      trackRow.appendChild(marker);
+    });
+
     tracksArea.appendChild(trackRow);
   });
+
+  // Edit op markers (first track row only)
+  const markerRow = tracksArea.querySelector('.timeline-track-row');
+  if (markerRow) {
+    for (const edit of tlEditMarkers) {
+      const pos = opPositionSec(edit);
+      if (pos == null) continue;
+      const marker = el('div', {
+        class: 'timeline-edit-marker' + (edit.status === 'reverted' ? ' reverted' : ''),
+        style: `left:${secToPx(pos)}px`,
+        title: `${edit.kind} @ ${formatTimecode(pos)}\n${edit.summary || ''}`,
+      });
+      marker.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        selectEdit(edit);
+        seekToSec(pos);
+        const editsTab = document.querySelector('.panel-tabs .tab[data-tab="edits"]');
+        editsTab?.click();
+      });
+      markerRow.appendChild(marker);
+    }
+    for (const note of tlNoteMarkers) {
+      if (note.status && note.status !== 'pending') continue;
+      const pos = Number(note.timestamp) || 0;
+      const marker = el('div', {
+        class: 'timeline-note-marker',
+        style: `left:${secToPx(pos)}px`,
+        title: `Note @ ${formatTimecode(pos)}: ${note.text || ''}`,
+      });
+      marker.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        seekToSec(pos);
+        openNotesModal();
+      });
+      markerRow.appendChild(marker);
+    }
+  }
+
+  if (rulerCol) {
+    rulerCol.onclick = (evt) => {
+      if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
+      onSeekClick(evt);
+    };
+  }
+
+  bindTimelineScrubbing();
+
+  if (durationSec > 120 && !tlAutoFitPending) {
+    tlAutoFitPending = true;
+    fitTimelineToWindow();
+    renderTimeline(timelineData, context);
+    return;
+  }
 }
 
 // ---- Zoom controls ----
 $('#btn-timeline-zoom-in')?.addEventListener('click', () => {
   tlZoom = Math.min(tlZoom * 1.5, 8);
-  if (tlCurrentData) renderTimeline(tlCurrentData);
+  if (tlCurrentData) renderTimeline(tlCurrentData, { edits: tlEditMarkers, notes: tlNoteMarkers });
 });
 $('#btn-timeline-zoom-out')?.addEventListener('click', () => {
   tlZoom = Math.max(tlZoom / 1.5, 0.1);
-  if (tlCurrentData) renderTimeline(tlCurrentData);
+  if (tlCurrentData) renderTimeline(tlCurrentData, { edits: tlEditMarkers, notes: tlNoteMarkers });
 });
 $('#btn-timeline-fit')?.addEventListener('click', () => {
-  const col = $('#timeline-ruler-col');
-  if (!col || !tlDurationSec) return;
-  const availWidth = col.clientWidth - 20;
-  tlZoom = availWidth / (tlDurationSec * TL_BASE_PPS);
-  tlZoom = Math.max(0.05, Math.min(tlZoom, 8));
-  if (tlCurrentData) renderTimeline(tlCurrentData);
+  if (fitTimelineToWindow() && tlCurrentData) {
+    renderTimeline(tlCurrentData, { edits: tlEditMarkers, notes: tlNoteMarkers });
+  }
 });
 
 // ---- Hook into loadProjectState ----
@@ -1321,5 +1791,10 @@ window.__renderTimeline = renderTimeline;
 export function refreshTimeline(rawState) {
   if (!rawState) return;
   const tl = rawState.timeline_full ?? rawState.timeline ?? null;
-  if (tl) renderTimeline(tl);
+  if (tl) {
+    renderTimeline(tl, {
+      edits: normalizeEdits(rawState),
+      notes: normalizeNotes(rawState).list,
+    });
+  }
 }

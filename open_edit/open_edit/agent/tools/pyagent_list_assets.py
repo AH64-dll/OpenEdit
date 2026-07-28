@@ -6,6 +6,7 @@ TOOL_USAGE_GUIDE (tool_schemas.py) that was never built.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from open_edit.agent.tools._helpers import get_asset_store
@@ -31,9 +32,11 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
                 obj = json.loads(meta_path.read_text())
             except (json.JSONDecodeError, OSError):
                 continue
+            original = obj.get("original_path", "") or ""
+            filename = Path(original).name if original else meta_path.parent.name
             assets.append({
                 "hash": obj.get("asset_hash", ""),
-                "filename": obj.get("original_path", "").split("/")[-1] or meta_path.parent.name,
+                "filename": filename,
                 "duration_s": obj.get("duration_sec", 0),
                 "type": obj.get("type", "unknown"),
                 "width": obj.get("width"),

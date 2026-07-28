@@ -19,10 +19,17 @@ def run_python(args: dict, project_path: str) -> dict:
     try:
         workdir = Path(_db_path(project_path)).parent
         parent_op_id = args.get("parent_op_id") or f"pyagent_{uuid.uuid4().hex[:12]}"
+        # Pillar-tool fix: the bridge no longer auto-injects project_id
+        # for run_script (its schema has additionalProperties: false).
+        # Derive it from the project_path's edit_graph.db when missing.
+        project_id = args.get("project_id")
+        if not project_id:
+            from open_edit.storage.edit_graph import EditGraphStore
+            project_id = EditGraphStore(_db_path(project_path)).project_id
         result: FreeFormResult = run_free_form(
             code=args["code"],
             workdir=workdir,
-            project_id=args["project_id"],
+            project_id=project_id,
             parent_op_id=parent_op_id,
             timeout=int(args.get("timeout_sec", 30)),
             mem_mb=int(args.get("mem_mb", 512)),

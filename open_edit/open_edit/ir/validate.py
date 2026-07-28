@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Optional
 from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,
+    AddRemotionCompositionOp,
     AddTransitionOp,
     ChangeClipSpeedOp,
     MoveClipOp,
@@ -18,6 +19,7 @@ from open_edit.ir.types import (
     OperationUnion,
     Project,
     RemoveClipOp,
+    RemoveRemotionCompositionOp,
     ReplaceClipSourceOp,
     RippleDeleteClipOp,
     SetAudioGainOp,
@@ -314,6 +316,37 @@ def validate_op_for_append(op: OperationUnion, store) -> list[str]:
     (must expose ``load_all()``, ``db_path``, ``project_id``). No runtime
     import of EditGraphStore here to avoid a circular import.
     """
+    errors: list[str] = []
+    if isinstance(op, AddRemotionCompositionOp):
+        if op.duration_sec <= 0:
+            errors.append(
+                f"duration_sec must be > 0; got {op.duration_sec}. "
+                f"fix: set a positive Remotion composition duration."
+            )
+        if op.position_sec < 0:
+            errors.append(
+                f"position_sec must be >= 0; got {op.position_sec}. "
+                f"fix: use a non-negative position."
+            )
+        ep = (op.entry_point or "").strip()
+        if not ep or ep.startswith(("/", "\\")) or ".." in Path(ep).parts:
+            errors.append(
+                f"entry_point must be relative under .open_edit/remotion/; "
+                f"got {op.entry_point!r}. "
+                f"fix: use a path like 'src/index.ts'."
+            )
+        if not (op.composition_id or "").strip():
+            errors.append(
+                "composition_id is required. "
+                "fix: pass the Remotion <Composition id>."
+            )
+    if isinstance(op, RemoveRemotionCompositionOp):
+        if not (op.composition_uid or "").strip():
+            errors.append(
+                "composition_uid is required. "
+                "fix: pass the uid returned by add_remotion_composition."
+            )
+
     ops = store.load_all()
     project = Project(
         project_id=store.project_id,
@@ -322,4 +355,5 @@ def validate_op_for_append(op: OperationUnion, store) -> list[str]:
         assets={},
         edit_graph=ops,
     )
-    return validate_op_references(op, project)
+    errors.extend(validate_op_references(op, project))
+    return errors

@@ -7,6 +7,8 @@ from open_edit.serve.providers import (
     PROVIDERS,
     ProviderSpec,
     list_provider_specs,
+    list_visible_providers,
+    provider_default_model,
     resolve_provider,
 )
 
@@ -20,7 +22,7 @@ def test_resolve_provider_known():
     spec = resolve_provider("opencode")
     assert isinstance(spec, ProviderSpec)
     assert spec.name == "opencode"
-    assert spec.is_cli is True
+    assert spec.transport == "cli"
     assert spec.stream is not None
 
 
@@ -32,7 +34,7 @@ def test_resolve_provider_unknown_raises():
 
 def test_anthropic_uses_sdk_not_cli():
     spec = resolve_provider("anthropic")
-    assert spec.is_cli is False
+    assert spec.transport == "sdk"
 
 
 def test_list_provider_specs_sorted_by_name():
@@ -41,33 +43,104 @@ def test_list_provider_specs_sorted_by_name():
 
 
 def test_cli_providers_have_callable_stream():
-    """All CLI providers have a stream function; the dispatcher calls it
-    with the matching CLIAdapter. The pi provider uses _stream_pi (which
-    wraps _stream_cli to add cost extraction); the other three use
-    _stream_cli directly. The test only asserts the contract surface."""
     for name in ("pi", "opencode", "antigravity", "jcode"):
         spec = resolve_provider(name)
-        assert spec.is_cli is True
+        assert spec.transport == "cli"
         assert callable(spec.stream)
 
 
+def test_jcode_is_hidden():
+    spec = resolve_provider("jcode")
+    assert spec.hidden is True
+
+
+def test_visible_providers_excludes_hidden():
+    visible = {s.name for s in list_visible_providers()}
+    assert "jcode" not in visible
+    assert "anthropic" in visible
+    assert "openai" in visible
+
+
+def test_provider_default_model():
+    assert provider_default_model("anthropic") == "claude-sonnet-4-5"
+    assert provider_default_model("openai") == "gpt-4o"
+    assert provider_default_model("unknown") == ""
+
+
 def test_provider_model_endpoint_handles_all_providers():
-    """Every registered provider must be reachable via
-    /api/llm/providers/{name}/models.
-
-    A missing handler should 404, not 500. The endpoint is a thin
-    dispatch — we don't assert model lists, just that the dispatch
-    doesn't crash for any provider in the registry. Catches the
-    regression of someone adding a provider to the registry but
-    forgetting to wire it into the endpoint.
-    """
     from fastapi.testclient import TestClient
-
     from open_edit.serve.app import app
-
     client = TestClient(app)
     for spec in list_provider_specs():
         resp = client.get(f"/api/llm/providers/{spec.name}/models")
         assert resp.status_code in (200, 404), (
             f"{spec.name}: {resp.status_code} {resp.text}"
         )
+
+
+def test_all_providers_have_label():
+    for spec in PROVIDERS.values():
+        assert spec.label, f"{spec.name} missing label"
+
+
+def test_context_strategies_match_capabilities():
+    """OE-P1-007: every provider declares an explicit context strategy."""
+    assert resolve_provider("pi").context_strategy == "native_session"
+    assert resolve_provider("opencode").context_strategy == "full_history"
+    assert resolve_provider("antigravity").context_strategy == "full_history"
+    assert resolve_provider("anthropic").context_strategy == "full_history"
+    assert resolve_provider("openai").context_strategy == "full_history"
+    assert resolve_provider("jcode").context_strategy == "stateless"
+    for spec in list_visible_providers():
+        assert spec.context_strategy in {
+            "native_session",
+            "full_history",
+            "stateless",
+        }
+
+
+def test_sdk_providers_require_no_binary():
+    for spec in PROVIDERS.values():
+        if spec.transport == "sdk":
+            assert len(spec.binary_names) == 0, (
+                f"{spec.name}: SDK provider should not list binaries"
+            )
+
+
+def test_every_runtime_registry_entry_derives_from_provider():
+    from open_edit.serve.runtimes.registry import discover_runtimes
+    runtimes = discover_runtimes()
+    runtime_ids = {r.id for r in runtimes}
+    provider_ids = set(PROVIDERS)
+    assert runtime_ids == provider_ids, (
+        f"runtime ids {runtime_ids} != provider ids {provider_ids}"
+    )
+    for rt in runtimes:
+        pspec = PROVIDERS[rt.id]
+        assert rt.name == pspec.label
+
+
+def test_anthropic_and_openai_appear_in_api_llm_config():
+    """Regression: Anthropic and OpenAI must be in the available_providers
+    list returned by the GET llm-config endpoint."""
+    from fastapi.testclient import TestClient
+    from open_edit.serve.app import app
+    from open_edit.serve import projects as projects_mod
+    import asyncio, tempfile, os
+
+    tmp = tempfile.mkdtemp()
+    os.environ["OPEN_EDIT_PROJECTS_ROOT"] = tmp
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        info = loop.run_until_complete(projects_mod.create_project("regr_test"))
+        pid = info.id
+    finally:
+        loop.close()
+    client = TestClient(app)
+    r = client.get(f"/api/projects/{pid}/llm-config")
+    assert r.status_code == 200, r.text
+    provs = r.json()["available_providers"]
+    assert "anthropic" in provs, f"anthropic missing from {provs}"
+    assert "openai" in provs, f"openai missing from {provs}"
+    assert "jcode" not in provs, "jcode must be hidden"

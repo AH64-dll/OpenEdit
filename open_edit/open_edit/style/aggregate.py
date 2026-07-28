@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from datetime import datetime, timezone
 
 from pydantic import BaseModel
@@ -114,4 +115,5 @@ def _write_profile_with_backup(profile: dict) -> None:
     for f in config_dir.glob("style_profile_v[4-9]*.json.bak"):
         f.unlink()
     profile_path.write_text(json.dumps(profile, indent=2))
-    os.chmod(profile_path, 0o600)
+    if sys.platform != "win32":
+        os.chmod(profile_path, 0o600)

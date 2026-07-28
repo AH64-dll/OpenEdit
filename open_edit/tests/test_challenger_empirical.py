@@ -81,7 +81,8 @@ async def test_llm_transient_network_error_retry_and_recovery(monkeypatch: pytes
 
     spec = ProviderSpec(
         name="mock_transient_provider",
-        is_cli=False,
+        label="Mock Provider",
+        transport="sdk",
         stream=mock_stream,
         missing_error="mock error"
     )
@@ -113,7 +114,8 @@ async def test_llm_transient_network_error_retry_exhaustion(monkeypatch: pytest.
 
     spec = ProviderSpec(
         name="mock_transient_exhaust",
-        is_cli=False,
+        label="Mock Provider",
+        transport="sdk",
         stream=mock_stream,
         missing_error="mock error"
     )
@@ -144,7 +146,8 @@ async def test_llm_no_retry_if_events_already_yielded(monkeypatch: pytest.Monkey
 
     spec = ProviderSpec(
         name="mock_mid_stream_fail",
-        is_cli=False,
+        label="Mock Provider",
+        transport="sdk",
         stream=mock_stream,
         missing_error="mock error"
     )

@@ -28,8 +28,10 @@ Production Go pipeline:
 Experimental `open_edit/` prototype only:
 
 1. `pip install -e open_edit/` (Python deps)
-2. `npm install` at the repo root — installs `hyperframes@0.7.65` for prototype
-   overlay experiments.
+2. `npm install` at the repo root — installs `hyperframes@0.7.65` for HTML
+   overlays and pinned Remotion / React packages for React motion graphics.
+3. Remotion is optional. See [`docs/REMOTION_LICENSE.md`](docs/REMOTION_LICENSE.md)
+   before using Remotion in a commercial deployment with 4+ employees.
 
 ## Dependencies
 

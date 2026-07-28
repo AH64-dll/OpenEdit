@@ -89,7 +89,16 @@ def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) ->
     # project_id auto-inject for it. The tool ignores ``project_id``
     # anyway; skipping the DB read keeps a global search callable
     # even on a fresh server (before any project has been created).
-    if tool_name != "search_assets":
+    #
+    # The 4 pillar tools (``query_project``, ``edit_project``,
+    # ``run_script``, ``trigger_render``) have Pydantic-generated
+    # schemas with ``additionalProperties: false`` that do NOT list
+    # ``project_id``. Injecting it at the top level would fail schema
+    # validation. ``query_project`` / ``edit_project`` dispatches
+    # ignore ``project_id`` entirely; ``run_script`` derives it from
+    # ``project_path`` inside ``run_python``; ``trigger_render`` is
+    # handled by a separate code path below.
+    if tool_name not in ("search_assets", "query_project", "edit_project", "run_script"):
         db_path = project_path / ".open_edit" / "edit_graph.db"
         if db_path.exists() and "project_id" not in args:
             try:

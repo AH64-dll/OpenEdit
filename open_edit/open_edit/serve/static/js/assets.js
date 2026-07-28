@@ -15,7 +15,7 @@ export function assetIcon(a) {
   return '📄';
 }
 
-export function renderAssets(assets) {
+export function renderAssets(assets, { onAddToTimeline } = {}) {
   const list = $('#assets-list');
   if (!list) return;
   list.innerHTML = '';
@@ -25,6 +25,15 @@ export function renderAssets(assets) {
   }
   for (const a of assets) {
     const icon = assetIcon(a);
+    const addBtn = el('button', {
+      class: 'btn btn-sm',
+      type: 'button',
+      title: 'Add to track V1 at end',
+    }, ['Add']);
+    addBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (typeof onAddToTimeline === 'function') onAddToTimeline(a);
+    });
     const card = el('div', { class: 'asset-card' }, [
       el('div', { class: 'asset-icon' }, [icon]),
       el('div', { class: 'asset-meta' }, [
@@ -36,6 +45,7 @@ export function renderAssets(assets) {
           a.has_audio ? ' · audio' : '',
         ].filter(Boolean).join('')),
       ]),
+      addBtn,
     ]);
     card.addEventListener('click', () => openAssetPreview(a));
     list.appendChild(card);

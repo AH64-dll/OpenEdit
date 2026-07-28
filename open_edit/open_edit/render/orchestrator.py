@@ -13,6 +13,7 @@ Handles:
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
@@ -22,9 +23,15 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from open_edit.ir.apply import derive_or_load_timeline, derive_timeline
-from open_edit.ir.types import AddClipOp, Project
+from open_edit.ir.types import AddClipOp, Project, Timeline
 from open_edit.render.cache import RenderCache, canonical_json_hash
 from open_edit.render.emitter import EmitterConfig, emit_timeline
+from open_edit.render.graphics_overlay import (
+    GraphicsOverlayError,
+    OverlayClip,
+    burn_overlays,
+)
+from open_edit.render.materialize import RemotionMaterializeError, materialize_remotion_compositions
 from open_edit.render.profiles import RenderProfile, select_profile, profile_to_mlt_args
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
@@ -54,6 +61,7 @@ def render_project(
     profile_name: Optional[str] = None,
     force: bool = False,
     nice_level: int = 10,
+    encoder_backend: Optional[str] = None,
 ) -> RenderResult:
     """Render a project to an MP4.
 
@@ -82,6 +90,17 @@ def render_project(
     project.edit_graph = list(applied_ops)
     timeline = derive_or_load_timeline(project, store, strict=True)
 
+    # Materialize Remotion compositions to CAS clips before emit. Fail hard.
+    try:
+        timeline = materialize_remotion_compositions(
+            timeline, project_dir, mode=mode,
+        )
+    except RemotionMaterializeError as exc:
+        return RenderResult(
+            ok=False, mode=mode, profile=profile.model_dump(),
+            duration_sec=timeline.duration_sec, error=str(exc),
+        )
+
     asset_paths: dict[str, str] = {}
     asset_store = AssetStore(project_dir / ".open_edit" / "assets")
     for op in applied_ops:
@@ -89,6 +108,21 @@ def render_project(
             path = asset_store.path(op.asset_hash)
             if path is not None:
                 asset_paths[op.asset_hash] = str(path)
+    for composition in timeline.remotion_compositions:
+        if composition.asset_hash:
+            path = asset_store.path(composition.asset_hash)
+            if path is not None:
+                asset_paths[composition.asset_hash] = str(path)
+    for track in timeline.tracks:
+        for clip in track.clips:
+            if clip.asset_hash and clip.asset_hash not in asset_paths:
+                path = asset_store.path(clip.asset_hash)
+                if path is not None:
+                    asset_paths[clip.asset_hash] = str(path)
+
+    remotion_overlays = _remotion_overlay_clips(timeline, asset_paths)
+    # Melt without Remotion graphics tracks — burn them on with ffmpeg after.
+    melt_timeline = _timeline_without_remotion_clips(timeline)
 
     payload = [op.model_dump(mode="json") for op in applied_ops]
     graph_hash = canonical_json_hash(payload)
@@ -104,14 +138,17 @@ def render_project(
             )
 
     config = EmitterConfig(profile=profile.model_dump())
-    xml = emit_timeline(timeline, config, asset_paths=asset_paths)
+    xml = emit_timeline(melt_timeline, config, asset_paths=asset_paths)
 
     workdir.mkdir(parents=True, exist_ok=True)
     xml_path = workdir / f"project_{graph_hash[:12]}.mlt"
     xml_path.write_text(xml)
 
+    melt_mp4 = workdir / f"project_{graph_hash[:12]}.melt.mp4"
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
-    cmd = _build_melt_command(melt_bin, xml_path, output_mp4, profile, nice_level)
+    cmd = _build_melt_command(
+        melt_bin, xml_path, melt_mp4, profile, nice_level, encoder_backend,
+    )
 
     t0 = time.monotonic()
     try:
@@ -132,11 +169,33 @@ def render_project(
         err = (proc.stderr or proc.stdout or "").strip().splitlines()
         _record_snapshot_failure(project_dir, project_id, graph_hash, output_mp4)
         return RenderResult(
-            ok=False, output_path=str(output_mp4), mode=mode,
+            ok=False, output_path=str(melt_mp4), mode=mode,
             profile=profile.model_dump(), duration_sec=timeline.duration_sec,
             elapsed_sec=elapsed, edit_graph_hash=graph_hash,
             error=err[-1] if err else f"melt exited {proc.returncode}",
         )
+
+    if remotion_overlays:
+        try:
+            burn_overlays(
+                melt_mp4,
+                remotion_overlays,
+                output_mp4,
+                width=profile.width,
+                height=profile.height,
+                encoder_backend=encoder_backend,
+            )
+        except GraphicsOverlayError as exc:
+            _record_snapshot_failure(project_dir, project_id, graph_hash, output_mp4)
+            return RenderResult(
+                ok=False, output_path=str(output_mp4), mode=mode,
+                profile=profile.model_dump(), duration_sec=timeline.duration_sec,
+                elapsed_sec=time.monotonic() - t0, edit_graph_hash=graph_hash,
+                error=str(exc),
+            )
+    else:
+        # No Remotion overlays — melt output is final.
+        melt_mp4.replace(output_mp4)
 
     cache.put(graph_hash, output_mp4)
     _record_snapshot_success(project_dir, project_id, graph_hash, output_mp4)
@@ -144,18 +203,56 @@ def render_project(
     return RenderResult(
         ok=True, output_path=str(output_mp4), mode=mode,
         profile=profile.model_dump(), duration_sec=timeline.duration_sec,
-        elapsed_sec=elapsed, cache_hit=False, edit_graph_hash=graph_hash,
+        elapsed_sec=time.monotonic() - t0, cache_hit=False, edit_graph_hash=graph_hash,
     )
+
+
+def _remotion_overlay_clips(
+    timeline: Timeline, asset_paths: dict[str, str],
+) -> list[OverlayClip]:
+    overlays: list[OverlayClip] = []
+    for composition in timeline.remotion_compositions:
+        if not composition.asset_hash:
+            continue
+        path = asset_paths.get(composition.asset_hash)
+        if not path:
+            continue
+        overlays.append(OverlayClip(
+            position_sec=composition.position_sec,
+            duration_sec=composition.duration_sec,
+            media_path=Path(path),
+            label=composition.composition_id,
+        ))
+    overlays.sort(key=lambda o: o.position_sec)
+    return overlays
+
+
+def _timeline_without_remotion_clips(timeline: Timeline) -> Timeline:
+    """Return a copy of ``timeline`` without Remotion-injected graphics clips.
+
+    Remotion clips are burned via ffmpeg overlays; melt only renders the
+    base talk track(s). Empty upper tracks (e.g. ``video_graphics`` with no
+    clips after stripping) must be removed or melt composites a blank layer
+    and produces a near-zero-length output.
+    """
+    updated = timeline.model_copy(deep=True)
+    remotion_ids = {c.clip_id for c in updated.remotion_compositions}
+    if remotion_ids:
+        for track in updated.tracks:
+            track.clips = [c for c in track.clips if c.clip_id not in remotion_ids]
+    updated.tracks = [t for t in updated.tracks if t.clips]
+    return updated
 
 
 def _build_melt_command(
     melt_bin: str, xml_path: Path, output_mp4: Path,
     profile: RenderProfile, nice_level: int,
+    encoder_backend: Optional[str] = None,
 ) -> list[str]:
     """Build the melt command line."""
     args = [melt_bin, str(xml_path), "-consumer", f"avformat:{output_mp4}"]
-    args += profile_to_mlt_args(profile)
-    if nice_level > 0:
+    args += profile_to_mlt_args(profile, backend=encoder_backend)
+    if nice_level > 0 and os.name == "posix":
         return ["nice", "-n", str(nice_level)] + args
     return args
 

@@ -19,7 +19,8 @@ from open_edit.ir.types import (
     RemoveEffectOp, RemoveKeyframeOp, RemoveTransitionOp, ReplaceClipSourceOp,
     RippleDeleteClipOp, SetAudioGainOp, SetClipSpeedRampOp, SetEffectParamOp,
     SetKeyframeOp, SetTransitionPropertyOp, SlipClipOp, SplitClipOp,
-    TrimClipOp, UngroupEditsOp, new_id,
+    TrimClipOp, UngroupEditsOp, AddHtmlOverlayOp, RemoveHtmlOverlayOp,
+    AddRemotionCompositionOp, RemoveRemotionCompositionOp, new_id,
 )
 
 
@@ -409,6 +410,88 @@ class IR:
             author="ai",
             parent_id=self._parent_op_id,
             code=code,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def add_remotion_composition(
+        self,
+        entry_point: str,
+        composition_id: str,
+        position_sec: float,
+        duration_sec: float,
+        props: Optional[dict[str, Any]] = None,
+        track_id: str = "video_graphics",
+        alpha: bool = False,
+        originating_note_id: Optional[str] = None,
+    ) -> str:
+        """Append AddRemotionCompositionOp; return composition_uid."""
+        composition_uid = new_id()
+        op = AddRemotionCompositionOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            entry_point=entry_point,
+            composition_id=composition_id,
+            props=props or {},
+            position_sec=position_sec,
+            duration_sec=duration_sec,
+            track_id=track_id,
+            alpha=alpha,
+            composition_uid=composition_uid,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+        return composition_uid
+
+    def remove_remotion_composition(
+        self,
+        composition_uid: str,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = RemoveRemotionCompositionOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            composition_uid=composition_uid,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+
+    def add_html_overlay(
+        self,
+        template_path: str,
+        position_sec: float,
+        duration_sec: float,
+        variables: Optional[dict[str, Any]] = None,
+        originating_note_id: Optional[str] = None,
+    ) -> str:
+        """Append AddHtmlOverlayOp; return overlay_id."""
+        overlay_id = new_id()
+        op = AddHtmlOverlayOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            template_path=template_path,
+            variables=variables or {},
+            position_sec=position_sec,
+            duration_sec=duration_sec,
+            overlay_id=overlay_id,
+            originating_note_id=self._note_id(originating_note_id),
+        )
+        self._ops.append(op)
+        return overlay_id
+
+    def remove_html_overlay(
+        self,
+        overlay_id: str,
+        originating_note_id: Optional[str] = None,
+    ) -> None:
+        op = RemoveHtmlOverlayOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=self._parent_op_id,
+            overlay_id=overlay_id,
             originating_note_id=self._note_id(originating_note_id),
         )
         self._ops.append(op)

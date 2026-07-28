@@ -25,6 +25,12 @@ export async function _extractError(r, opName) {
 }
 
 export const api = {
+  async getUiConfig() {
+    const r = await fetch('/api/ui-config');
+    if (!r.ok) throw await _extractError(r, 'getUiConfig');
+    return r.json();
+  },
+
   async listProjects() {
     const r = await fetch('/api/projects');
     if (!r.ok) throw await _extractError(r, 'listProjects');
@@ -49,11 +55,9 @@ export const api = {
 
   async ingestFiles(id, files, onProgress) {
     const fd = new FormData();
-    // Spec says field name is "files"; backend Prompt-1 uses "file".
-    // Send under BOTH names for compatibility.
+    // The ingestion API accepts one canonical repeated ``files`` field.
     for (const f of files) {
       fd.append('files', f, f.name);
-      fd.append('file', f, f.name);
     }
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -91,15 +95,34 @@ export const api = {
   async listRenders(id) {
     const r = await fetch(`/api/projects/${encodeURIComponent(id)}/renders`);
     if (!r.ok) {
-      // ``listRenders`` is best-effort: the right panel shows whatever
-      // the server has. We don't want a stale render failure to toast
-      // repeatedly on every refresh, so swallow with an empty list.
-      try {
-        const fakeResp = new Response(await r.text(), { status: r.status });
-        console.warn('listRenders failed:', (await _extractError(fakeResp, 'listRenders')).message);
-      } catch { /* ignore */ }
-      return [];
+      throw await _extractError(r, 'listRenders');
     }
+    return r.json();
+  },
+
+  renderFileUrl(projectId, renderId) {
+    return `/api/projects/${encodeURIComponent(projectId)}/renders/${encodeURIComponent(renderId)}/file`;
+  },
+
+  async createNote(projectId, { text, t_start, t_end }) {
+    const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, t_start, t_end }),
+    });
+    if (!r.ok) throw await _extractError(r, 'createNote');
+    return r.json();
+  },
+
+  async applyTimelineCommand(id, command, params, expectedRevision) {
+    const body = { command, params: params || {}, author: 'user' };
+    if (expectedRevision != null) body.expected_revision = expectedRevision;
+    const r = await fetch(`/api/projects/${encodeURIComponent(id)}/ops`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw await _extractError(r, 'applyTimelineCommand');
     return r.json();
   },
 

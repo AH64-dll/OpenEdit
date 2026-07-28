@@ -1344,6 +1344,37 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; }
   font-family: var(--font-mono);
 }
 
+.timeline-remotion-marker {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-left: 2px solid var(--accent, #5b9fd4);
+  background: rgba(91, 159, 212, 0.18);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.timeline-remotion-marker::after {
+  content: "REM";
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 7.5px;
+  color: var(--accent, #5b9fd4);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  font-family: var(--font-mono);
+}
+
+.timeline-remotion-marker.pending {
+  border-left-style: dashed;
+  opacity: 0.75;
+}
+
+.timeline-remotion-marker.pending::after {
+  content: "REM?";
+}
+
 .timeline-playhead {
   position: absolute;
   top: 0;
@@ -1422,4 +1453,94 @@ body.has-timeline main.layout {
   font-size: 10.5px;
   color: var(--yellow);
   font-family: var(--font-mono);
+}
+
+/* ---------- Review studio (MCP + preview UI) ---------- */
+body.review-only-mode .agent-only { display: none !important; }
+body.review-only-mode .review-only { display: block; }
+body:not(.review-only-mode) .review-only { display: none; }
+
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  gap: 8px;
+}
+.preview-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.preview-mode-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.preview-player {
+  width: 100%;
+  max-height: calc(100vh - 320px);
+  background: #000;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.preview-player:not([src]) { display: none; }
+.preview-empty { padding: 24px; text-align: center; }
+
+.timeline-timecode {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  min-width: 72px;
+}
+.timeline-ruler-col { position: relative; }
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 5;
+  pointer-events: none;
+  left: 0;
+}
+.timeline-edit-marker,
+.timeline-note-marker {
+  position: absolute;
+  top: 2px;
+  height: calc(100% - 4px);
+  width: 3px;
+  border-radius: 2px;
+  cursor: pointer;
+  z-index: 4;
+}
+.timeline-edit-marker { background: #f59e0b; }
+.timeline-edit-marker.reverted { background: #6b7280; opacity: 0.5; }
+.timeline-note-marker { background: #22d3ee; width: 6px; }
+body:not(.review-only-mode) .preview-panel { display: none; }
+body.review-only-mode .panel-center {
+  display: flex;
+  flex-direction: column;
+}
+body.review-only-mode .preview-panel { flex: 1; }
+
+/* Review studio: collapsible side panels on desktop */
+body.review-only-mode.panel-left-collapsed .panel-left { display: none; }
+body.review-only-mode.panel-left-collapsed .layout {
+  grid-template-columns: 1fr var(--sidebar-w);
+}
+body.review-only-mode.panel-right-collapsed .panel-right { display: none; }
+body.review-only-mode.panel-right-collapsed .layout {
+  grid-template-columns: var(--sidebar-w) 1fr;
+}
+body.review-only-mode.panel-left-collapsed.panel-right-collapsed .layout {
+  grid-template-columns: 1fr;
+}
+body.review-only-mode #btn-toggle-left-panel,
+body.review-only-mode #btn-toggle-right-panel {
+  display: inline-flex;
 }

@@ -334,22 +334,12 @@ def test_upload_invalid_media_returns_400_with_error_shape(
     with fake.open("rb") as fh:
         r = client.post(
             f"/api/projects/{pid}/ingest",
-            files={"file": ("not-really-an-mp4.mp4", fh, "video/mp4")},
+            files={"files": ("not-really-an-mp4.mp4", fh, "video/mp4")},
         )
-    assert r.status_code == 400, (
-        f"expected 400 for unparseable media, got {r.status_code} "
-        f"body={r.text!r}"
-    )
+    assert r.status_code == 202, f"unexpected status: {r.status_code} {r.text!r}"
     body = r.json()
-    # v1.4 error contract: the response is ``{"error": "..."}`` (not
-    # FastAPI's default ``{"detail": "..."}``). See app.py:142.
-    assert "error" in body, (
-        f"missing 'error' key in {body!r} — the v1.4 frontend can't "
-        f"display this error without it"
-    )
-    assert isinstance(body["error"], str) and body["error"], (
-        f"'error' should be a non-empty string, got {body['error']!r}"
-    )
+    assert body["accepted"] == []
+    assert body["rejected"] == [{"filename": "not-really-an-mp4.mp4", "error": "not a recognised media file"}]
     # And the file should NOT have landed in the CAS — ffprobe failed,
     # so AssetStore.ingest never wrote the sidecar.
     assets_dir = _proj / ".open_edit" / "assets"
@@ -375,7 +365,7 @@ def test_upload_writes_file_to_cas(seeded_project):
     with TESTDATA_MP4.open("rb") as fh:
         r = client.post(
             f"/api/projects/{pid}/ingest",
-            files={"file": ("clip_short.mp4", fh, "video/mp4")},
+            files={"files": ("clip_short.mp4", fh, "video/mp4")},
         )
     assert r.status_code in (200, 202), (
         f"upload failed: status={r.status_code} body={r.text!r}"
@@ -411,18 +401,16 @@ def test_upload_response_includes_servable_url(seeded_project):
     with TESTDATA_MP4.open("rb") as fh:
         r = client.post(
             f"/api/projects/{pid}/ingest",
-            files={"file": ("clip_short.mp4", fh, "video/mp4")},
+            files={"files": ("clip_short.mp4", fh, "video/mp4")},
         )
     assert r.status_code in (200, 202), (
         f"upload failed: status={r.status_code} body={r.text!r}"
     )
     body = r.json()
-    # The response carries the new asset's identity.
-    assert "asset" in body, (
-        f"upload response missing 'asset' key (frontend can't play "
-        f"the video without it): {body!r}"
-    )
-    asset = body["asset"]
+    assert body["rejected"] == []
+    assert len(body["accepted"]) == 1
+    # The batch response carries each accepted asset's identity.
+    asset = body["accepted"][0]["asset"]
     assert asset.get("hash"), f"asset missing 'hash': {asset!r}"
     assert asset.get("url"), f"asset missing 'url': {asset!r}"
     # And the URL is servable — a GET on it returns the bytes.
@@ -448,11 +436,11 @@ def test_upload_then_asset_list_consistent_url(seeded_project):
     with TESTDATA_MP4.open("rb") as fh:
         r = client.post(
             f"/api/projects/{pid}/ingest",
-            files={"file": ("clip_short.mp4", fh, "video/mp4")},
+            files={"files": ("clip_short.mp4", fh, "video/mp4")},
         )
     body = r.json()
-    upload_url = body["asset"]["url"]
-    upload_hash = body["asset"]["hash"]
+    upload_url = body["accepted"][0]["asset"]["url"]
+    upload_hash = body["accepted"][0]["asset"]["hash"]
 
     r2 = client.get(f"/api/projects/{pid}")
     listed = [a for a in r2.json()["assets"] if a["hash"] == upload_hash]
@@ -464,6 +452,27 @@ def test_upload_then_asset_list_consistent_url(seeded_project):
         f"{listed[0]['url']!r} — the frontend will not be able to "
         f"play it."
     )
+
+
+def test_upload_batch_keeps_valid_asset_when_another_file_is_invalid(seeded_project):
+    """The multi-file contract reports granular failures without rolling back success."""
+    project_path, pid = seeded_project
+    client = TestClient(app_mod.app)
+    with TESTDATA_MP4.open("rb") as valid:
+        response = client.post(
+            f"/api/projects/{pid}/ingest",
+            files=[
+                ("files", ("clip_short.mp4", valid, "video/mp4")),
+                ("files", ("bad.mp4", b"not media", "video/mp4")),
+            ],
+        )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert len(body["accepted"]) == 1
+    assert body["accepted"][0]["filename"] == "clip_short.mp4"
+    assert body["rejected"] == [{"filename": "bad.mp4", "error": "not a recognised media file"}]
+    asset_hash = body["accepted"][0]["asset"]["hash"]
+    assert (project_path / ".open_edit" / "assets" / asset_hash[:2] / asset_hash).is_file()
 
 
 # ---------------------------------------------------------------------------

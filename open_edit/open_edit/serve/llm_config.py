@@ -5,44 +5,51 @@ Reads ``<project_dir>/.open_edit/config.toml`` to find an ``[llm]`` table:
 .. code-block:: toml
 
     [llm]
-    provider = "opencode"        # anthropic | openai | pi | opencode | antigravity
+    provider = "opencode"
     model = "opencode-go/minimax-m3"
 
     [llm.cli]
     # Adapter-specific overrides; reserved for future use.
 
-If the file is missing or has no ``[llm]`` table, falls back to env vars:
-
-- ``OPEN_EDIT_LLM_PROVIDER`` — must be one of ``anthropic|openai|pi|opencode|antigravity``.
-  Default: ``anthropic``.
-- ``OPEN_EDIT_LLM_MODEL``   — model name passed to the adapter. Per-adapter
-  default if unset (``claude-sonnet-4-5`` for anthropic, ``gpt-4o`` for
-  openai, ``minimax-m3`` for pi, ``opencode-go/minimax-m3`` for opencode,
-  ``gemini-2.5-flash`` for antigravity).
+The list of valid providers is defined in ``providers.py`` — the single
+canonical registry.  Do not add a ``ProviderName`` literal here.
 """
 from __future__ import annotations
 
 import contextlib
 import os
-import sys
+import re
 import tempfile
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+from .providers import (
+    PROVIDERS,
+    list_provider_ids,
+    provider_default_model,
+)
 
 
 class LLMConfigError(Exception):
     """Raised when the per-project LLM config is malformed."""
 
 
-ProviderName = Literal["anthropic", "openai", "pi", "opencode", "antigravity"]
-
-
 class LLMConfig(BaseModel):
-    provider: ProviderName
+    provider: str
     model: str
     cli: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("provider")
+    @classmethod
+    def _known_provider(cls, v: str) -> str:
+        if v not in PROVIDERS:
+            registered = ", ".join(sorted(PROVIDERS))
+            raise ValueError(
+                f"unknown provider {v!r}; expected one of: {registered}"
+            )
+        return v
 
     @field_validator("model")
     @classmethod
@@ -50,15 +57,6 @@ class LLMConfig(BaseModel):
         if not v or not v.strip():
             raise ValueError("model must be a non-empty string")
         return v.strip()
-
-
-_PROVIDER_DEFAULT_MODEL: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-5",
-    "openai": "gpt-4o",
-    "pi": "minimax-m3",
-    "opencode": "opencode-go/minimax-m3",
-    "antigravity": "gemini-2.5-flash",
-}
 
 
 def _read_toml(path: Path) -> dict[str, Any]:
@@ -78,6 +76,8 @@ def _atomic_write_text(path: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w") as fh:
             fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp_name, path)
     except Exception:
         with contextlib.suppress(OSError):
@@ -85,8 +85,8 @@ def _atomic_write_text(path: Path, text: str) -> None:
         raise
 
 
-def _format_toml(cfg: LLMConfig) -> str:
-    """Render LLMConfig as TOML. Keeps the format human-editable."""
+def _render_llm_toml(cfg: LLMConfig) -> str:
+    """Render the ``[llm]`` table as TOML."""
     lines = ["[llm]"]
     lines.append(f'provider = "{cfg.provider}"')
     lines.append(f'model = "{cfg.model}"')
@@ -95,8 +95,28 @@ def _format_toml(cfg: LLMConfig) -> str:
         lines.append("[llm.cli]")
         for k, v in sorted(cfg.cli.items()):
             lines.append(f'{k} = "{v}"')
-    lines.append("")  # trailing newline
     return "\n".join(lines)
+
+
+def _strip_llm_section(text: str) -> str:
+    """Return *text* with the ``[llm]`` section (and sub-tables) removed.
+
+    Everything from a line matching ``[llm`` to the next ``[`` or EOF
+    is stripped.  Lines before and after are preserved verbatim.
+    """
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    in_llm = False
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^\[llm(?:\.|\])", stripped):
+            in_llm = True
+            continue
+        if in_llm and stripped.startswith("["):
+            in_llm = False
+        if not in_llm:
+            result.append(line)
+    return "".join(result)
 
 
 def load_llm_config(project_dir: Path) -> LLMConfig:
@@ -134,13 +154,11 @@ def load_llm_config(project_dir: Path) -> LLMConfig:
     else:
         provider = os.environ.get("OPEN_EDIT_LLM_PROVIDER", "anthropic")
         env_model = os.environ.get("OPEN_EDIT_LLM_MODEL", "").strip()
-        model = env_model or _PROVIDER_DEFAULT_MODEL.get(provider, "")
+        model = env_model or provider_default_model(provider)
         cli = {}
 
     try:
-        # Pydantic will validate ``provider`` is in the enum and raise
-        # ValidationError if not. We catch and rewrap as LLMConfigError.
-        return LLMConfig(provider=provider, model=model, cli=cli)  # type: ignore[arg-type]
+        return LLMConfig(provider=provider, model=model, cli=cli)
     except Exception as exc:
         raise LLMConfigError(
             f"invalid LLM config: provider={provider!r}, model={model!r}: {exc}"
@@ -150,19 +168,35 @@ def load_llm_config(project_dir: Path) -> LLMConfig:
 def save_llm_config(project_dir: Path, cfg: LLMConfig) -> None:
     """Atomically write LLM config to ``<project_dir>/.open_edit/config.toml``.
 
-    Preserves any non-``[llm]`` content already in the file (best-effort:
-    we re-emit the [llm] table and discard unrelated content, with a stderr
-    warning). For v1.7, this is acceptable — config.toml is new and we own
-    its schema. A future version may add a merge-aware mode if needed.
+    Preserves any non-``[llm]`` content already in the file by stripping
+    the old ``[llm]`` section and inserting the new one in its place.
     """
     cfg_path = project_dir / ".open_edit" / "config.toml"
-    existing = ""
+    preamble = ""
+    postamble = ""
     if cfg_path.is_file():
         existing = cfg_path.read_text()
-    if "[llm.cli]" in existing or "[" in existing.replace("[llm]", "").replace("\n", ""):
-        print(
-            f"warning: rewriting {cfg_path} — only [llm] table is preserved; "
-            "other content is dropped",
-            file=sys.stderr,
-        )
-    _atomic_write_text(cfg_path, _format_toml(cfg))
+        # Parse before modifying.  A malformed configuration may contain
+        # valuable unrelated settings, so never turn it into a valid-looking
+        # file by overwriting it with just an [llm] table.
+        try:
+            _read_toml(cfg_path)
+        except Exception as exc:
+            raise LLMConfigError(
+                f"refusing to overwrite malformed configuration {cfg_path}: {exc}"
+            ) from exc
+        # Split at the first [llm line.
+        match = re.search(r"(?m)^\[llm(?:\.|\])", existing)
+        idx = match.start() if match else -1
+        if idx >= 0:
+            preamble = existing[:idx]
+            rest = existing[idx:]
+            postamble = _strip_llm_section(rest)
+        else:
+            preamble = existing.rstrip() + "\n\n"
+            postamble = ""
+    new_llm = _render_llm_toml(cfg)
+    merged = preamble + new_llm + "\n" + postamble
+    if postamble and not postamble.endswith("\n"):
+        merged += "\n"
+    _atomic_write_text(cfg_path, merged)

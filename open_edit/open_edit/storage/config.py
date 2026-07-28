@@ -1,13 +1,21 @@
 """Manages ~/.open-edit/ directory and config files."""
 import json
 import os
+import sys
 from pathlib import Path
+
+
+def _chmod(path: Path, mode: int) -> None:
+    """Best-effort chmod; skipped on Windows (NTFS ACLs)."""
+    if sys.platform == "win32":
+        return
+    os.chmod(path, mode)
 
 
 def get_config_dir() -> Path:
     p = Path.home() / ".open-edit"
     p.mkdir(parents=True, exist_ok=True)
-    os.chmod(p, 0o700)
+    _chmod(p, 0o700)
     return p
 
 
@@ -15,7 +23,7 @@ def get_profile_path() -> Path:
     p = get_config_dir() / "style_profile.json"
     if not p.exists():
         p.write_text(json.dumps(_default_profile()))
-        os.chmod(p, 0o600)
+        _chmod(p, 0o600)
     return p
 
 
@@ -47,7 +55,7 @@ def get_project_meta(project_id: str) -> dict:
     if not p.exists():
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"creativity_level": "balanced"}))
-        os.chmod(p, 0o600)
+        _chmod(p, 0o600)
     return json.loads(p.read_text())
 
 
@@ -62,4 +70,4 @@ def set_project_meta(project_id: str, key: str, value) -> None:
         meta = {"creativity_level": "balanced"}
     meta[key] = value
     p.write_text(json.dumps(meta))
-    os.chmod(p, 0o600)
+    _chmod(p, 0o600)

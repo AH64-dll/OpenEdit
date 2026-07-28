@@ -27,6 +27,15 @@ _APPEND_LOCK = threading.Lock()
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 
+class GraphRevisionConflict(RuntimeError):
+    """Raised when a mutation was composed against an obsolete graph revision."""
+
+    def __init__(self, expected: int, actual: int) -> None:
+        self.expected = expected
+        self.actual = actual
+        super().__init__(f"stale graph revision: expected {expected}, current {actual}")
+
+
 class EditGraphStore:
     """SQLite store for a project's edit graph + job lock."""
 
@@ -54,6 +63,30 @@ class EditGraphStore:
 
         with self._conn() as conn:
             ensure_schema(conn)
+
+    @staticmethod
+    def _revision_in(conn: sqlite3.Connection) -> int:
+        row = conn.execute("SELECT value FROM project_meta WHERE key = 'graph_revision'").fetchone()
+        return int(row[0]) if row is not None else 0
+
+    @classmethod
+    def _check_and_bump_revision(cls, conn: sqlite3.Connection, expected_revision: int | None) -> int:
+        """Atomically reject a stale mutation and advance the graph revision."""
+        current = cls._revision_in(conn)
+        if expected_revision is not None and expected_revision != current:
+            raise GraphRevisionConflict(expected_revision, current)
+        next_revision = current + 1
+        conn.execute(
+            "INSERT INTO project_meta (key, value) VALUES ('graph_revision', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(next_revision),),
+        )
+        return next_revision
+
+    def graph_revision(self) -> int:
+        """Return the monotonic revision for applied edit-graph mutations."""
+        with self._conn() as conn:
+            return self._revision_in(conn)
 
     @staticmethod
     def _now_iso() -> str:
@@ -119,7 +152,7 @@ class EditGraphStore:
 
     def append(
         self, op: OperationUnion, sequence_num: int | None = None,
-        command_id: str | None = None,
+        command_id: str | None = None, expected_revision: int | None = None,
     ) -> int:
         """Append an operation. Returns the assigned sequence_num.
 
@@ -147,6 +180,7 @@ class EditGraphStore:
                         op.status, sequence_num, op.model_dump_json(),
                     ),
                 )
+                self._check_and_bump_revision(conn, expected_revision)
                 conn.execute(
                     "INSERT INTO edit_status_events "
                     "(event_id, edit_id, from_status, to_status, command_id, "
@@ -176,7 +210,8 @@ class EditGraphStore:
     def update_status(
         self, edit_id: str, new_status: str,
         command_id: str | None = None, reason: str | None = None,
-    ) -> None:
+        expected_revision: int | None = None,
+    ) -> int:
         """Update an operation's status (e.g. for undo/revert or supersede)."""
         with self._conn() as conn:
             cur = conn.execute(
@@ -198,6 +233,7 @@ class EditGraphStore:
                     command_id, reason, self._now_iso(),
                 ),
             )
+            return self._check_and_bump_revision(conn, expected_revision)
 
     def record_command(
         self, command_id: str, project_id: str, tool_name: str,
@@ -284,7 +320,7 @@ class EditGraphStore:
         """Store the canonical edit-graph hash in project_meta."""
         self.set_project_meta_field("edit_graph_hash", h)
 
-    def delete_op(self, edit_id: str) -> bool:
+    def delete_op(self, edit_id: str, expected_revision: int | None = None) -> bool:
         """Remove an operation from the edit graph by id.
 
         Any ops that had ``parent_id == edit_id`` get their parent_id
@@ -304,9 +340,10 @@ class EditGraphStore:
             conn.execute(
                 "DELETE FROM edits WHERE edit_id = ?", (edit_id,)
             )
+            self._check_and_bump_revision(conn, expected_revision)
         return True
 
-    def move_arbitrary(self, edit_id: str, new_sequence_num: int) -> bool:
+    def move_arbitrary(self, edit_id: str, new_sequence_num: int, expected_revision: int | None = None) -> bool:
         """Move an operation to any position in the sequence.
 
         This is a general reorder operation (not just adjacent swap).
@@ -339,9 +376,41 @@ class EditGraphStore:
                 "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
                 (new_sequence_num, edit_id),
             )
+            self._check_and_bump_revision(conn, expected_revision)
         return True
 
-    def reorder(self, edit_id_a: str, edit_id_b: str) -> None:
+    def reorder_all(self, edit_ids: list[str], expected_revision: int | None = None) -> int:
+        """Atomically replace the complete edit ordering.
+
+        Callers must supply every edit exactly once.  Validating the
+        permutation before changing any sequence number prevents partial
+        reorder state when a browser sends a duplicate, omits an operation,
+        or contains an unknown id.
+        """
+        if len(edit_ids) != len(set(edit_ids)):
+            raise ValueError("reorder contains duplicate edit IDs")
+        with self._conn() as conn:
+            rows = conn.execute("SELECT edit_id FROM edits ORDER BY sequence_num").fetchall()
+            existing = [row[0] for row in rows]
+            if set(edit_ids) != set(existing) or len(edit_ids) != len(existing):
+                missing = sorted(set(existing) - set(edit_ids))
+                unknown = sorted(set(edit_ids) - set(existing))
+                details = []
+                if missing:
+                    details.append(f"missing IDs: {', '.join(missing)}")
+                if unknown:
+                    details.append(f"unknown IDs: {', '.join(unknown)}")
+                raise ValueError("reorder must be a complete permutation (" + "; ".join(details) + ")")
+            # A two-phase update avoids transient duplicate sequence numbers
+            # if a future schema makes sequence_num unique.
+            offset = len(existing) + 1
+            for index, edit_id in enumerate(edit_ids):
+                conn.execute("UPDATE edits SET sequence_num = ? WHERE edit_id = ?", (offset + index, edit_id))
+            for index, edit_id in enumerate(edit_ids):
+                conn.execute("UPDATE edits SET sequence_num = ? WHERE edit_id = ?", (index, edit_id))
+            return self._check_and_bump_revision(conn, expected_revision)
+
+    def reorder(self, edit_id_a: str, edit_id_b: str, expected_revision: int | None = None) -> int:
         """Swap the sequence_num of two adjacent operations.
 
         Raises ValueError if either id does not exist or if the two ops
@@ -370,3 +439,4 @@ class EditGraphStore:
                 "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
                 (seq1, id2),
             )
+            return self._check_and_bump_revision(conn, expected_revision)

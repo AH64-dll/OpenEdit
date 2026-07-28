@@ -17,8 +17,42 @@ Read the boundary and bridge contract before using this code:
 - FastAPI server and static UI
 - sandbox experiments
 - LLM provider integrations
+- Remotion materializing motion graphics (optional; see
+  [`../docs/REMOTION_LICENSE.md`](../docs/REMOTION_LICENSE.md))
+- Local MCP server so Cursor (or another agent) can drive Open Edit as a
+  plugin — see [`../docs/MCP.md`](../docs/MCP.md)
 
 It may be useful for exploration, but it has a different architecture and maturity level than the Go pipeline.
+
+## Motion graphics backends
+
+| Backend | Op / path | Use for |
+|---|---|---|
+| MLT / melt | clips on tracks | Timeline A/V |
+| HyperFrames | `AddHtmlOverlayOp` | Simple HTML lower thirds |
+| Remotion | `AddRemotionCompositionOp` → CAS clip | React motion graphics |
+| moviepy templates | `generate_visual_for_segment` | Quick procedural fills |
+
+Remotion compositions are **materialized before emit**, then **ffmpeg-burned**
+onto the melt proxy/final (MLT multitrack composite of Remotion is not the
+trusted path). They are not HyperFrames overlays.
+
+## Known experimental limits
+
+- **Sandbox:** On Linux, `run_script` needs bwrap/seccomp, or set
+  `OPEN_EDIT_SANDBOX_BACKEND=dev` (weaker). On Windows, `dev` is the default
+  (no bwrap). Moviepy `generate_visual_for_segment` is Linux-only.
+- **Windows MCP:** See [`../docs/MCP.md`](../docs/MCP.md) for native Windows
+  install (`.\.venv\Scripts\open-edit-mcp.exe`), `;`-separated ingest
+  allowlists, and PATH deps (ffmpeg, melt, Node).
+- **Arabic / Whisper:** defaults are `base` + auto language. For Arabic talks:
+  `OPEN_EDIT_WHISPER_LANGUAGE=ar` and usually `OPEN_EDIT_WHISPER_MODEL=small`.
+- **Local ingest via MCP/agent:** `edit_project operation=ingest_local` with
+  absolute paths under the project or `OPEN_EDIT_INGEST_ALLOWLIST`
+  (`os.pathsep`-separated roots).
+- **Remotion Node:** prefer Node 24 via `OPEN_EDIT_NODE_BIN` (system Node 26
+  has bitten the ESM bridge).
+- Go pipeline remains the repo production renderer boundary.
 
 ## Non-goals while experimental
 

@@ -181,9 +181,10 @@ class _OpenCodeAdapter:
     ) -> list[str]:
         # opencode has no --append-system-prompt flag; we prepend the
         # system prompt to the user message so the model still sees it.
-        # The leading "[system]\n...\n\n[user]\n..." format keeps the
-        # boundary unambiguous for the model.
-        full_message = f"[system]\n{system_prompt}\n\n[user]\n{user_text}"
+        # When user_text is already role-tagged (full_history strategy),
+        # do not wrap it again in a second [user] envelope.
+        body = user_text if user_text.lstrip().startswith("[") else f"[user]\n{user_text}"
+        full_message = f"[system]\n{system_prompt}\n\n{body}"
         cmd = [
             "opencode",
             "run",
@@ -197,6 +198,54 @@ class _OpenCodeAdapter:
         return cmd
 
 
+class _AnthropicAdapter:
+    """SDK adapter stub for model discovery. No CLI binary involved."""
+    name = "anthropic"
+    default_timeout_s = 120
+
+    def default_model(self) -> str:
+        return "claude-sonnet-4-5"
+
+    def available_models(self) -> list[str]:
+        return ["claude-sonnet-4-5", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"]
+
+    def supports_tools(self) -> bool:
+        return True
+
+    def supports_images(self) -> bool:
+        return True
+
+    def manages_own_auth(self) -> bool:
+        return False
+
+    def build_command(self, **kwargs) -> list[str]:
+        raise NotImplementedError("anthropic is an SDK provider, not a CLI adapter")
+
+
+class _OpenAIAdapter:
+    """SDK adapter stub for model discovery. No CLI binary involved."""
+    name = "openai"
+    default_timeout_s = 120
+
+    def default_model(self) -> str:
+        return "gpt-4o"
+
+    def available_models(self) -> list[str]:
+        return ["gpt-4o", "gpt-4o-mini", "o3-mini"]
+
+    def supports_tools(self) -> bool:
+        return True
+
+    def supports_images(self) -> bool:
+        return True
+
+    def manages_own_auth(self) -> bool:
+        return False
+
+    def build_command(self, **kwargs) -> list[str]:
+        raise NotImplementedError("openai is an SDK provider, not a CLI adapter")
+
+
 class _AntigravityAdapter:
     name = "antigravity"
     default_timeout_s = 3600
@@ -205,10 +254,10 @@ class _AntigravityAdapter:
         return "gemini-2.5-flash"
 
     def available_models(self) -> list[str]:
-        from .runtimes.registry import RUNTIME_SPECS
-        for spec in RUNTIME_SPECS:
-            if spec["id"] == "antigravity":
-                return list(spec.get("models", []))
+        from .providers import PROVIDERS
+        spec = PROVIDERS.get("antigravity")
+        if spec and spec.models:
+            return list(spec.models)
         return ["gemini-2.5-flash", "gemini-3.5-flash-high"]
 
     def supports_tools(self) -> bool:
@@ -230,11 +279,14 @@ class _AntigravityAdapter:
         project_path: str | None = None,
     ) -> list[str]:
         agy_bin = shutil.which("agy") or shutil.which("antigravity") or "antigravity"
-        full_message = f"[system]\n{system_prompt}\n\n[user]\n{user_text}"
+        body = user_text if user_text.lstrip().startswith("[") else f"[user]\n{user_text}"
+        full_message = f"[system]\n{system_prompt}\n\n{body}"
         return [agy_bin, "--print", full_message, "--model", model]
 
 
 _ADAPTERS: dict[str, CLIAdapter] = {
+    "anthropic": _AnthropicAdapter(),
+    "openai": _OpenAIAdapter(),
     "pi": _PiAdapter(),
     "opencode": _OpenCodeAdapter(),
     "antigravity": _AntigravityAdapter(),

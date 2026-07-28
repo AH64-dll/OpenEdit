@@ -1,50 +1,54 @@
-"""LLM provider registry (Wave 3).
+"""LLM provider registry — single source of truth.
 
-Centralizes the provider name → streaming-implementation mapping that
-used to live as a 6-branch if/elif in ``stream_chat``. Adding a new
-provider is one entry here, not a surgery in ``llm.py``.
+Centralises the provider name → implementation mapping that used to
+live as a 6-branch if/elif in ``stream_chat`` or duplicated across
+``cli_adapter.py``, ``llm_config.py``, and ``runtimes/registry.py``.
 
-The :class:`ProviderSpec` dataclass captures everything the dispatcher
-needs:
-- ``name`` — canonical provider name (matches ``ProviderName`` in
-  ``llm_config.py``)
-- ``is_cli`` — True for the four providers that shell out to a CLI
-  binary (pi, opencode, antigravity, jcode); False for SDK providers
-  (anthropic, openai)
-- ``stream`` — async generator function matching the
-  ``_stream_openai`` / ``_stream_anthropic`` / ``_stream_cli`` /
-  ``_stream_pi`` shape. For CLI providers the dispatcher pulls the
-  matching ``CLIAdapter`` and passes it to ``_stream_cli``; for SDK
-  providers the registered stream function is called directly.
-- ``missing_error`` — message yielded by ``stream_chat`` when the
-  provider is selected but cannot run (missing SDK, missing API key,
-  missing CLI binary). The dispatcher wraps the stream call in the
-  same try/except pattern that used to be copy-pasted per branch.
+Every provider appears in exactly one place (here). API validation,
+UI dropdowns, model discovery, auth configuration, and runtime
+dispatch all derive from this registry.
 """
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass(frozen=True)
 class ProviderSpec:
+    """One LLM backend.
+
+    All metadata the server, UI, and dispatcher need to work with
+    this provider lives in this dataclass.  No other file should
+    hardcode a provider name or model list.
+    """
+
     name: str
-    is_cli: bool
-    stream: Callable[..., Awaitable[Iterator[dict]]]
-    missing_error: str  # yielded as {"type": "error", "message": ...}
-    # True when the provider runs a COMPLETE agent loop per ``stream_chat``
-    # call (all CLI providers: pi executes tools via the TS extension and
-    # loops internally; opencode/jcode/antigravity similarly). For these,
-    # the Open Edit agent loop must NOT re-execute tools or re-loop: it
-    # streams exactly once, forwards events, and finalizes the turn.
-    # False for SDK providers (anthropic/openai), where one ``stream_chat``
-    # call yields ONE assistant message and the agent loop owns tool
-    # execution + iteration.
-    owns_agent_loop: bool = False
+    label: str
+    transport: Literal["sdk", "cli"]
 
+    agent_mode: str = "openedit_loop"
+    hidden: bool = False
 
-# --- Imported lazily so a missing SDK doesn't break server startup. ---
+    stream: Callable[..., Awaitable[Iterator[dict]]] | None = None
+    missing_error: str = ""
+
+    default_model: str = ""
+    models: tuple[str, ...] = ()
+
+    binary_names: tuple[str, ...] = ()
+    env_keys: tuple[str, ...] = ()
+
+    supports_tools: bool = False
+    supports_images: bool = False
+    supports_sessions: bool = False
+    # How prior turns are supplied to the model:
+    # - native_session: provider keeps state via session_id (send last turn)
+    # - full_history: serialize role-separated messages each turn
+    # - stateless: no conversational memory (must not be an editing agent)
+    context_strategy: Literal["native_session", "full_history", "stateless"] = "full_history"
+
 
 def _anthropic_stream():
     from .llm import _stream_anthropic
@@ -69,72 +73,147 @@ def _cli_stream():
 PROVIDERS: dict[str, ProviderSpec] = {
     "anthropic": ProviderSpec(
         name="anthropic",
-        is_cli=False,
+        label="Anthropic Claude API",
+        transport="sdk",
+        agent_mode="openedit_loop",
         stream=_anthropic_stream(),
         missing_error=(
             "anthropic provider: required package not installed or "
             "ANTHROPIC_API_KEY missing. Install with `pip install anthropic` "
             "and set the key in Settings or as ANTHROPIC_API_KEY env var."
         ),
+        default_model="claude-sonnet-4-5",
+        models=(
+            "claude-sonnet-4-5",
+            "claude-3-5-sonnet-latest",
+            "claude-3-5-haiku-latest",
+            "claude-3-opus-latest",
+        ),
+        env_keys=("ANTHROPIC_API_KEY",),
+        supports_tools=True,
+        supports_images=True,
+        context_strategy="full_history",
     ),
     "openai": ProviderSpec(
         name="openai",
-        is_cli=False,
+        label="OpenAI API",
+        transport="sdk",
+        agent_mode="openedit_loop",
         stream=_openai_stream(),
         missing_error=(
             "openai provider: required package not installed or "
             "OPENAI_API_KEY missing. Install with `pip install openai` "
             "and set the key in Settings or as OPENAI_API_KEY env var."
         ),
+        default_model="gpt-4o",
+        models=("gpt-4o", "gpt-4o-mini", "o3-mini"),
+        env_keys=("OPENAI_API_KEY",),
+        supports_tools=True,
+        supports_images=True,
+        context_strategy="full_history",
     ),
     "pi": ProviderSpec(
         name="pi",
-        is_cli=True,
+        label="Pi Agent Engine",
+        transport="cli",
+        agent_mode="external_loop",
         stream=_pi_stream(),
         missing_error=(
             "pi provider: `pi` binary not found on PATH. Install pi "
             "(see https://github.com/badlogic/pi-mono) and ensure the "
             "binary is on PATH, or set OPEN_EDIT_PI_BINARY."
         ),
-        owns_agent_loop=True,
+        default_model="minimax-m3",
+        models=(
+            "minimax-m3",
+            "minimax-m2.7",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+        ),
+        binary_names=("pi",),
+        env_keys=("PI_API_KEY",),
+        supports_tools=True,
+        supports_images=True,
+        supports_sessions=True,
+        context_strategy="native_session",
     ),
     "opencode": ProviderSpec(
         name="opencode",
-        is_cli=True,
+        label="OpenCode CLI",
+        transport="cli",
+        agent_mode="chat_only",
         stream=_cli_stream(),
         missing_error=(
             "opencode provider: `opencode` binary not found on PATH. "
             "Install opencode (see https://opencode.ai) and ensure the "
             "binary is on PATH."
         ),
-        owns_agent_loop=True,
+        default_model="opencode-go/minimax-m3",
+        models=(
+            "opencode-go/minimax-m3",
+            "opencode-go/claude-sonnet-4-5",
+            "opencode-go/deepseek-v4-pro",
+        ),
+        binary_names=("opencode",),
+        env_keys=("OPENCODE_API_KEY", "OPEN_EDIT_LLM_API_KEY"),
+        supports_tools=False,
+        supports_images=False,
+        context_strategy="full_history",
     ),
     "antigravity": ProviderSpec(
         name="antigravity",
-        is_cli=True,
+        label="Antigravity (Google)",
+        transport="cli",
+        agent_mode="chat_only",
         stream=_cli_stream(),
         missing_error=(
             "antigravity provider: `antigravity` binary not found on "
             "PATH. Install antigravity and ensure the binary is on PATH."
         ),
-        owns_agent_loop=True,
+        default_model="gemini-2.5-flash",
+        models=(
+            "gemini-2.5-flash",
+            "gemini-3.5-flash-high",
+            "gemini-3.5-flash-medium",
+            "gemini-3.6-flash-high",
+            "gemini-3.1-pro-high",
+            "claude-sonnet-4.6",
+            "claude-opus-4.6",
+            "gpt-oss-120b",
+        ),
+        binary_names=("agy", "antigravity"),
+        env_keys=("ANTIGRAVITY_API_KEY", "OPEN_EDIT_ANTIGRAVITY_KEY"),
+        supports_tools=False,
+        supports_images=False,
+        context_strategy="full_history",
     ),
     "jcode": ProviderSpec(
         name="jcode",
-        is_cli=True,
+        label="JCode CLI",
+        transport="cli",
+        agent_mode="chat_only",
+        hidden=True,
         stream=_cli_stream(),
         missing_error=(
             "jcode provider: `jcode` binary not found on PATH. Install "
             "jcode and ensure the binary is on PATH."
         ),
-        owns_agent_loop=True,
+        default_model="jcode-default",
+        models=("jcode-default",),
+        binary_names=("jcode",),
+        env_keys=("JCODE_API_KEY",),
+        supports_tools=False,
+        supports_images=False,
+        context_strategy="stateless",
     ),
 }
 
 
 def resolve_provider(name: str) -> ProviderSpec:
-    """Return the :class:`ProviderSpec` for ``name``. Raises ``KeyError``
-    with a helpful message if the name is not registered."""
+    """Return the :class:`ProviderSpec` for ``name``.
+
+    Raises ``KeyError`` with a helpful message if not registered.
+    """
     if name not in PROVIDERS:
         registered = ", ".join(sorted(PROVIDERS))
         raise KeyError(
@@ -144,6 +223,47 @@ def resolve_provider(name: str) -> ProviderSpec:
 
 
 def list_provider_specs() -> list[ProviderSpec]:
-    """All registered providers, sorted by name. Used by the UI to render
-    the provider dropdown without re-implementing the list elsewhere."""
+    """All registered providers, sorted by name (including hidden)."""
     return sorted(PROVIDERS.values(), key=lambda s: s.name)
+
+
+def list_visible_providers() -> list[ProviderSpec]:
+    """Non-hidden providers, sorted by name.
+
+    This is the list shown in the UI dropdown and exposed over the API.
+    """
+    return sorted(
+        (s for s in PROVIDERS.values() if not s.hidden),
+        key=lambda s: s.name,
+    )
+
+
+def list_provider_ids() -> list[str]:
+    """Sorted provider ids (including hidden)."""
+    return sorted(PROVIDERS)
+
+
+def provider_default_model(name: str) -> str:
+    """Return the default model for a provider, or ``""`` if unknown."""
+    spec = PROVIDERS.get(name)
+    return spec.default_model if spec else ""
+
+
+def get_provider_models(name: str) -> list[str]:
+    """Return the model list for a provider.
+
+    For CLI providers, this may shell out to discover models
+    (e.g. ``opencode models``).  Returns an empty list for unknown
+    providers.
+    """
+    spec = PROVIDERS.get(name)
+    if spec is None:
+        return []
+    if spec.transport == "cli":
+        from .cli_adapter import get_adapter
+        try:
+            adapter = get_adapter(name)
+            return list(adapter.available_models())
+        except KeyError:
+            pass
+    return list(spec.models)

@@ -51,6 +51,10 @@ def test_get_llm_config_returns_current_config(
     # available_models for opencode is whatever `opencode models` returns
     # (or [] if binary missing); we only assert it's a list.
     assert isinstance(body["available_models"], list)
+    capabilities = {item["id"]: item for item in body["provider_capabilities"]}
+    assert capabilities["opencode"]["agent_mode"] == "chat_only"
+    assert capabilities["opencode"]["supports_tools"] is False
+    assert capabilities["anthropic"]["agent_mode"] == "openedit_loop"
 
 
 def test_put_llm_config_persists_and_round_trips(

@@ -2,6 +2,7 @@
 import sqlite3
 import tempfile
 import unittest
+import pytest
 from pathlib import Path
 
 from open_edit.ir.types import (
@@ -341,3 +342,24 @@ class TestEditGraphStore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def test_reorder_rejects_stale_graph_revision(tmp_path):
+    """An optimistic reorder cannot overwrite a newer graph state."""
+    from open_edit.storage.edit_graph import GraphRevisionConflict
+    from open_edit.ir.types import AddClipOp
+
+    store = EditGraphStore(tmp_path / "edit_graph.db")
+    first = AddClipOp(author="user", asset_hash="first", track_id="v1", position_sec=0.0)
+    second = AddClipOp(author="user", asset_hash="second", track_id="v1", position_sec=1.0)
+    store.append(first)
+    store.append(second)
+    current = store.graph_revision()
+
+    new_revision = store.reorder_all([second.edit_id, first.edit_id], expected_revision=current)
+    assert new_revision == current + 1
+    with pytest.raises(GraphRevisionConflict) as excinfo:
+        store.reorder_all([first.edit_id, second.edit_id], expected_revision=current)
+
+    assert excinfo.value.actual == new_revision
+    assert [op.edit_id for op in store.load_all()] == [second.edit_id, first.edit_id]
+    assert store.graph_revision() == new_revision

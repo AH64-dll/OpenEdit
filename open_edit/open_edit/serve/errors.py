@@ -27,6 +27,7 @@ class ErrorCodes:
     RATE_LIMITED = "rate_limited"
     TIMEOUT = "timeout"
     INTERNAL = "internal"
+    PROJECT_INITIALIZATION_FAILED = "project_initialization_failed"
 
 
 def make_error(

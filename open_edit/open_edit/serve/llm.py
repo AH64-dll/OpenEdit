@@ -110,31 +110,104 @@ def _coerce_event(raw: dict[str, Any]) -> StreamEvent:
 # Config
 # ---------------------------------------------------------------------------
 
+_CLI_HISTORY_CHAR_BUDGET = 32_000
+
+
+def _message_plain_text(message: dict[str, Any]) -> str:
+    """Extract plain text from a chat message content field."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for blk in content:
+            if isinstance(blk, dict) and blk.get("type") == "text":
+                text = blk.get("text", "")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+            elif isinstance(blk, str) and blk.strip():
+                parts.append(blk.strip())
+        return "\n".join(parts)
+    return ""
+
+
+def _serialize_cli_conversation(
+    messages: list[dict[str, Any]],
+    *,
+    char_budget: int = _CLI_HISTORY_CHAR_BUDGET,
+) -> str:
+    """Serialize role-separated turns for CLI adapters without sessions.
+
+    Oldest turns are dropped first when the transcript exceeds
+    ``char_budget``. Tool results are included as assistant-visible
+    context so prior decisions are not silently discarded.
+    """
+    parts: list[str] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "system":
+            continue
+        text = _message_plain_text(message)
+        if role == "tool":
+            name = message.get("name") or message.get("tool_name") or "tool"
+            if not text:
+                result = message.get("content") or message.get("result")
+                if result is not None and not isinstance(result, (str, list)):
+                    text = json.dumps(result, ensure_ascii=False)[:2_000]
+            if text:
+                parts.append(f"[tool:{name}]\n{text}")
+            continue
+        if role not in ("user", "assistant") or not text:
+            continue
+        parts.append(f"[{role}]\n{text}")
+
+    while parts and sum(len(p) + 2 for p in parts) > char_budget:
+        parts.pop(0)
+    return "\n\n".join(parts)
+
+
 def _api_key(provider: str | None = None) -> str:
-    key = (
-        os.environ.get("OPEN_EDIT_LLM_API_KEY", "").strip()
-        or os.environ.get("OPENCODE_API_KEY", "").strip()
-        or os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        or os.environ.get("OPENAI_API_KEY", "").strip()
+    """Resolve an API key for *provider*.
+
+    Resolution order (first non-empty wins):
+    1. ``<PROVIDER>_API_KEY`` env var (e.g. ``ANTHROPIC_API_KEY``).
+    2. ``OPEN_EDIT_LLM_API_KEY`` only when ``OPEN_EDIT_LLM_API_KEY_PROVIDER``
+       explicitly names this provider.
+    3. Per-provider stored key from ``~/.open_edit/keys.json``.
+
+    Never falls through to another provider's key or env var.
+    """
+    if not provider:
+        raise RuntimeError("_api_key requires a provider name")
+    # 1. Provider-specific env var.
+    provider_upper = provider.upper().replace("-", "_")
+    for var in (f"{provider_upper}_API_KEY", f"OPEN_EDIT_{provider_upper}_KEY"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val
+    # 2. A generic override is intentionally provider-scoped.  Without the
+    # companion selector, a key left over for another provider could be sent
+    # to the wrong SDK.
+    val = os.environ.get("OPEN_EDIT_LLM_API_KEY", "").strip()
+    override_provider = os.environ.get("OPEN_EDIT_LLM_API_KEY_PROVIDER", "").strip().lower()
+    # OPEN_EDIT_LLM_PROVIDER is the legacy explicit global selection. It is
+    # safe as an override scope only when it names the same provider; per-
+    # project callers should set OPEN_EDIT_LLM_API_KEY_PROVIDER explicitly.
+    selected_provider = _provider()
+    if val and (override_provider == provider.lower() or (
+        not override_provider and selected_provider == provider.lower()
+    )):
+        return val
+    # 3. Stored key.
+    from .runtimes.keys_store import get_stored_key
+    val = get_stored_key(provider) or ""
+    if val:
+        return val
+    p_title = provider.lower()
+    raise RuntimeError(
+        f"{p_title} provider: no API key found. "
+        f"Set {provider_upper}_API_KEY or configure a key in Settings (⚙️)."
     )
-    if not key and provider:
-        from .runtimes.keys_store import get_stored_key
-        key = get_stored_key(provider) or ""
-    if not key:
-        from .runtimes.keys_store import get_stored_key
-        key = (
-            get_stored_key("anthropic")
-            or get_stored_key("opencode")
-            or get_stored_key("openai")
-            or get_stored_key("antigravity")
-            or ""
-        )
-    if not key:
-        p_title = provider.lower() if provider else "llm"
-        raise RuntimeError(
-            f"{p_title} provider: OPEN_EDIT_LLM_API_KEY is not set. Set it or configure a key in Settings (⚙️)."
-        )
-    return key
 
 
 def _model() -> str:
@@ -259,7 +332,7 @@ async def stream_chat(
                 async for ev in _stream_pi(messages, tools, system, session_id, project_path, model):
                     events_yielded += 1
                     yield ev
-            elif spec.is_cli:
+            elif spec.transport == "cli":
                 from .cli_adapter import get_adapter
                 adapter = get_adapter(spec.name)
                 async for ev in _stream_cli(
@@ -357,8 +430,17 @@ async def _stream_pi(
     sid = session_id or f"oe-{os.getpid()}"
 
     # Pi stores sessions in ~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<sid>.jsonl.
-    # We locate it by suffix after pi finishes, but compute a baseline size now.
+    # Capture its current byte position before the call so the usage event is
+    # strictly this turn's delta rather than a cumulative session total.
+    sessions_dir = cost_mod.default_pi_sessions_dir()
+    pre_turn_session = cost_mod.find_pi_session_file(sid, sessions_dir)
     baseline_size = 0
+    if pre_turn_session is not None:
+        try:
+            baseline_size = pre_turn_session.stat().st_size
+        except OSError:
+            # A concurrent rotation is handled by the parser's reset logic.
+            baseline_size = 0
 
     adapter = get_adapter("pi")
     async for ev in _stream_cli(
@@ -369,7 +451,7 @@ async def _stream_pi(
     # Cost extraction (v1.4 P1-3). _stream_cli did NOT emit a trailing
     # ``done`` for the pi branch — we own it here so the final order is
     # usage → done. Pi cost is read from the session JSONL delta.
-    session_path = cost_mod.find_pi_session_file(sid, cost_mod.default_pi_sessions_dir())
+    session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
     if session_path is None or not session_path.exists():
         yield {
             "type": "usage", "source": "unavailable",
@@ -522,26 +604,35 @@ async def _stream_cli(
 ) -> AsyncIterator[StreamEvent]:
     """Generic subprocess driver for any CLIAdapter (pi, opencode).
 
-    Pulls the last user message text from ``messages``, builds the
-    command via ``adapter.build_command``, spawns the subprocess, and
-    yields ``StreamEvent``-shaped dicts.
+    Builds the prompt according to the provider's ``context_strategy``:
+    session-backed adapters receive only the latest user turn; others
+    receive a role-separated conversation transcript.
 
     Enforces ``adapter.default_timeout_s`` on the subprocess lifetime
     (R4 fix). On timeout, kills the process, yields an ``error`` event
     with a clear message, then a ``done`` event with stop_reason=error.
     """
+    from .providers import PROVIDERS
+
+    strategy = "full_history"
+    spec = PROVIDERS.get(adapter.name)
+    if spec is not None:
+        strategy = spec.context_strategy
+
     user_text = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            content = m.get("content")
-            if isinstance(content, str):
-                user_text = content
-            elif isinstance(content, list):
-                for blk in content:
-                    if isinstance(blk, dict) and blk.get("type") == "text":
-                        user_text = blk.get("text", "")
-                        break
-            break
+    if strategy == "native_session":
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                user_text = _message_plain_text(m)
+                break
+    elif strategy == "stateless":
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                user_text = _message_plain_text(m)
+                break
+    else:
+        user_text = _serialize_cli_conversation(messages)
+
     if not user_text:
         yield {"type": "error", "message": f"{adapter.name} provider: no user message found"}
         yield {"type": "done", "stop_reason": "error"}

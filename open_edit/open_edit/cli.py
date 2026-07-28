@@ -173,8 +173,19 @@ def cmd_render(args: argparse.Namespace) -> int:
         mode=args.mode,
         profile_name=args.profile,
         force=args.force,
+        encoder_backend=getattr(args, "encoder", None),
     )
     if result.ok:
+        if args.json:
+            print(json.dumps({
+                "ok": True,
+                "output_path": str(result.output_path),
+                "duration_sec": result.duration_sec,
+                "elapsed_sec": result.elapsed_sec,
+                "cache_hit": result.cache_hit,
+                "mode": args.mode,
+            }))
+            return 0
         print(f"Rendered: {result.output_path}")
         print(f"  duration: {result.duration_sec:.2f}s  elapsed: {result.elapsed_sec:.2f}s  cache_hit: {result.cache_hit}")
         # Run QC gate
@@ -185,6 +196,9 @@ def cmd_render(args: argparse.Namespace) -> int:
             print(f"  [{mark}] {c.name}: {c.detail}")
         return 0 if qc.passed else 1
     else:
+        if args.json:
+            print(json.dumps({"ok": False, "error": result.error, "mode": args.mode}))
+            return 1
         print(f"Render failed: {result.error}", file=sys.stderr)
         return 1
 
@@ -335,6 +349,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # if no token was supplied, auth stays off.
     if getattr(args, "token", None):
         os.environ["OPEN_EDIT_TOKEN"] = args.token
+    if getattr(args, "review_only", False):
+        os.environ["OPEN_EDIT_REVIEW_ONLY"] = "1"
 
     uvicorn.run(
         "open_edit.serve.app:app",
@@ -344,6 +360,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
         log_level=args.log_level,
     )
     return 0
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    """Start the local stdio MCP server for an external agent host."""
+    from open_edit.mcp.server import main as mcp_main
+
+    argv: list[str] = []
+    if getattr(args, "project", None):
+        argv.extend(["--project", args.project])
+    return mcp_main(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -370,6 +396,11 @@ def main(argv: list[str] | None = None) -> int:
     p_render = sub.add_parser("render", help="Render the project to MP4 + run QC")
     p_render.add_argument("--profile", default=None, help="render profile (default: auto from --mode; 720p30 for proxy, 1080p30 for final)")
     p_render.add_argument("--mode", default="proxy", choices=["proxy", "final"], help="render mode")
+    p_render.add_argument(
+        "--encoder", default=None, choices=["gpu", "cpu"],
+        help="video encoder backend (default: gpu, or OPEN_EDIT_RENDER_BACKEND)",
+    )
+    p_render.add_argument("--json", action="store_true", help="emit one structured render result JSON object")
     p_render.add_argument("--force", action="store_true", help="ignore render cache")
     p_render.set_defaults(func=cmd_render)
 
@@ -453,7 +484,33 @@ def main(argv: list[str] | None = None) -> int:
         choices=["critical", "error", "warning", "info", "debug", "trace"],
         help="Uvicorn log level (default info).",
     )
+    p_serve.add_argument(
+        "--review-only",
+        action="store_true",
+        default=False,
+        help=(
+            "Review studio mode: preview UI + timeline without built-in "
+            "LLM chat or provider config (use with external MCP harness)."
+        ),
+    )
     p_serve.set_defaults(func=cmd_serve)
+
+    p_mcp = sub.add_parser(
+        "mcp",
+        help="Start local stdio MCP server (agent plugin mode).",
+        description=(
+            "Expose Open Edit pillar tools over MCP stdio so Cursor "
+            "(or another MCP client) owns the agent loop. Pin a project "
+            "with --project or OPEN_EDIT_PROJECT. See docs/MCP.md."
+        ),
+    )
+    p_mcp.add_argument(
+        "--project",
+        default=None,
+        help="Path to an Open Edit project (contains .open_edit/). "
+             "Defaults to OPEN_EDIT_PROJECT.",
+    )
+    p_mcp.set_defaults(func=cmd_mcp)
 
     args = parser.parse_args(argv)
     if args.version:

@@ -43,7 +43,31 @@ export function setOnTurnDone(callback) {
 let _intentionalClose = false;
 const MAX_RECONNECT_ATTEMPTS = 8;
 
+export function disconnectWS() {
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  state.reconnectAttempts = 0;
+  if (state.ws) {
+    _intentionalClose = true;
+    try { state.ws.close(); } catch {}
+    state.ws = null;
+  }
+}
+
+export function setReviewConnStatus() {
+  const dot = $('#conn-status');
+  if (!dot) return;
+  dot.className = 'conn-status connected';
+  dot.title = 'Review mode (no chat WebSocket)';
+}
+
 export function connectWS() {
+  if (state.reviewOnly) {
+    setReviewConnStatus();
+    return;
+  }
   // Always tear down the previous socket FIRST — even when the new
   // project id is empty ("— select —"), otherwise the old socket leaks
   // and keeps streaming the previous project's events.
@@ -64,7 +88,14 @@ export function connectWS() {
 
   setWsState('connecting');
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${proto}//${location.host}/api/chat/${encodeURIComponent(state.currentProjectId)}`;
+  // Remote servers require a token. Browsers cannot attach Authorization to
+  // a WebSocket handshake, so an operator may set `openEditWsToken` in local
+  // storage. Never place it in a non-TLS ws:// URL.
+  const remoteToken = location.protocol === 'https:'
+    ? (localStorage.getItem('openEditWsToken') || '')
+    : '';
+  const tokenQuery = remoteToken ? `?token=${encodeURIComponent(remoteToken)}` : '';
+  const url = `${proto}//${location.host}/api/chat/${encodeURIComponent(state.currentProjectId)}${tokenQuery}`;
   let ws;
   try {
     ws = new WebSocket(url);
@@ -103,13 +134,10 @@ export function connectWS() {
   ws.onclose = (ev) => {
     const intentional = _intentionalClose;
     _intentionalClose = false;
-    // Stale socket: a newer socket is already in place — do NOT null it
-    // out, flip state, or schedule a reconnect (that used to kill the
-    // fresh socket and duplicate the event stream).
     if (state.ws !== ws) return;
     setWsState('disconnected');
     state.ws = null;
-    if (intentional) return;  // closed by us on purpose — stay quiet
+    if (intentional || state.reviewOnly) return;
     // 4404 = project not found (server-side close code): reconnecting
     // would loop forever against a dead project.
     if (ev && ev.code === 4404) {
@@ -122,6 +150,7 @@ export function connectWS() {
 }
 
 export function scheduleReconnect() {
+  if (state.reviewOnly) return;
   if (state.reconnectTimer) return;
   if (state.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     setWsState('disconnected');

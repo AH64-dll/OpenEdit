@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import re
-import shutil
+import secrets
 import subprocess
 import time
 import uuid
@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import (
+    BackgroundTasks,
     FastAPI,
     File,
     HTTPException,
@@ -53,8 +54,43 @@ from .diagnostics import collect_diagnostics
 from .diagnostics import get_health as _collect_health
 from .errors import ErrorCodes, make_error
 from .logging_setup import CorrelationIdMiddleware, setup_logging
+from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE
+from .review_mode import auto_proxy_enabled, is_review_only
 
 _LOG = logging.getLogger("open_edit.serve.app")
+
+_UPLOAD_CHUNK_SIZE = 1024 * 1024
+_DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024
+
+
+def _max_upload_bytes() -> int:
+    """Return the configured per-file limit without accepting unsafe values."""
+    raw = os.environ.get("OPEN_EDIT_MAX_UPLOAD_BYTES", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_UPLOAD_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        _LOG.warning("invalid OPEN_EDIT_MAX_UPLOAD_BYTES value; using default")
+        return _DEFAULT_MAX_UPLOAD_BYTES
+    return value if value > 0 else _DEFAULT_MAX_UPLOAD_BYTES
+
+
+class UploadTooLargeError(ValueError):
+    """Raised when a streamed upload exceeds its configured per-file limit."""
+
+
+def _copy_upload_limited(source: Any, destination: Path, max_bytes: int) -> None:
+    """Copy a spooled upload without blocking the event loop or exceeding a cap."""
+    copied = 0
+    with destination.open("xb") as target:
+        while chunk := source.read(_UPLOAD_CHUNK_SIZE):
+            copied += len(chunk)
+            if copied > max_bytes:
+                raise UploadTooLargeError(f"file exceeds the {max_bytes}-byte upload limit")
+            target.write(chunk)
+    if copied == 0:
+        raise ValueError("zero-byte uploads are not valid media")
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +102,8 @@ class CreateProjectRequest(BaseModel):
 
 
 class RenderRequest(BaseModel):
-    mode: str = "proxy"  # "proxy" | "final"
+    mode: str = "proxy"  # "proxy" | "final" | "overlay"
+    expected_revision: int | None = None
 
 
 class RenderJobResponse(BaseModel):
@@ -81,6 +118,15 @@ class RenderJobResponse(BaseModel):
     # Not part of the public API contract — kept on the model so the
     # field survives Pydantic serialization roundtrips in tests.
     created_at: float = Field(default_factory=time.time)
+    graph_revision: int | None = None
+    edit_graph_hash: str | None = None
+
+
+class TimelineCommandRequest(BaseModel):
+    command: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    expected_revision: int | None = None
+    author: str = "user"
 
 
 class LLMConfigRequest(BaseModel):
@@ -93,11 +139,19 @@ class LLMConfigResponse(BaseModel):
     model: str
     available_providers: list[str]
     available_models: list[str]
+    provider_capabilities: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
     message: str
     conv_id: str | None = None
+
+
+class CreateNoteRequest(BaseModel):
+    text: str
+    t_start: float
+    t_end: float | None = None
+    source: str = "typed"
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +210,10 @@ def _register_job(project_id: str, mode: str) -> RenderJobResponse:
 
 
 _RENDER_TASKS: dict[str, asyncio.Task] = {}
+
+# Durable scheduling is the canonical render path.  The legacy dictionaries
+# above remain temporarily for backwards-compatible helper tests only.
+_RENDER_SERVICE = DEFAULT_RENDER_SERVICE
 
 
 async def _run_render_job(job: RenderJobResponse, project_path: Path) -> None:
@@ -234,6 +292,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
     # Touch the projects root so GET /api/projects doesn't 500 on a fresh install.
     projects_mod.projects_root()
+    # A process ID cannot be safely recovered after an application restart.
+    # Preserve the audit trail and make the interrupted state explicit.
+    for project in await projects_mod.list_projects():
+        _RENDER_SERVICE.recover(Path(project.path))
     yield
 
 
@@ -257,6 +319,37 @@ def _extract_token(request: Request) -> str | None:
     if auth.startswith("Bearer "):
         return auth[len("Bearer "):].strip() or None
     return request.query_params.get("token") or None
+
+
+def _is_localhost_websocket(websocket: WebSocket) -> bool:
+    client = websocket.client
+    return client is None or client.host in _LOCAL_HOSTS
+
+
+def _websocket_auth_error(websocket: WebSocket) -> tuple[int, str] | None:
+    """Validate remote chat connections before ``accept()``.
+
+    HTTP middleware does not run for WebSocket upgrades. Remote operation is
+    therefore deliberately opt-in: it requires both ``OPEN_EDIT_TOKEN`` and
+    an explicit comma-separated ``OPEN_EDIT_ALLOWED_ORIGINS`` allow-list.
+    Local desktop connections retain the documented localhost bypass.
+    """
+    if _is_localhost_websocket(websocket):
+        return None
+    expected_token = os.environ.get("OPEN_EDIT_TOKEN", "").strip()
+    if not expected_token:
+        return 4401, "remote WebSocket access is disabled: OPEN_EDIT_TOKEN is not configured"
+    supplied_token = websocket.query_params.get("token", "")
+    if not secrets.compare_digest(supplied_token, expected_token):
+        return 4401, "authentication required"
+    allowed_origins = {
+        origin.strip() for origin in os.environ.get("OPEN_EDIT_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    }
+    origin = websocket.headers.get("origin", "")
+    if not allowed_origins or origin not in allowed_origins:
+        return 4403, "origin is not allowed"
+    return None
 
 
 class TokenAuthMiddleware(BaseHTTPMiddleware):
@@ -359,13 +452,20 @@ async def get_projects() -> list[projects_mod.ProjectInfo]:
 
 
 @app.post("/api/projects", status_code=201)
-async def post_create_project(req: CreateProjectRequest) -> projects_mod.ProjectInfo:
+async def post_create_project(req: CreateProjectRequest) -> Any:
     try:
         return await projects_mod.create_project(req.name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        return JSONResponse(
+            status_code=500,
+            content=make_error(
+                ErrorCodes.PROJECT_INITIALIZATION_FAILED,
+                str(exc),
+                retriable=True,
+            ),
+        )
 
 
 @app.get("/api/projects/{project_id}")
@@ -379,68 +479,86 @@ async def get_project(project_id: str) -> projects_mod.ProjectState:
 @app.post("/api/projects/{project_id}/ingest", status_code=202)
 async def post_ingest(
     project_id: str,
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> dict[str, Any]:
-    """Upload a media file into the project and ingest it via ``AssetStore``.
+    """Ingest one or more files under the canonical ``files`` form field.
 
-    The file is written to the project root (so it matches the layout
-    ``open_edit init`` expects) and then ingested into the CAS
-    (``<project>/.open_edit/assets/<prefix>/<hash>`` + sidecar) via
-    ``AssetStore.ingest``. The response carries the new asset's identity
-    (including a servable ``url``) so the frontend can play the file
-    immediately without an extra round trip.
-
-    v1.4 P0-2: the previous implementation saved to ``.open_edit/inbox/``
-    and re-ran ``open_edit init`` — but ``cmd_init`` only scans the
-    project root, so the inbox file never reached the CAS and the
-    preview player had nothing to play.
+    Each file is isolated in a unique inbox path and bounded while streaming.
+    The operation intentionally allows partial success: a bad file never
+    removes already ingested assets from the same user selection.
     """
     state = await _require_project(project_id)
     project_path = Path(state.path)
+    from open_edit.storage.assets import AssetStore
 
-    # Save the uploaded file to a stable path (project root). The
-    # ``Asset`` model records this as ``original_path`` so the
-    # streaming route can pick the right mime type from the
-    # filename extension.
-    safe_name = Path(file.filename or "upload.bin").name or "upload.bin"
-    dest = project_path / safe_name
-    try:
-        with dest.open("wb") as fh:
-            shutil.copyfileobj(file.file, fh)
+    assets_dir = project_path / ".open_edit" / "assets"
+    inbox_dir = project_path / ".open_edit" / "inbox"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    store = AssetStore(assets_dir)
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, str]] = []
+    max_bytes = _max_upload_bytes()
 
-        # Ingest via the real storage class. ``AssetStore.ingest``
-        # computes the SHA-256, copies the bytes into the CAS, and
-        # writes the sidecar JSON. If the file isn't valid media,
-        # ffprobe inside ``ingest`` will fail — surface that as a
-        # 400 (the client sent something we can't use) rather than
-        # a generic 500.
-        from open_edit.storage.assets import AssetStore
-
-        assets_dir = project_path / ".open_edit" / "assets"
-        store = AssetStore(assets_dir)
+    for upload in files:
+        safe_name = Path(upload.filename or "upload.bin").name or "upload.bin"
+        # Preserve the original basename in asset metadata while ensuring
+        # concurrent uploads never share a temporary source path.
+        temp_path = inbox_dir / f"{uuid.uuid4().hex}_{safe_name}"
         try:
-            asset = await asyncio.to_thread(store.ingest, str(dest))
+            await asyncio.to_thread(_copy_upload_limited, upload.file, temp_path, max_bytes)
+            asset = await asyncio.to_thread(store.ingest, str(temp_path), False)
         except subprocess.CalledProcessError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"ffprobe failed on {safe_name!r}: not a recognised media file",
-            ) from exc
-    finally:
-        # Clean up the project-root copy: the CAS now has the bytes
-        # and the sidecar carries the original filename, so the root
-        # file is redundant. Leaving it behind would mean a re-run of
-        # ``open_edit init`` re-ingests it (doubling the work).
-        try:
-            dest.unlink(missing_ok=True)
-        except Exception:
-            pass
+            _LOG.info("rejected invalid media upload %s", safe_name)
+            rejected.append({"filename": safe_name, "error": "not a recognised media file"})
+        except UploadTooLargeError as exc:
+            rejected.append({"filename": safe_name, "error": str(exc)})
+        except ValueError as exc:
+            rejected.append({"filename": safe_name, "error": str(exc)})
+        except OSError:
+            _LOG.exception("failed to ingest upload %s", safe_name)
+            rejected.append({"filename": safe_name, "error": "upload processing failed"})
+        else:
+            asset_info = projects_mod._asset_to_info(asset, project_id).model_dump(mode="json")
+            accepted.append({
+                "filename": safe_name,
+                "asset": asset_info,
+                "transcribing": asset.has_audio,
+            })
+            if asset.has_audio:
+                background_tasks.add_task(
+                    _transcribe_in_background, assets_dir, asset.asset_hash, asset.stored_path
+                )
+        finally:
+            await asyncio.to_thread(temp_path.unlink, missing_ok=True)
+            await upload.close()
 
     return {
         "project_id": project_id,
-        "filename": safe_name,
-        "status": "ingested",
-        "asset": projects_mod._asset_to_info(asset, project_id).model_dump(mode="json"),
+        "accepted": accepted,
+        "rejected": rejected,
     }
+
+
+def _transcribe_in_background(
+    assets_dir: Path, asset_hash: str, stored_path: str
+) -> None:
+    """Background Whisper pass: transcribe and patch the asset sidecar."""
+    try:
+        from open_edit.storage.assets import AssetStore
+        from open_edit.storage.transcription import transcribe
+
+        alignment = transcribe(Path(stored_path))
+        AssetStore(assets_dir).update_alignment(asset_hash, alignment)
+        _LOG.info(
+            "background transcription done: %s (%d words)",
+            asset_hash[:8],
+            len(alignment),
+        )
+    except Exception as exc:  # never break the response that already shipped
+        _LOG.warning(
+            "background transcription failed for %s: %s", asset_hash[:8], exc
+        )
 
 
 @app.post("/api/projects/{project_id}/render", status_code=202)
@@ -448,13 +566,27 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     """Trigger a render in the background. Returns the job immediately."""
     _check_rate_limit(f"render:{project_id}", max_requests=5, window_sec=300)
     state = await _require_project(project_id)
-    if req.mode not in ("proxy", "final"):
-        raise HTTPException(status_code=400, detail="mode must be 'proxy' or 'final'")
+    if req.mode not in ("proxy", "final", "overlay"):
+        raise HTTPException(status_code=400, detail="mode must be 'proxy', 'final', or 'overlay'")
 
-    job = _register_job(project_id, req.mode)
     project_path = Path(state.path)
-    asyncio.create_task(_run_render_job(job, project_path))
-    return job
+    from .render_service import RenderEnqueueError
+
+    try:
+        job = _RENDER_SERVICE.enqueue(
+            project_id,
+            project_path,
+            req.mode,
+            expected_revision=req.expected_revision,
+        )
+    except RenderEnqueueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return RenderJobResponse(
+        job_id=job.job_id, project_id=job.project_id, mode=job.mode,
+        status=job.status, output_path=job.output_path, error=job.error,
+        created_at=job.created_at, graph_revision=job.graph_revision,
+        edit_graph_hash=job.edit_graph_hash,
+    )
 
 
 @app.get("/api/projects/{project_id}/renders")
@@ -467,16 +599,12 @@ async def get_renders(project_id: str) -> list[dict[str, Any]]:
 async def cancel_render_job(project_id: str, job_id: str) -> dict:
     """Cancel a running render job."""
     await _require_project(project_id)
-    job = _RENDER_JOBS.get(job_id)
+    state = await _require_project(project_id)
+    job = await _RENDER_SERVICE.cancel(Path(state.path), job_id)
     if job is None or job.project_id != project_id:
         raise HTTPException(status_code=404, detail=f"render job not found: {job_id}")
-    if job.status not in ("queued", "running"):
+    if job.status not in ("queued", "running", "cancelling"):
         return {"status": "already_terminal", "job_status": job.status}
-    task = _RENDER_TASKS.get(job_id)
-    if task and not task.done():
-        task.cancel()
-    job.status = "failed"
-    job.error = "cancelled by user"
     return {"status": "cancelled"}
 
 
@@ -484,10 +612,109 @@ async def cancel_render_job(project_id: str, job_id: str) -> dict:
 async def get_render_job(project_id: str, job_id: str) -> RenderJobResponse:
     """Poll a background render job's status."""
     await _require_project(project_id)
-    job = _RENDER_JOBS.get(job_id)
+    state = await _require_project(project_id)
+    job = _RENDER_SERVICE.get(Path(state.path), job_id)
     if job is None or job.project_id != project_id:
         raise HTTPException(status_code=404, detail=f"render job not found: {job_id}")
-    return job
+    return RenderJobResponse(
+        job_id=job.job_id, project_id=job.project_id, mode=job.mode,
+        status=job.status, output_path=job.output_path, error=job.error,
+        created_at=job.created_at, graph_revision=job.graph_revision,
+        edit_graph_hash=job.edit_graph_hash,
+    )
+
+
+@app.get("/api/projects/{project_id}/renders/{render_id}/file")
+async def get_render_file(project_id: str, render_id: str) -> FileResponse:
+    """Stream a rendered MP4 for in-browser preview (HTTP Range supported)."""
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+    mp4_path = _resolve_render_mp4(project_path, render_id)
+    if mp4_path is None:
+        raise HTTPException(status_code=404, detail=f"render not found: {render_id}")
+    return FileResponse(
+        str(mp4_path),
+        media_type="video/mp4",
+        headers={"Accept-Ranges": "bytes"},
+    )
+
+
+@app.post("/api/projects/{project_id}/notes", status_code=201)
+async def post_project_note(project_id: str, req: CreateNoteRequest) -> JSONResponse:
+    """Append a timestamp-anchored review note (readable by MCP get_pending_notes)."""
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    t_start = max(0.0, float(req.t_start))
+    t_end = float(req.t_end) if req.t_end is not None else t_start
+    if t_end < t_start:
+        t_end = t_start
+
+    from datetime import datetime, timezone
+
+    from open_edit.storage.notes import (
+        NoteSource,
+        NoteStatus,
+        NotesStore,
+        ReviewNote,
+        TimestampAnchor,
+    )
+
+    notes_db = project_path / "notes.db"
+    store = NotesStore(notes_db)
+    db_path = project_path / ".open_edit" / "edit_graph.db"
+    note_project_id = project_id
+    if db_path.exists():
+        try:
+            from open_edit.storage.edit_graph import EditGraphStore
+            note_project_id = EditGraphStore(db_path).project_id
+        except Exception:
+            pass
+    note = ReviewNote(
+        note_id=uuid.uuid4().hex,
+        project_id=note_project_id,
+        anchor=TimestampAnchor(t_start=t_start, t_end=t_end),
+        text=text,
+        source=NoteSource.typed if req.source == "typed" else NoteSource.typed,
+        status=NoteStatus.pending,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    store.append(note)
+    return JSONResponse({
+        "note_id": note.note_id,
+        "t_start": t_start,
+        "t_end": t_end,
+        "text": text,
+        "status": note.status.value,
+    })
+
+
+def _resolve_render_mp4(project_path: Path, render_id: str) -> Path | None:
+    """Locate a render MP4 under the project; reject path escape."""
+    if not render_id or ".." in render_id or "/" in render_id or "\\" in render_id:
+        return None
+    job = _RENDER_SERVICE.get(project_path, render_id)
+    if job is not None and job.output_path:
+        candidate = Path(job.output_path).resolve()
+        if candidate.is_file() and _path_under_project(candidate, project_path):
+            return candidate
+    renders_dir = (project_path / ".open_edit" / "renders").resolve()
+    for pattern in (f"{render_id}.mp4", f"*{render_id}*.mp4"):
+        for hit in renders_dir.glob(pattern):
+            resolved = hit.resolve()
+            if resolved.is_file() and _path_under_project(resolved, project_path):
+                return resolved
+    return None
+
+
+def _path_under_project(path: Path, project_path: Path) -> bool:
+    try:
+        path.resolve().relative_to(project_path.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 @app.get("/api/projects/{project_id}/thumbnail")
@@ -511,57 +738,67 @@ async def get_health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/ui-config")
+async def get_ui_config() -> dict[str, Any]:
+    """Frontend mode flags (review studio vs full agent UI)."""
+    return {
+        "mode": "review" if is_review_only() else "full",
+        "review_only": is_review_only(),
+        "auto_proxy": auto_proxy_enabled(),
+    }
+
+
+def _require_agent_mode() -> None:
+    if is_review_only():
+        raise HTTPException(status_code=404, detail="not available in review-only mode")
+
+
 @app.get("/api/projects/{project_id}/llm-config")
 async def get_llm_config(project_id: str) -> LLMConfigResponse:
-    """Return the project's LLM provider + model config.
-
-    v1.7: the config is per-project (in ``<project>/.open_edit/config.toml``)
-    with env-var fallback. The response also carries the list of available
-    providers (so the UI can populate the provider dropdown) and the list
-    of available models for the current provider (so the model dropdown
-    can be filled). Models come from the adapter's ``available_models()``
-    method; for opencode this shells out to ``opencode models`` (cached
-    60s by the adapter).
-    """
+    """Return the project's LLM provider + model config."""
+    _require_agent_mode()
     state = await _require_project(project_id)
     project_path = Path(state.path)
+    from . import providers as providers_mod
+
     try:
         cfg = llm_config_mod.load_llm_config(project_path)
     except llm_config_mod.LLMConfigError as exc:
         raise HTTPException(status_code=500, detail=f"invalid LLM config: {exc}") from exc
-    try:
-        adapter = cli_adapter_mod.get_adapter(cfg.provider)
-    except KeyError:
-        # The config file references a provider we no longer ship.
-        # Fall back to whatever's in the env so the UI can recover.
-        available_models: list[str] = []
-    else:
-        available_models = await asyncio.to_thread(adapter.available_models)
+    available_models = await asyncio.to_thread(providers_mod.get_provider_models, cfg.provider)
+    capabilities = [
+        {
+            "id": spec.name,
+            "label": spec.label,
+            "agent_mode": spec.agent_mode,
+            "supports_tools": spec.supports_tools,
+            "supports_sessions": spec.supports_sessions,
+            "context_strategy": spec.context_strategy,
+        }
+        for spec in providers_mod.list_visible_providers()
+    ]
     return LLMConfigResponse(
         provider=cfg.provider,
         model=cfg.model,
-        available_providers=cli_adapter_mod.list_adapters(),
+        available_providers=[s.name for s in providers_mod.list_visible_providers()],
         available_models=available_models,
+        provider_capabilities=capabilities,
     )
 
 
 @app.put("/api/projects/{project_id}/llm-config")
 async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigResponse:
-    """Persist the project's LLM provider + model config.
+    """Persist the project's LLM provider + model config."""
+    _require_agent_mode()
+    from . import providers as providers_mod
 
-    Validation:
-    - ``provider`` must be in registered adapters: {antigravity, anthropic, openai, pi, opencode}.
-    - ``model`` must be a non-empty string.
-
-    On success, the config is written atomically to
-    ``<project>/.open_edit/config.toml`` and the next chat turn picks it up.
-    """
-    if req.provider not in cli_adapter_mod.list_adapters():
+    visible = [s.name for s in providers_mod.list_visible_providers()]
+    if req.provider not in visible:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"unknown provider {req.provider!r}; "
-                f"expected one of: {', '.join(cli_adapter_mod.list_adapters())}."
+                f"expected one of: {', '.join(visible)}."
             ),
         )
     if not req.model or not req.model.strip():
@@ -573,13 +810,24 @@ async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigRes
         llm_config_mod.save_llm_config(project_path, cfg)
     except (llm_config_mod.LLMConfigError, OSError) as exc:
         raise HTTPException(status_code=500, detail=f"failed to save LLM config: {exc}") from exc
-    adapter = cli_adapter_mod.get_adapter(cfg.provider)
-    avail_models = await asyncio.to_thread(adapter.available_models)
+    avail_models = await asyncio.to_thread(providers_mod.get_provider_models, cfg.provider)
+    capabilities = [
+        {
+            "id": spec.name,
+            "label": spec.label,
+            "agent_mode": spec.agent_mode,
+            "supports_tools": spec.supports_tools,
+            "supports_sessions": spec.supports_sessions,
+            "context_strategy": spec.context_strategy,
+        }
+        for spec in providers_mod.list_visible_providers()
+    ]
     return LLMConfigResponse(
         provider=cfg.provider,
         model=cfg.model,
-        available_providers=cli_adapter_mod.list_adapters(),
+        available_providers=visible,
         available_models=avail_models,
+        provider_capabilities=capabilities,
     )
 
 
@@ -591,6 +839,7 @@ class SaveKeyRequest(BaseModel):
 @app.get("/api/runtimes")
 async def list_discovered_runtimes() -> JSONResponse:
     """Return auto-discovered CLI runtimes across system PATH and GUI directories."""
+    _require_agent_mode()
     from .runtimes.registry import discover_runtimes
     runtimes = discover_runtimes()
     return JSONResponse({"runtimes": [r.to_dict() for r in runtimes]})
@@ -599,6 +848,7 @@ async def list_discovered_runtimes() -> JSONResponse:
 @app.get("/api/settings/keys")
 async def get_settings_keys() -> JSONResponse:
     """Return masked status summary of API keys (from env or ~/.open_edit/keys.json)."""
+    _require_agent_mode()
     from .runtimes.keys_store import get_masked_keys_summary
     return JSONResponse(get_masked_keys_summary())
 
@@ -606,6 +856,7 @@ async def get_settings_keys() -> JSONResponse:
 @app.put("/api/settings/keys")
 async def put_settings_key(req: SaveKeyRequest) -> JSONResponse:
     """Save an API key to ~/.open_edit/keys.json with 0600 permissions."""
+    _require_agent_mode()
     _check_rate_limit("settings:keys", max_requests=10, window_sec=60)
     from .runtimes.keys_store import save_stored_key, get_masked_keys_summary
     provider = req.provider.strip().lower()
@@ -625,10 +876,37 @@ async def put_settings_key(req: SaveKeyRequest) -> JSONResponse:
 
 class UpdateOpStatusRequest(BaseModel):
     status: str  # "applied" | "reverted" | "superseded"
+    expected_revision: int | None = None
 
 
 class ReorderOpsRequest(BaseModel):
     op_ids: list[str]  # ordered list of edit_ids in desired sequence
+    expected_revision: int | None = None
+
+
+@app.post("/api/projects/{project_id}/ops")
+async def post_timeline_command(
+    project_id: str, req: TimelineCommandRequest,
+) -> JSONResponse:
+    """Apply a manual timeline command through the shared edit-graph service."""
+    state = await _require_project(project_id)
+    author = req.author if req.author in ("ai", "user") else "user"
+    from .edit_graph_service import EditGraphCommandError, apply_command
+    from open_edit.storage.edit_graph import GraphRevisionConflict
+
+    try:
+        result = apply_command(
+            Path(state.path),
+            req.command,
+            req.params,
+            author=author,  # type: ignore[arg-type]
+            expected_revision=req.expected_revision,
+        )
+    except GraphRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except EditGraphCommandError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(result)
 
 
 @app.patch("/api/projects/{project_id}/ops/{edit_id}/status")
@@ -644,28 +922,49 @@ async def update_op_status(
     db_path = Path(state.path) / ".open_edit" / "edit_graph.db"
     if not db_path.exists():
         raise HTTPException(status_code=404, detail="edit graph not found")
-    from open_edit.storage.edit_graph import EditGraphStore
+    from open_edit.storage.edit_graph import EditGraphStore, GraphRevisionConflict
 
     store = EditGraphStore(db_path)
     ops = store.load_all()
     if not any(o.edit_id == edit_id for o in ops):
         raise HTTPException(status_code=404, detail=f"op {edit_id} not found")
-    store.update_status(edit_id, req.status)
-    return JSONResponse({"edit_id": edit_id, "status": req.status})
+    try:
+        revision = store.update_status(edit_id, req.status, expected_revision=req.expected_revision)
+    except GraphRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({"edit_id": edit_id, "status": req.status, "graph_revision": revision})
 
 
 @app.delete("/api/projects/{project_id}/ops/{edit_id}")
-async def delete_op(project_id: str, edit_id: str) -> JSONResponse:
+async def delete_op(project_id: str, edit_id: str, expected_revision: int | None = None) -> JSONResponse:
+    """Revert a public operation without destroying durable edit history.
+
+    Hard deletion remains a storage-maintenance operation.  UI/API callers
+    must use a reversible status transition so later operations keep their
+    references and the graph remains auditable.
+    """
     state = await _require_project(project_id)
     db_path = Path(state.path) / ".open_edit" / "edit_graph.db"
     if not db_path.exists():
         raise HTTPException(status_code=404, detail="edit graph not found")
-    from open_edit.storage.edit_graph import EditGraphStore
+    from open_edit.storage.edit_graph import EditGraphStore, GraphRevisionConflict
 
     store = EditGraphStore(db_path)
-    if not store.delete_op(edit_id):
+    ops = store.load_all()
+    if not any(op.edit_id == edit_id for op in ops):
         raise HTTPException(status_code=404, detail=f"op {edit_id} not found")
-    return JSONResponse({"edit_id": edit_id, "deleted": True})
+    if any(op.parent_id == edit_id for op in ops):
+        raise HTTPException(
+            status_code=409,
+            detail="operation is referenced by later edits; revert dependent edits first",
+        )
+    try:
+        revision = store.update_status(
+            edit_id, "reverted", reason="api_revert", expected_revision=expected_revision,
+        )
+    except GraphRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({"edit_id": edit_id, "status": "reverted", "deleted": False, "graph_revision": revision})
 
 
 @app.post("/api/projects/{project_id}/ops/reorder")
@@ -676,29 +975,24 @@ async def reorder_ops(
     db_path = Path(state.path) / ".open_edit" / "edit_graph.db"
     if not db_path.exists():
         raise HTTPException(status_code=404, detail="edit graph not found")
-    from open_edit.storage.edit_graph import EditGraphStore
+    from open_edit.storage.edit_graph import EditGraphStore, GraphRevisionConflict
 
     store = EditGraphStore(db_path)
-    ops = store.load_all()
-    existing = {o.edit_id for o in ops}
-    for eid in req.op_ids:
-        if eid not in existing:
-            raise HTTPException(
-                status_code=404, detail=f"op {eid} not found in edit graph",
-            )
-    for i, eid in enumerate(req.op_ids, start=0):
-        store.move_arbitrary(eid, i)
-    return JSONResponse({"reordered": True})
+    try:
+        revision = store.reorder_all(req.op_ids, expected_revision=req.expected_revision)
+    except GraphRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse({"reordered": True, "graph_revision": revision})
 
 
 @app.get("/api/llm/providers/{provider}/models")
 async def get_provider_models(provider: str) -> dict[str, list[str]]:
     """Return available models for a given provider."""
-    try:
-        adapter = cli_adapter_mod.get_adapter(provider)
-        models = await asyncio.to_thread(adapter.available_models)
-    except KeyError:
-        models = []
+    _require_agent_mode()
+    from . import providers as providers_mod
+    models = await asyncio.to_thread(providers_mod.get_provider_models, provider)
     return {"models": models}
 
 
@@ -784,26 +1078,19 @@ def _guess_mime_type(asset: Asset) -> str:  # noqa: F821
 
 @app.websocket("/api/chat/{project_id}")
 async def ws_chat(websocket: WebSocket, project_id: str) -> None:
-    """Stream AgentEvents for a chat conversation.
+    """Stream AgentEvents for a chat conversation."""
+    if is_review_only():
+        await websocket.close(code=4404, reason="review-only mode")
+        return
+    # HTTP middleware does not protect WebSocket upgrades. Authenticate and
+    # validate the Origin before accepting so unauthorized clients cannot
+    # receive project state or submit a chat turn.
+    auth_error = _websocket_auth_error(websocket)
+    if auth_error is not None:
+        code, _reason = auth_error
+        await websocket.close(code=code, reason=_reason)
+        return
 
-    Protocol (server -> client)::
-
-        {"type": "text",         "text": "..."}
-        {"type": "tool_start",   "name": "...", "input": {...}}
-        {"type": "tool_result",  "name": "...", "result": {...}}
-        {"type": "render",       "path": "...", "mode": "proxy"|"final"}
-        {"type": "error",        "message": "..."}
-        {"type": "done",         "stop_reason": "..."}
-        {"type": "cancelled"}
-
-    Protocol (client -> server)::
-
-        {"message": "...", "conv_id": "optional"}
-        {"type": "cancel"} / {"type": "stop"}
-
-    On connect, the server sends a ``ready`` event so the client knows the
-    project was found and the WS is wired up.
-    """
     # Verify project exists before accepting.
     try:
         await _require_project(project_id)
@@ -845,6 +1132,14 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
             except asyncio.TimeoutError:
                 await websocket.send_text(json.dumps({"type": "ping"}))
                 continue
+            max_message_bytes = int(os.environ.get("OPEN_EDIT_WS_MAX_MESSAGE_BYTES", "65536"))
+            if len(raw.encode("utf-8")) > max_message_bytes:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"message exceeds {max_message_bytes}-byte limit",
+                }))
+                await websocket.close(code=4409, reason="message too large")
+                return
             try:
                 payload = json.loads(raw)
             except json.JSONDecodeError:
@@ -870,6 +1165,20 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
                     "message": "missing 'message' field",
                 }))
                 continue
+
+            client_host = websocket.client.host if websocket.client else "local"
+            try:
+                _check_rate_limit(
+                    f"ws:{client_host}:{project_id}",
+                    max_requests=int(os.environ.get("OPEN_EDIT_WS_MAX_MESSAGES", "20")),
+                    window_sec=float(os.environ.get("OPEN_EDIT_WS_WINDOW_SECONDS", "60")),
+                )
+            except HTTPException:
+                await websocket.send_text(json.dumps({
+                    "type": "error", "message": "rate limit exceeded. try again later.",
+                }))
+                await websocket.close(code=4429, reason="rate limited")
+                return
 
             conv_id = payload.get("conv_id") or agent_mod.new_conversation_id()
 

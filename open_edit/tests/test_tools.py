@@ -162,9 +162,11 @@ def test_run_python_missing_code(tmp_path: Path):
     assert result["status"] == "error"
 
 
-def test_run_python_missing_project_id(tmp_path: Path):
+def test_run_python_read_only_succeeds_with_zero_ops(tmp_path: Path):
+    """A read-only script (no ops emitted) should succeed, not error."""
     result = run_python({"code": "pass"}, str(tmp_path))
-    assert result["status"] == "error"
+    assert result["status"] == "ok"
+    assert result["ops"] == []
 
 
 def test_run_python_happy_path(tmp_path: Path):

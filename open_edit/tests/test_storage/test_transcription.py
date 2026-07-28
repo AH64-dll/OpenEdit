@@ -36,6 +36,28 @@ class TestTranscription(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].word, "hello")
         self.assertEqual(result[0].t_start, 0.0)
+        fake_model.transcribe.assert_called_once()
+        kwargs = fake_model.transcribe.call_args.kwargs
+        self.assertNotIn("language", kwargs)
+
+    def test_transcribe_passes_language_from_env(self) -> None:
+        fake_segment = MagicMock()
+        fake_segment.words = [
+            MagicMock(word="مرحبا", start=0.0, end=0.5, probability=0.9),
+        ]
+        fake_model = MagicMock()
+        fake_model.transcribe.return_value = ([fake_segment], MagicMock(language="ar"))
+        with patch.dict("os.environ", {
+            "OPEN_EDIT_WHISPER_LANGUAGE": "ar",
+            "OPEN_EDIT_WHISPER_MODEL": "small",
+        }), \
+             patch("open_edit.storage.transcription._has_whisper", return_value=True), \
+             patch("open_edit.storage.transcription.WhisperModel", return_value=fake_model) as WM:
+            result = transcribe(self.tmp_path / "ar.mp4")
+        self.assertEqual(len(result), 1)
+        WM.assert_called_once()
+        self.assertEqual(WM.call_args.args[0], "small")
+        self.assertEqual(fake_model.transcribe.call_args.kwargs.get("language"), "ar")
 
     def test_transcribe_returns_empty_on_internal_failure(self) -> None:
         fake_model = MagicMock()

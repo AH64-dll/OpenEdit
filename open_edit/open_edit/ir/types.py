@@ -73,7 +73,33 @@ class HtmlOverlay(BaseModel):
 class Timeline(BaseModel):
     tracks: list[Track] = Field(default_factory=list)
     overlays: list[HtmlOverlay] = Field(default_factory=list)
+    remotion_compositions: list["RemotionComposition"] = Field(default_factory=list)
     duration_sec: float = 0.0
+
+
+class RemotionComposition(BaseModel):
+    """A Remotion React composition pending materialization to a CAS clip.
+
+    Produced by ``AddRemotionCompositionOp``. Before ``emit_timeline``, the
+    orchestrator renders the composition and injects a normal ``Clip`` onto
+    ``track_id`` using the ingested ``asset_hash``.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    composition_uid: str = Field(alias="id")
+    entry_point: str
+    composition_id: str
+    props: dict[str, Any] = Field(default_factory=dict)
+    position_sec: float
+    duration_sec: float
+    track_id: str = "video_graphics"
+    alpha: bool = False
+    clip_id: str = Field(default_factory=new_id)
+    asset_hash: Optional[str] = None
+
+    @property
+    def id(self) -> str:
+        return self.composition_uid
 
 
 class WordAlignment(BaseModel):
@@ -81,6 +107,8 @@ class WordAlignment(BaseModel):
     t_start: float
     t_end: float
     confidence: float = 1.0
+    speaker: Optional[str] = None
+
 
 
 class Asset(BaseModel):
@@ -304,6 +332,31 @@ class RemoveHtmlOverlayOp(Operation):
     overlay_id: str
 
 
+class AddRemotionCompositionOp(Operation):
+    """Add a React Remotion composition that materializes to a CAS clip.
+
+    ``entry_point`` is relative to ``.open_edit/remotion/`` (e.g.
+    ``src/index.ts``). ``composition_id`` is the Remotion ``<Composition id>``.
+    ``props`` are JSON props passed via a props file (never shell-interpolated).
+    """
+    kind: Literal["add_remotion_composition"] = "add_remotion_composition"
+    entry_point: str
+    composition_id: str
+    props: dict[str, Any] = Field(default_factory=dict)
+    position_sec: float
+    duration_sec: float
+    track_id: str = "video_graphics"
+    alpha: bool = False
+    composition_uid: str = Field(default_factory=new_id)
+    clip_id: str = Field(default_factory=new_id)
+
+
+class RemoveRemotionCompositionOp(Operation):
+    """Remove a Remotion composition by ``composition_uid``."""
+    kind: Literal["remove_remotion_composition"] = "remove_remotion_composition"
+    composition_uid: str
+
+
 OperationUnion = Annotated[
     Union[
         AddClipOp, RemoveClipOp, MoveClipOp, TrimClipOp,
@@ -316,6 +369,7 @@ OperationUnion = Annotated[
         GroupEditsOp, UngroupEditsOp,
         RawMltXmlOp, FreeFormCodeOp,
         AddHtmlOverlayOp, RemoveHtmlOverlayOp,
+        AddRemotionCompositionOp, RemoveRemotionCompositionOp,
     ],
     Field(discriminator="kind"),
 ]
@@ -328,3 +382,7 @@ class Project(BaseModel):
     created_at: str = Field(default_factory=now_iso8601)
     assets: dict[str, Asset] = Field(default_factory=dict)
     edit_graph: list[OperationUnion] = Field(default_factory=list)
+
+
+Timeline.model_rebuild()
+RemotionComposition.model_rebuild()

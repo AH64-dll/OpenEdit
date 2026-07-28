@@ -21,6 +21,7 @@ from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,
     AddHtmlOverlayOp,
+    AddRemotionCompositionOp,
     AddTransitionOp,
     ChangeClipSpeedOp,
     Clip,
@@ -33,10 +34,12 @@ from open_edit.ir.types import (
     OperationUnion,
     Project,
     RawMltXmlOp,
+    RemotionComposition,
     RemoveClipOp,
     RemoveEffectOp,
     RemoveHtmlOverlayOp,
     RemoveKeyframeOp,
+    RemoveRemotionCompositionOp,
     RemoveTransitionOp,
     ReplaceClipSourceOp,
     RippleDeleteClipOp,
@@ -203,6 +206,31 @@ def apply_operation(
     if isinstance(op, RemoveHtmlOverlayOp):
         timeline.overlays = [
             o for o in timeline.overlays if o.overlay_id != op.overlay_id
+        ]
+        return timeline
+    if isinstance(op, AddRemotionCompositionOp):
+        if op.duration_sec <= 0:
+            raise ApplyError(
+                f"add_remotion_composition duration_sec must be > 0; got {op.duration_sec}"
+            )
+        composition = RemotionComposition(
+            composition_uid=op.composition_uid,
+            entry_point=op.entry_point,
+            composition_id=op.composition_id,
+            props=op.props,
+            position_sec=op.position_sec,
+            duration_sec=op.duration_sec,
+            track_id=op.track_id,
+            alpha=op.alpha,
+            clip_id=op.clip_id,
+        )
+        timeline.remotion_compositions.append(composition)
+        timeline.remotion_compositions.sort(key=lambda c: c.position_sec)
+        return timeline
+    if isinstance(op, RemoveRemotionCompositionOp):
+        timeline.remotion_compositions = [
+            c for c in timeline.remotion_compositions
+            if c.composition_uid != op.composition_uid
         ]
         return timeline
     return timeline
@@ -812,6 +840,10 @@ def derive_timeline(project: Project, strict: bool = False) -> Timeline:
                 max_end = end
     for overlay in timeline.overlays:
         end = overlay.position_sec + overlay.duration_sec
+        if end > max_end:
+            max_end = end
+    for composition in timeline.remotion_compositions:
+        end = composition.position_sec + composition.duration_sec
         if end > max_end:
             max_end = end
     timeline.duration_sec = max_end

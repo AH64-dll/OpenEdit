@@ -153,32 +153,29 @@ async def test_list_projects_empty(projects_root_tmp):
 
 @pytest.mark.asyncio
 async def test_create_project_creates_folder_and_db(projects_root_tmp):
-    """create_project creates a folder. With open_edit on PATH, it also
-    creates the edit_graph.db. Without it, the folder is still made but
-    the DB is left to a subsequent ingest/init."""
+    """A successful creation is immediately discoverable and fully initialised."""
     info = await projects_mod.create_project("my-first-project")
     assert info.name == "my-first-project"
     assert info.id
     assert Path(info.path).is_dir()
+    assert (Path(info.path) / ".open_edit" / "edit_graph.db").is_file()
+    assert {entry.name for entry in (Path(info.path) / ".open_edit").iterdir()} >= {
+        "assets", "renders", "conversations", "logs", "temp", "inbox", "edit_graph.db",
+    }
     # The id is stable across calls (deterministic hash of path)
     assert info.id == projects_mod._project_id_from_path(Path(info.path).resolve())
 
 
 @pytest.mark.asyncio
 async def test_list_returns_two_created_projects(projects_root_tmp):
-    """Create 2 projects, list, verify both present (assuming open_edit init worked)."""
+    """Every successful project creation is immediately listed."""
     a = await projects_mod.create_project("alpha")
     b = await projects_mod.create_project("beta")
 
     listed = await projects_mod.list_projects()
-    # The number of listed projects depends on whether open_edit init ran.
-    # If it did, both are listed. If not, both are uninitialised and skipped.
-    # We need to ensure init ran for this test to be meaningful; assume it did
-    # (it does in environments where open_edit is installed).
-    if (Path(a.path) / ".open_edit" / "edit_graph.db").is_file():
-        assert len(listed) == 2
-        names = {p.name for p in listed}
-        assert names == {"alpha", "beta"}
+    assert len(listed) == 2
+    names = {p.name for p in listed}
+    assert names == {"alpha", "beta"}
 
 
 @pytest.mark.asyncio
@@ -228,7 +225,8 @@ async def test_get_project_state_seeded(projects_root_tmp):
     assert state.notes[0].source == "agent"
     assert state.pending_notes_count == 1
     # Timeline summary
-    assert state.timeline.total_duration_s == pytest.approx(20.5)
+    # Only the graph-referenced 10-second clip contributes, not unused assets.
+    assert state.timeline.total_duration_s == pytest.approx(10.0)
     assert state.timeline.num_markers == 1
 
 
@@ -353,25 +351,19 @@ def test_agent_reads_verify_disabled_from_project_meta(tmp_path):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_create_project_logs_warning_when_init_fails(projects_root_tmp, caplog):
-    """P3: when ``open_edit init`` raises RuntimeError, log a WARNING
-    with the exception traceback. The folder is still created (no
-    rollback) but the failure is no longer silent.
-    """
+async def test_create_project_rolls_back_when_initialization_fails(projects_root_tmp, caplog):
+    """Initialization failure never publishes a phantom project directory."""
     with mock.patch(
-        "open_edit.serve.projects._run_open_edit",
-        side_effect=RuntimeError("`open_edit` CLI not found on PATH"),
+        "open_edit.serve.projects._initialise_project",
+        side_effect=RuntimeError("schema creation failed"),
     ):
         with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
-            info = await projects_mod.create_project("broken")
-    # The folder is still made; we don't roll back.
-    assert info.name == "broken"
-    assert Path(info.path).is_dir()
-    # A WARNING was emitted with the underlying exception captured.
-    matching = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert matching, "expected a WARNING log when open_edit init fails"
-    assert any("init" in r.getMessage().lower() for r in matching)
-    # exc_info=True → the formatted traceback is attached for debugging.
+            with pytest.raises(RuntimeError, match="project initialization failed"):
+                await projects_mod.create_project("broken")
+    assert not (projects_root_tmp / "broken").exists()
+    assert await projects_mod.list_projects() == []
+    matching = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert matching, "expected initialization failure to be logged"
     assert any(r.exc_info is not None for r in matching)
 
 

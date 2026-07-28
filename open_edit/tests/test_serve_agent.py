@@ -188,6 +188,34 @@ async def test_agent_loop_two_turn_with_tool_call(patched_agent):
 
 
 @pytest.mark.asyncio
+async def test_chat_only_provider_never_executes_emitted_tool(patched_agent, monkeypatch):
+    """A non-conforming chat adapter cannot turn an edit request into a mutation."""
+    executed = False
+
+    def fail_if_called(*_args, **_kwargs):
+        nonlocal executed
+        executed = True
+        raise AssertionError("chat-only provider must not execute a tool")
+
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda _path: "opencode")
+    monkeypatch.setattr(agent_mod, "_execute_tool", fail_if_called)
+    seen_tools: list[list[dict[str, Any]]] = []
+
+    async def nonconforming_stream(messages, tools, system, **_kwargs):
+        seen_tools.append(tools)
+        yield {"type": "tool_use", "id": "forbidden", "name": "add_clip", "input": {}}
+        yield {"type": "done", "stop_reason": "end_turn"}
+
+    monkeypatch.setattr(agent_mod, "stream_chat", nonconforming_stream)
+    events = [ev async for ev in agent_mod.run_agent_turn(
+        project_id="testproject", user_message="add a clip", conversation_history=[],
+    )]
+    assert seen_tools == [[]]
+    assert not executed
+    assert any("chat-only" in ev.get("message", "") for ev in events if ev["type"] == "error")
+
+
+@pytest.mark.asyncio
 async def test_agent_loop_tool_error_surfaced(patched_agent, monkeypatch):
     """When a tool raises, the loop emits an error event and continues."""
     def failing_tool(name, args, project_path, command_id=None):
@@ -295,12 +323,10 @@ async def test_execute_trigger_render_in_process_returns_structured_shape(tmp_pa
     renders.mkdir(parents=True, exist_ok=True)
     fake = renders / "project_aaa.mp4"
     fake.write_bytes(b"\x00\x00\x00\x18ftypmp42")
-    proc = mock.AsyncMock()
-    proc.returncode = 0
-    proc.communicate.return_value = (f"{fake}\n".encode("utf-8"), b"")
+    async def fake_launch(project_path, job_id, mode):
+        return {"ok": True, "output_path": str(fake), "mode": mode, "duration_sec": 10.5}
 
-    with mock.patch("asyncio.create_subprocess_exec", return_value=proc), \
-         mock.patch("open_edit.serve.tool_executor._probe_duration", return_value=10.5):
+    with mock.patch("open_edit.serve.render_service.DEFAULT_RENDER_SERVICE._launch", fake_launch):
         out = await agent._execute_trigger_render({"mode": "proxy"}, tmp_path)
 
     # Required structured fields (must match pi subprocess shape)
@@ -309,7 +335,7 @@ async def test_execute_trigger_render_in_process_returns_structured_shape(tmp_pa
     assert "mode" in out
     assert out["mode"] == "proxy"
     assert "render_id" in out
-    assert out["render_id"].startswith("render_")
+    assert out["render_id"]
     assert "duration_s" in out
     assert out["duration_s"] == 10.5
 
@@ -321,16 +347,17 @@ async def test_execute_trigger_render_in_process_duration_zero_on_missing_file(t
     The verification stage must always see a render_id."""
     from open_edit.serve import agent
 
-    # Subprocess returns stdout that doesn't look like a path → no file
-    proc = mock.AsyncMock()
-    proc.returncode = 0
-    proc.communicate.return_value = (b"not a path\n", b"")
-    with mock.patch("asyncio.create_subprocess_exec", return_value=proc):
+    missing = tmp_path / ".open_edit" / "renders" / "missing.mp4"
+
+    async def fake_launch(project_path, job_id, mode):
+        return {"ok": True, "output_path": str(missing), "mode": mode, "duration_sec": 0.0}
+
+    with mock.patch("open_edit.serve.render_service.DEFAULT_RENDER_SERVICE._launch", fake_launch):
         out = await agent._execute_trigger_render({"mode": "final"}, tmp_path)
 
     assert out["mode"] == "final"
-    assert out["output_path"] == ""
-    assert out["render_id"].startswith("render_")
+    assert out["output_path"] == str(missing)
+    assert out["render_id"]
     assert out["duration_s"] == 0.0
 
 

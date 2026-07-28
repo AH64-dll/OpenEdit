@@ -1,0 +1,137 @@
+---
+name: open-edit-mcp
+description: >-
+  Drive Open Edit video projects via the MCP pillar tools (query_project,
+  edit_project, run_script, trigger_render, get_render_job, cancel_render_job).
+  Use when ingesting media, building timelines, cutting silence, Remotion/
+  overlays, rendering proxy/final, or reading review notes. Prefer these tools
+  over exploring Open Edit source code.
+---
+
+# Open Edit MCP — agent playbook
+
+**Harness-agnostic.** Any host (Cursor, Claude Code, Pi, custom agents) that
+speaks MCP should follow this file. Source of truth: `skills/open-edit-mcp.md`.
+
+**Stop exploring.** Do **not** grep/read `open_edit/**`, `pillar_tools.py`,
+`silence_cutter.py`, or long docs to rediscover tools. Call the Open Edit MCP
+tools immediately. Only open source when debugging Open Edit itself.
+
+Project path is pinned when the MCP process starts (`--project` /
+`OPEN_EDIT_PROJECT`). Never pass `project_path` as a tool argument.
+
+## Tools (complete list)
+
+| Tool | Use for |
+|---|---|
+| `query_project` | All reads |
+| `edit_project` | Mutations + creative generate |
+| `run_script` | Multi-step IR edits pillar ops cannot express |
+| `trigger_render` | Proxy / final / overlay render |
+| `get_render_job` | Poll a job by `job_id` |
+| `cancel_render_job` | Cancel queued/running job |
+
+Use the host's MCP client to call these tools. Do not re-implement with shell
+`ffmpeg` / `melt`.
+
+## Priority order
+
+1. `query_project` — learn state
+2. `edit_project` — change state / generate proposals
+3. `run_script` — only if step 2 cannot express the edit
+4. `trigger_render` — preview (`proxy`) then deliver (`final`)
+
+## `query_project` queries
+
+| `query` | Params | When |
+|---|---|---|
+| `list_assets` | `{}` | First step; get `asset_hash`, duration |
+| `get_transcript_packed` | `asset_hash` optional | Silence/cut planning |
+| `get_pending_notes` | often needs `project_id` | Review-UI notes |
+| `get_style_profile` | `op_type` | Style before generating ops |
+| `analyze_narrative` | `asset_hash` | Segment structure |
+| `search_assets` | `query` text | Find moments by transcript |
+
+## `edit_project` operations (immediate)
+
+| `operation` | `params` | When |
+|---|---|---|
+| `ingest_local` | `{paths: ["/abs/..."], transcribe?: true}` | Import local media (project dir or `OPEN_EDIT_INGEST_ALLOWLIST`) |
+| `import_asset` | tool-specific | Import into CAS when not using ingest_local |
+| `add_marker` | timing + text | Agent note / marker |
+| `set_pinned_value` | key/value | Pin style overrides |
+| `apply_generated_ops` | `{ops: [...]}` | Commit reviewed generated ops |
+
+## `edit_project` generate (proposals — review then apply)
+
+| `generate` | `generate_params` | When |
+|---|---|---|
+| `silence_cuts` | `{asset_hash, threshold_ms?, min_segment_s?}` | Cut dead air — **never** hand-roll `ffmpeg silencedetect` |
+| `sfx` / `music` / `visual` | segment params | Creative beds / fills |
+| `init_remotion` | `{}` | Scaffold `.open_edit/remotion/` |
+| `write_remotion` | composition write params | Write TSX under remotion src |
+| `remotion` | composition props + timing | Append `AddRemotionCompositionOp` |
+
+Silence cuts return gaps; apply by setting clip in/out (or IR via
+`run_script`), not a separate audio-only silenceremove pass.
+
+## Render
+
+| Mode | Resolution | Use |
+|---|---|---|
+| `proxy` | ~720p | Fast preview; Remotion materialize + burn-in |
+| `final` | ~1080p | Delivery |
+| `overlay` | — | HyperFrames HTML only — **not** Remotion |
+
+Typical loop: edit → `trigger_render` `mode=proxy` → user reviews → more edits
+→ `final`.
+
+## Common recipes
+
+### Ingest + put clips on timeline
+
+1. `edit_project` `operation=ingest_local` with absolute paths
+2. `query_project` `list_assets` → hashes + `duration_sec`
+3. `run_script` with IR `add_clip` (pillar has no direct add_clip) — see
+   `skills/open-edit-mcp-reference.md`
+4. `trigger_render` `proxy`
+
+### Cut silence
+
+1. `list_assets` / `get_transcript_packed`
+2. `edit_project` `generate=silence_cuts` with `asset_hash`
+3. If `retry: true` (no alignment yet), wait and retry — do not ffmpeg
+4. Apply gaps via clip in/out (`run_script` / IR), then proxy render
+
+### Remotion title
+
+1. `generate=init_remotion` → `write_remotion` → `generate=remotion`
+2. `trigger_render` `proxy` (not `overlay`)
+
+### Respond to review notes
+
+1. `query_project` `get_pending_notes`
+2. Edit / revert / re-render
+
+## Hard rules (token savers)
+
+- **No codebase tours** for editing tasks.
+- **No guessed asset paths** — only hashes from `list_assets`.
+- **No ffmpeg silence / melt DIY** when a pillar tool exists.
+- **Do not invent tools** (`save_edl`, `qc_check`, etc. do not exist).
+- On tool errors: read the message, fix params, retry.
+
+## Related project skills
+
+| File | Role |
+|---|---|
+| `skills/open-edit-mcp-reference.md` | IR ops + `run_script` recipes |
+| `skills/tool_surface.md` | Longer pillar reference + mistakes |
+| `skills/edit-planning.md` | Edit planning rules |
+| `skills/remotion_motion.md` | Remotion vs HyperFrames |
+| `skills/qc-standards.md` | Post-render QC |
+| `skills/freeform_and_effects.md` | Catalog vs free-form escape |
+
+MCP hosts can also fetch these via resources
+`open-edit://skills/<name>` or prompts `open-edit-playbook` /
+`open-edit-reference` (see MCP server).

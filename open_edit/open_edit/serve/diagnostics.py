@@ -68,15 +68,16 @@ def _chromium_available() -> bool:
 def _sandbox_backend() -> str:
     """Return the configured sandbox backend name, or ``"unknown"``.
 
-    The Rust bwrap sandbox has no explicit backend env var; we honour an
-    optional ``OPEN_EDIT_SANDBOX_BACKEND`` override and otherwise infer
-    ``"bwrap"`` when the sandbox binary is resolvable, falling back to
-    ``"dev"`` (the in-process dev fallback) or ``"unknown"``.
+    Honours ``OPEN_EDIT_SANDBOX_BACKEND`` when set. On Windows defaults to
+    ``"dev"`` (no bwrap). Elsewhere infer ``"bwrap"`` when the sandbox binary
+    is resolvable, else ``"dev"``.
     """
     try:
         override = os.environ.get("OPEN_EDIT_SANDBOX_BACKEND", "").strip()
         if override:
             return override
+        if sys.platform == "win32":
+            return "dev"
         return "bwrap" if _sandbox_available() else "dev"
     except Exception:
         return "unknown"

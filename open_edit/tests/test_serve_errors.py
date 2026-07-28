@@ -16,6 +16,8 @@ as a WS ``error`` event with a clean, actionable message (no
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import asyncio
 import json
 import os
@@ -102,6 +104,41 @@ def test_api_empty_projects_root_returns_empty_list_not_404(projects_root_tmp):
     assert r.json() == []
 
 
+def _remote_ws(*, token: str = "", origin: str = "") -> SimpleNamespace:
+    return SimpleNamespace(
+        client=SimpleNamespace(host="203.0.113.10"),
+        query_params={"token": token},
+        headers={"origin": origin},
+    )
+
+
+def test_websocket_remote_access_requires_token(monkeypatch):
+    monkeypatch.delenv("OPEN_EDIT_TOKEN", raising=False)
+    assert app_mod._websocket_auth_error(_remote_ws()) == (
+        4401, "remote WebSocket access is disabled: OPEN_EDIT_TOKEN is not configured",
+    )
+
+
+def test_websocket_remote_access_rejects_bad_token_and_origin(monkeypatch):
+    monkeypatch.setenv("OPEN_EDIT_TOKEN", "test-token")
+    monkeypatch.setenv("OPEN_EDIT_ALLOWED_ORIGINS", "https://editor.example")
+    assert app_mod._websocket_auth_error(_remote_ws(token="wrong", origin="https://editor.example")) == (
+        4401, "authentication required",
+    )
+    assert app_mod._websocket_auth_error(_remote_ws(token="test-token", origin="https://evil.example")) == (
+        4403, "origin is not allowed",
+    )
+    assert app_mod._websocket_auth_error(_remote_ws(token="test-token", origin="https://editor.example")) is None
+
+
+def test_websocket_localhost_retains_documented_bypass(monkeypatch):
+    monkeypatch.delenv("OPEN_EDIT_TOKEN", raising=False)
+    local_ws = SimpleNamespace(
+        client=SimpleNamespace(host="127.0.0.1"), query_params={}, headers={},
+    )
+    assert app_mod._websocket_auth_error(local_ws) is None
+
+
 def test_api_seeded_project_returns_state(seeded_project):
     """GET /api/projects/{id} for a freshly-initialised project returns
     the empty state — same as the projects-module regression test, but
@@ -161,7 +198,7 @@ async def test_llm_stream_anthropic_surfaces_missing_api_key(seeded_project, mon
     err = next(e for e in events if e["type"] == "error")
     msg = err["message"]
     # Clean, actionable: the actual cause, no "LLM stream error: " prefix.
-    assert "OPEN_EDIT_LLM_API_KEY" in msg
+    assert "ANTHROPIC_API_KEY" in msg
     assert "set" in msg.lower() or "Set" in msg
     # And no agent-loop noise leaking through.
     assert "LLM stream error" not in msg
@@ -172,7 +209,7 @@ async def test_llm_stream_anthropic_surfaces_missing_api_key(seeded_project, mon
     [
         # When the SDK is importable, the missing-key RuntimeError from
         # _api_key() fires first.
-        (True, "OPEN_EDIT_LLM_API_KEY"),
+        (True, "OPENAI_API_KEY"),
         # When the SDK is not importable, the ImportError handler fires.
         (False, "required package not installed"),
     ],

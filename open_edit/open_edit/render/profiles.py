@@ -1,7 +1,12 @@
 """Render profile selection and MLT consumer arg generation."""
 from __future__ import annotations
 
+import os
+from typing import Literal
+
 from pydantic import BaseModel
+
+from open_edit.render.encoder import EncoderBackend, apply_profile_vcodec
 
 
 class RenderProfile(BaseModel):
@@ -13,6 +18,7 @@ class RenderProfile(BaseModel):
     frame_rate_den: int
     vcodec: str = "libx264"
     acodec: str = "aac"
+    encoder_backend: EncoderBackend | None = None
 
 
 DEFAULT_PROFILES: list[RenderProfile] = [
@@ -32,8 +38,12 @@ def select_profile(name: str) -> RenderProfile:
     return _PROFILE_BY_NAME[name]
 
 
-def profile_to_mlt_args(profile: RenderProfile) -> list[str]:
+def profile_to_mlt_args(profile: RenderProfile, backend: str | None = None) -> list[str]:
     """Convert a profile to melt consumer args."""
+    resolved_backend = backend or profile.encoder_backend
+    if resolved_backend is None:
+        resolved_backend = os.environ.get("OPEN_EDIT_RENDER_BACKEND", "gpu")
+    vcodec = apply_profile_vcodec(profile.vcodec, resolved_backend)
     return [
         f"s={profile.width}x{profile.height}",
         f"frame_rate_num={profile.frame_rate_num}",
@@ -44,6 +54,6 @@ def profile_to_mlt_args(profile: RenderProfile) -> list[str]:
         "display_aspect_num=16",
         "display_aspect_den=9",
         "colorspace=709",
-        f"vcodec={profile.vcodec}",
+        f"vcodec={vcodec}",
         f"acodec={profile.acodec}",
     ]

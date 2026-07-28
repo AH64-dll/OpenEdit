@@ -1024,7 +1024,7 @@ async def run_agent_turn(
         provider_spec = resolve_provider(provider_name)
     except KeyError:
         provider_spec = None
-    if provider_spec is not None and provider_spec.owns_agent_loop:
+    if provider_spec is not None and provider_spec.agent_mode == "external_loop":
         cost_ctx = {
             "cost_state": cost_state,
             "previous_session_cost": previous_session_cost,
@@ -1046,6 +1046,18 @@ async def run_agent_turn(
             yield event
         return
 
+    # Chat-only providers may answer questions, but cannot truthfully claim
+    # to edit a project. Never expose mutation schemas to them and reject a
+    # non-conforming provider's tool event before it can reach the executor.
+    chat_only_provider = provider_spec is not None and provider_spec.agent_mode == "chat_only"
+    chat_only_system_prompt = system_prompt
+    if chat_only_provider:
+        chat_only_system_prompt += (
+            "\n\nThis provider is chat-only. You cannot inspect, modify, render, "
+            "or claim to have changed the OpenEdit project. Explain that limitation "
+            "clearly when the user requests an edit."
+        )
+
     # Circuit breaker (v1.9): track consecutive failures per (tool, args)
     # pair. If the LLM retries the IDENTICAL failing call, we warn it in
     # the error result; after the third identical failure we terminate the
@@ -1066,8 +1078,8 @@ async def run_agent_turn(
         try:
             async for raw_event in stream_chat(
                 messages=_make_slim_history(conversation_history, pending_verification),
-                tools=TOOL_SCHEMAS,
-                system=system_prompt,
+                tools=[] if chat_only_provider else TOOL_SCHEMAS,
+                system=chat_only_system_prompt,
                 session_id=conv_id,
                 project_path=str(project_path),
             ):
@@ -1087,6 +1099,12 @@ async def run_agent_turn(
                         current_text_parts.append(text)
                         yield {"type": "text", "text": text}
                 elif etype == "tool_use":
+                    if chat_only_provider:
+                        yield {
+                            "type": "error",
+                            "message": "This provider is chat-only and cannot apply project edits.",
+                        }
+                        continue
                     tool_use_blocks.append({
                         "type": "tool_use",
                         "id": event["id"],
