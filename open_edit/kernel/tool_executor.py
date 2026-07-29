@@ -202,11 +202,23 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
 
     mode = (args.get("mode") or "proxy").lower()
     if mode not in ("proxy", "final", "overlay"):
-        mode = "proxy"
+        return {
+            "ok": False,
+            "error": f"invalid mode {mode!r}; expected proxy|final|overlay",
+            "error_code": "schema_validation_failed",
+        }
 
     encoder = args.get("encoder")
     if encoder is not None and str(encoder).lower() not in ("gpu", "cpu"):
         encoder = None
+
+    wait = args.get("wait", False)
+    if isinstance(wait, str):
+        wait = wait.lower() not in ("false", "0", "no")
+    # Explicit None / missing → non-blocking for agent token efficiency.
+    if args.get("wait") is None and "wait" not in args:
+        wait = False
+
 
     from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE, RenderEnqueueError
 
@@ -219,6 +231,14 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
         )
     except RenderEnqueueError as exc:
         return {"ok": False, "error": str(exc), "error_code": "render_enqueue_rejected"}
+    if not wait:
+        return {
+            "ok": True,
+            "job_id": job.job_id,
+            "status": job.status,
+            "mode": mode,
+            "message": "Render queued. Poll get_render_job with job_id.",
+        }
     completed = await DEFAULT_RENDER_SERVICE.wait(project_path, job.job_id)
     if completed.status != "succeeded" or completed.result is None:
         raise RuntimeError(completed.error or f"render ended as {completed.status}")

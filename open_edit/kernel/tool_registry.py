@@ -13,16 +13,22 @@ from pydantic import BaseModel, ConfigDict
 _QUERY_PROJECT_DESC = (
     "Read-only queries about the project. Use this for ALL "
     "read-only operations — listing assets, pending notes, style "
-    "profile, narrative analysis, and asset search."
+    "profile, narrative analysis, asset search, and packed transcript. "
+    "list_assets is compact by default (hash/filename/duration); pass "
+    "params.detail=true for full metadata, params.include_derivatives=true "
+    "to include Remotion rematerialized CAS."
 )
 
 _EDIT_PROJECT_DESC = (
     "Apply edits to the project or generate creative suggestions. "
-    "Use ``operation`` for immediate mutations (add_marker, "
-    "set_pinned_value, import_asset, ingest_local). Use ``generate`` to produce "
-    "creative suggestions (SFX, music, visuals, remotion, silence cuts) "
-    "that are returned for review — commit them later via "
-    "``operation=\"apply_generated_ops\"``. "
+    "Use ``operation`` for immediate mutations: add_marker, "
+    "set_pinned_value, import_asset, ingest_local, "
+    "add_clip, trim_clip, replace_clip_source, change_clip_speed, "
+    "remove_clip, set_audio_gain, apply_silence_gaps, apply_generated_ops. "
+    "Prefer these timeline ops over run_script. "
+    "Use ``generate`` for creative suggestions (SFX, music, visuals, "
+    "remotion, silence_cuts) — review then commit via "
+    "``operation=\"apply_generated_ops\"`` (or apply_silence_gaps for cuts). "
     "``operation=ingest_local`` ingests absolute local media paths "
     "(project dir or OPEN_EDIT_INGEST_ALLOWLIST). "
     "``generate=remotion`` appends an AddRemotionCompositionOp "
@@ -48,8 +54,10 @@ _TRIGGER_RENDER_DESC = (
     "Remotion at full profile), or 'overlay' (HyperFrames "
     "HTML overlays only — Remotion does NOT use this mode). "
     "encoder: 'gpu' (default) or 'cpu' for video encoding backend. "
-    "Returns the output path when done. This is a server-side tool "
-    "— it is handled by the agent loop, not by open_edit.agent.tools."
+    "wait: defaults to false so agents return immediately with job_id "
+    "(poll with get_render_job). Pass wait=true only when a synchronous "
+    "result path is required. "
+    "Returns job_id when wait=false, or the output path when wait=true."
 )
 
 
@@ -95,6 +103,7 @@ class TriggerRenderArgs(BaseModel):
     )
     mode: Literal["proxy", "final", "overlay"] = "proxy"
     encoder: Literal["gpu", "cpu"] | None = None
+    wait: bool = False
 
 
 TOOL_REGISTRY: dict[str, type[BaseModel]] = {

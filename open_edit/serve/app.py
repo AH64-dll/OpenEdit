@@ -104,6 +104,7 @@ class CreateProjectRequest(BaseModel):
 class RenderRequest(BaseModel):
     mode: str = "proxy"  # "proxy" | "final" | "overlay"
     expected_revision: int | None = None
+    encoder: str | None = None  # "gpu" (default) | "cpu"
 
 
 class RenderJobResponse(BaseModel):
@@ -572,12 +573,17 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     project_path = Path(state.path)
     from .render_service import RenderEnqueueError
 
+    encoder = (req.encoder or "").strip().lower() or None
+    if encoder not in (None, "gpu", "cpu"):
+        raise HTTPException(status_code=400, detail="encoder must be 'gpu' or 'cpu'")
+
     try:
         job = _RENDER_SERVICE.enqueue(
             project_id,
             project_path,
             req.mode,
             expected_revision=req.expected_revision,
+            encoder_backend=encoder,
         )
     except RenderEnqueueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -695,16 +701,26 @@ def _resolve_render_mp4(project_path: Path, render_id: str) -> Path | None:
     """Locate a render MP4 under the project; reject path escape."""
     if not render_id or ".." in render_id or "/" in render_id or "\\" in render_id:
         return None
+    if ".melt" in render_id.lower():
+        return None
     job = _RENDER_SERVICE.get(project_path, render_id)
     if job is not None and job.output_path:
         candidate = Path(job.output_path).resolve()
-        if candidate.is_file() and _path_under_project(candidate, project_path):
+        if (
+            candidate.is_file()
+            and _path_under_project(candidate, project_path)
+            and projects_mod._is_complete_render_mp4(candidate)
+        ):
             return candidate
     renders_dir = (project_path / ".open_edit" / "renders").resolve()
     for pattern in (f"{render_id}.mp4", f"*{render_id}*.mp4"):
         for hit in renders_dir.glob(pattern):
             resolved = hit.resolve()
-            if resolved.is_file() and _path_under_project(resolved, project_path):
+            if (
+                resolved.is_file()
+                and _path_under_project(resolved, project_path)
+                and projects_mod._is_complete_render_mp4(resolved)
+            ):
                 return resolved
     return None
 

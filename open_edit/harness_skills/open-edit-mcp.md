@@ -61,6 +61,13 @@ Use the host's MCP client to call these tools. Do not re-implement with shell
 | `add_marker` | timing + text | Agent note / marker |
 | `set_pinned_value` | key/value | Pin style overrides |
 | `apply_generated_ops` | `{ops: [...]}` | Commit reviewed generated ops |
+| `add_clip` | `{asset_hash, track_id, position_sec, in_point_sec?, out_point_sec, track_kind?}` | Place clip (prefer over `run_script`) |
+| `trim_clip` | `{clip_id, in_point_sec?, out_point_sec}` | Trim source in/out |
+| `replace_clip_source` | `{clip_id, new_asset_hash}` | Swap clip media |
+| `change_clip_speed` | `{clip_id, rate}` | Retime clip |
+| `remove_clip` | `{clip_id}` | Remove a clip |
+| `set_audio_gain` | `{clip_id, gain}` | Mute / set gain (0.0 = mute) |
+| `apply_silence_gaps` | `{clip_id, gaps: [{start_sec, end_sec}, ...]}` | Apply silence-cut gaps via trim/split |
 
 ## `edit_project` generate (proposals — review then apply)
 
@@ -72,8 +79,8 @@ Use the host's MCP client to call these tools. Do not re-implement with shell
 | `write_remotion` | composition write params | Write TSX under remotion src |
 | `remotion` | composition props + timing | Append `AddRemotionCompositionOp` |
 
-Silence cuts return gaps; apply by setting clip in/out (or IR via
-`run_script`), not a separate audio-only silenceremove pass.
+Silence cuts return gaps; apply with `operation=apply_silence_gaps` (or
+`trim_clip` for a single gap), not a separate audio-only silenceremove pass.
 
 ## Render
 
@@ -83,8 +90,19 @@ Silence cuts return gaps; apply by setting clip in/out (or IR via
 | `final` | ~1080p | Delivery |
 | `overlay` | — | HyperFrames HTML only — **not** Remotion |
 
-Typical loop: edit → `trigger_render` `mode=proxy` → user reviews → more edits
-→ `final`.
+Typical loop: edit → `trigger_render` `mode=proxy` (non-blocking by default) →
+poll `get_render_job` → user reviews → more edits → `final`.
+
+**Token rule:** `trigger_render` defaults to **non-blocking** (`wait=false`).
+Returns `job_id` immediately — poll with `get_render_job`. Pass `wait=true`
+only when you must block.
+
+**Assets rule:** `list_assets` hides Remotion rematerialized CAS by default.
+Pass `params.include_derivatives: true` only when needed. Compact by default
+(hash/filename/duration); pass `params.detail: true` for full metadata.
+
+**Failure scripts:** Ignore any `.open_edit/tmp/` file marked
+`FAILURE SCRIPT / RUINED SCRIPT`. Do not run them.
 
 ## Common recipes
 
@@ -92,16 +110,15 @@ Typical loop: edit → `trigger_render` `mode=proxy` → user reviews → more e
 
 1. `edit_project` `operation=ingest_local` with absolute paths
 2. `query_project` `list_assets` → hashes + `duration_sec`
-3. `run_script` with IR `add_clip` (pillar has no direct add_clip) — see
-   `skills/open-edit-mcp-reference.md`
-4. `trigger_render` `proxy`
+3. `edit_project` `operation=add_clip` with asset_hash / track / timing
+4. `trigger_render` `proxy` (then `get_render_job`)
 
 ### Cut silence
 
 1. `list_assets` / `get_transcript_packed`
 2. `edit_project` `generate=silence_cuts` with `asset_hash`
 3. If `retry: true` (no alignment yet), wait and retry — do not ffmpeg
-4. Apply gaps via clip in/out (`run_script` / IR), then proxy render
+4. `edit_project` `operation=apply_silence_gaps` with clip_id + gaps, then proxy
 
 ### Remotion title
 

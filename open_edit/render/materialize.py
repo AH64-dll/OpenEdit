@@ -12,6 +12,7 @@ from open_edit.ir.types import Clip, RemotionComposition, Timeline
 from open_edit.render.remotion import (
     RemotionRenderError,
     composition_cache_key,
+    composition_source_bundle,
     remotion_profile_for_mode,
     render_composition,
     resolve_remotion_root,
@@ -73,22 +74,27 @@ def materialize_remotion_compositions(
     for composition in list(updated.remotion_compositions):
         profile = remotion_profile_for_mode(mode, alpha=composition.alpha)
         try:
-            entry_abs = validate_entry_point(project_path, composition.entry_point)
+            validate_entry_point(project_path, composition.entry_point)
         except RemotionRenderError as exc:
             raise RemotionMaterializeError(str(exc)) from exc
-        entry_source = entry_abs.read_text(encoding="utf-8")
+        composition_source = composition_source_bundle(
+            project_path, composition.composition_id,
+        )
         key = composition_cache_key(
-            entry_source=entry_source,
+            composition_source=composition_source,
             composition_id=composition.composition_id,
             props=composition.props,
             profile=profile,
             alpha=composition.alpha,
+            duration_sec=composition.duration_sec,
         )
         asset_hash = cache.get(key)
         if asset_hash and assets.path(asset_hash) is not None:
             composition.asset_hash = asset_hash
         else:
-            output_path = out_dir / f"{composition.composition_uid}_{key[:12]}.mp4"
+            # ProRes 4444 with alpha is .mov; opaque Remotion stays .mp4.
+            ext = ".mov" if composition.alpha else ".mp4"
+            output_path = out_dir / f"{composition.composition_uid}_{key[:12]}{ext}"
             try:
                 result = render_composition(
                     project_path,

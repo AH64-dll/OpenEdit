@@ -858,8 +858,24 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; }
   color: var(--text-dim);
 }
 
-.render-buttons { display: flex; gap: 4px; }
-.render-buttons .btn { flex: 1; }
+.render-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.render-buttons .btn { flex: 1; min-width: 110px; }
+.encoder-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 2px;
+}
+.encoder-select select {
+  flex: 1;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
 
 .notes-summary { padding: 3px 0; font-size: 11.5px; }
 
@@ -1214,7 +1230,7 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; }
   background: var(--bg-deep);
   border-bottom: 1px solid var(--border);
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .timeline-ruler-tick {
@@ -1242,16 +1258,17 @@ code, pre, .mono { font-family: var(--font-mono); font-size: 12px; }
 
 .timeline-tracks-area {
   position: relative;
-  overflow-y: auto;
-  overflow-x: hidden;
-  flex: 1;
+  overflow: visible;
+  flex: 1 0 auto;
   min-height: 0;
+  min-width: min-content;
 }
 
 .timeline-track-row {
   height: 34px;
   position: relative;
   border-bottom: 1px solid rgba(30, 42, 56, 0.5);
+  min-width: 100%;
 }
 
 .timeline-track-label-row {
@@ -1489,7 +1506,9 @@ body:not(.review-only-mode) .review-only { display: none; }
   border: 1px solid var(--border);
 }
 .preview-player:not([src]) { display: none; }
+.preview-player[src=""] { display: none; }
 .preview-empty { padding: 24px; text-align: center; }
+.preview-empty.hidden { display: none !important; }
 
 .timeline-timecode {
   font-family: var(--font-mono);

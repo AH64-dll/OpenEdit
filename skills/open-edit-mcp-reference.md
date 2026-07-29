@@ -27,7 +27,32 @@ Companion to `skills/open-edit-mcp.md`.
 }
 ```
 
-**Silence cuts**
+**Add clip (prefer pillar — do not use run_script for this)**
+```json
+{
+  "operation": "add_clip",
+  "params": {
+    "asset_hash": "<hash-from-list_assets>",
+    "track_id": "v1",
+    "position_sec": 0.0,
+    "in_point_sec": 0.0,
+    "out_point_sec": 12.5
+  }
+}
+```
+
+**Trim / remove / mute**
+```json
+{"operation": "trim_clip", "params": {"clip_id": "<id>", "out_point_sec": 10.0}}
+```
+```json
+{"operation": "remove_clip", "params": {"clip_id": "<id>"}}
+```
+```json
+{"operation": "set_audio_gain", "params": {"clip_id": "<id>", "gain": 0.0}}
+```
+
+**Silence cuts + apply**
 ```json
 {
   "generate": "silence_cuts",
@@ -37,39 +62,35 @@ Companion to `skills/open-edit-mcp.md`.
   }
 }
 ```
+```json
+{
+  "operation": "apply_silence_gaps",
+  "params": {
+    "clip_id": "<id>",
+    "gaps": [{"t_start": 1.2, "t_end": 2.0}, {"t_start": 5.0, "t_end": 5.8}]
+  }
+}
+```
 
-**Proxy render**
+**Proxy render (non-blocking by default)**
 ```json
 {"mode": "proxy"}
 ```
 
 ## When to use `run_script`
 
-Pillar `edit_project` does **not** include `add_clip` / `trim_clip` /
-`remove_clip`. Use `run_script` for timeline construction:
+Prefer pillar `edit_project` operations first:
 
-- Place / order / trim clips
-- Bulk rebuild from silence-gap proposals
+- `add_clip`, `trim_clip`, `replace_clip_source`, `change_clip_speed`
+- `remove_clip`, `set_audio_gain`, `apply_silence_gaps`
+
+Use `run_script` only when pillar ops cannot express the edit:
+
+- Bulk multi-clip rebuilds that need custom logic
 - Raw MLT / free-form escape hatches
+- Ops not listed above (move, ripple, transitions, effects, etc.)
 
 Sandbox header is auto-injected — do not add it manually.
-
-### Minimal add_clip sketch
-
-```python
-# Prefer the IR API available in the sandbox.
-# Typical fields: asset_hash, track_id, position_sec, in_point_sec, out_point_sec
-ir.add_clip(
-    asset_hash=ASSET_HASH,
-    track_id="video1",
-    position_sec=0.0,
-    in_point_sec=0.0,
-    out_point_sec=DURATION_SEC,
-)
-```
-
-If unsure of helper names, a tiny probe that prints available symbols is OK —
-do **not** grep the whole Open Edit repo.
 
 ## IR op kinds (high level)
 

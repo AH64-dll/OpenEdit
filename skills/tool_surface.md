@@ -34,6 +34,10 @@ Mutations:
 - `import_asset` — bring a new asset into the project.
 - `ingest_local` — ingest absolute local media paths (project dir or
   `OPEN_EDIT_INGEST_ALLOWLIST`).
+- `add_clip` / `trim_clip` / `replace_clip_source` / `change_clip_speed` —
+  everyday timeline placement (prefer over `run_script`).
+- `remove_clip` / `set_audio_gain` / `apply_silence_gaps` — remove, mute,
+  and apply silence-cut proposals without `run_script`.
 - `apply_generated_ops` — commit a list of IR ops (`AddClipOp`,
   `AddEffectOp`, `AddTransitionOp`, `HtmlOverlay`, `RawMltXmlOp`,
   `FreeFormCodeOp`, `NormalizeAudioOp`).

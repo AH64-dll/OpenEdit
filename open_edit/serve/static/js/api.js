@@ -82,11 +82,11 @@ export const api = {
     });
   },
 
-  async renderProject(id, mode) {
+  async renderProject(id, mode, encoder = 'gpu') {
     const r = await fetch(`/api/projects/${encodeURIComponent(id)}/render`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ mode, encoder }),
     });
     if (!r.ok) throw await _extractError(r, 'render');
     return r.json();

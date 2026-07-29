@@ -176,7 +176,7 @@ export async function loadProjectState() {
   try {
     const s = await api.getProjectState(state.currentProjectId);
     state.currentProjectState = s;
-    paintProjectSnapshot(s);
+    await paintProjectSnapshot(s);
   } catch (e) {
     // The fetch failed — clear the loading state so the list isn't
     // stuck on a spinner, and toast the actual reason. The user gets
@@ -187,13 +187,17 @@ export async function loadProjectState() {
   }
 }
 
-function paintProjectSnapshot(s) {
+async function paintProjectSnapshot(s) {
   renderAssets(normalizeAssets(s.assets), { onAddToTimeline: addAssetToTimeline });
   renderEditGraph(normalizeEdits(s));
   renderNotesSummary(normalizeNotes(s));
   const inlineRenders = normalizeRenders(s);
-  if (inlineRenders) renderRendersList(inlineRenders);
-  else refreshRendersList();
+  if (inlineRenders) {
+    renderRendersList(inlineRenders);
+    maybeAutoLoadPreview(inlineRenders);
+  } else {
+    await refreshRendersList();
+  }
   if (s.timeline_full) {
     const newDur = Number(s.timeline_full.duration_sec || 0);
     if (Math.abs(newDur - tlDurationSec) > 0.5) tlAutoFitPending = false;
@@ -202,6 +206,7 @@ function paintProjectSnapshot(s) {
       notes: normalizeNotes(s).list,
     });
   }
+  maybeLoadSourcePreview(s);
   if (s.timeline_status === 'invalid') {
     showToast(`Timeline invalid: ${s.timeline_error_code || 'derivation failed'}`, 'warn');
   }
@@ -827,9 +832,8 @@ async function triggerRender(mode) {
     showToast('Select or create a project first.', 'error');
     return;
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H4',location:'app.js:triggerRender',message:'render requested',data:{mode,projectId:state.currentProjectId,graphRevision:state.currentProjectState?.graph_revision},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  const encoderSel = $('#render-encoder-select');
+  const encoder = (encoderSel?.value === 'cpu') ? 'cpu' : 'gpu';
   if (mode === 'final') {
     const stale = await isProxyStale();
     if (stale) {
@@ -839,7 +843,7 @@ async function triggerRender(mode) {
       if (!ok) return;
     }
   }
-  showToast(`Rendering ${mode}… (32 min timeline may take 10+ minutes)`, 'info');
+  showToast(`Rendering ${mode} on ${encoder.toUpperCase()}…`, 'info');
   setRenderButtonsBusy(true, 'Rendering…');
   if (mode === 'proxy') state.proxyRenderInFlight = true;
   try {
@@ -847,7 +851,7 @@ async function triggerRender(mode) {
     const r = await fetch(`/api/projects/${encodeURIComponent(state.currentProjectId)}/render`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode, expected_revision: expectedRevision }),
+      body: JSON.stringify({ mode, encoder, expected_revision: expectedRevision }),
     });
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));
@@ -878,16 +882,10 @@ async function pollRenderJob(jobId, mode) {
         refreshRendersList();
         if (mode === 'proxy') state.proxyRenderInFlight = false;
         loadRenderInPreview(job.job_id, mode);
-        // #region agent log
-        fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H4',location:'app.js:pollRenderJob',message:'render succeeded',data:{jobId:job.job_id,outputPath:job.output_path,mode},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         return;
       }
       if (['failed', 'cancelled', 'orphaned'].includes(job.status)) {
         showToast(`Render failed: ${job.error || 'unknown'}`, 'error');
-        // #region agent log
-        fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H4',location:'app.js:pollRenderJob',message:'render failed',data:{jobId:job.job_id,status:job.status,error:job.error},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (mode === 'proxy') state.proxyRenderInFlight = false;
         return;
       }
@@ -916,10 +914,14 @@ function startEditGraphRefresh() {
       if (prevRev != null && s.graph_revision !== prevRev) {
         showToast('Edit graph updated — render proxy to preview changes.', 'info');
         if (state.autoProxy && !state.proxyRenderInFlight) {
-          triggerRender('proxy');
+          // Debounce auto-proxy storms across rapid graph_revision bumps.
+          clearTimeout(state._autoProxyDebounce);
+          state._autoProxyDebounce = setTimeout(() => {
+            if (!state.proxyRenderInFlight) triggerRender('proxy');
+          }, 15000);
         }
       }
-      paintProjectSnapshot(s);
+      await paintProjectSnapshot(s);
       const edits = normalizeEdits(s);
       if (selectedEditId) {
         const selected = edits.find(e => e.edit_id === selectedEditId);
@@ -1069,15 +1071,9 @@ function bindEvents() {
   $('#btn-right-panel').addEventListener('click', () => $('#right-panel').classList.toggle('open'));
   $('#btn-toggle-left-panel')?.addEventListener('click', () => {
     document.body.classList.toggle('panel-left-collapsed');
-    // #region agent log
-    fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H3',location:'app.js:toggle-left-panel',message:'left panel toggled',data:{collapsed:document.body.classList.contains('panel-left-collapsed')},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
   });
   $('#btn-toggle-right-panel')?.addEventListener('click', () => {
     document.body.classList.toggle('panel-right-collapsed');
-    // #region agent log
-    fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H3',location:'app.js:toggle-right-panel',message:'right panel toggled',data:{collapsed:document.body.classList.contains('panel-right-collapsed')},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
   });
 
   // Modal close buttons + backdrop click
@@ -1416,14 +1412,97 @@ function formatTimecode(sec) {
   return `${String(m).padStart(2, '0')}:${r.toFixed(2).padStart(5, '0')}`;
 }
 
+/** Play the source asset only when no proxy render exists yet. */
+function maybeLoadSourcePreview(s) {
+  if (!state.currentProjectId) return;
+  const player = $('#preview-player');
+  const empty = $('#preview-empty');
+  if (!player) return;
+  // Prefer proxy/final renders — never replace them with the raw source.
+  if (state.previewRenderId && player.src) return;
+  const renders = normalizeRenders(s) || [];
+  if (renders.some((r) => r.status === 'succeeded' && (r.mode === 'proxy' || r.mode === 'final'))) {
+    return;
+  }
+
+  const tl = s?.timeline_full;
+  const assets = normalizeAssets(s?.assets || []);
+  const firstClip = (tl?.tracks ?? []).flatMap((t) => t.clips ?? [])[0];
+  const assetHash = firstClip?.asset_hash || assets[0]?.hash;
+  if (!assetHash) return;
+
+  const asset = assets.find((a) => a.hash === assetHash);
+  const url = asset?.url
+    || `/api/projects/${encodeURIComponent(state.currentProjectId)}/assets/${encodeURIComponent(assetHash)}/file`;
+
+  state.previewRenderId = null;
+  player.setAttribute('src', url);
+  player.src = url;
+  player.style.display = 'block';
+  player.load();
+  if (empty) {
+    empty.classList.add('hidden');
+    empty.style.display = 'none';
+  }
+  const badge = $('#preview-mode-badge');
+  if (badge) badge.textContent = 'Source';
+  player.onloadeddata = () => {
+    if (empty) {
+      empty.classList.add('hidden');
+      empty.style.display = 'none';
+    }
+  };
+  player.onerror = () => {
+    showToast('Source preview failed to load — try Render proxy after installing Shotcut/melt', 'error');
+  };
+}
+
+function _isPlayableRender(r) {
+  if (!r || r.status !== 'succeeded') return false;
+  const id = String(r.id || '');
+  const path = String(r.path || '');
+  // Never auto-load melt intermediates (in-progress proxy writes).
+  if (id.includes('.melt') || path.includes('.melt.')) return false;
+  return true;
+}
+
 function maybeAutoLoadPreview(renders) {
   if (!state.reviewOnly || !state.currentProjectId || !renders?.length) return;
   const player = $('#preview-player');
   if (!player) return;
-  const latest = [...renders].reverse().find(r => r.status === 'succeeded' && r.mode === 'proxy')
-    || [...renders].reverse().find(r => r.status === 'succeeded');
+  // list_renders returns jobs newest-first — do NOT reverse before find.
+  const playable = renders.filter(_isPlayableRender);
+  const currentHash = state.currentProjectState?.edit_graph_hash;
+  const currentRev = state.currentProjectState?.graph_revision;
+  const matchingHash = currentHash && playable.find(
+    (r) => r.edit_graph_hash === currentHash && (r.mode === 'proxy' || r.mode === 'final'),
+  );
+  const matchingRev = (currentRev != null) && playable.find(
+    (r) => r.graph_revision === currentRev && r.mode === 'proxy',
+  );
+  // Prefer newest job by graph_revision / timestamp — never the largest old file.
+  const byRev = [...playable]
+    .filter((r) => r.mode === 'proxy')
+    .sort((a, b) => {
+      const ra = Number(a.graph_revision ?? -1);
+      const rb = Number(b.graph_revision ?? -1);
+      if (rb !== ra) return rb - ra;
+      return Number(b.timestamp || 0) - Number(a.timestamp || 0);
+    });
+  const latest = matchingHash
+    || matchingRev
+    || byRev[0]
+    || playable.find((r) => r.mode === 'proxy')
+    || playable[0];
   if (!latest?.id) return;
-  if (state.previewRenderId === latest.id && player.src) return;
+  const stale = Boolean(
+    (currentHash && latest.edit_graph_hash && latest.edit_graph_hash !== currentHash)
+    || (currentRev != null && latest.graph_revision != null && latest.graph_revision !== currentRev),
+  );
+  if (state.previewRenderId === latest.id && player.src && !stale) return;
+  if (stale) {
+    showToast('Preview is outdated — rendering or click Render Proxy to update.', 'warn');
+  }
   loadRenderInPreview(latest.id, latest.mode || 'proxy');
 }
 
@@ -1434,15 +1513,25 @@ function loadRenderInPreview(renderId, mode = 'proxy') {
   const empty = $('#preview-empty');
   if (!player) return;
   state.previewRenderId = renderId;
-  player.src = api.renderFileUrl(state.currentProjectId, renderId);
+  const url = api.renderFileUrl(state.currentProjectId, renderId);
+  player.setAttribute('src', url);
+  player.src = url;
+  player.style.display = 'block';
   player.load();
-  if (empty) empty.classList.add('hidden');
+  if (empty) {
+    empty.classList.add('hidden');
+    empty.style.display = 'none';
+  }
   if (badge) {
     badge.textContent = mode === 'final' ? 'Final 1080p' : 'Proxy 720p';
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',runId:'post-fix',hypothesisId:'H6',location:'app.js:loadRenderInPreview',message:'preview loaded',data:{renderId,mode,url:player.src},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  player.onerror = () => {
+    showToast('Preview failed to load — click Render Proxy to rebuild.', 'error');
+    if (empty) {
+      empty.classList.remove('hidden');
+      empty.style.display = '';
+    }
+  };
 }
 
 async function isProxyStale() {
@@ -1451,7 +1540,7 @@ async function isProxyStale() {
   if (!currentHash) return false;
   try {
     const renders = await api.listRenders(state.currentProjectId);
-    const latestProxy = [...renders].reverse().find(r => r.mode === 'proxy' && r.status === 'succeeded');
+    const latestProxy = renders.find(r => r.mode === 'proxy' && r.status === 'succeeded' && !(String(r.id||'').includes('.melt')));
     if (!latestProxy) return true;
     return latestProxy.edit_graph_hash && latestProxy.edit_graph_hash !== currentHash;
   } catch {
@@ -1482,9 +1571,6 @@ function seekToSec(sec) {
       rulerCol.scrollLeft = Math.max(0, px - viewW / 2);
     }
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H1',location:'app.js:seekToSec',message:'playhead moved',data:{requested:sec,clamped,duration:tlDurationSec,zoom:tlZoom},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
 }
 
 function timelineSecFromEvent(evt, container) {
@@ -1496,9 +1582,11 @@ function timelineSecFromEvent(evt, container) {
 function fitTimelineToWindow() {
   const col = $('#timeline-ruler-col');
   if (!col || !tlDurationSec) return false;
-  const availWidth = col.clientWidth - 20;
+  const availWidth = Math.max(col.clientWidth - 20, 100);
+  // Long timelines (e.g. 30 min) need zoom << 0.05 to fit; the old 0.05
+  // floor capped visible range at ~470s on a typical panel width.
   tlZoom = availWidth / (tlDurationSec * TL_BASE_PPS);
-  tlZoom = Math.max(0.05, Math.min(tlZoom, 8));
+  tlZoom = Math.max(0.001, Math.min(tlZoom, 8));
   return true;
 }
 
@@ -1578,7 +1666,7 @@ function renderRuler(durationSec) {
   const ruler = $('#timeline-ruler');
   if (!ruler) return;
   ruler.innerHTML = '';
-  const step = tlZoom < 0.5 ? 10 : tlZoom < 1.5 ? 5 : 2;
+  const step = tlZoom < 0.02 ? 60 : tlZoom < 0.05 ? 30 : tlZoom < 0.5 ? 10 : tlZoom < 1.5 ? 5 : 2;
   const totalSec = Math.max(durationSec, 10);
   ruler.style.width = secToPx(totalSec) + 'px';
   for (let t = 0; t <= totalSec; t += step) {
@@ -1626,9 +1714,6 @@ export function renderTimeline(timelineData, context = {}) {
     if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
     const col = $('#timeline-ruler-col');
     const sec = timelineSecFromEvent(evt, col || evt.currentTarget);
-    // #region agent log
-    fetch('http://127.0.0.1:7539/ingest/3726227b-cd5b-480d-9626-7d6a17316f6c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'05f5bf'},body:JSON.stringify({sessionId:'05f5bf',hypothesisId:'H1',location:'app.js:onSeekClick',message:'timeline click seek',data:{sec,target:(evt.target.className||'').slice(0,80),onClip:!!evt.target.closest('.timeline-clip')},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     seekToSec(sec);
   };
 
@@ -1651,6 +1736,7 @@ export function renderTimeline(timelineData, context = {}) {
   // Calculate total overlay height (one row per overlay track in the future;
   // for now, overlay markers live on top of all tracks)
   const totalWidth = secToPx(Math.max(durationSec, 10));
+  tracksArea.style.width = `${totalWidth}px`;
 
   tracks.forEach((track) => {
     // Label
@@ -1664,7 +1750,7 @@ export function renderTimeline(timelineData, context = {}) {
     labelsCol.appendChild(labelRow);
 
     // Track row
-    const trackRow = el('div', { class: 'timeline-track-row', style: `min-width:${totalWidth}px` });
+    const trackRow = el('div', { class: 'timeline-track-row', style: `width:${totalWidth}px` });
 
     // Clips
     (track.clips ?? []).forEach((clip) => {
@@ -1772,7 +1858,7 @@ $('#btn-timeline-zoom-in')?.addEventListener('click', () => {
   if (tlCurrentData) renderTimeline(tlCurrentData, { edits: tlEditMarkers, notes: tlNoteMarkers });
 });
 $('#btn-timeline-zoom-out')?.addEventListener('click', () => {
-  tlZoom = Math.max(tlZoom / 1.5, 0.1);
+  tlZoom = Math.max(tlZoom / 1.5, 0.001);
   if (tlCurrentData) renderTimeline(tlCurrentData, { edits: tlEditMarkers, notes: tlNoteMarkers });
 });
 $('#btn-timeline-fit')?.addEventListener('click', () => {

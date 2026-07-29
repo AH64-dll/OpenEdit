@@ -31,6 +31,10 @@ _FAKE_REMOTION = textwrap.dedent(
     p.add_argument("--height")
     p.add_argument("--fps")
     p.add_argument("--codec")
+    p.add_argument("--concurrency")
+    p.add_argument("--pixel-format")
+    p.add_argument("--image-format")
+    p.add_argument("--prores-profile")
     args = p.parse_args()
     props = json.loads(pathlib.Path(args.props_file).read_text())
     out = pathlib.Path(args.output)
@@ -105,16 +109,16 @@ def test_cache_key_stable_for_same_inputs(remotion_project: Path) -> None:
     )
     src = (remotion_project / ".open_edit" / "remotion" / "src" / "index.ts").read_text()
     a = composition_cache_key(
-        entry_source=src, composition_id="TitleCard", props={"a": 1},
-        profile=profile, alpha=False,
+        composition_source=src, composition_id="TitleCard", props={"a": 1},
+        profile=profile, alpha=False, duration_sec=3.0,
     )
     b = composition_cache_key(
-        entry_source=src, composition_id="TitleCard", props={"a": 1},
-        profile=profile, alpha=False,
+        composition_source=src, composition_id="TitleCard", props={"a": 1},
+        profile=profile, alpha=False, duration_sec=3.0,
     )
     c = composition_cache_key(
-        entry_source=src, composition_id="TitleCard", props={"a": 2},
-        profile=profile, alpha=False,
+        composition_source=src, composition_id="TitleCard", props={"a": 2},
+        profile=profile, alpha=False, duration_sec=3.0,
     )
     assert a == b
     assert a != c

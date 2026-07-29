@@ -114,10 +114,10 @@ def test_build_melt_command_uses_nice_on_posix(tmp_path):
     assert cmd[:3] == ["nice", "-n", "10"]
 
 
-def test_resolve_backend_defaults_cpu_on_windows(monkeypatch):
+def test_resolve_backend_defaults_gpu_when_unset(monkeypatch):
+    """GPU is the default on all platforms; NVENC/AMF/QSV/VAAPI probed at encode time."""
     monkeypatch.delenv("OPEN_EDIT_RENDER_BACKEND", raising=False)
-    with patch("open_edit.render.encoder.sys.platform", "win32"):
-        assert resolve_backend() == "cpu"
+    assert resolve_backend() == "gpu"
 
 
 def test_diagnostics_sandbox_dev_on_windows(monkeypatch):

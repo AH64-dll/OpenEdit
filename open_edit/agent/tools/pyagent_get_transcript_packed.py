@@ -45,11 +45,10 @@ def get_transcript_packed(args: dict, project_path: str | Path) -> dict[str, Any
 
         packed = pack_transcript(asset.alignment, pause_threshold_sec=pause_thresh)
 
+        # Single field — avoid 3× transcript token burn in MCP responses.
         return {
             "status": "ok",
             "asset_hash": asset_hash,
-            "transcript": packed,
-            "transcript_md": packed,
             "transcript_packed": packed,
         }
     except Exception as exc:

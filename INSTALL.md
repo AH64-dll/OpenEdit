@@ -26,6 +26,20 @@ On Windows, `run_script` defaults to unsandboxed `dev` mode. Moviepy
 `generate_visual_for_segment` is unsupported on Windows. The Rust bwrap
 sandbox is **not** shipped in this repo.
 
+**Same codebase for Linux and Windows.** Platform-specific behavior is gated
+in code (not separate trees):
+
+| Area | Linux / macOS | Windows |
+|---|---|---|
+| Remotion alpha overlays | WebM / VP8 (`libvpx`) | ProRes 4444 (WebM alpha is unreliable) |
+| Remotion CLI | `node_modules/.bin/remotion` | prefers `remotion.cmd` + `shell` spawn |
+| Sandbox default | `bwrap` when available | `dev` subprocess |
+| GPU encode | NVENC / VAAPI / QSV when present | NVENC / AMF / QSV when present |
+
+Shared fixes (final High-quality encode, long-render timeouts, MCP timeline
+ops, preview/hash alignment, melt base-track + ffmpeg overlay burn-in) apply
+to both platforms.
+
 ---
 
 ## 1. Clone

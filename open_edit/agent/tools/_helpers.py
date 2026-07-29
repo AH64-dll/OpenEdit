@@ -106,7 +106,8 @@ def make_ir(project_path: str | Path, parent_op_id: Optional[str] = None) -> IR:
     store = EditGraphStore(db_path)
     project_id = store.project_id
     buffer = _StoreBuffer(store)
-    return IR(buffer, project_id=project_id, parent_op_id=parent_op_id)
+    # parent_op_id may be None for pillar/MCP mutations (no note chain).
+    return IR(buffer, project_id=project_id, parent_op_id=parent_op_id)  # type: ignore[arg-type]
 
 
 def get_asset_store(project_path: str | Path) -> AssetStore:

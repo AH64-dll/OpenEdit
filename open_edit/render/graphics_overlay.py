@@ -24,6 +24,11 @@ class OverlayClip:
     duration_sec: float
     media_path: Path
     label: str = ""
+    # When True, blur the base talk plate under this overlay window so
+    # sharp Remotion cards read as the in-focus subject.
+    blur_under: bool = False
+    # ProRes/Remotion overlays carry alpha; opaque MP4 screen recordings do not.
+    alpha: bool = True
 
 
 def burn_overlays(
@@ -35,6 +40,7 @@ def burn_overlays(
     height: int = 720,
     timeout_s: float = 900.0,
     encoder_backend: str | None = None,
+    final: bool = False,
 ) -> Path:
     """Overlay timed fullscreen clips onto ``base_mp4``; write ``output_mp4``."""
     if not overlays:
@@ -56,26 +62,61 @@ def burn_overlays(
         inputs += ["-i", str(ov.media_path)]
 
     filters: list[str] = []
-    last = "[0:v]"
+    blur_windows = [
+        (ov.position_sec, ov.position_sec + ov.duration_sec)
+        for ov in overlays
+        if ov.blur_under
+    ]
+    if blur_windows:
+        # Blur base only during focus windows; sharp elsewhere.
+        enable = "+".join(
+            f"between(t\\,{start:.3f}\\,{end:.3f})" for start, end in blur_windows
+        )
+        filters.append(
+            f"[0:v]split=2[sharp][toblur];"
+            f"[toblur]boxblur=20:10[blurred];"
+            f"[sharp][blurred]overlay=0:0:enable='{enable}'[base]"
+        )
+        last = "[base]"
+    else:
+        last = "[0:v]"
+
     for i, ov in enumerate(overlays, start=1):
         end = ov.position_sec + ov.duration_sec
-        filters.append(
-            f"[{i}:v]scale={width}:{height},format=yuv420p,"
-            f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
-        )
         out_label = f"[v{i}]" if i < len(overlays) else "[vout]"
-        filters.append(
-            f"{last}[ov{i}]overlay=0:0:enable='between(t,{ov.position_sec:.3f},{end:.3f})'"
-            f"{out_label}"
-        )
+        if ov.alpha:
+            # Alpha Remotion materializes as ProRes 4444 (.mov) with a real
+            # alpha plane. Composite via rgba — chromakey was only a temporary
+            # workaround for opaque VP8 WebM on Windows.
+            filters.append(
+                f"[{i}:v]scale={width}:{height},"
+                f"format=rgba,"
+                f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
+            )
+            filters.append(
+                f"{last}[ov{i}]overlay=0:0:format=auto:eof_action=pass:"
+                f"enable='between(t,{ov.position_sec:.3f},{end:.3f})'"
+                f"{out_label}"
+            )
+        else:
+            filters.append(
+                f"[{i}:v]scale={width}:{height},"
+                f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
+            )
+            filters.append(
+                f"{last}[ov{i}]overlay=0:0:eof_action=pass:"
+                f"enable='between(t,{ov.position_sec:.3f},{end:.3f})'"
+                f"{out_label}"
+            )
         last = f"[v{i}]"
 
+    audio_bitrate = "320k" if final else "192k"
     cmd = [
         "ffmpeg", "-y", *inputs,
         "-filter_complex", ";".join(filters),
         "-map", "[vout]", "-map", "0:a?",
-        *ffmpeg_video_args(encoder_backend),
-        "-c:a", "aac", "-shortest",
+        *ffmpeg_video_args(encoder_backend, final=final),
+        "-c:a", "aac", "-b:a", audio_bitrate,
         str(output_mp4),
     ]
     proc = subprocess.run(

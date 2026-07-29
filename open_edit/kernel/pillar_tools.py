@@ -44,6 +44,15 @@ def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) ->
         ingest_local,
         set_pinned_value,
     )
+    from open_edit.agent.tools.pyagent_timeline_ops import (
+        add_clip,
+        apply_silence_gaps,
+        change_clip_speed,
+        remove_clip,
+        replace_clip_source,
+        set_audio_gain,
+        trim_clip,
+    )
 
     p = dict(params) if params else {}
     routing: dict[str, Any] = {
@@ -52,6 +61,14 @@ def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) ->
         "import_asset": lambda: import_asset(p, str(project_path)),
         "ingest_local": lambda: ingest_local(p, str(project_path)),
         "apply_generated_ops": lambda: _apply_generated_ops(p, project_path),
+        # Everyday timeline ops — avoid run_script for these.
+        "add_clip": lambda: add_clip(p, str(project_path)),
+        "trim_clip": lambda: trim_clip(p, str(project_path)),
+        "replace_clip_source": lambda: replace_clip_source(p, str(project_path)),
+        "change_clip_speed": lambda: change_clip_speed(p, str(project_path)),
+        "remove_clip": lambda: remove_clip(p, str(project_path)),
+        "set_audio_gain": lambda: set_audio_gain(p, str(project_path)),
+        "apply_silence_gaps": lambda: apply_silence_gaps(p, str(project_path)),
     }
     fn = routing.get(operation)
     if fn is None:

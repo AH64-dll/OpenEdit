@@ -239,6 +239,12 @@ def emit_timeline(
                     _emit_filter(entry, effect, fps_num, fps_den)
             current_pos = clip.position_sec + clip_dur
 
+        if current_pos < timeline.duration_sec:
+            trailing = timeline.duration_sec - current_pos
+            etree.SubElement(playlist, "blank", attrib={
+                "length": _format_timecode(trailing, fps_num, fps_den),
+            })
+
         for effect in track.effects:
             if effect.effect_type.startswith("transition_"):
                 _emit_transition(playlist, effect)

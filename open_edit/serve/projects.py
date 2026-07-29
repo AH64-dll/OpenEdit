@@ -489,12 +489,18 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
         from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE
 
         for job in DEFAULT_RENDER_SERVICE.list_jobs(path):
+            size_bytes = 0
+            if job.output_path:
+                try:
+                    size_bytes = Path(job.output_path).stat().st_size
+                except OSError:
+                    size_bytes = 0
             out.append({
                 "id": job.job_id,
                 "path": job.output_path or "",
                 "mode": job.mode,
                 "status": job.status,
-                "size_bytes": 0,
+                "size_bytes": size_bytes,
                 "timestamp": job.updated_at,
                 "graph_revision": job.graph_revision,
                 "edit_graph_hash": job.edit_graph_hash,
@@ -516,6 +522,23 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
         pass
 
     if out:
+        # Also surface on-disk proxy/final files produced by CLI renders so the
+        # UI can open them even when durable job records failed/orphaned.
+        renders_dir = path / ".open_edit" / "renders"
+        if renders_dir.exists():
+            known = {row.get("id") for row in out}
+            for f in sorted(renders_dir.glob("project_*.mp4"), key=lambda p: p.stat().st_mtime):
+                if f.stem in known or not _is_complete_render_mp4(f):
+                    continue
+                st = f.stat()
+                out.append({
+                    "id": f.stem,
+                    "path": str(f),
+                    "mode": "proxy",
+                    "status": "succeeded",
+                    "size_bytes": st.st_size,
+                    "timestamp": st.st_mtime,
+                })
         return out
 
     # Fallback: scan the renders directory.
@@ -523,6 +546,8 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
     if not renders_dir.exists():
         return []
     for f in sorted(renders_dir.glob("*.mp4")):
+        if not _is_complete_render_mp4(f):
+            continue
         st = f.stat()
         out.append({
             "id": f.stem,
@@ -533,6 +558,19 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
             "timestamp": st.st_mtime,
         })
     return out
+
+
+def _is_complete_render_mp4(path: Path) -> bool:
+    """Skip melt intermediates / tiny stubs so the preview never auto-loads junk."""
+    name = path.name.lower()
+    # melt writes ``project_<hash>.melt.mp4`` while rendering; that file is not
+    # a finished proxy and breaks the <video> element if auto-loaded.
+    if name.endswith(".melt.mp4") or ".melt." in name:
+        return False
+    try:
+        return path.is_file() and path.stat().st_size >= 10_000
+    except OSError:
+        return False
 
 
 def _render_row_to_dict(row: Any) -> dict[str, Any]:

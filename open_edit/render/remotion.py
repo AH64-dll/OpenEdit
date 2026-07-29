@@ -11,6 +11,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,16 +39,33 @@ class RemotionRenderResult:
     error: str | None = None
 
 
+def _alpha_vcodec() -> str:
+    """Alpha materialization codec.
+
+    Windows: ProRes 4444 — VP8/WebM alpha is unreliable with ffmpeg composite.
+    Linux/macOS: keep libvpx (WebM alpha) which is lighter and already proven.
+    """
+    if sys.platform == "win32":
+        return "prores_ks"
+    return "libvpx"
+
+
 def remotion_profile_for_mode(mode: Literal["proxy", "final"], alpha: bool = False) -> RenderProfile:
-    """Return width/height/fps used for Remotion materialization."""
+    """Return width/height/fps used for Remotion materialization.
+
+    Proxy keeps 30fps (same as composition timing) so short overlays like
+    2.16s intros keep correct duration; only spatial resolution is reduced.
+    """
+    alpha_vcodec = _alpha_vcodec()
     if mode == "proxy":
         return RenderProfile(
             name="remotion_proxy",
-            width=1280,
-            height=720,
-            frame_rate_num=15,
+            # Half-res proxy on all platforms; Windows ProRes stays lighter this way.
+            width=960,
+            height=540,
+            frame_rate_num=30,
             frame_rate_den=1,
-            vcodec="libvpx" if alpha else "libx264",
+            vcodec=alpha_vcodec if alpha else "libx264",
         )
     return RenderProfile(
         name="remotion_final",
@@ -55,8 +73,33 @@ def remotion_profile_for_mode(mode: Literal["proxy", "final"], alpha: bool = Fal
         height=1080,
         frame_rate_num=30,
         frame_rate_den=1,
-        vcodec="libvpx" if alpha else "libx264",
+        vcodec=alpha_vcodec if alpha else "libx264",
     )
+
+
+def composition_source_bundle(project_path: Path, composition_id: str) -> str:
+    """Hashable source bundle for one composition (not the whole entry file)."""
+    root = resolve_remotion_root(project_path)
+    parts: list[str] = []
+    comp_path = root / "src" / "compositions" / f"{composition_id}.tsx"
+    if comp_path.is_file():
+        parts.append(comp_path.read_text(encoding="utf-8"))
+    root_tsx = root / "src" / "Root.tsx"
+    if root_tsx.is_file():
+        text = root_tsx.read_text(encoding="utf-8")
+        marker = f'id="{composition_id}"'
+        idx = text.find(marker)
+        if idx >= 0:
+            # Include only this composition's registration block.
+            start = text.rfind("<Composition", 0, idx)
+            end = text.find("/>", idx)
+            if start >= 0 and end >= 0:
+                parts.append(text[start : end + 2])
+            else:
+                parts.append(text)
+        else:
+            parts.append(text)
+    return "\n---\n".join(parts)
 
 
 def resolve_remotion_root(project_path: Path) -> Path:
@@ -85,18 +128,20 @@ def validate_entry_point(project_path: Path, entry_point: str) -> Path:
 
 def composition_cache_key(
     *,
-    entry_source: str,
+    composition_source: str,
     composition_id: str,
     props: dict[str, Any],
     profile: RenderProfile,
     alpha: bool,
+    duration_sec: float,
 ) -> str:
     payload = {
-        "entry_source": entry_source,
+        "composition_source": composition_source,
         "composition_id": composition_id,
         "props": props,
         "profile": profile.model_dump(),
         "alpha": alpha,
+        "duration_sec": duration_sec,
         "remotion_version": REMOTION_VERSION,
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -122,14 +167,15 @@ def render_composition(
     """
     project_path = Path(project_path).resolve()
     remotion_root = resolve_remotion_root(project_path)
-    entry_abs = validate_entry_point(project_path, entry_point)
-    entry_source = entry_abs.read_text(encoding="utf-8")
+    validate_entry_point(project_path, entry_point)
+    composition_source = composition_source_bundle(project_path, composition_id)
     content_hash = composition_cache_key(
-        entry_source=entry_source,
+        composition_source=composition_source,
         composition_id=composition_id,
         props=props,
         profile=profile,
         alpha=alpha,
+        duration_sec=0.0,
     )
 
     output_path = Path(output_path)
@@ -137,8 +183,30 @@ def render_composition(
     props_path = output_path.with_suffix(".props.json")
     props_path.write_text(json.dumps(props, sort_keys=True), encoding="utf-8")
 
-    codec = "vp8" if alpha else "h264"
+    # Remotion CLI codec names (not ffmpeg encoder names).
+    use_prores_alpha = alpha and profile.vcodec == "prores_ks"
+    use_vp8_alpha = alpha and profile.vcodec == "libvpx"
+    if use_prores_alpha:
+        codec = "prores"
+    elif use_vp8_alpha:
+        codec = "vp8"
+    else:
+        codec = "h264"
     fps = profile.frame_rate_num / max(profile.frame_rate_den, 1)
+
+    alpha_args: list[str] = []
+    if use_prores_alpha:
+        # Windows-only path today (see _alpha_vcodec).
+        alpha_args = [
+            "--pixel-format", "yuva444p10le",
+            "--image-format", "png",
+            "--prores-profile", "4444",
+        ]
+
+    concurrency = os.environ.get("OPEN_EDIT_REMOTION_CONCURRENCY", "").strip()
+    if not concurrency:
+        # Middle ground: use most cores but leave 1 free for melt/ffmpeg.
+        concurrency = str(max(2, (os.cpu_count() or 4) - 1))
 
     custom_bin = os.environ.get("OPEN_EDIT_REMOTION_BIN", "").strip()
     if custom_bin:
@@ -153,6 +221,8 @@ def render_composition(
             "--height", str(profile.height),
             "--fps", str(int(fps) if fps == int(fps) else fps),
             "--codec", codec,
+            "--concurrency", concurrency,
+            *alpha_args,
         ]
     else:
         node = os.environ.get("OPEN_EDIT_NODE_BIN", "node").strip() or "node"
@@ -168,6 +238,8 @@ def render_composition(
             "--height", str(profile.height),
             "--fps", str(int(fps) if fps == int(fps) else fps),
             "--codec", codec,
+            "--concurrency", concurrency,
+            *alpha_args,
         ]
 
     kwargs: dict[str, Any] = {

@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 #   "bwrap" (default) -> BwrapBackend (bwrap + seccomp + rlimits, fail-closed).
 #   "dev"             -> DevSubprocessBackend (NO isolation, local dev only).
 SANDBOX_BACKEND_ENV = "OPEN_EDIT_SANDBOX_BACKEND"
-_DEFAULT_SANDBOX_BACKEND = "bwrap"
+_DEFAULT_SANDBOX_BACKEND = "bwrap"  # POSIX default; Windows unset → DevSubprocessBackend
 
 
 class SandboxUnavailable(Exception):

@@ -74,11 +74,16 @@ class RenderService:
     durable records as ``orphaned``.
     """
 
-    def __init__(self, *, max_concurrency: int | None = None, timeout_s: float = 1800.0,
+    def __init__(self, *, max_concurrency: int | None = None, timeout_s: float | None = None,
                  cancel_grace_s: float = 5.0) -> None:
         configured = max_concurrency or int(os.environ.get("OPEN_EDIT_RENDER_CONCURRENCY", "1"))
         self._semaphore = asyncio.Semaphore(max(1, configured))
-        self.timeout_s = timeout_s
+        # Final 1080p + overlay burn for ~30 min timelines needs far more than
+        # 30 minutes wall clock; align with serve RENDER_TIMEOUT_S (4h).
+        if timeout_s is None:
+            env_t = os.environ.get("OPEN_EDIT_RENDER_TIMEOUT_S")
+            timeout_s = float(env_t) if env_t and env_t.strip() else 14400.0
+        self.timeout_s = float(timeout_s)
         self.cancel_grace_s = cancel_grace_s
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._project_locks: dict[str, asyncio.Lock] = {}
@@ -185,12 +190,11 @@ class RenderService:
         store = EditGraphStore(db)
         ops = store.load_all()
         revision = store.graph_revision()
-        payload = json.dumps(
-            [op.model_dump(mode="json") for op in ops],
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        # Must match serve/projects.py — otherwise the UI never auto-loads the
+        # proxy that was just rendered for this graph.
+        from open_edit.ir.hash import compute_edit_graph_hash
+
+        digest = compute_edit_graph_hash(ops)
         timeline_status = "valid"
         try:
             from open_edit.ir.apply import derive_timeline
@@ -231,20 +235,48 @@ class RenderService:
                 f"stale graph revision: expected {expected_revision}, current {revision}"
             )
         now = time.time()
-        job = RenderJob(
-            uuid.uuid4().hex, project_id, mode, "queued", now, now,
-            graph_revision=revision, edit_graph_hash=graph_hash,
-        )
+        # Coalesce: if a queued/running job already covers this graph+mode, reuse it.
+        # If the in-memory worker task was lost (process restart / other process
+        # wrote the row), re-attach a runner so the job does not sit forever.
+        existing: RenderJob | None = None
         with self._connect(project_path) as con:
-            con.execute(
-                "INSERT INTO render_jobs (job_id, project_id, mode, status, created_at, updated_at, "
-                "graph_revision, edit_graph_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    job.job_id, job.project_id, job.mode, job.status, job.created_at,
-                    job.updated_at, job.graph_revision, job.edit_graph_hash,
-                ),
-            )
-        self._tasks[job.job_id] = asyncio.create_task(self._run(project_path, job.job_id))
+            row = con.execute(
+                "SELECT job_id, status, created_at, updated_at, graph_revision, edit_graph_hash "
+                "FROM render_jobs WHERE project_id = ? AND mode = ? "
+                "AND edit_graph_hash = ? AND status IN ('queued', 'running') "
+                "ORDER BY created_at DESC LIMIT 1",
+                (project_id, mode, graph_hash),
+            ).fetchone()
+            if row is not None:
+                existing = RenderJob(
+                    row[0], project_id, mode, row[1], row[2], row[3],
+                    graph_revision=row[4], edit_graph_hash=row[5],
+                )
+            else:
+                existing = None
+                job = RenderJob(
+                    uuid.uuid4().hex, project_id, mode, "queued", now, now,
+                    graph_revision=revision, edit_graph_hash=graph_hash,
+                )
+                con.execute(
+                    "INSERT INTO render_jobs (job_id, project_id, mode, status, created_at, updated_at, "
+                    "graph_revision, edit_graph_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        job.job_id, job.project_id, job.mode, job.status, job.created_at,
+                        job.updated_at, job.graph_revision, job.edit_graph_hash,
+                    ),
+                )
+                existing = job
+
+        job = existing
+        assert job is not None
+        task = self._tasks.get(job.job_id)
+        if task is None or task.done():
+            # Reset stuck "running" rows that have no live process back to queued.
+            if job.status == "running":
+                self._update(project_path, job.job_id, "queued")
+                job = self.get(project_path, job.job_id) or job
+            self._tasks[job.job_id] = asyncio.create_task(self._run(project_path, job.job_id))
         if encoder_backend in ("gpu", "cpu"):
             self._job_encoder[job.job_id] = encoder_backend
         return job

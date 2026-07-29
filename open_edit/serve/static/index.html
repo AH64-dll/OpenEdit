@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=20260728-gpu-encoder">
 </head>
 <body class="has-timeline">
   <div class="site-wrapper">
@@ -171,6 +171,13 @@
           <div class="empty-state">No renders yet.</div>
         </div>
         <div class="render-buttons">
+          <label class="encoder-select muted small" title="GPU uses NVENC when available; CPU uses software x264">
+            Encoder
+            <select id="render-encoder-select">
+              <option value="gpu" selected>GPU (default)</option>
+              <option value="cpu">CPU</option>
+            </select>
+          </label>
           <button id="btn-render-proxy" class="btn btn-secondary btn-sm">Render proxy</button>
           <button id="btn-render-final" class="btn btn-secondary btn-sm">Render final</button>
         </div>
@@ -317,6 +324,6 @@
   <!-- =================== Toast =================== -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="/app.js?v=20260729-preview-rev"></script>
 </body>
 </html>

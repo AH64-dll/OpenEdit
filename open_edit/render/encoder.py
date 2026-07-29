@@ -8,31 +8,49 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from typing import Literal
 
 EncoderBackend = Literal["gpu", "cpu"]
 
 # Preference order when backend=gpu.
 _GPU_CANDIDATES: tuple[tuple[str, list[str]], ...] = (
-    ("h264_nvenc", ["-preset", "p4", "-cq", "20"]),
-    ("h264_vaapi", ["-qp", "20"]),
+    ("h264_nvenc", ["-preset", "p4", "-rc", "constqp", "-cq", "20", "-profile:v", "high"]),
+    ("h264_amf", ["-quality", "balanced", "-rc", "cqp", "-qp_i", "20", "-qp_p", "20"]),
     ("h264_qsv", ["-preset", "medium", "-global_quality", "20"]),
+    ("h264_vaapi", ["-qp", "20"]),
+)
+
+_GPU_FINAL: tuple[tuple[str, list[str]], ...] = (
+    (
+        "h264_nvenc",
+        [
+            "-preset", "p5",
+            "-rc", "vbr",
+            "-b:v", "10M",
+            "-maxrate", "14M",
+            "-bufsize", "20M",
+            "-profile:v", "high",
+            "-bf", "2",
+        ],
+    ),
+    ("h264_amf", ["-quality", "quality", "-rc", "vbr_peak", "-b:v", "10M", "-maxrate", "14M"]),
+    ("h264_qsv", ["-preset", "medium", "-global_quality", "18"]),
+    ("h264_vaapi", ["-qp", "18"]),
 )
 
 
 def resolve_backend(requested: str | None = None) -> EncoderBackend:
     """Return ``gpu`` or ``cpu`` from explicit request or env default.
 
-    When ``OPEN_EDIT_RENDER_BACKEND`` is unset, Windows defaults to ``cpu``
-    (VAAPI is Linux-only; NVENC/QSV still work if the caller sets ``gpu``).
+    Default is ``gpu`` (NVENC/AMF/QSV when available). Set
+    ``OPEN_EDIT_RENDER_BACKEND=cpu`` to force software encoding.
     """
     if requested is not None and str(requested).strip():
         raw = str(requested).strip().lower()
     else:
         env = os.environ.get("OPEN_EDIT_RENDER_BACKEND")
         if env is None or not str(env).strip():
-            raw = "cpu" if sys.platform == "win32" else "gpu"
+            raw = "gpu"
         else:
             raw = str(env).strip().lower()
     if raw in ("cpu", "software", "libx264"):
@@ -45,13 +63,16 @@ def _ffmpeg() -> str | None:
 
 
 def _probe_encoder(vcodec: str, extra: list[str]) -> bool:
-    """Return True if ffmpeg can encode a trivial frame with ``vcodec``."""
+    """Return True if ffmpeg can encode a trivial frame with ``vcodec``.
+
+    NVENC rejects frames smaller than ~128px, so the probe uses 256x256.
+    """
     ffmpeg = _ffmpeg()
     if ffmpeg is None:
         return False
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error",
-        "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.04",
+        "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.04",
         "-frames:v", "1", "-c:v", vcodec, *extra,
         "-f", "null", "-",
     ]
@@ -62,21 +83,26 @@ def _probe_encoder(vcodec: str, extra: list[str]) -> bool:
     return proc.returncode == 0
 
 
-def detect_gpu_vcodec() -> tuple[str, list[str]] | None:
+def detect_gpu_vcodec(*, final: bool = False) -> tuple[str, list[str]] | None:
     """Return the first working GPU encoder and its quality args."""
-    for vcodec, extra in _GPU_CANDIDATES:
+    candidates = _GPU_FINAL if final else _GPU_CANDIDATES
+    for vcodec, extra in candidates:
         if _probe_encoder(vcodec, extra):
             return vcodec, extra
     return None
 
 
-def resolve_vcodec(backend: str | None = None) -> tuple[str, list[str]]:
+def resolve_vcodec(backend: str | None = None, *, final: bool = False) -> tuple[str, list[str]]:
     """Return (vcodec, extra_ffmpeg_args) for the requested backend."""
     if resolve_backend(backend) == "cpu":
+        if final:
+            return "libx264", ["-preset", "medium", "-crf", "18", "-profile:v", "high"]
         return "libx264", ["-preset", "veryfast", "-crf", "20"]
-    detected = detect_gpu_vcodec()
+    detected = detect_gpu_vcodec(final=final)
     if detected is not None:
         return detected
+    if final:
+        return "libx264", ["-preset", "medium", "-crf", "18", "-profile:v", "high"]
     return "libx264", ["-preset", "veryfast", "-crf", "20"]
 
 
@@ -88,7 +114,7 @@ def apply_profile_vcodec(profile_vcodec: str, backend: str | None = None) -> str
     return vcodec
 
 
-def ffmpeg_video_args(backend: str | None = None) -> list[str]:
+def ffmpeg_video_args(backend: str | None = None, *, final: bool = False) -> list[str]:
     """ffmpeg ``-c:v`` and quality flags for overlay / post passes."""
-    vcodec, extra = resolve_vcodec(backend)
+    vcodec, extra = resolve_vcodec(backend, final=final)
     return ["-c:v", vcodec, *extra]

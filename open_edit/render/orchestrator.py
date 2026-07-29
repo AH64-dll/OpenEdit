@@ -121,8 +121,10 @@ def render_project(
                     asset_paths[clip.asset_hash] = str(path)
 
     remotion_overlays = _remotion_overlay_clips(timeline, asset_paths)
-    # Melt without Remotion graphics tracks — burn them on with ffmpeg after.
-    melt_timeline = _timeline_without_remotion_clips(timeline)
+    video_overlays = _video_track_overlay_clips(timeline, asset_paths)
+    burn_list = sorted(remotion_overlays + video_overlays, key=lambda o: o.position_sec)
+    # Melt only the base talk track — Remotion + upper video tracks burn via ffmpeg.
+    melt_timeline = _timeline_for_melt(timeline)
 
     payload = [op.model_dump(mode="json") for op in applied_ops]
     graph_hash = canonical_json_hash(payload)
@@ -148,11 +150,14 @@ def render_project(
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
     cmd = _build_melt_command(
         melt_bin, xml_path, melt_mp4, profile, nice_level, encoder_backend,
+        mode=mode,
     )
 
+    # Final ~30min + Remotion can exceed 10 minutes wall time easily.
+    melt_timeout = 7200 if mode == "final" else 600
     t0 = time.monotonic()
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=melt_timeout)
     except subprocess.TimeoutExpired:
         # Per T5 carry-over #2: record a `failed` snapshot on timeout so
         # the version list shows the attempt rather than disappearing.
@@ -160,8 +165,8 @@ def render_project(
         return RenderResult(
             ok=False, output_path=str(output_mp4), mode=mode,
             profile=profile.model_dump(), duration_sec=timeline.duration_sec,
-            elapsed_sec=600.0, edit_graph_hash=graph_hash,
-            error="melt timed out after 600s",
+            elapsed_sec=float(melt_timeout), edit_graph_hash=graph_hash,
+            error=f"melt timed out after {melt_timeout}s",
         )
     elapsed = time.monotonic() - t0
 
@@ -175,15 +180,18 @@ def render_project(
             error=err[-1] if err else f"melt exited {proc.returncode}",
         )
 
-    if remotion_overlays:
+    if burn_list:
+        burn_timeout = max(1800.0, timeline.duration_sec * 4.0) if mode == "final" else 900.0
         try:
             burn_overlays(
                 melt_mp4,
-                remotion_overlays,
+                burn_list,
                 output_mp4,
                 width=profile.width,
                 height=profile.height,
                 encoder_backend=encoder_backend,
+                timeout_s=burn_timeout,
+                final=(mode == "final"),
             )
         except GraphicsOverlayError as exc:
             _record_snapshot_failure(project_dir, project_id, graph_hash, output_mp4)
@@ -222,36 +230,83 @@ def _remotion_overlay_clips(
             duration_sec=composition.duration_sec,
             media_path=Path(path),
             label=composition.composition_id,
+            blur_under=bool((composition.props or {}).get("blur_under", False)),
         ))
     overlays.sort(key=lambda o: o.position_sec)
     return overlays
 
 
-def _timeline_without_remotion_clips(timeline: Timeline) -> Timeline:
-    """Return a copy of ``timeline`` without Remotion-injected graphics clips.
+def _video_track_overlay_clips(
+    timeline: Timeline, asset_paths: dict[str, str],
+) -> list[OverlayClip]:
+    """Fullscreen clips on video tracks above v1 (e.g. screen recordings on v2).
 
-    Remotion clips are burned via ffmpeg overlays; melt only renders the
-    base talk track(s). Empty upper tracks (e.g. ``video_graphics`` with no
-    clips after stripping) must be removed or melt composites a blank layer
-    and produces a near-zero-length output.
+    Skips Remotion-injected clips on ``video_graphics`` — those are burned via
+    ``_remotion_overlay_clips`` with correct alpha/blur metadata. Burning them
+    again as opaque overlays corrupts ffmpeg output mid-timeline.
+    """
+    video_tracks = [t for t in timeline.tracks if t.kind == "video"]
+    if len(video_tracks) <= 1:
+        return []
+    remotion_clip_ids = {c.clip_id for c in timeline.remotion_compositions}
+    overlays: list[OverlayClip] = []
+    for track in video_tracks[1:]:
+        if track.track_id == "video_graphics":
+            continue
+        for clip in track.clips:
+            if clip.clip_id in remotion_clip_ids:
+                continue
+            path = asset_paths.get(clip.asset_hash)
+            if not path:
+                continue
+            dur = clip.out_point_sec - clip.in_point_sec
+            overlays.append(OverlayClip(
+                position_sec=clip.position_sec,
+                duration_sec=dur,
+                media_path=Path(path),
+                label=track.track_id,
+                alpha=False,
+            ))
+    return overlays
+
+
+def _timeline_for_melt(timeline: Timeline) -> Timeline:
+    """Return a copy of ``timeline`` for melt: base v1 only, no Remotion/overlay tracks.
+
+    Remotion and upper video tracks (v2+) are burned via ffmpeg overlays; melt
+    only renders the primary talk track. Multitrack melt composite is unreliable
+    on Windows and can blank the base layer.
     """
     updated = timeline.model_copy(deep=True)
     remotion_ids = {c.clip_id for c in updated.remotion_compositions}
     if remotion_ids:
         for track in updated.tracks:
             track.clips = [c for c in track.clips if c.clip_id not in remotion_ids]
+    video_tracks = [t for t in updated.tracks if t.kind == "video"]
+    if len(video_tracks) > 1:
+        base_id = video_tracks[0].track_id
+        updated.tracks = [
+            t for t in updated.tracks
+            if t.kind != "video" or t.track_id == base_id
+        ]
     updated.tracks = [t for t in updated.tracks if t.clips]
     return updated
+
+
+def _timeline_without_remotion_clips(timeline: Timeline) -> Timeline:
+    """Deprecated alias — use ``_timeline_for_melt``."""
+    return _timeline_for_melt(timeline)
 
 
 def _build_melt_command(
     melt_bin: str, xml_path: Path, output_mp4: Path,
     profile: RenderProfile, nice_level: int,
     encoder_backend: Optional[str] = None,
+    mode: str = "proxy",
 ) -> list[str]:
     """Build the melt command line."""
     args = [melt_bin, str(xml_path), "-consumer", f"avformat:{output_mp4}"]
-    args += profile_to_mlt_args(profile, backend=encoder_backend)
+    args += profile_to_mlt_args(profile, backend=encoder_backend, mode=mode)
     if nice_level > 0 and os.name == "posix":
         return ["nice", "-n", str(nice_level)] + args
     return args

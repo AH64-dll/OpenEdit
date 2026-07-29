@@ -9,8 +9,9 @@
  *     --composition-id TitleCard \
  *     --props-file /tmp/props.json \
  *     --output /tmp/out.mp4 \
- *     --width 1280 --height 720 --fps 15 \
- *     [--codec h264|vp8|prores]
+ *     --width 1280 --height 720 --fps 30 \
+ *     [--codec h264|vp8|prores] \
+ *     [--pixel-format ...] [--image-format ...] [--prores-profile ...]
  *
  * Prints one JSON object to stdout on success/failure.
  * Props are always read from a file (never interpolated into the shell).
@@ -39,6 +40,10 @@ const width = argValue("--width") || "1280";
 const height = argValue("--height") || "720";
 const fps = argValue("--fps") || "30";
 const codec = argValue("--codec") || "h264";
+const pixelFormat = argValue("--pixel-format");
+const imageFormat = argValue("--image-format");
+const proresProfile = argValue("--prores-profile");
+const concurrency = argValue("--concurrency");
 
 if (!projectRoot || !compositionId || !output) {
   fail("missing required --project-root, --composition-id, or --output");
@@ -70,12 +75,22 @@ if (propsFile) {
 
 fs.mkdirSync(path.dirname(absOut), { recursive: true });
 
+const remotionBinUnix = path.join(absRoot, "node_modules", ".bin", "remotion");
+const remotionBinWin = path.join(absRoot, "node_modules", ".bin", "remotion.cmd");
 const remotionBin =
   process.env.OPEN_EDIT_REMOTION_CLI ||
-  path.join(absRoot, "node_modules", ".bin", "remotion");
+  (process.platform === "win32" && fs.existsSync(remotionBinWin)
+    ? remotionBinWin
+    : remotionBinUnix);
 const fallbackNpx = !fs.existsSync(remotionBin);
 
 const cmd = fallbackNpx ? "npx" : remotionBin;
+const extraArgs = [
+  ...(pixelFormat ? [`--pixel-format=${pixelFormat}`] : []),
+  ...(imageFormat ? [`--image-format=${imageFormat}`] : []),
+  ...(proresProfile ? [`--prores-profile=${proresProfile}`] : []),
+  ...(concurrency ? [`--concurrency=${concurrency}`] : []),
+];
 const args = fallbackNpx
   ? [
       "--yes",
@@ -89,6 +104,7 @@ const args = fallbackNpx
       `--height=${height}`,
       `--fps=${fps}`,
       `--codec=${codec}`,
+      ...extraArgs,
     ].filter((a) => a !== "--props=")
   : [
       "render",
@@ -100,6 +116,7 @@ const args = fallbackNpx
       `--height=${height}`,
       `--fps=${fps}`,
       `--codec=${codec}`,
+      ...extraArgs,
     ];
 
 const result = spawnSync(cmd, args, {
@@ -107,6 +124,7 @@ const result = spawnSync(cmd, args, {
   encoding: "utf8",
   env: process.env,
   maxBuffer: 32 * 1024 * 1024,
+  shell: process.platform === "win32",
 });
 
 if (result.status !== 0) {
@@ -129,5 +147,6 @@ process.stdout.write(
     height: Number(height),
     fps: Number(fps),
     codec,
+    ...(proresProfile ? { prores_profile: proresProfile } : {}),
   }) + "\n"
 );

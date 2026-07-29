@@ -469,6 +469,19 @@ async def _maybe_verify_render(
     mode = result.get("mode", "proxy")
     max_renders = cfg["max_renders"]
 
+    # Non-blocking trigger_render returns job_id only — defer verification
+    # until the agent polls get_render_job / wait=true path produces output.
+    if result.get("job_id") and not output_path:
+        events.append(_build_verification_result(
+            render_id=str(result.get("job_id")),
+            render_path="",
+            outcome="skipped",
+            verdict_source="queued_async",
+            render_count=render_count,
+            max_renders=max_renders,
+        ))
+        return events, result, None
+
     if result.get("no_change"):
         events.append(_build_verification_result(
             render_id=render_id,
