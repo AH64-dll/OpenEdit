@@ -312,21 +312,25 @@ def test_bridge_import_asset_requires_result_id_or_source_url(tmp_path):
 
 
 def test_bridge_import_asset_download_failure_returns_error(tmp_path, monkeypatch):
-    """A 404 during the download is surfaced as a structured error."""
-    if not shutil.which("open_edit"):
-        pytest.skip("open_edit CLI not on PATH; cannot bootstrap project")
-    project_path = tmp_path / "myproj"
-    _bootstrap_project(project_path)
+    """A 404 during the download is surfaced as a structured error.
 
+    The bridge subprocess cannot inherit in-process mocks, and the SSRF
+    host allowlist rejects unknown hosts (e.g. example.com) up front, so
+    this test drives the exact dispatch the bridge uses
+    (``kernel.tool_executor.execute_tool``) with the HTTP layer mocked.
+    The subprocess plumbing itself is pinned by the other bridge tests.
+    """
     from open_edit.agent.tools import pyagent_import_asset
+    from open_edit.kernel.tool_executor import execute_tool
+
     monkeypatch.setattr(
         pyagent_import_asset, "_http_download",
         mock.MagicMock(side_effect=RuntimeError("upstream 404: not found")),
     )
-    res = _run_bridge(
-        "--tool", "import_asset",
-        "--project", str(project_path),
-        "--args", json.dumps({"source_url": "https://example.com/missing.mp4"}),
+    res = execute_tool(
+        "import_asset",
+        {"source_url": "https://cdn.freesound.org/missing.mp4"},
+        Path(tmp_path),
     )
     assert res["status"] == "error"
     assert "404" in res["error"] or "not found" in res["error"].lower()

@@ -123,6 +123,73 @@ FREESOUND_RESPONSE = {
     ],
 }
 
+OPENVERSE_PHOTO_RESPONSE = {
+    "results": [
+        {
+            "id": "ov-cc0",
+            "title": "public domain rain",
+            "creator": "Open Artist",
+            "url": "https://images.example.org/rain-cc0.jpg",
+            "thumbnail": "https://images.example.org/rain-thumb.jpg",
+            "license": "cc0",
+            "license_version": "1.0",
+        },
+        {
+            "id": "ov-by",
+            "title": "attributed rain",
+            "creator": "Another Artist",
+            "url": "https://images.example.org/rain-by.jpg",
+            "license": "by",
+            "license_version": "4.0",
+        },
+    ],
+}
+
+OPENVERSE_FILTER_RESPONSE = {
+    "results": [
+        {
+            "id": "ov-by-first",
+            "title": "attributed rain",
+            "creator": "BY Artist",
+            "url": "https://images.example.org/rain-by.jpg",
+            "license": "by",
+            "license_version": "4.0",
+        },
+        {
+            "id": "ov-by-sa",
+            "title": "share-alike rain",
+            "creator": "SA Artist",
+            "url": "https://images.example.org/rain-by-sa.jpg",
+            "license": "by-sa",
+            "license_version": "4.0",
+        },
+        {
+            "id": "ov-cc0-late",
+            "title": "public domain rain",
+            "creator": "CC0 Artist",
+            "url": "https://images.example.org/rain-cc0.jpg",
+            "license": "cc0",
+            "license_version": "1.0",
+        },
+        {
+            "id": "ov-cc0-late-2",
+            "title": "another public domain rain",
+            "creator": "Second CC0 Artist",
+            "url": "https://images.example.org/rain-cc0-2.jpg",
+            "license": "cc0",
+            "license_version": "1.0",
+        },
+        {
+            "id": "ov-by-second",
+            "title": "another attributed rain",
+            "creator": "Another BY Artist",
+            "url": "https://images.example.org/rain-by-2.jpg",
+            "license": "by",
+            "license_version": "4.0",
+        },
+    ],
+}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -157,28 +224,24 @@ def no_keys(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_search_assets_returns_error_when_pexels_key_missing(no_keys, tmp_path):
-    """Without the Pexels key, the tool must NOT crash — it must
-    return a structured error and an empty results list (so the
-    LLM can see the cause and the UI can render the message)."""
-    res = search_assets(
-        {"query": "rain", "kind": "video", "limit": 3},
-        str(tmp_path),
-    )
+    """Video without the Pexels key returns a structured error naming the
+    missing env var (no Openverse fallback, no network call)."""
+    with mock.patch.object(mod, "_http_get_json") as m:
+        res = search_assets({"query": "rain", "kind": "video", "limit": 3},
+                            str(tmp_path))
+    assert m.call_count == 0, "missing key must short-circuit before HTTP"
     assert res["status"] == "error", res
     assert "OPEN_EDIT_PEXELS_API_KEY" in res["error"]
-    assert "results" in res
     assert res["results"] == []
-    assert "fix" in res["error"].lower() or "see" in res["error"].lower()
 
 
 def test_search_assets_returns_error_when_freesound_key_missing(no_keys, tmp_path):
-    """Same for audio: missing Freesound key → structured error, no crash."""
-    res = search_assets(
-        {"query": "whoosh", "kind": "audio", "limit": 3},
-        str(tmp_path),
-    )
-    assert res["status"] == "error"
-    assert "OPEN_EDIT_FREESOUND_API_KEY" in res["error"]
+    """Without Freesound, audio uses the keyless Openverse fallback."""
+    with mock.patch.object(mod, "_http_get_json", return_value={"results": []}):
+        res = search_assets({"query": "whoosh", "kind": "audio", "limit": 3},
+                            str(tmp_path))
+    assert res["status"] == "ok"
+    assert res["source"] == "openverse"
     assert res["results"] == []
 
 
@@ -484,6 +547,89 @@ def test_search_assets_surfaces_non_200_status(pexels_key, tmp_path):
         )
     assert "error" in res
     assert "429" in res["error"] or "rate" in res["error"].lower()
+
+
+def test_search_assets_openverse_photo_without_key(no_keys, tmp_path):
+    """Openverse is a keyless fallback and keeps the import-cache shape."""
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=OPENVERSE_PHOTO_RESPONSE,
+    ) as http:
+        res = search_assets({"query": "rain", "kind": "photo"}, str(tmp_path))
+    assert res["status"] == "ok"
+    assert res["source"] == "openverse"
+    assert res["results"][0]["id"] == "openverse-photo-ov-cc0"
+    assert res["results"][0]["preview_url"].startswith("https://")
+    assert res["results"][0]["attribution_required"] is False
+    assert http.call_args.args[0].endswith("/images/")
+    assert http.call_args.kwargs["params"]["q"] == "rain"
+
+
+def test_search_assets_openverse_license_filter_and_ranking(no_keys, tmp_path):
+    """A requested commercial-friendly license filters and ranks results."""
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=OPENVERSE_PHOTO_RESPONSE,
+    ):
+        res = search_assets(
+            {"query": "rain", "kind": "photo", "license": "cc0"},
+            str(tmp_path),
+        )
+    assert res["status"] == "ok"
+    assert len(res["results"]) == 1
+    assert res["results"][0]["license"] == "CC0 1.0"
+
+
+def test_search_assets_openverse_overfetches_to_fill_license_limit(
+    no_keys, tmp_path,
+):
+    """License filtering fetches more candidates than the requested limit."""
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=OPENVERSE_FILTER_RESPONSE,
+    ) as http:
+        res = search_assets(
+            {"query": "rain", "kind": "photo", "license": "cc0", "limit": 2},
+            str(tmp_path),
+        )
+
+    assert res["status"] == "ok"
+    assert [item["id"] for item in res["results"]] == [
+        "openverse-photo-ov-cc0-late",
+        "openverse-photo-ov-cc0-late-2",
+    ]
+    assert http.call_args.kwargs["params"]["page_size"] == 6
+
+
+def test_search_assets_openverse_ranks_cc0_and_plain_by(tmp_path):
+    """Openverse results prefer CC0, then versioned plain CC-BY."""
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=OPENVERSE_FILTER_RESPONSE,
+    ):
+        res = mod._search_openverse("rain", "photo", 3)
+
+    assert [item["id"] for item in res["results"]] == [
+        "openverse-photo-ov-cc0-late",
+        "openverse-photo-ov-cc0-late-2",
+        "openverse-photo-ov-by-first",
+    ]
+    assert res["results"][0]["attribution_required"] is False
+
+
+def test_search_assets_openverse_audio_normalises(no_keys, tmp_path):
+    response = {
+        "results": [{
+            "id": "sound-1",
+            "title": "rain sound",
+            "creator": "maker",
+            "url": "https://cdn.example.org/rain.mp3",
+            "license": "by",
+            "license_version": "4.0",
+            "duration": 2.5,
+        }],
+    }
+    with mock.patch.object(mod, "_http_get_json", return_value=response):
+        res = search_assets({"query": "rain", "kind": "audio"}, str(tmp_path))
+    assert res["status"] == "ok"
+    assert res["results"][0]["kind"] == "audio"
+    assert res["results"][0]["duration_seconds"] == 2.5
 
 
 # ---------------------------------------------------------------------------

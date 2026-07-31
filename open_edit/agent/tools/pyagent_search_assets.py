@@ -1,8 +1,14 @@
 """pyagent_search_assets: agent-initiated internet search for stock media.
 
-Dispatches to:
-- Pexels for ``kind in ("video", "photo")``
-- Freesound for ``kind == "audio"``
+Dispatches to Pexels (video/photo) and Freesound (audio) when the
+corresponding API key is configured. A missing Pexels key for
+``kind=video`` is a hard error with a structured
+``{"status": "error", "error": "...OPEN_EDIT_PEXELS_API_KEY..."}`` payload
+(no network call), so the LLM/UI sees exactly which env var to set instead
+of a confusing upstream 403 from Openverse's video endpoint. Photo/audio
+fall back to the keyless Openverse API, and an explicit ``license`` filter
+always routes to Openverse — Pexels and Freesound cannot filter by license,
+so Openverse is the deliberate source for that case.
 
 Normalises the result into a stable shape so the LLM, the TS extension
 and the frontend all see the same fields regardless of the source:
@@ -35,6 +41,7 @@ Environment
 -----------
 ``OPEN_EDIT_PEXELS_API_KEY``     — Pexels API key (header auth).
 ``OPEN_EDIT_FREESOUND_API_KEY``  — Freesound API token (query-param auth).
+``OPEN_EDIT_OPENVERSE_API_KEY``  — optional Openverse bearer token.
 """
 from __future__ import annotations
 
@@ -62,6 +69,7 @@ _CACHE_TTL_S: float = 300.0
 # context.
 _MAX_LIMIT: int = 40
 _DEFAULT_LIMIT: int = 8
+_OPENVERSE_MAX_FETCH: int = 100
 
 # Network timeout for upstream calls. Short enough that a hung API
 # doesn't block the chat turn for too long.
@@ -70,6 +78,7 @@ _HTTP_TIMEOUT_S: float = 20.0
 _PEXELS_VIDEO_URL = "https://api.pexels.com/videos/search"
 _PEXELS_PHOTO_URL = "https://api.pexels.com/v1/search"
 _FREESOUND_SEARCH_URL = "https://freesound.org/apiv2/search/text/"
+_OPENVERSE_URL = "https://api.openverse.org/v1"
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +91,10 @@ def _pexels_api_key() -> str:
 
 def _freesound_api_key() -> str:
     return os.environ.get("OPEN_EDIT_FREESOUND_API_KEY", "").strip()
+
+
+def _openverse_api_key() -> str:
+    return os.environ.get("OPEN_EDIT_OPENVERSE_API_KEY", "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -132,9 +145,9 @@ def _http_get_json(url: str, *, headers: dict[str, str] | None = None,
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
-def _cache_key(kind: str, query: str, limit: int) -> str:
+def _cache_key(kind: str, query: str, limit: int, license: str = "any") -> str:
     # Lowercase the query so "Rain" and "rain" share the cache slot.
-    return f"{kind}:{query.strip().lower()}:{limit}"
+    return f"{kind}:{query.strip().lower()}:{limit}:{license.strip().lower()}"
 
 
 def _cache_get(key: str) -> dict[str, Any] | None:
@@ -329,6 +342,103 @@ def _search_freesound(query: str, limit: int) -> dict[str, Any]:
     return {"source": "freesound", "results": results}
 
 
+def _openverse_license_name(item: dict[str, Any]) -> str:
+    name = str(item.get("license") or "").strip()
+    version = str(item.get("license_version") or "").strip()
+    return f"{name.upper()} {version}".strip() or "Unknown"
+
+
+def _license_token(license_name: str) -> str:
+    """Return a punctuation-insensitive license token."""
+    return "".join(char for char in license_name.lower() if char.isalnum())
+
+
+def _is_cc0_license(license_name: str) -> bool:
+    tok = _license_token(license_name)
+    return tok.startswith("cc0") or "publicdomain" in tok
+
+
+def _is_plain_by_license(license_name: str) -> bool:
+    """Whether ``license_name`` is the plain CC-BY family."""
+    tok = _license_token(license_name)
+    if tok.startswith("cc"):
+        tok = tok[2:]
+    return tok.startswith("by") and not any(
+        marker in tok for marker in ("sa", "nc", "nd")
+    )
+
+
+def _license_matches(license_name: str, requested: str) -> bool:
+    if not requested or requested.lower() == "any":
+        return True
+    wanted = _license_token(requested)
+    actual = _license_token(license_name)
+    if wanted in {"cc0", "publicdomain"}:
+        return _is_cc0_license(license_name)
+    if wanted in {"by", "ccby"}:
+        # Exact CC-BY family, not BY-SA / BY-NC.
+        return _is_plain_by_license(license_name)
+    if wanted in {"bysa", "ccbysa"}:
+        return "bysa" in actual and "nc" not in actual
+    # Exact token equality (avoid substring false positives).
+    return actual == wanted or actual.startswith(wanted)
+
+
+def _license_rank_key(license_name: str) -> tuple[int, int]:
+    """Lower is better: prefer CC0, then plain BY, then everything else."""
+    if _is_cc0_license(license_name):
+        return (0, 0)
+    if _is_plain_by_license(license_name):
+        return (1, 0)
+    return (2, 0)
+
+
+def _search_openverse(
+    query: str, kind: str, limit: int, requested_license: str = "any",
+) -> dict[str, Any]:
+    """Search Openverse and normalize its media records."""
+    endpoint_kind = "images" if kind == "photo" else kind
+    headers = {}
+    if _openverse_api_key():
+        headers["Authorization"] = f"Bearer {_openverse_api_key()}"
+    # Over-fetch when filtering by license so local filter can still fill limit.
+    requested_license = requested_license.strip() or "any"
+    fetch_size = (
+        min(_OPENVERSE_MAX_FETCH, max(limit * 3, limit))
+        if requested_license.lower() != "any"
+        else limit
+    )
+    data = _http_get_json(
+        f"{_OPENVERSE_URL}/{endpoint_kind}/",
+        headers=headers,
+        params={"q": query, "page_size": fetch_size},
+    )
+    results: list[dict[str, Any]] = []
+    for item in data.get("results", []) or []:
+        preview = item.get("url") or item.get("audio_url") or ""
+        if not preview:
+            continue
+        license_name = _openverse_license_name(item)
+        if not _license_matches(license_name, requested_license):
+            continue
+        title = item.get("title") or f"Openverse {kind} {item.get('id', '')}"
+        creator = str(item.get("creator") or "").strip()
+        results.append({
+            "id": f"openverse-{kind}-{item.get('id', '')}",
+            "source": "openverse",
+            "kind": kind,
+            "title": title,
+            "thumbnail_url": item.get("thumbnail") or preview,
+            "preview_url": preview,
+            "duration_seconds": item.get("duration") if kind == "audio" else None,
+            "license": license_name,
+            "attribution_required": not _is_cc0_license(license_name),
+            "attribution": f"{title} by {creator} ({license_name})" if creator else "",
+        })
+    results.sort(key=lambda r: _license_rank_key(r["license"]))
+    return {"source": "openverse", "results": results[:limit]}
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -372,43 +482,46 @@ def search_assets(args: dict, project_path: str) -> dict:
     if limit <= 0:
         limit = _DEFAULT_LIMIT
     limit = min(limit, _MAX_LIMIT)
-
-    # Env-var gating — graceful degradation, never crash the chat turn.
-    if kind in ("video", "photo"):
-        if not _pexels_api_key():
-            return {
-                "status": "error",
-                "error": (
-                    "OPEN_EDIT_PEXELS_API_KEY not set; "
-                    "set it (and OPEN_EDIT_FREESOUND_API_KEY for audio) "
-                    "in your environment, then restart the server. "
-                    "See .env.example for the full list."
-                ),
-                "results": [],
-            }
-    elif kind == "audio":
-        if not _freesound_api_key():
-            return {
-                "status": "error",
-                "error": (
-                    "OPEN_EDIT_FREESOUND_API_KEY not set; "
-                    "set it (and OPEN_EDIT_PEXELS_API_KEY for video/photo) "
-                    "in your environment, then restart the server. "
-                    "See .env.example for the full list."
-                ),
-                "results": [],
-            }
+    requested_license = str(args.get("license") or "any").strip() or "any"
 
     # Cache lookup. Key includes kind + query + limit so different
     # requests for the same query don't conflate.
-    cache_key = _cache_key(kind, query, limit)
+    cache_key = _cache_key(kind, query, limit, requested_license)
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
     # Dispatch to the right backend.
+    # kind=video without the Pexels key is a hard error so the LLM/UI
+    # gets a clear "set this env var" message instead of a confusing
+    # upstream 403 from Openverse's video endpoint (which rejects
+    # unauthenticated requests in practice). No network call is made.
+    # Photo/audio keep the keyless Openverse fallback, and an explicit
+    # ``license`` filter always routes to Openverse (Pexels and Freesound
+    # cannot filter by license, so it needs no key).
+    if (
+        kind == "video"
+        and requested_license.lower() == "any"
+        and not _pexels_api_key()
+    ):
+        return {
+            "status": "error",
+            "error": (
+                "search_assets(video): OPEN_EDIT_PEXELS_API_KEY is not set; "
+                "set it to search Pexels video, or pass a license=... "
+                "filter to use Openverse"
+            ),
+            "results": [],
+        }
     try:
-        if kind == "video":
+        use_openverse = (
+            requested_license.lower() != "any"
+            or (kind in ("video", "photo") and not _pexels_api_key())
+            or (kind == "audio" and not _freesound_api_key())
+        )
+        if use_openverse:
+            payload = _search_openverse(query, kind, limit, requested_license)
+        elif kind == "video":
             payload = _search_pexels_video(query, limit)
         elif kind == "photo":
             payload = _search_pexels_photo(query, limit)
