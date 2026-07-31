@@ -25,9 +25,9 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from open_edit.serve.result_capper import cap_tool_result
 from open_edit.kernel.render_overlay import run_trigger_render
-from open_edit.kernel.schema_validator import validate_or_error
+from open_edit.kernel.tool_executor import execute_tool
+from open_edit.serve.result_capper import cap_tool_result
 
 
 def _emit(obj: dict[str, Any]) -> None:
@@ -61,19 +61,25 @@ def _resolve_project_path(project: str) -> Path:
 def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Run one of the real tools in ``open_edit.agent.tools``.
 
+    Thin wrapper over :func:`open_edit.kernel.tool_executor.execute_tool`
+    (which owns schema validation, pillar-tool routing, and the
+    agent-tools lookup). Only the serve-specific concerns live here:
+
+    * inject ``project_id`` into ``args`` when it can be derived from
+      the project path (so the TS extension doesn't need to know about
+      it);
+    * cap the result for the subprocess pipe / conversation-history
+      size limits.
+
     The real tool functions take ``(args: dict, project_path: str)`` and
     expect ``args`` to contain the project-specific fields the function
-    needs (``project_id``, ``asset_hash``, etc.). Some of these can be
-    derived from the project path (e.g. ``project_id`` is the UUID stored
-    in ``edit_graph.db``). We inject those derivable fields here so the
-    TS extension doesn't need to know about them.
+    needs (``project_id``, ``asset_hash``, etc.).
 
     v1.4 P1-1: ``search_assets`` is project-agnostic — the
     ``project_id`` injection is harmless (the tool ignores it) but we
     skip the edit_graph.db lookup for that tool to avoid forcing a
     project to exist for a global search.
     """
-    import open_edit.agent.tools as tools_mod
     from open_edit.storage.edit_graph import EditGraphStore
 
     # ``search_assets`` doesn't write to the project, so we skip the
@@ -88,7 +94,7 @@ def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) ->
     # validation. ``query_project`` / ``edit_project`` dispatches
     # ignore ``project_id`` entirely; ``run_script`` derives it from
     # ``project_path`` inside ``run_python``; ``trigger_render`` is
-    # handled by a separate code path below.
+    # handled by a separate code path in ``main``.
     if tool_name not in ("search_assets", "query_project", "edit_project", "run_script"):
         db_path = project_path / ".open_edit" / "edit_graph.db"
         if db_path.exists() and "project_id" not in args:
@@ -99,32 +105,10 @@ def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) ->
                     f"failed to inject project_id from {db_path}: {exc}"
                 ) from exc
 
-    # Validate AFTER project_id injection so injected fields don't fail
-    # schema required-field checks (e.g. add_marker requires project_id
-    # but the bridge auto-injects it).
-    err = validate_or_error(tool_name, args)
-    if err is not None:
-        return err
-
-    # Pillar tool routing (Plan D).
-    if tool_name == "query_project":
-        from open_edit.kernel.pillar_tools import dispatch_query
-
-        return dispatch_query(args.get("query", ""), args.get("params", {}), project_path)
-
-    if tool_name == "edit_project":
-        from open_edit.kernel.pillar_tools import dispatch_edit, dispatch_generate
-
-        generate = args.get("generate")
-        if generate:
-            return dispatch_generate(generate, args.get("generate_params", {}), project_path)
-        return dispatch_edit(args.get("operation", ""), args.get("params", {}), project_path)
-
-    fn = getattr(tools_mod, tool_name, None)
-    if fn is None or not callable(fn):
-        raise RuntimeError(f"tool not found in open_edit.agent.tools: {tool_name!r}")
-    result = fn(args, str(project_path))
-    return cap_tool_result(result)
+    # execute_tool owns validation (which runs after the injection above
+    # so injected fields don't fail schema required-field checks),
+    # pillar-tool routing, and the agent-tools lookup.
+    return cap_tool_result(execute_tool(tool_name, args, project_path))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -176,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             result = run_trigger_render(tool_args, project_path)
         else:
             result = _run_agent_tool(args.tool, tool_args, project_path)
-    except Exception as exc:  # noqa: BLE001 — surface anything to the TS layer
+    except Exception as exc:
         _emit_error(
             f"tool {args.tool!r} failed: {exc}",
             traceback=traceback.format_exc(limit=5),
