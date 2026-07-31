@@ -350,7 +350,7 @@ class RenderService:
     async def _launch(self, project_path: Path, job_id: str, mode: str) -> dict:
         """Run the canonical Python CLI (or overlay bridge) and consume JSON."""
         if mode == "overlay":
-            from open_edit.serve.pi_bridge import _run_trigger_render as _bridge_trigger_render
+            from open_edit.kernel.render_overlay import run_trigger_render as _bridge_trigger_render
 
             result = await asyncio.to_thread(_bridge_trigger_render, {"mode": "overlay"}, project_path)
             if not isinstance(result, dict):

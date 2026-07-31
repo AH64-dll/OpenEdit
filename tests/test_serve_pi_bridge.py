@@ -351,15 +351,15 @@ def test_bridge_can_dispatch_run_script():
 
 def test_run_trigger_render_returns_structured_dict(tmp_path):
     """Happy path returns {output_path, mode, duration_s, render_id}."""
-    from open_edit.serve import pi_bridge
+    from open_edit.kernel import render_overlay
     renders = tmp_path / ".open_edit" / "renders"
     renders.mkdir(parents=True, exist_ok=True)
     fake = renders / "project_aaa.mp4"
     fake.write_bytes(b"\x00\x00\x00\x18ftypmp42")
     proc = mock.Mock(returncode=0, stdout=f"{fake}\n", stderr="")
     with mock.patch("subprocess.run", return_value=proc), \
-         mock.patch("open_edit.serve.pi_bridge._probe_duration", return_value=10.5):
-        out = pi_bridge._run_trigger_render({}, tmp_path)
+         mock.patch("open_edit.kernel.render_overlay._probe_duration", return_value=10.5):
+        out = render_overlay.run_trigger_render({}, tmp_path)
     assert out["output_path"] == str(fake)
     assert out["mode"] == "proxy"
     assert out["duration_s"] == 10.5
@@ -368,10 +368,10 @@ def test_run_trigger_render_returns_structured_dict(tmp_path):
 
 def test_run_trigger_render_returns_render_failed_on_nonzero_exit(tmp_path):
     """Subprocess returns exit 1 → ``error: render_failed: ...``."""
-    from open_edit.serve import pi_bridge
+    from open_edit.kernel import render_overlay
     proc = mock.Mock(returncode=1, stdout="", stderr="ffmpeg crashed")
     with mock.patch("subprocess.run", return_value=proc):
-        out = pi_bridge._run_trigger_render({}, tmp_path)
+        out = render_overlay.run_trigger_render({}, tmp_path)
     assert "error" in out
     assert "render_failed" in out["error"]
     assert "render_id" in out
@@ -379,28 +379,28 @@ def test_run_trigger_render_returns_render_failed_on_nonzero_exit(tmp_path):
 
 def test_run_trigger_render_returns_render_invalid_on_empty_mp4(tmp_path):
     """Output file is 0 bytes → ``error: render_invalid``."""
-    from open_edit.serve import pi_bridge
+    from open_edit.kernel import render_overlay
     renders = tmp_path / ".open_edit" / "renders"
     renders.mkdir(parents=True, exist_ok=True)
     (renders / "empty.mp4").write_bytes(b"")
     proc = mock.Mock(returncode=0, stdout="empty.mp4\n", stderr="")
     with mock.patch("subprocess.run", return_value=proc):
-        out = pi_bridge._run_trigger_render({}, tmp_path)
+        out = render_overlay.run_trigger_render({}, tmp_path)
     assert "error" in out
     assert "render_invalid" in out["error"] or "empty_render" in out["error"]
 
 
 def test_run_trigger_render_returns_no_video_stream(tmp_path):
     """ffprobe finds no video stream → ``error: no_video_stream``."""
-    from open_edit.serve import pi_bridge
+    from open_edit.kernel import render_overlay
     renders = tmp_path / ".open_edit" / "renders"
     renders.mkdir(parents=True, exist_ok=True)
     (renders / "x.mp4").write_bytes(b"\x00" * 100)
     proc = mock.Mock(returncode=0, stdout="x.mp4\n", stderr="")
     with mock.patch("subprocess.run", return_value=proc), \
-         mock.patch("open_edit.serve.pi_bridge._probe_duration",
+         mock.patch("open_edit.kernel.render_overlay._probe_duration",
                     side_effect=RuntimeError("no video stream")):
-        out = pi_bridge._run_trigger_render({}, tmp_path)
+        out = render_overlay.run_trigger_render({}, tmp_path)
     assert "error" in out
     assert "no_video_stream" in out["error"]
 
@@ -413,7 +413,8 @@ def test_trigger_render_overlay_mode_with_overlays_calls_html_overlay(tmp_path, 
     bg_renderer lambda."""
     # Set up a project with one overlay.
     from open_edit.ir.types import HtmlOverlay, Timeline
-    from open_edit.serve import html_overlay, pi_bridge
+    from open_edit.kernel import render_overlay
+    from open_edit.render import html_overlay
     project = tmp_path / "myproject"
     project.mkdir()
     # Mock the timeline-loading to return a Timeline with one overlay.
@@ -427,10 +428,10 @@ def test_trigger_render_overlay_mode_with_overlays_calls_html_overlay(tmp_path, 
         "mode": "final", "hyperframes_bin": "npx hyperframes",
         "hyperframes_timeout_s": 120, "tmpdir": project / ".open_edit" / "tmp",
     }
-    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
-    monkeypatch.setattr(pi_bridge, "_build_render_spec",
+    monkeypatch.setattr(render_overlay, "_load_timeline", lambda p: fake_timeline)
+    monkeypatch.setattr(render_overlay, "_build_render_spec",
                         lambda p, mode, hyperframes_timeout: fake_render_spec)
-    monkeypatch.setattr(pi_bridge, "_should_use_composited",
+    monkeypatch.setattr(render_overlay, "_should_use_composited",
                         lambda args, project_path, render_spec: True)
 
     captured = {}
@@ -443,7 +444,7 @@ def test_trigger_render_overlay_mode_with_overlays_calls_html_overlay(tmp_path, 
         return project / "final.mp4"
 
     monkeypatch.setattr(html_overlay, "render_composited", fake_render_composited)
-    out = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+    out = render_overlay.run_trigger_render({"mode": "overlay"}, project)
     assert captured.get("called") is True
     assert captured["project_workdir"] == project
     assert callable(captured["bg_renderer"])
@@ -453,20 +454,21 @@ def test_trigger_render_overlay_mode_without_overlays_uses_bare_mlt(tmp_path, mo
     """Test 43: trigger_render with mode='overlay' BUT no overlays →
     fall back to bare MLT (no composited path)."""
     from open_edit.ir.types import Timeline
-    from open_edit.serve import html_overlay, pi_bridge
+    from open_edit.kernel import render_overlay
+    from open_edit.render import html_overlay
     project = tmp_path / "myproject"
     project.mkdir()
     fake_timeline = Timeline(overlays=[])  # empty
-    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
+    monkeypatch.setattr(render_overlay, "_load_timeline", lambda p: fake_timeline)
     # _should_use_composited should now return False (no overlays).
     called = {"composited": False}
     async def fake_render_composited(*args, **kwargs):
         called["composited"] = True
     monkeypatch.setattr(html_overlay, "render_composited", fake_render_composited)
     # Mock _run_mlt_only_render to avoid actually running open_edit render.
-    monkeypatch.setattr(pi_bridge, "_run_mlt_only_render",
+    monkeypatch.setattr(render_overlay, "_run_mlt_only_render",
                         lambda args, p: {"output_path": "/tmp/fake.mp4", "mode": "proxy"})
-    out = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+    out = render_overlay.run_trigger_render({"mode": "overlay"}, project)
     assert called["composited"] is False
     assert out["output_path"] == "/tmp/fake.mp4"
 
@@ -478,15 +480,16 @@ def test_trigger_render_overlay_render_error_falls_back_to_bare_mlt(tmp_path, mo
     import logging
 
     from open_edit.ir.types import HtmlOverlay, Timeline
-    from open_edit.serve import html_overlay, pi_bridge
+    from open_edit.kernel import render_overlay
+    from open_edit.render import html_overlay
     project = tmp_path / "myproject"
     project.mkdir()
     fake_timeline = Timeline(overlays=[
         HtmlOverlay(id="x", template_path="lower_third.html",
                     variables={}, position_sec=0.0, duration_sec=2.0),
     ])
-    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
-    monkeypatch.setattr(pi_bridge, "_should_use_composited",
+    monkeypatch.setattr(render_overlay, "_load_timeline", lambda p: fake_timeline)
+    monkeypatch.setattr(render_overlay, "_should_use_composited",
                         lambda args, project_path, render_spec: True)
     bg_path = project / "bg.mp4"
     bg_path.write_bytes(b"x" * 100)
@@ -500,10 +503,10 @@ def test_trigger_render_overlay_render_error_falls_back_to_bare_mlt(tmp_path, mo
     def fake_mlt(args, p):
         mlt_called["count"] += 1
         return {"output_path": "/tmp/should-not-render.mp4"}
-    monkeypatch.setattr(pi_bridge, "_run_mlt_only_render", fake_mlt)
+    monkeypatch.setattr(render_overlay, "_run_mlt_only_render", fake_mlt)
 
-    with caplog.at_level(logging.WARNING, logger="open_edit.serve.pi_bridge"):
-        out = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+    with caplog.at_level(logging.WARNING, logger="open_edit.kernel.render_overlay"):
+        out = render_overlay.run_trigger_render({"mode": "overlay"}, project)
     # The bg_path is reused — mlt should NOT be called.
     assert mlt_called["count"] == 0
     assert out["output_path"] == str(bg_path)
@@ -513,7 +516,7 @@ def test_trigger_render_overlay_render_error_falls_back_to_bare_mlt(tmp_path, mo
 # v1.6 in-process agent overlay dispatch bugfixes
 #
 # Five bugs in the v1.6 overlay path that surface only when the agent
-# loop (a running asyncio loop) calls _run_trigger_render in-process:
+# loop (a running asyncio loop) calls run_trigger_render in-process:
 #
 #   V1   asyncio.run() cannot be called from a running event loop
 #   V4   result shape mismatch (in-process vs pi subprocess)
@@ -527,14 +530,15 @@ def test_trigger_render_overlay_render_error_falls_back_to_bare_mlt(tmp_path, mo
 async def test_run_trigger_render_overlay_inside_running_loop(
     tmp_path, monkeypatch,
 ):
-    """V1: ``_run_trigger_render`` with mode='overlay' must not raise
+    """V1: ``run_trigger_render`` with mode='overlay' must not raise
     ``RuntimeError: asyncio.run() cannot be called from a running event
     loop`` when invoked from within a running event loop (the in-process
     agent path). The bridge must detect the running loop and execute the
     coroutine on a worker thread instead.
     """
     from open_edit.ir.types import HtmlOverlay, Timeline
-    from open_edit.serve import html_overlay, pi_bridge
+    from open_edit.kernel import render_overlay
+    from open_edit.render import html_overlay
 
     project = tmp_path / "myproject"
     project.mkdir()
@@ -547,12 +551,12 @@ async def test_run_trigger_render_overlay_inside_running_loop(
         "mode": "final", "hyperframes_bin": "npx hyperframes",
         "hyperframes_timeout_s": 120, "tmpdir": project / ".open_edit" / "tmp",
     }
-    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
-    monkeypatch.setattr(pi_bridge, "_build_render_spec",
+    monkeypatch.setattr(render_overlay, "_load_timeline", lambda p: fake_timeline)
+    monkeypatch.setattr(render_overlay, "_build_render_spec",
                         lambda p, mode, hyperframes_timeout: fake_render_spec)
-    monkeypatch.setattr(pi_bridge, "_should_use_composited",
+    monkeypatch.setattr(render_overlay, "_should_use_composited",
                         lambda args, project_path, render_spec: True)
-    monkeypatch.setattr(pi_bridge, "_run_mlt_only_render",
+    monkeypatch.setattr(render_overlay, "_run_mlt_only_render",
                         lambda args, p: {"output_path": "/tmp/fake_bg.mp4", "mode": "proxy"})
 
     final_path = project / "final.mp4"
@@ -570,11 +574,11 @@ async def test_run_trigger_render_overlay_inside_running_loop(
     # loop. The bug raises RuntimeError; the fix dispatches to a thread.
     # We wrap in try/except so the failure mode is explicit.
     try:
-        result = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+        result = render_overlay.run_trigger_render({"mode": "overlay"}, project)
     except RuntimeError as exc:
         if "asyncio.run" in str(exc) and "running event loop" in str(exc):
             pytest.fail(
-                f"V1 bug: _run_trigger_render raised {exc!r} when called "
+                f"V1 bug: run_trigger_render raised {exc!r} when called "
                 f"from inside a running event loop"
             )
         raise
@@ -589,7 +593,7 @@ def test_run_trigger_render_validates_mode_in_render_spec(tmp_path, monkeypatch)
     'proxy' before being baked into the render spec (defense-in-depth
     so the render spec is never built with an unrecognized mode).
     """
-    from open_edit.serve import pi_bridge
+    from open_edit.kernel import render_overlay
 
     project = tmp_path / "myproject"
     project.mkdir()
@@ -605,15 +609,15 @@ def test_run_trigger_render_validates_mode_in_render_spec(tmp_path, monkeypatch)
             "tmpdir": project / ".open_edit" / "tmp",
         }
 
-    monkeypatch.setattr(pi_bridge, "_build_render_spec", fake_build_render_spec)
+    monkeypatch.setattr(render_overlay, "_build_render_spec", fake_build_render_spec)
     # Skip the composited path; the bug is about what mode is passed
     # to _build_render_spec, not about whether the composited path runs.
-    monkeypatch.setattr(pi_bridge, "_should_use_composited",
+    monkeypatch.setattr(render_overlay, "_should_use_composited",
                         lambda args, project_path, render_spec: False)
-    monkeypatch.setattr(pi_bridge, "_run_mlt_only_render",
+    monkeypatch.setattr(render_overlay, "_run_mlt_only_render",
                         lambda args, p: {"output_path": "/tmp/fake.mp4", "mode": "proxy"})
 
-    pi_bridge._run_trigger_render({"mode": "garbage"}, project)
+    render_overlay.run_trigger_render({"mode": "garbage"}, project)
 
     # The mode passed to _build_render_spec must be validated.
     assert captured.get("mode") in ("proxy", "final", "overlay"), (
@@ -630,15 +634,16 @@ def test_run_trigger_render_overlay_error_no_bg_path_returns_failure(
     and confusing fallback that masks the real error.
     """
     from open_edit.ir.types import HtmlOverlay, Timeline
-    from open_edit.serve import html_overlay, pi_bridge
+    from open_edit.kernel import render_overlay
+    from open_edit.render import html_overlay
     project = tmp_path / "myproject"
     project.mkdir()
     fake_timeline = Timeline(overlays=[
         HtmlOverlay(id="x", template_path="lower_third.html",
                     variables={}, position_sec=0.0, duration_sec=2.0),
     ])
-    monkeypatch.setattr(pi_bridge, "_load_timeline", lambda p: fake_timeline)
-    monkeypatch.setattr(pi_bridge, "_should_use_composited",
+    monkeypatch.setattr(render_overlay, "_load_timeline", lambda p: fake_timeline)
+    monkeypatch.setattr(render_overlay, "_should_use_composited",
                         lambda args, project_path, render_spec: True)
 
     async def fake_render_composited(*args, **kwargs):
@@ -655,9 +660,9 @@ def test_run_trigger_render_overlay_error_no_bg_path_returns_failure(
         mlt_called["count"] += 1
         return {"output_path": "/tmp/should-not-render.mp4"}
 
-    monkeypatch.setattr(pi_bridge, "_run_mlt_only_render", fake_mlt)
+    monkeypatch.setattr(render_overlay, "_run_mlt_only_render", fake_mlt)
 
-    out = pi_bridge._run_trigger_render({"mode": "overlay"}, project)
+    out = render_overlay.run_trigger_render({"mode": "overlay"}, project)
     # bg must NOT be re-rendered.
     assert mlt_called["count"] == 0
     # Should return a failure result, not a successful render.

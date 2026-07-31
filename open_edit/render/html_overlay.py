@@ -5,7 +5,8 @@ possible (spec §2):
 
     trigger_render({mode: "overlay"})
        │
-       │  pi_bridge._run_trigger_render checks: overlays?  mode=="overlay"?
+       │  kernel.render_overlay.run_trigger_render checks: overlays?
+       │  mode=="overlay"?
        │  → if both: composited path. Otherwise: existing MLT path (v1.5).
        │
        ├─ Stage 1: bg render              ─┐
@@ -52,7 +53,7 @@ from typing import Any, Callable
 
 from open_edit.ir.types import HtmlOverlay, Timeline  # noqa: F401  (re-exported)
 
-_LOG = logging.getLogger("open_edit.serve.html_overlay")
+_LOG = logging.getLogger("open_edit.render.html_overlay")
 
 
 class OverlayRenderError(Exception):

@@ -33,11 +33,11 @@ from . import cli_adapter as cli_adapter_mod
 from . import projects as projects_mod
 from . import visual_verify
 from .llm import _coerce_event, effective_provider, stream_chat
-from .pi_bridge import _probe_duration
 from .project_meta import is_verify_disabled
 from .providers import resolve_provider
 from .result_capper import cap_tool_result
 from .serve_env import get_visual_verify_config
+from open_edit.kernel.render_overlay import _probe_duration
 from open_edit.kernel.tool_schemas import (
     IR_MODEL_SUMMARY,
     TOOL_SCHEMAS,

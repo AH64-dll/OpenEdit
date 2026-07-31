@@ -91,8 +91,8 @@ def test_overlay_config_hyperframes_timeout_s_override():
 
 
 # ---------------------------------------------------------------------------
-# Consumer: pi_bridge._build_render_spec still resolves hyperframes_bin
-# even when the config returns ``None`` for the unset case.
+# Consumer: kernel.render_overlay._build_render_spec still resolves
+# hyperframes_bin even when the config returns ``None`` for the unset case.
 # ---------------------------------------------------------------------------
 
 def test_build_render_spec_resolves_hyperframes_bin_when_unset(tmp_path, monkeypatch):
@@ -101,8 +101,8 @@ def test_build_render_spec_resolves_hyperframes_bin_when_unset(tmp_path, monkeyp
     ``or`` short-circuit. We mock the resolver to a known string and
     verify the render spec picks it up.
     """
-    from open_edit.serve import pi_bridge
-    from open_edit.serve import html_overlay
+    from open_edit.kernel import render_overlay
+    from open_edit.render import html_overlay
 
     # Create a real (empty) project so _read_mlt_profile has something to read.
     project = tmp_path / "p1"
@@ -111,15 +111,15 @@ def test_build_render_spec_resolves_hyperframes_bin_when_unset(tmp_path, monkeyp
     monkeypatch.setattr(html_overlay, "_resolve_hyperframes_bin", lambda: "/resolved/hf")
     # Force the config to return None for hyperframes_bin by clearing the env.
     monkeypatch.delenv("OPEN_EDIT_HYPERFRAMES_BIN", raising=False)
-    spec = pi_bridge._build_render_spec(project, "proxy", 120)
+    spec = render_overlay._build_render_spec(project, "proxy", 120)
     assert spec["hyperframes_bin"] == "/resolved/hf"
 
 
 def test_build_render_spec_uses_env_value_when_set(tmp_path, monkeypatch):
     """When the env var is set, ``hyperframes_bin`` is the env value
     (no fallback to the resolver)."""
-    from open_edit.serve import pi_bridge
-    from open_edit.serve import html_overlay
+    from open_edit.kernel import render_overlay
+    from open_edit.render import html_overlay
 
     project = tmp_path / "p1"
     project.mkdir()
@@ -130,5 +130,5 @@ def test_build_render_spec_uses_env_value_when_set(tmp_path, monkeypatch):
 
     monkeypatch.setattr(html_overlay, "_resolve_hyperframes_bin", _must_not_call)
     monkeypatch.setenv("OPEN_EDIT_HYPERFRAMES_BIN", "/env/hf")
-    spec = pi_bridge._build_render_spec(project, "proxy", 120)
+    spec = render_overlay._build_render_spec(project, "proxy", 120)
     assert spec["hyperframes_bin"] == "/env/hf"

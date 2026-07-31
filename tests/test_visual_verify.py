@@ -423,7 +423,7 @@ def test_serve_env_overrides():
 def test_render_failed_returns_error_not_verify_skipped():
     """When the underlying render fails, build a tool result that says so —
     no `verification` block (per spec §4 failure-shape spec)."""
-    from open_edit.serve.visual_verify import build_failure_tool_result
+    from open_edit.kernel.tool_result import build_failure_tool_result
     out = build_failure_tool_result("render_failed", render_id="r1")
     assert "error" in out
     assert "verification" not in out
@@ -432,7 +432,7 @@ def test_render_failed_returns_error_not_verify_skipped():
 
 def test_render_capped_returns_tool_result_error():
     """Cap path returns a tool-result error with cap details (spec §4)."""
-    from open_edit.serve.visual_verify import build_failure_tool_result
+    from open_edit.kernel.tool_result import build_failure_tool_result
     out = build_failure_tool_result("render_capped", render_id="r1", cap=3, render_count=4)
     assert "error" in out
     assert "render_capped" in out["error"]

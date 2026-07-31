@@ -251,13 +251,9 @@ def build_verification_tool_result(
     }
 
 
-def build_failure_tool_result(reason: str, render_id: str = "render_unknown", **extra: Any) -> dict:
-    """Spec §4 failure shapes: no ``verification`` block, just an ``error`` key."""
-    return {
-        "error": f"{reason}: {extra.pop('detail', '')}".rstrip(": ").rstrip(),
-        "render_id": render_id,
-        **extra,
-    }
+from open_edit.kernel.tool_result import (  # noqa: F401  (re-exported for serve consumers)
+    build_failure_tool_result,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -35,7 +35,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from open_edit.serve import html_overlay  # noqa: E402
+from open_edit.render import html_overlay  # noqa: E402
 from open_edit.serve import serve_env  # noqa: E402
 
 
@@ -51,7 +51,7 @@ def test_resolve_hyperframes_bin_prefers_pinned_binary(tmp_path, monkeypatch, ca
     pinned.chmod(0o755)
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPEN_EDIT_HYPERFRAMES_BIN", raising=False)
-    with caplog.at_level(logging.WARNING, logger="open_edit.serve.html_overlay"):
+    with caplog.at_level(logging.WARNING, logger="open_edit.render.html_overlay"):
         bin_path = html_overlay._resolve_hyperframes_bin()
     assert bin_path == str(pinned)
     assert not any("hyperframes" in r.message.lower() and "fallback" in r.message.lower()
@@ -62,7 +62,7 @@ def test_resolve_hyperframes_bin_falls_back_to_npx_with_warning(tmp_path, monkey
     """No pinned binary → bare `npx hyperframes`, WARNING logged with the prescribed message."""
     monkeypatch.chdir(tmp_path)  # no node_modules/.bin
     monkeypatch.delenv("OPEN_EDIT_HYPERFRAMES_BIN", raising=False)
-    with caplog.at_level(logging.WARNING, logger="open_edit.serve.html_overlay"):
+    with caplog.at_level(logging.WARNING, logger="open_edit.render.html_overlay"):
         bin_path = html_overlay._resolve_hyperframes_bin()
     assert bin_path == "npx hyperframes"
     # Spec §5 mandates the exact WARNING wording.
@@ -686,7 +686,7 @@ def test_disk_footprint_preflight_warns_at_500mb(tmp_path, caplog):
     # 600s of overlay at 1 MB/s = 600 MB. Use a single overlay spanning 10 minutes.
     timeline = _timeline([_overlay(position_sec=0, duration_sec=600.0)])
     import logging
-    with caplog.at_level(logging.WARNING, logger="open_edit.serve.html_overlay"):
+    with caplog.at_level(logging.WARNING, logger="open_edit.render.html_overlay"):
         html_overlay._disk_footprint_check(estimated_mb=600, tmpdir=tmp_path)
     assert any("overlay estimated" in r.message and "~600 MB" in r.message
                for r in caplog.records)
@@ -948,7 +948,7 @@ def test_end_to_end_overlay_composite(tmp_path):
 
     # Only the hyperframes call is real; ffmpeg is mocked (we don't need
     # to verify ffmpeg here — that's covered by tests 27-29 with a mock).
-    from open_edit.serve import html_overlay as ho
+    from open_edit.render import html_overlay as ho
     real_popen = ho.subprocess.Popen
     calls = {"count": 0}
 

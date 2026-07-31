@@ -14,10 +14,10 @@ from here. If the behavior needs to change, it changes in one place.
 
 v1.6 note: ``execute_trigger_render`` preserves the three-way split
 between ``proxy``, ``final`` (shell out to ``open_edit render`` CLI)
-and ``overlay`` (delegate to ``pi_bridge._run_trigger_render`` for the
-composited HTML-overlay path). The proxy/final branch is intentionally
-NOT collapsed into the overlay branch: those paths write different
-``render_id`` shapes and the agent's verification stage reads them
+and ``overlay`` (delegate to ``kernel.render_overlay.run_trigger_render``
+for the composited HTML-overlay path). The proxy/final branch is
+intentionally NOT collapsed into the overlay branch: those paths write
+different ``render_id`` shapes and the agent's verification stage reads them
 differently (see test_serve_agent.py V4 tests).
 
 v1.7+ polish: ``execute_trigger_render`` is async and uses
@@ -35,7 +35,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-# NOTE: kernel must not import open_edit.serve (layering invariant).
+# NOTE: kernel must not import the serve package (layering invariant).
 from open_edit.agent.tools._helpers import _db_path
 from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.storage.edit_graph import EditGraphStore
@@ -167,8 +167,8 @@ async def execute_trigger_render(
     """Server-side virtual tool: shell out to ``open_edit render``.
 
     v1.6: ``mode=="overlay"`` is the composited HTML-overlay path. We
-    delegate to ``pi_bridge._run_trigger_render`` so the in-process
-    agent loop and the TS extension see identical behavior.
+    delegate to ``kernel.render_overlay.run_trigger_render`` so the
+    in-process agent loop and the TS extension see identical behavior.
 
     v1.6 V4: the returned dict must use the same structured shape as
     the pi subprocess path (``{output_path, mode, duration_s, render_id}``)
