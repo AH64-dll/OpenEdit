@@ -1,23 +1,22 @@
 """Cap oversized tool results before they enter conversation history.
 
-Called from both ``agent.py`` and ``pi_bridge.py`` to proactively
-limit tool result size, preventing ``LimitOverrunError`` in the
-pi subprocess pipe and keeping the conversation history lean.
+Called from the agent loop, ``history_store`` and ``pi_bridge.py`` to
+proactively limit tool result size, preventing ``LimitOverrunError`` in
+the pi subprocess pipe and keeping the conversation history lean.
 """
 from __future__ import annotations
 
 from typing import Any
 
 
-_MAX_BYTES = 512_000
 _MAX_ITEM_CHARS = 10_000
 _MAX_LIST_ITEMS = 20
 
 
-def cap_tool_result(result: dict[str, Any], max_bytes: int = _MAX_BYTES) -> dict[str, Any]:
+def cap_tool_result(result: dict[str, Any], max_chars: int = _MAX_ITEM_CHARS) -> dict[str, Any]:
     """Return a copy of ``result`` with oversized fields truncated.
 
-    * Truncates ``stdout``, ``stderr``, ``error`` to 10K chars each.
+    * Truncates ``stdout``, ``stderr``, ``error`` to ``max_chars`` each.
     * Caps list fields to 20 items (with ``...[N more]`` marker).
     * For ``trigger_render`` results: strips ``stdout``/``stderr`` entirely
       (they are debugging-only).
@@ -33,19 +32,19 @@ def cap_tool_result(result: dict[str, Any], max_bytes: int = _MAX_BYTES) -> dict
             if is_render:
                 truncated = True
                 del out[field]
-            elif isinstance(out[field], str) and len(out[field]) > _MAX_ITEM_CHARS:
-                out[field] = out[field][:_MAX_ITEM_CHARS] + "\n... [truncated]"
+            elif isinstance(out[field], str) and len(out[field]) > max_chars:
+                out[field] = out[field][:max_chars] + "\n... [truncated]"
                 truncated = True
 
     for field in ("error",):
-        if isinstance(out.get(field), str) and len(out[field]) > _MAX_ITEM_CHARS:
-            out[field] = out[field][:_MAX_ITEM_CHARS] + "\n... [truncated]"
+        if isinstance(out.get(field), str) and len(out[field]) > max_chars:
+            out[field] = out[field][:max_chars] + "\n... [truncated]"
             truncated = True
 
     for field in list(out.keys()):
         if isinstance(out[field], list) and len(out[field]) > _MAX_LIST_ITEMS:
-            out[field] = out[field][:_MAX_LIST_ITEMS]
-            out[field].append(f"... [{len(out[field]) - _MAX_LIST_ITEMS + 1} more items]")
+            n_more = len(out[field]) - _MAX_LIST_ITEMS
+            out[field] = out[field][:_MAX_LIST_ITEMS] + [f"... [{n_more} more items]"]
             truncated = True
 
     if truncated:

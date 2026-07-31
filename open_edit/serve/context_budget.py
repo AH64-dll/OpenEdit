@@ -136,23 +136,3 @@ class ContextBudget:
             keep.insert(1, placeholder)
 
         return keep
-
-    def summarize_tool_result(self, result: dict[str, Any], max_chars: int = 1000) -> dict[str, Any]:
-        """Truncate oversized string fields and limit list lengths in a tool result."""
-        truncated = False
-        out = dict(result)
-
-        for field in ("stdout", "stderr", "error"):
-            if isinstance(out.get(field), str) and len(out[field]) > max_chars:
-                out[field] = out[field][:max_chars] + "... [truncated]"
-                truncated = True
-
-        for field in list(out.keys()):
-            if isinstance(out[field], list) and len(out[field]) > 20:
-                out[field] = out[field][:20] + [f"... [{len(out[field]) - 20} more items]"]
-                truncated = True
-
-        if truncated:
-            out["_truncated"] = True
-
-        return out
