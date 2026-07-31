@@ -6,12 +6,10 @@ db file and schema with ``EditGraphStore``.
 """
 from __future__ import annotations
 
-import sqlite3
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 from open_edit.ir.ids import now_iso8601
+from open_edit.storage.db import open_conn
 
 
 class CommandStore:
@@ -22,24 +20,10 @@ class CommandStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    @contextmanager
-    def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(str(self.db_path))
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
     def _init_schema(self) -> None:
         from open_edit.storage.migrations import ensure_schema
 
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             ensure_schema(conn)
 
     def record_command(
@@ -47,7 +31,7 @@ class CommandStore:
         status: str = "pending", payload_hash: str | None = None,
     ) -> None:
         """Record a command for idempotency. No-op if command_id exists."""
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO commands "
                 "(command_id, project_id, tool_name, status, created_at, "
@@ -61,7 +45,7 @@ class CommandStore:
 
     def command_exists(self, command_id: str) -> bool:
         """Return True if a command with the given id has been recorded."""
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             cur = conn.execute(
                 "SELECT 1 FROM commands WHERE command_id = ? LIMIT 1",
                 (command_id,),
@@ -73,7 +57,7 @@ class CommandStore:
         result_json: str | None = None,
     ) -> None:
         """Mark a command as finished with a status and optional result."""
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             conn.execute(
                 "UPDATE commands SET status = ?, result_json = ? "
                 "WHERE command_id = ?",
@@ -82,7 +66,7 @@ class CommandStore:
 
     def get_command_result(self, command_id: str) -> str | None:
         """Return the stored result_json for a command, or None."""
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             cur = conn.execute(
                 "SELECT result_json FROM commands WHERE command_id = ?",
                 (command_id,),
@@ -92,7 +76,7 @@ class CommandStore:
 
     def get_command_status(self, command_id: str) -> str | None:
         """Return the stored status for a command, or None."""
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             cur = conn.execute(
                 "SELECT status FROM commands WHERE command_id = ?",
                 (command_id,),

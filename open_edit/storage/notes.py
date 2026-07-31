@@ -16,6 +16,7 @@ from typing import Annotated, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from open_edit.ir.ids import new_note_id, now_iso8601
+from open_edit.storage.db import open_conn
 
 
 class NoteSource(str, Enum):
@@ -109,7 +110,7 @@ class NotesStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             con.executescript(_SCHEMA)
 
     def _row_to_note(self, row: sqlite3.Row) -> ReviewNote:
@@ -135,7 +136,7 @@ class NotesStore:
         )
 
     def append(self, note: ReviewNote) -> str:
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             con.execute(
                 "INSERT INTO notes (note_id, project_id, anchor_type, anchor, text, source, status, created_at, processed_at, commit_token, resulting_op_ids) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -156,8 +157,7 @@ class NotesStore:
         return note.note_id
 
     def list_all(self, project_id: str, status: Optional[NoteStatus] = None) -> list[ReviewNote]:
-        with sqlite3.connect(self.db_path) as con:
-            con.row_factory = sqlite3.Row
+        with open_conn(self.db_path) as con:
             if status is None:
                 rows = con.execute(
                     "SELECT * FROM notes WHERE project_id = ? ORDER BY created_at",
@@ -184,8 +184,7 @@ class NotesStore:
         Does NOT mark notes processed. The agent run uses the returned list
         to build pending_feedback; mark_processed is called after agent run.
         """
-        with sqlite3.connect(self.db_path) as con:
-            con.row_factory = sqlite3.Row
+        with open_conn(self.db_path) as con:
             con.execute(
                 "UPDATE notes SET commit_token = ? "
                 "WHERE project_id = ? AND status = 'pending' AND commit_token IS NULL",
@@ -200,7 +199,7 @@ class NotesStore:
         return [self._row_to_note(r) for r in rows]
 
     def mark_processed(self, note_ids: list[str], resulting_op_ids: list[str]) -> None:
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             for note_id, op_id in zip(note_ids, resulting_op_ids):
                 con.execute(
                     "UPDATE notes SET status = 'processed', processed_at = ?, resulting_op_ids = ? "
@@ -209,7 +208,7 @@ class NotesStore:
                 )
 
     def mark_dismissed(self, note_ids: list[str]) -> None:
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             for note_id in note_ids:
                 con.execute(
                     "UPDATE notes SET status = 'dismissed' WHERE note_id = ?",
@@ -228,7 +227,7 @@ class NotesStore:
         """
         if not note_ids:
             return
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             con.executemany(
                 "UPDATE notes SET commit_token = NULL WHERE note_id = ?",
                 [(n,) for n in note_ids],
@@ -237,7 +236,7 @@ class NotesStore:
     def archive_old_processed(self, retention_days: int = 30) -> int:
         """Per audit M3: move processed notes older than retention_days to notes_archive."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             rows = con.execute(
                 "SELECT note_id, project_id, anchor_type, anchor, text, source, status, "
                 "created_at, processed_at, commit_token, resulting_op_ids "
@@ -275,7 +274,7 @@ class NotesStore:
         if not sets:
             return
         values.append(note_id)
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             con.execute(
                 f"UPDATE notes SET {', '.join(sets)} WHERE note_id = ?",
                 tuple(values),

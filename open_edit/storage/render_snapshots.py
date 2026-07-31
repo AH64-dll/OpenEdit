@@ -4,7 +4,6 @@ Per phase4-design-revised.md §3.4 (T4).
 """
 from __future__ import annotations
 
-import sqlite3
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -12,6 +11,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from open_edit.ir.ids import new_version_id, now_iso8601
+from open_edit.storage.db import open_conn
 
 
 class RenderStatus(str, Enum):
@@ -48,11 +48,11 @@ class RenderSnapshotStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             con.executescript(_SCHEMA)
 
     def append(self, snapshot: RenderSnapshot) -> str:
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             con.execute(
                 "INSERT INTO render_snapshots (version_id, project_id, edit_graph_hash, render_path, created_at, status, label) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -64,8 +64,8 @@ class RenderSnapshotStore:
         return snapshot.version_id
 
     def list_for_project(self, project_id: str) -> list[RenderSnapshot]:
-        with sqlite3.connect(self.db_path) as con:
-            con.row_factory = sqlite3.Row
+        with open_conn(self.db_path) as con:
+
             rows = con.execute(
                 "SELECT * FROM render_snapshots WHERE project_id = ? ORDER BY created_at",
                 (project_id,),
@@ -101,7 +101,7 @@ class RenderSnapshotStore:
         return snaps[-1] if snaps else None
 
     def update_status(self, version_id: str, status: RenderStatus) -> None:
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             con.execute(
                 "UPDATE render_snapshots SET status = ? WHERE version_id = ?",
                 (status.value, version_id),
@@ -109,7 +109,7 @@ class RenderSnapshotStore:
 
     def evict_oldest_ready(self, max_versions: int) -> None:
         """Per audit M1: evict oldest status=ready; never evict rendering/failed."""
-        with sqlite3.connect(self.db_path) as con:
+        with open_conn(self.db_path) as con:
             ready_snaps = con.execute(
                 "SELECT version_id FROM render_snapshots WHERE status = 'ready' ORDER BY created_at"
             ).fetchall()

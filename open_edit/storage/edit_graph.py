@@ -20,6 +20,7 @@ from open_edit.ir.ids import now_iso8601
 from open_edit.ir.types import OperationUnion, new_id
 from open_edit.storage import ordering as _ordering
 from open_edit.storage.commands import CommandStore
+from open_edit.storage.db import open_conn
 from open_edit.storage.timeline_cache import TimelineSnapshotStore
 
 _APPEND_LOCK = threading.Lock()
@@ -49,17 +50,8 @@ class EditGraphStore:
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(str(self.db_path))
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
+        with open_conn(self.db_path) as conn:
             yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
 
     def _init_schema(self) -> None:
         from open_edit.storage.migrations import ensure_schema

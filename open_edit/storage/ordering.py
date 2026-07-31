@@ -9,6 +9,8 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING
 
+from open_edit.storage.db import open_conn
+
 if TYPE_CHECKING:
     from open_edit.storage.edit_graph import EditGraphStore
 
@@ -33,7 +35,7 @@ def delete_op(
     cleared (set to NULL) so the graph remains consistent.
     Returns True if an op was found and deleted.
     """
-    with store._conn() as conn:
+    with open_conn(store.db_path) as conn:
         cur = conn.execute(
             "SELECT edit_id FROM edits WHERE edit_id = ?", (edit_id,)
         )
@@ -60,7 +62,7 @@ def move_arbitrary(
     This is a general reorder operation (not just adjacent swap).
     Returns True if the op was found and moved.
     """
-    with store._conn() as conn:
+    with open_conn(store.db_path) as conn:
         cur = conn.execute(
             "SELECT sequence_num FROM edits WHERE edit_id = ?",
             (edit_id,),
@@ -105,7 +107,7 @@ def reorder_all(
     """
     if len(edit_ids) != len(set(edit_ids)):
         raise ValueError("reorder contains duplicate edit IDs")
-    with store._conn() as conn:
+    with open_conn(store.db_path) as conn:
         rows = conn.execute("SELECT edit_id FROM edits ORDER BY sequence_num").fetchall()
         existing = [row[0] for row in rows]
         if set(edit_ids) != set(existing) or len(edit_ids) != len(existing):
@@ -137,7 +139,7 @@ def reorder(
     Raises ValueError if either id does not exist or if the two ops
     are not adjacent in sequence_num.
     """
-    with store._conn() as conn:
+    with open_conn(store.db_path) as conn:
         cur = conn.execute(
             "SELECT edit_id, sequence_num FROM edits "
             "WHERE edit_id IN (?, ?) ORDER BY sequence_num",

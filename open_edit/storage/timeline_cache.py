@@ -12,15 +12,13 @@ sharing the project's edit-graph db file and schema.
 from __future__ import annotations
 
 import contextlib
-import sqlite3
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.ir.ids import now_iso8601
 from open_edit.ir.types import Project, Timeline
+from open_edit.storage.db import open_conn
 
 
 class TimelineSnapshotStore:
@@ -31,31 +29,17 @@ class TimelineSnapshotStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    @contextmanager
-    def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(str(self.db_path))
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
     def _init_schema(self) -> None:
         from open_edit.storage.migrations import ensure_schema
 
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             ensure_schema(conn)
 
     def save_timeline_snapshot(
         self, edit_graph_hash: str, project_id: str, timeline_json: str,
     ) -> None:
         """Store a derived timeline snapshot keyed by edit-graph hash."""
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO timeline_snapshots "
                 "(edit_graph_hash, project_id, timeline_json, created_at) "
@@ -65,7 +49,7 @@ class TimelineSnapshotStore:
 
     def load_timeline_snapshot(self, edit_graph_hash: str) -> str | None:
         """Return the stored timeline_json for a hash, or None."""
-        with self._conn() as conn:
+        with open_conn(self.db_path) as conn:
             cur = conn.execute(
                 "SELECT timeline_json FROM timeline_snapshots "
                 "WHERE edit_graph_hash = ?",
