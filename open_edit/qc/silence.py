@@ -9,6 +9,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from open_edit.render.ffmpeg_probe import detect_silence_spans
+
 
 DEFAULT_SILENCE_DB = -35.0
 DEFAULT_SILENCE_MIN_SEC = 1.0
@@ -94,25 +96,17 @@ def list_silence(
     if not _has_audio_stream(video_path):
         return SilenceResult(ok=True, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[])
 
-    cmd = [ffmpeg, "-hide_banner", "-i", video_path, "-vn",
-           "-af", f"silencedetect=noise={threshold_db}dB:d={min_sec}",
-           "-f", "null", "-"]
-    if in_sec > 0 or out_sec > 0:
-        cmd += ["-ss", f"{in_sec:.3f}"]
-    if out_sec > 0:
-        cmd += ["-to", f"{(out_sec - in_sec):.3f}"]
-
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        spans = detect_silence_spans(
+            video_path, threshold_db=threshold_db, min_s=min_sec,
+            start_sec=in_sec, end_sec=out_sec, timeout=60,
+        )
     except subprocess.TimeoutExpired:
         return SilenceResult(ok=False, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[], error="ffmpeg timed out after 60s")
-    if proc.returncode != 0:
-        return SilenceResult(
-            ok=False, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[],
-            error=_last_stderr_line(proc.stderr) or "ffmpeg failed",
-        )
-    spans = _parse_silence(proc.stderr or "", base_offset=in_sec)
-    return SilenceResult(ok=True, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=spans)
+    return SilenceResult(
+        ok=True, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec,
+        spans=[SilenceSpan(start_sec=s, end_sec=e, duration_sec=e - s) for s, e in spans],
+    )
 
 
 def _has_audio_stream(video_path: str) -> bool:
@@ -144,20 +138,3 @@ def _parse_db(text: str, key: str) -> float:
 def _parse_overall_db(text: str, key: str) -> float:
     m = re.search(r'Overall[\s\S]*?' + re.escape(key) + r'=(-?\d+(?:\.\d+)?)', text)
     return float(m.group(1)) if m else 0.0
-
-
-def _parse_silence(text: str, base_offset: float) -> list[SilenceSpan]:
-    """Parse silencedetect output."""
-    starts: list[float] = []
-    ends: list[tuple[float, float]] = []
-    for line in text.splitlines():
-        ms = re.search(r"silence_start:\s*(-?\d+(?:\.\d+)?)", line)
-        me = re.search(r"silence_end:\s*(-?\d+(?:\.\d+)?)\s*\|\s*silence_duration:\s*(-?\d+(?:\.\d+)?)", line)
-        if ms:
-            starts.append(float(ms.group(1)) + base_offset)
-        if me:
-            ends.append((float(me.group(1)) + base_offset, float(me.group(2))))
-    return [
-        SilenceSpan(start_sec=s, end_sec=e, duration_sec=dur)
-        for s, (e, dur) in zip(starts, ends)
-    ]

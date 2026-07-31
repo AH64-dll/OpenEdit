@@ -141,7 +141,7 @@ def test_remotion_proxy_render_via_orchestrator(remotion_project: Path) -> None:
 
 def test_orchestrator_strips_remotion_clips_for_melt() -> None:
     from open_edit.ir.types import Clip, RemotionComposition, Timeline, Track
-    from open_edit.render.orchestrator import _timeline_without_remotion_clips
+    from open_edit.render.timeline_plan import timeline_for_melt
 
     rem = RemotionComposition(
         id="r1",
@@ -178,7 +178,7 @@ def test_orchestrator_strips_remotion_clips_for_melt() -> None:
         ],
         remotion_compositions=[rem],
     )
-    stripped = _timeline_without_remotion_clips(tl)
+    stripped = timeline_for_melt(tl)
     assert [t.track_id for t in stripped.tracks] == ["v1"]
     v1 = next(t for t in stripped.tracks if t.track_id == "v1")
     assert len(v1.clips) == 1
