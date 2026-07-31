@@ -64,7 +64,7 @@ from open_edit.ir.types import (
     ReplaceClipSourceOp, SetClipSpeedRampOp, NormalizeAudioOp,
     GroupEditsOp, UngroupEditsOp,
 )
-from open_edit.pydantic_compat import TypeAdapter
+from pydantic import TypeAdapter
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.job_lock import JobLock

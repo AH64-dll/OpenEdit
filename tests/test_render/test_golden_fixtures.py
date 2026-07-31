@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from open_edit.ir.types import Project, OperationUnion
-from open_edit.pydantic_compat import TypeAdapter
+from pydantic import TypeAdapter
 
 
 GOLDEN_DIR = Path(__file__).parent.parent / "testdata" / "golden_11clip"
