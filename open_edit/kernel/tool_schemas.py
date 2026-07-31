@@ -52,6 +52,7 @@ TOOL_USAGE_GUIDE = """\
 
 Harness playbook (preferred over exploring source): skills/open-edit-mcp.md
 (also MCP resource open-edit://skills/open-edit-mcp / prompt open-edit-playbook).
+Style memory: skills/style-memory.md (prompt open-edit-style-memory).
 
 You have 6 tools available: the 4 pillars below plus the
 ``get_render_job`` / ``cancel_render_job`` render helpers. Use the
@@ -61,20 +62,27 @@ pillars in this order of priority:
 Use this for ALL read-only queries about the project:
 - "list_assets" → list all assets
 - "get_pending_notes" → get pending review notes
-- "get_style_profile" → get the project's style profile
+- "get_style_profile" → get the project's style profile (call early)
 - "analyze_narrative" → analyze narrative structure of assets
-- "search_assets" → search external asset libraries
+- "search_assets" → search **internet stock** libraries (Pexels/Freesound/Openverse)
 - "get_transcript_packed" → get silence-aware, speaker-grouped phrase transcript
 
 ## 2. edit_project (preferred for mutations)
 Use this for ALL project edits:
 - Operations are APPLIED IMMEDIATELY
+- "capture_style_hint" → persist a **confirmed** user style preference
+- "set_pinned_value" → hard pin (aspect ratio, durations, etc.)
 - For creative suggestions (SFX, music, visuals, silence cuts), use the "generate" parameter
+- **Search before generate:** before any generate=visual / music / sfx call
+  search_assets and use import_asset for suitable licensed
+  Pexels/Freesound/Openverse stock; generate only when stock is unavailable
+  or unsuitable.
 - Generated ops are returned for review; commit them with operation="apply_generated_ops"
 
 ## 3. run_script (only when edit_project can't do it)
 Write Python that calls the ir module. The sandbox header is auto-injected.
 For complex multi-step edits that can't be expressed as a single edit_project operation.
+If sandbox is unavailable, operators set OPEN_EDIT_SANDBOX_BACKEND=dev.
 
 ## 4. trigger_render (when you need to see the result)
 Render the current timeline to a video file for preview or verification.

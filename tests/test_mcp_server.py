@@ -187,7 +187,10 @@ async def test_trigger_render_routes_to_executor(project: Path) -> None:
 
 
 def test_build_server_lists_tools(project: Path) -> None:
-    pytest.importorskip("mcp")
+    mcp = pytest.importorskip("mcp")
+    mcp_file = (getattr(mcp, "__file__", "") or "").replace("\\", "/")
+    if mcp_file.endswith("open_edit/mcp/__init__.py") or "/open_edit/mcp/" in mcp_file:
+        pytest.skip("MCP SDK shadowed by open_edit.mcp; fix editable install root")
     from open_edit.mcp.server import build_server
 
     server = build_server(project)
@@ -225,7 +228,13 @@ def test_packaged_harness_skills_match_repo() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     packaged = pkg_root / "open_edit" / "harness_skills"
     repo_skills = repo_root / "skills"
-    for name in ("open-edit-mcp.md", "open-edit-mcp-reference.md"):
+    for name in (
+        "open-edit-mcp.md",
+        "open-edit-mcp-reference.md",
+        "style-memory.md",
+        "tool_surface.md",
+        "edit-planning.md",
+    ):
         pkg_file = packaged / name
         repo_file = repo_skills / name
         if not (pkg_file.is_file() and repo_file.is_file()):

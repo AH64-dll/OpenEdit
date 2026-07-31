@@ -20,6 +20,7 @@ SKILL_FILES: dict[str, str] = {
     "remotion_motion": "remotion_motion.md",
     "qc-standards": "qc-standards.md",
     "freeform_and_effects": "freeform_and_effects.md",
+    "style-memory": "style-memory.md",
     "README": "README.md",
 }
 
@@ -30,6 +31,7 @@ MCP_SKILL_STEMS: tuple[str, ...] = (
     "tool_surface",
     "edit-planning",
     "remotion_motion",
+    "style-memory",
 )
 
 RESOURCE_URI_PREFIX = "open-edit://skills/"

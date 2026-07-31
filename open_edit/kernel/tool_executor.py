@@ -79,6 +79,32 @@ def _strip_injected_project_id(
     return args
 
 
+def _canonicalize_project_id(
+    name: str, args: dict[str, Any], project_path: Path,
+) -> dict[str, Any]:
+    """Use the graph's stable id for project-scoped TOOL_TABLE calls.
+
+    The serve API's public project id is path-derived, but notes and markers
+    are stored with ``EditGraphStore.project_id``. Direct agent-loop calls
+    currently inject the former, so normalize it at the shared executor
+    boundary. Keep the original arguments for uninitialised projects.
+    """
+    if name in {"search_assets", "query_project", "edit_project"}:
+        return args
+    if not isinstance(args, dict) or "project_id" not in args:
+        return args
+    try:
+        db_path = ProjectPaths.for_project(project_path).db_path
+        if not db_path.exists():
+            return args
+        canonical_id = EditGraphStore(db_path).project_id
+    except Exception:
+        return args
+    normalized = dict(args)
+    normalized["project_id"] = canonical_id
+    return normalized
+
+
 def _payload_hash(args: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(args, sort_keys=True, default=str).encode()
@@ -189,6 +215,7 @@ def execute_tool(
 
 def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
     args = _strip_injected_project_id(name, args)
+    args = _canonicalize_project_id(name, args, project_path)
 
     err = validate_or_error(name, args)
     if err is not None:

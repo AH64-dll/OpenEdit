@@ -26,6 +26,17 @@ from open_edit.mcp.skills import (
 
 def _require_mcp():
     try:
+        import mcp as _mcp_pkg
+
+        mcp_file = Path(getattr(_mcp_pkg, "__file__", "") or "").resolve()
+        # Editable installs rooted at open_edit/ put this package on sys.path as
+        # top-level ``mcp``, shadowing the real MCP SDK.
+        if mcp_file.parent.resolve() == Path(__file__).resolve().parent:
+            raise ImportError(
+                "import 'mcp' resolved to open_edit.mcp (self-shadow). "
+                "Install the MCP SDK (pip install 'mcp>=1.0,<2') with the "
+                "editable install rooted at the repo (packages=['open_edit'])."
+            )
         from mcp.server import Server
         from mcp.server.stdio import stdio_server
         from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -39,7 +50,7 @@ def _require_mcp():
         )
     except ImportError as exc:
         raise SystemExit(
-            "MCP SDK not installed. From the open_edit/ directory run:\n"
+            "MCP SDK not installed. From the repo root run:\n"
             '  pip install -e ".[mcp]"\n'
             f"({exc})"
         ) from exc
@@ -140,6 +151,13 @@ def build_server(project_path: Path):
                     "Load IR / run_script recipes for timeline construction."
                 ),
             ),
+            Prompt(
+                name="open-edit-style-memory",
+                description=(
+                    "Capture and reuse user style preferences "
+                    "(get_style_profile, capture_style_hint, pins)."
+                ),
+            ),
         ]
 
     @server.get_prompt()
@@ -148,6 +166,7 @@ def build_server(project_path: Path):
         stem_map = {
             "open-edit-playbook": "open-edit-mcp",
             "open-edit-reference": "open-edit-mcp-reference",
+            "open-edit-style-memory": "style-memory",
         }
         stem = stem_map.get(name)
         if stem is None:

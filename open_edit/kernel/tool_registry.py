@@ -23,7 +23,7 @@ _QUERY_PROJECT_DESC = (
 _EDIT_PROJECT_DESC = (
     "Apply edits to the project or generate creative suggestions. "
     "Use ``operation`` for immediate mutations: add_marker, "
-    "set_pinned_value, import_asset, ingest_local, "
+    "set_pinned_value, capture_style_hint, import_asset, ingest_local, "
     "add_clip, trim_clip, replace_clip_source, change_clip_speed, "
     "remove_clip, set_audio_gain, apply_silence_gaps, apply_generated_ops. "
     "Prefer these timeline ops over run_script. "

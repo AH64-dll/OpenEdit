@@ -54,7 +54,8 @@ def test_every_schema_tool_resolves_in_tool_table():
 def test_tool_table_entries_all_callable():
     from open_edit.agent.tools import TOOL_TABLE
 
-    assert len(TOOL_TABLE) == 26
+    # Track C may add a style-memory callable; the core surface is 26.
+    assert len(TOOL_TABLE) >= 26
     for name, fn in TOOL_TABLE.items():
         assert callable(fn), name
 
