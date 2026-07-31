@@ -106,10 +106,10 @@ There are **26 concrete op kinds** in ``open_edit.ir.types``. The
 - ``add_clip`` — add a clip from an asset. Payload: ``{asset_hash, track_id, position_sec, in_point_sec, out_point_sec}``.
 - ``remove_clip`` — remove a clip by op_id. Payload: ``{clip_id}``.
 - ``move_clip`` — move a clip to a new position. Payload: ``{clip_id, new_position_sec, new_track_id?}``.
-- ``trim_clip`` — change in/out points. Payload: ``{clip_id, new_in_sec, new_out_sec}``.
+- ``trim_clip`` — change in/out points. Payload: ``{clip_id, in_point_sec, out_point_sec}``.
 - ``slip_clip`` — slide source window without changing clip length. Payload: ``{clip_id, delta_sec}``.
 - ``ripple_delete_clip`` — remove a clip and shift subsequent clips. Payload: ``{clip_id}``.
-- ``change_clip_speed`` — retime. Payload: ``{clip_id, new_speed}``.
+- ``change_clip_speed`` — retime. Payload: ``{clip_id, rate}``.
 - ``split_clip`` — split a clip at a position. Payload: ``{clip_id, split_at_sec}``.
 - ``replace_clip_source`` — point a clip at a different asset. Payload: ``{clip_id, new_asset_hash}``.
 - ``set_clip_speed_ramp`` — variable speed. Payload: ``{clip_id, ramp_points[]}``.

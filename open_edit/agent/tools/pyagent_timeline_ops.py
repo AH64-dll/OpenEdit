@@ -49,10 +49,10 @@ def add_clip(args: dict, project_path: str) -> dict[str, Any]:
 def trim_clip(args: dict, project_path: str) -> dict[str, Any]:
     if "clip_id" not in args:
         return {"status": "error", "error": "clip_id is required"}
-    out_raw = args.get("out_point_sec", args.get("new_out_point_sec"))
+    out_raw = args.get("out_point_sec")
     if out_raw is None:
         return {"status": "error", "error": "out_point_sec is required"}
-    in_raw = args.get("in_point_sec", args.get("new_in_point_sec", 0.0))
+    in_raw = args.get("in_point_sec", 0.0)
     ir = make_ir(project_path, parent_op_id=None)
     op = TrimClipOp(
         edit_id=new_id(),
@@ -83,7 +83,7 @@ def replace_clip_source(args: dict, project_path: str) -> dict[str, Any]:
 @tool_result
 def change_clip_speed(args: dict, project_path: str) -> dict[str, Any]:
     ir = make_ir(project_path, parent_op_id=None)
-    rate = float(args.get("rate", args.get("new_speed", 1.0)))
+    rate = float(args.get("rate", 1.0))
     op = ChangeClipSpeedOp(
         edit_id=new_id(),
         author="ai",

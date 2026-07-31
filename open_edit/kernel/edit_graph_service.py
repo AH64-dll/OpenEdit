@@ -115,11 +115,11 @@ def _build_op(
         raise EditGraphCommandError("clip_id is required")
 
     if command == "move_clip" or command == "change_track":
-        new_track_id = str(params.get("new_track_id") or params.get("track_id") or "").strip()
+        new_track_id = str(params.get("new_track_id") or "").strip()
         if not new_track_id:
             raise EditGraphCommandError("new_track_id is required")
         try:
-            new_position_sec = float(params.get("new_position_sec", params.get("position_sec", 0.0)))
+            new_position_sec = float(params.get("new_position_sec", 0.0))
         except (TypeError, ValueError) as exc:
             raise EditGraphCommandError("new_position_sec must be a number") from exc
         return MoveClipOp(
@@ -133,8 +133,8 @@ def _build_op(
 
     if command == "trim_clip":
         try:
-            new_in = float(params["in_point_sec"] if "in_point_sec" in params else params["new_in_point_sec"])
-            new_out = float(params["out_point_sec"] if "out_point_sec" in params else params["new_out_point_sec"])
+            new_in = float(params["in_point_sec"])
+            new_out = float(params["out_point_sec"])
         except (KeyError, TypeError, ValueError) as exc:
             raise EditGraphCommandError("in_point_sec and out_point_sec are required numbers") from exc
         return TrimClipOp(

@@ -28,9 +28,7 @@ def get_transcript_packed(args: dict, project_path: str | Path) -> dict[str, Any
     if err:
         return err
 
-    pause_thresh = float(
-        args.get("pause_threshold_sec", args.get("pause_threshold_s", 0.5))
-    )
+    pause_thresh = float(args.get("pause_threshold_sec", 0.5))
     err = require_alignment(asset)
     if err:
         return err
