@@ -1030,6 +1030,52 @@ git commit -m "refactor(ir): single reference validator with strict mode"
 
 ## Phase 4 — Standardize the Tool Contract
 
+### Task 4.0: Fix agent-loop project_id injection conflict + helper dispatch
+
+**Files:**
+- Modify: `open_edit/kernel/tool_executor.py` (`_run_tool`), `open_edit/serve/agent/loop.py` (injection site ~420-421)
+- Test: `tests/test_tool_executor.py`, `tests/test_serve_agent.py`, `tests/test_serve_pi_bridge.py`
+
+**Interfaces:**
+- Consumes: `validate_or_error` (existing), `TOOL_REGISTRY` names
+- Produces: agent-loop calls to registry tools (query_project, edit_project, run_script, trigger_render, get_render_job, cancel_render_job) succeed with injected `project_id`; `get_render_job`/`cancel_render_job` dispatch in kernel via `DEFAULT_RENDER_SERVICE` + `public_job`
+
+- [ ] **Step 1: Reproduce the bug (pre-existing, discovered during Task 3.3 review)**
+
+Run: `python3 -c "from open_edit.kernel.tool_executor import execute_tool; print(execute_tool('query_project', {'query': 'assets', 'params': {}, 'project_id': 'x'}, '/tmp/xyz'))"`
+Expected: `{"status": "error", "error": "schema_validation_failed", ...}` — the agent loop injects `project_id` into every tool call (loop.py ~420-421, except search_assets), and all registry schemas are `extra="forbid"`, so every registry tool call from the agent loop fails validation. Pre-existing since the monorepo flatten; verified present at commit 5163ed3.
+
+- [ ] **Step 2: Fix the injection conflict in `_run_tool`**
+
+In `open_edit/kernel/tool_executor.py::_run_tool`, before `validate_or_error(name, args)`: if `name` is a registry-schema tool (derive the set from `TOOL_SCHEMAS` — do NOT hardcode the name list twice; import from `kernel.tool_schemas`), `args = {k: v for k, v in args.items() if k != "project_id"}`. These tools receive `project_path` and do not declare `project_id`. Non-registry tools (getattr fallback) keep receiving the injected field as today.
+
+- [ ] **Step 3: Add helper dispatch**
+
+In `_run_tool`, add branches mirroring `mcp/adapters.py`: `get_render_job` → `DEFAULT_RENDER_SERVICE.get(...)` + `public_job(...)` in a `{"ok": True, ...}` envelope (match the MCP shape exactly); `cancel_render_job` → `DEFAULT_RENDER_SERVICE.cancel(...)`. Read `mcp/adapters.py` at HEAD for the exact call shapes.
+
+- [ ] **Step 4: Write the regression test**
+
+In `tests/test_tool_executor.py`:
+
+```python
+def test_registry_tools_accept_injected_project_id():
+    res = execute_tool("query_project", {"query": "assets", "params": {}, "project_id": "injected"}, tmp_project_path)
+    assert res.get("status") != "error"  # no schema_validation_failed
+```
+
+(Use existing fixtures; also assert `get_render_job`/`cancel_render_job` dispatch to the service — with a monkeypatched `DEFAULT_RENDER_SERVICE`.)
+
+- [ ] **Step 5: Run tests and commit**
+
+Run: `python3 -m pytest tests/test_tool_executor.py tests/test_serve_agent.py tests/test_serve_pi_bridge.py tests/test_mcp_server.py -q` → PASS, then:
+
+```bash
+git add -A
+git commit -m "fix(kernel): agent-loop project_id injection conflict and helper dispatch"
+```
+
+## Phase 4 (cont.) — Tool Contract
+
 ### Task 4.1: Create the tool contract module
 
 **Files:**
