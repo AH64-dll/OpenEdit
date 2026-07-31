@@ -37,7 +37,7 @@ serve = [
     "python-multipart>=0.0.9",
 ]
 mcp = [
-    "mcp>=1.0",
+    "mcp>=1.0,<2",
 ]
 
 [project.scripts]
