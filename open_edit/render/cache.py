@@ -29,8 +29,12 @@ def canonical_json_hash(obj: Any) -> str:
 
 
 def render_cache_key(graph_hash: str, profile_fingerprint: str) -> str:
-    """Cache key = graph hash + profile identity (resolution/quality/overrides/encoder)."""
-    return f"{graph_hash}|{profile_fingerprint}"
+    """Cache key = graph hash + profile identity (resolution/quality/overrides/encoder).
+
+    The ``|`` separator is sanitized to ``_`` because the key is used
+    verbatim as a filename and ``|`` is forbidden on Windows.
+    """
+    return f"{graph_hash}|{profile_fingerprint}".replace("|", "_")
 
 
 def cache_ttl_sec() -> int:

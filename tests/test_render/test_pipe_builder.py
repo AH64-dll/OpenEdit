@@ -28,6 +28,40 @@ def test_overlay_filter_chain_builds_inputs():
     assert "overlay=" in "".join(filters)
 
 
+def test_overlay_filter_chain_blur_under_prepass():
+    overlays = [OverlayClip(position_sec=1.0, duration_sec=2.0,
+                            media_path=Path("/tmp/ov.mov"), blur_under=True)]
+    filters = overlay_filter_chain(overlays, 1280, 720)
+    chain = ";".join(filters)
+    assert "split=2" in chain
+    assert "boxblur=20:10" in chain
+    assert "enable='between(t\\,1.000\\,3.000)'" in chain
+    assert chain.startswith("[0:v]split=2[sharp][toblur]")
+    assert "[base]" in chain
+    # blur windows across several overlays OR together
+    overlays = [
+        OverlayClip(position_sec=1.0, duration_sec=1.0,
+                    media_path=Path("/tmp/a.mov"), blur_under=True),
+        OverlayClip(position_sec=5.0, duration_sec=2.0,
+                    media_path=Path("/tmp/b.mov"), blur_under=False),
+        OverlayClip(position_sec=9.0, duration_sec=1.0,
+                    media_path=Path("/tmp/c.mov"), blur_under=True),
+    ]
+    chain = ";".join(overlay_filter_chain(overlays, 1280, 720))
+    assert "between(t\\,1.000\\,2.000)+between(t\\,9.000\\,10.000)" in chain
+
+
+def test_overlay_filter_chain_no_blur_under():
+    overlays = [OverlayClip(position_sec=1.0, duration_sec=2.0,
+                            media_path=Path("/tmp/ov.mov"), blur_under=False)]
+    filters = overlay_filter_chain(overlays, 1280, 720)
+    chain = ";".join(filters)
+    assert "split=2" not in chain
+    assert "boxblur=20:10" not in chain
+    assert "[0:v][ov1]overlay=0:0" in chain
+    assert "[base]" not in chain
+
+
 def test_pipe_commands_shape(tmp_path: Path):
     profile, spec, overlays = _fixture()
     cmds = build_pipe_commands(

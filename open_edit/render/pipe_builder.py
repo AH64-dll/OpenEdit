@@ -56,7 +56,22 @@ def overlay_filter_chain(
     ``burn_overlays`` helper). Returns one filter per overlay
     window; the caller joins with ``;`` and maps the last label ``[vout]``."""
     filters: list[str] = []
-    last = "[0:v]"
+    blur_windows = [
+        (ov.position_sec, ov.position_sec + ov.duration_sec)
+        for ov in overlays
+        if ov.blur_under
+    ]
+    if blur_windows:
+        # Blur base only during focus windows; sharp elsewhere.
+        enable = "+".join(
+            f"between(t\\,{start:.3f}\\,{end:.3f})" for start, end in blur_windows
+        )
+        filters.append(
+            f"[0:v]split=2[sharp][toblur];"
+            f"[toblur]boxblur=20:10[blurred];"
+            f"[sharp][blurred]overlay=0:0:enable='{enable}'[base]"
+        )
+    last = "[base]" if blur_windows else "[0:v]"
     for i, ov in enumerate(overlays, start=1):
         end = ov.position_sec + ov.duration_sec
         out_label = f"[v{i}]" if i < len(overlays) else "[vout]"

@@ -126,5 +126,12 @@ def test_render_cache_key_composes() -> None:
     from open_edit.render.cache import render_cache_key
 
     key = render_cache_key("hash1", "1080p30|q=standard|enc=gpu")
-    assert key == "hash1|1080p30|q=standard|enc=gpu"
+    assert key == "hash1_1080p30_q=standard_enc=gpu"
     assert key != render_cache_key("hash1", "720p30|q=fast|enc=gpu")
+
+
+def test_render_cache_key_is_windows_safe() -> None:
+    from open_edit.render.cache import render_cache_key
+
+    key = render_cache_key("hash1", "1080p30|q=standard|enc=gpu")
+    assert "|" not in key

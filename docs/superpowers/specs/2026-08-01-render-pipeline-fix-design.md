@@ -126,7 +126,7 @@ module-level flag, emit nothing.
 |---|---|
 | CLI `open_edit render` | `--quality --crf --vb --preset --scale --codec` flags -> `render_project` |
 | REST `POST /api/projects/{id}/render` | `RenderRequest` gains the same fields; `render_jobs` gains `params_json` column (same ALTER-TABLE migration pattern as render_jobs.py:110); `_launch` passes params to the CLI |
-| Agent tool | New `pyagent_render` in `agent/tools/` (mode, profile, quality, overrides, encoder) -> enqueue via `DEFAULT_RENDER_JOB_SERVICE` (layering-legal: agent -> kernel), poll, return job status/output; registered in `TOOL_TABLE` + `tool_schemas` |
+| Agent tool | New `pyagent_render` in `agent/tools/` (mode, profile, quality, overrides, encoder) -> enqueue via `DEFAULT_RENDER_JOB_SERVICE` (layering-legal: agent -> kernel), poll, return job status/output; registered in `TOOL_TABLE` + `tool_schemas` (implemented by extending the existing trigger_render virtual tool rather than a new tool) |
 
 ## Error handling
 
