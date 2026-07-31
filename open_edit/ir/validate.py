@@ -14,20 +14,27 @@ from open_edit.ir.types import (
     AddRemotionCompositionOp,
     AddTransitionOp,
     ChangeClipSpeedOp,
+    GroupEditsOp,
     MoveClipOp,
     NormalizeAudioOp,
     OperationUnion,
     Project,
     RemoveClipOp,
+    RemoveEffectOp,
+    RemoveKeyframeOp,
     RemoveRemotionCompositionOp,
+    RemoveTransitionOp,
     ReplaceClipSourceOp,
     RippleDeleteClipOp,
     SetAudioGainOp,
     SetClipSpeedRampOp,
+    SetEffectParamOp,
     SetKeyframeOp,
+    SetTransitionPropertyOp,
     SlipClipOp,
     SplitClipOp,
     TrimClipOp,
+    UngroupEditsOp,
 )
 
 if TYPE_CHECKING:
@@ -255,7 +262,208 @@ def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
     return clips, effects
 
 
-def validate_op_references(op: OperationUnion, project: Project) -> list[str]:
+def _effects_for_clip(timeline, clip_id: str) -> list:
+    """The effects attached to ``clip_id`` in a timeline ([] if unknown)."""
+    for t in timeline.tracks:
+        for c in t.clips:
+            if c.clip_id == clip_id:
+                return c.effects
+    return []
+
+
+def _timeline_ids(timeline) -> tuple[set[str], set[str], set[str]]:
+    """Clip / effect / track ids present in a derived timeline.
+
+    Unlike ``_known_ids_from_ops`` (a tolerant op-replay mirror), this is the
+    actual derived state: effects created by ``AddTransitionOp`` (stored as
+    ``transition_*`` effects on clip_a) are visible here, and clips that a
+    chain of ops removed / split away are gone.
+    """
+    clip_ids: set[str] = set()
+    effect_ids: set[str] = set()
+    for t in timeline.tracks:
+        for c in t.clips:
+            clip_ids.add(c.clip_id)
+            for e in c.effects:
+                effect_ids.add(e.effect_id)
+        for e in t.effects:
+            effect_ids.add(e.effect_id)
+    track_ids: set[str] = {t.track_id for t in timeline.tracks}
+    return clip_ids, effect_ids, track_ids
+
+
+def _validate_references_strict(op: OperationUnion, project: Project, timeline) -> list[str]:
+    """Strict reference checks (sandbox parity), returning error strings.
+
+    This is the historical ``_validate_references`` from
+    ``agent/sandbox_bridge.py`` transcribed verbatim (raise -> error string):
+    identity is timeline-derived (a batch op referencing a clip created
+    earlier in the SAME batch passes because the caller passes the growing
+    timeline), asset existence is enforced for ``AddClipOp`` /
+    ``ReplaceClipSourceOp``, effects are index/param-checked, group labels
+    come from the stored edit graph (not the working timeline), and every op
+    must carry a non-None ``parent_id`` (the IR build path stamps it).
+    """
+    errors: list[str] = []
+    asset_hashes = set(project.assets)
+    track_ids = {t.track_id for t in timeline.tracks}
+    clip_ids, effect_ids, _ = _timeline_ids(timeline)
+
+    edit_ids: set[str] = set()
+    group_labels: set[str] = set()
+    for e in project.edit_graph:
+        edit_ids.add(e.edit_id)
+        if isinstance(e, GroupEditsOp):
+            group_labels.add(e.label)
+
+    # ---- clip-targeting ops (clip_id must exist) ----
+    if isinstance(op, (
+        TrimClipOp, MoveClipOp, RemoveClipOp,
+        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
+        SetClipSpeedRampOp, SetAudioGainOp,
+    )):
+        if op.clip_id not in clip_ids:
+            errors.append(f"clip_id {op.clip_id!r} not in project")
+
+    # ---- AddClipOp: asset must exist; track is auto-created ----
+    if isinstance(op, AddClipOp):
+        if op.asset_hash not in asset_hashes:
+            errors.append(f"asset_hash {op.asset_hash!r} not in project")
+        # AddClipOp auto-creates the track via _get_or_create_track, so we
+        # do NOT pre-validate track_id here. The first op on a new track
+        # would otherwise be rejected before the track is created.
+
+    # ---- transitions ----
+    if isinstance(op, AddTransitionOp):
+        if op.clip_a_id not in clip_ids:
+            errors.append(f"clip_a_id {op.clip_a_id!r} not in project")
+        if op.clip_b_id not in clip_ids:
+            errors.append(f"clip_b_id {op.clip_b_id!r} not in project")
+    if isinstance(op, (RemoveTransitionOp, SetTransitionPropertyOp)):
+        # Transitions are stored as Effects on clip_a (effect_type starts
+        # with "transition_"). Validate against effect_ids which includes them.
+        if op.transition_id not in effect_ids:
+            errors.append(f"transition_id {op.transition_id!r} not in project")
+
+    # ---- effects ----
+    if isinstance(op, AddEffectOp):
+        if op.target_kind == "clip":
+            if op.target_id not in clip_ids:
+                errors.append(f"target_id {op.target_id!r} not in project")
+        elif op.target_kind == "track":
+            if op.target_id not in track_ids:
+                errors.append(f"target_id {op.target_id!r} not in project")
+        else:
+            errors.append(
+                f"AddEffectOp.target_kind must be 'clip' or 'track', "
+                f"got {op.target_kind!r}"
+            )
+    if isinstance(op, RemoveEffectOp):
+        if op.clip_id not in clip_ids:
+            errors.append(f"clip_id {op.clip_id!r} not in project")
+        effects = _effects_for_clip(timeline, op.clip_id)
+        if not (0 <= op.effect_index < len(effects)):
+            errors.append(
+                f"effect_index {op.effect_index} out of range for clip "
+                f"{op.clip_id!r} (has {len(effects)} effects)"
+            )
+    if isinstance(op, SetEffectParamOp):
+        if op.clip_id not in clip_ids:
+            errors.append(f"clip_id {op.clip_id!r} not in project")
+        effects = _effects_for_clip(timeline, op.clip_id)
+        if not (0 <= op.effect_index < len(effects)):
+            errors.append(
+                f"effect_index {op.effect_index} out of range for clip "
+                f"{op.clip_id!r} (has {len(effects)} effects)"
+            )
+        else:
+            # Validate param_name exists in the effect's params dict.
+            eff = effects[op.effect_index]
+            if op.param_name not in eff.params:
+                errors.append(
+                    f"param_name {op.param_name!r} not in effect {eff.effect_id!r} "
+                    f"(has params: {sorted(eff.params.keys())})"
+                )
+
+    # ---- keyframes ----
+    if isinstance(op, SetKeyframeOp):
+        if op.effect_id not in effect_ids:
+            errors.append(f"effect_id {op.effect_id!r} not in project")
+    if isinstance(op, RemoveKeyframeOp):
+        if op.effect_id not in effect_ids:
+            errors.append(f"effect_id {op.effect_id!r} not in project")
+        # Look up the effect to check param + frame.
+        target = None
+        for t in timeline.tracks:
+            for c in t.clips:
+                for eff in c.effects:
+                    if eff.effect_id == op.effect_id:
+                        target = eff
+                        break
+                if target is not None:
+                    break
+            if target is not None:
+                break
+        if target is None:
+            for t in timeline.tracks:
+                for eff in t.effects:
+                    if eff.effect_id == op.effect_id:
+                        target = eff
+                        break
+                if target is not None:
+                    break
+        if target is not None:
+            if op.param not in target.keyframes:
+                errors.append(
+                    f"param {op.param!r} not in effect {op.effect_id!r} "
+                    f"keyframes (has: {sorted(target.keyframes.keys())})"
+                )
+
+    # ---- source-replacement ----
+    if isinstance(op, ReplaceClipSourceOp):
+        if op.clip_id not in clip_ids:
+            errors.append(f"clip_id {op.clip_id!r} not in project")
+        if op.new_asset_hash not in asset_hashes:
+            errors.append(f"asset_hash {op.new_asset_hash!r} not in project")
+
+    # ---- audio normalize ----
+    if isinstance(op, NormalizeAudioOp):
+        if op.target_kind == "clip":
+            if op.target_id not in clip_ids:
+                errors.append(f"target_id {op.target_id!r} not in project")
+        elif op.target_kind == "track":
+            if op.target_id not in track_ids:
+                errors.append(f"target_id {op.target_id!r} not in project")
+        else:
+            errors.append(
+                f"NormalizeAudioOp.target_kind must be 'clip' or 'track', "
+                f"got {op.target_kind!r}"
+            )
+
+    # ---- groups ----
+    if isinstance(op, GroupEditsOp):
+        for eid in op.edit_ids:
+            if eid not in edit_ids:
+                errors.append(f"edit_id {eid!r} not in project edit_graph")
+    if isinstance(op, UngroupEditsOp):
+        if op.label not in group_labels:
+            errors.append(f"group label {op.label!r} not in project")
+
+    # ---- RawMltXmlOp + FreeFormCodeOp: no reference check (free-form) ----
+
+    if op.parent_id is None:
+        errors.append("op has no parent_id (IR class should stamp at build time)")
+
+    return errors
+
+
+def validate_op_references(
+    op: OperationUnion,
+    project: Project,
+    strict: bool = False,
+    *,
+    timeline=None,
+) -> list[str]:
     """Reference-integrity check only (used at the append / vault door).
 
     Ensures a clip / transition / effect target actually exists in the
@@ -267,7 +475,20 @@ def validate_op_references(op: OperationUnion, project: Project) -> list[str]:
     membership — those are enforced by the sandbox layer and at render time,
     so the agent stays free to operate. Returns a list of error strings
     (empty = valid).
+
+    With ``strict=True`` the full sandbox-parity check set runs instead
+    (timeline-derived clip / effect / track identity, asset existence,
+    transition-id, effect-index / param_name, group-label and parent-id
+    checks; see ``_validate_references_strict``). ``timeline`` may be passed
+    in so a batch of ops can be validated incrementally against the growing
+    working timeline; when omitted it is derived from ``project``.
     """
+    if strict:
+        if timeline is None:
+            from open_edit.ir.apply import derive_timeline
+            timeline = derive_timeline(project)
+        return _validate_references_strict(op, project, timeline)
+
     errors: list[str] = []
     known_clips, known_effects = _known_ids_from_ops(project.edit_graph)
 

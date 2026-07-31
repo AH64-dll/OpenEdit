@@ -892,7 +892,10 @@ def test_run_render_success_returns_ok_result(tmp_path):
 
 
 # =========================================================================
-# I2 (final-fixes): _validate_references must cover all 24 op types.
+# I2 (final-fixes, Task 3.4): reference validation lives in ir/validate.py
+# (validate_op_references strict mode); the sandbox maps its error strings
+# to OpValidationError. These tests exercise the shared checker via the IR
+# contract (returned error strings) plus the sandbox mapping.
 # =========================================================================
 
 def _build_minimal_timeline(tmp_path):
@@ -944,13 +947,11 @@ def _build_minimal_timeline(tmp_path):
 
 
 def test_validate_references_missing_clip_op_raises(tmp_path):
-    """I2: ops that reference a clip_id not in the project must raise."""
-    from open_edit.ir.types import TrimClipOp, MoveClipOp, RemoveClipOp
-    from open_edit.agent.sandbox_bridge import _validate_references
-    from open_edit.ir.types import new_id
+    """I2: ops that reference a clip_id not in the project must be rejected."""
+    from open_edit.ir.types import MoveClipOp, RemoveClipOp, TrimClipOp, new_id
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     for cls in (TrimClipOp, MoveClipOp, RemoveClipOp):
         if cls is MoveClipOp:
@@ -964,21 +965,24 @@ def test_validate_references_missing_clip_op_raises(tmp_path):
                 clip_id="no_such_clip",
                 **({"new_in_point_sec": 0.0, "new_out_point_sec": 1.0} if cls is TrimClipOp else {}),
             )
-        with pytest.raises(ReferenceError, match="clip_id"):
-            _validate_references(op, timeline, assets, edit_graph)
+        errors = validate_op_references(op, project, strict=True)
+        assert any("clip_id" in e for e in errors), f"{cls.__name__}: {errors}"
 
 
 def test_validate_references_slip_ripple_speed_split_ramp_raises(tmp_path):
     """I2: SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
     SetClipSpeedRampOp must validate clip_id."""
     from open_edit.ir.types import (
-        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
-        SetClipSpeedRampOp, new_id,
+        ChangeClipSpeedOp,
+        RippleDeleteClipOp,
+        SetClipSpeedRampOp,
+        SlipClipOp,
+        SplitClipOp,
+        new_id,
     )
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     bad = {
         "slip": SlipClipOp(edit_id=new_id(), author="ai", parent_id="p1",
@@ -993,25 +997,24 @@ def test_validate_references_slip_ripple_speed_split_ramp_raises(tmp_path):
                                     clip_id="nope"),
     }
     for name, op in bad.items():
-        with pytest.raises(ReferenceError, match="clip_id"):
-            _validate_references(op, timeline, assets, edit_graph)
+        errors = validate_op_references(op, project, strict=True)
+        assert any("clip_id" in e for e in errors), f"{name}: {errors}"
 
 
 def test_validate_references_add_transition_missing_clip_raises(tmp_path):
-    """I2: AddTransitionOp with missing clip_a_id or clip_b_id must raise."""
+    """I2: AddTransitionOp with missing clip_a_id or clip_b_id must be rejected."""
     from open_edit.ir.types import AddTransitionOp, new_id
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     op = AddTransitionOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         clip_a_id="nope_a", clip_b_id="nope_b",
         transition_type="luma", duration_sec=0.5,
     )
-    with pytest.raises(ReferenceError, match="clip_a_id"):
-        _validate_references(op, timeline, assets, edit_graph)
+    errors = validate_op_references(op, project, strict=True)
+    assert any("clip_a_id" in e for e in errors)
 
 
 def test_validate_references_transition_ops_validate_id(tmp_path):
@@ -1020,12 +1023,13 @@ def test_validate_references_transition_ops_validate_id(tmp_path):
     Transitions are stored as Effect on the clip. We test by giving a bogus id.
     """
     from open_edit.ir.types import (
-        RemoveTransitionOp, SetTransitionPropertyOp, new_id,
+        RemoveTransitionOp,
+        SetTransitionPropertyOp,
+        new_id,
     )
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     for cls in (RemoveTransitionOp, SetTransitionPropertyOp):
         kwargs = {"edit_id": new_id(), "author": "ai", "parent_id": "p1",
@@ -1033,25 +1037,25 @@ def test_validate_references_transition_ops_validate_id(tmp_path):
         if cls is SetTransitionPropertyOp:
             kwargs.update({"prop_name": "x", "value": "y"})
         op = cls(**kwargs)
-        with pytest.raises(ReferenceError, match="transition_id"):
-            _validate_references(op, timeline, assets, edit_graph)
+        errors = validate_op_references(op, project, strict=True)
+        assert any("transition_id" in e for e in errors), f"{cls.__name__}: {errors}"
 
 
 def test_validate_references_remove_set_effect_validates_clip_index(tmp_path):
-    """I2: RemoveEffectOp + SetEffectParamOp must validate clip_id and effect_index."""
+    """I2: RemoveEffectOp + SetEffectParamOp must validate clip_id, effect_index,
+    and (for SetEffectParamOp) param_name."""
     from open_edit.ir.types import RemoveEffectOp, SetEffectParamOp, new_id
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, timeline, _ = _build_minimal_timeline(tmp_path)
 
     # missing clip
     op_bad_clip = RemoveEffectOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         clip_id="nope", effect_index=0,
     )
-    with pytest.raises(ReferenceError, match="clip_id"):
-        _validate_references(op_bad_clip, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_clip, project, strict=True)
+    assert any("clip_id" in e for e in errors)
 
     # valid clip but invalid index
     real_clip_id = timeline.tracks[0].clips[0].clip_id
@@ -1059,8 +1063,8 @@ def test_validate_references_remove_set_effect_validates_clip_index(tmp_path):
         edit_id=new_id(), author="ai", parent_id="p1",
         clip_id=real_clip_id, effect_index=999,
     )
-    with pytest.raises(ReferenceError, match="effect_index"):
-        _validate_references(op_bad_idx, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_idx, project, strict=True)
+    assert any("effect_index" in e for e in errors)
 
     # SetEffectParamOp: bad param name
     op_bad_param = SetEffectParamOp(
@@ -1068,42 +1072,48 @@ def test_validate_references_remove_set_effect_validates_clip_index(tmp_path):
         clip_id=real_clip_id, effect_index=0,
         param_name="nonexistent_param", value="1",
     )
-    with pytest.raises(ReferenceError, match="param_name"):
-        _validate_references(op_bad_param, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_param, project, strict=True)
+    assert any("param_name" in e for e in errors)
 
 
 def test_validate_references_remove_keyframe_validates(tmp_path):
-    """I2: RemoveKeyframeOp must validate effect_id, param, and frame."""
+    """I2: RemoveKeyframeOp must validate effect_id and the param on the effect."""
     from open_edit.ir.types import RemoveKeyframeOp, new_id
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     # missing effect_id
     op_bad_eff = RemoveKeyframeOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         effect_id="nope", param="gain", frame=1.0,
     )
-    with pytest.raises(ReferenceError, match="effect_id"):
-        _validate_references(op_bad_eff, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_eff, project, strict=True)
+    assert any("effect_id" in e for e in errors)
+
+    # known effect but param never keyframed
+    op_bad_param = RemoveKeyframeOp(
+        edit_id=new_id(), author="ai", parent_id="p1",
+        effect_id="effect_xyz", param="gain", frame=1.0,
+    )
+    errors = validate_op_references(op_bad_param, project, strict=True)
+    assert any("param" in e for e in errors), f"{errors}"
 
 
 def test_validate_references_replace_clip_source_validates(tmp_path):
     """I2: ReplaceClipSourceOp must validate clip_id AND new_asset_hash."""
     from open_edit.ir.types import ReplaceClipSourceOp, new_id
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {"asset_abc": type("A", (), {"asset_hash": "asset_abc"})()}
+    project, timeline, _ = _build_minimal_timeline(tmp_path)
 
     # bad clip
     op_bad_clip = ReplaceClipSourceOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         clip_id="nope", new_asset_hash="asset_abc",
     )
-    with pytest.raises(ReferenceError, match="clip_id"):
-        _validate_references(op_bad_clip, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_clip, project, strict=True)
+    assert any("clip_id" in e for e in errors)
 
     real_clip_id = timeline.tracks[0].clips[0].clip_id
     # bad asset
@@ -1111,74 +1121,72 @@ def test_validate_references_replace_clip_source_validates(tmp_path):
         edit_id=new_id(), author="ai", parent_id="p1",
         clip_id=real_clip_id, new_asset_hash="not_in_project",
     )
-    with pytest.raises(ReferenceError, match="asset_hash"):
-        _validate_references(op_bad_asset, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_asset, project, strict=True)
+    assert any("asset_hash" in e for e in errors)
 
 
 def test_validate_references_normalize_audio_validates_target(tmp_path):
     """I2: NormalizeAudioOp must validate target_id (clip or track)."""
     from open_edit.ir.types import NormalizeAudioOp, new_id
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     # clip with bad id
     op_bad_clip = NormalizeAudioOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         target_kind="clip", target_id="nope", target_dbfs=-16.0,
     )
-    with pytest.raises(ReferenceError, match="target_id"):
-        _validate_references(op_bad_clip, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_clip, project, strict=True)
+    assert any("target_id" in e for e in errors)
 
     # track with bad id
     op_bad_track = NormalizeAudioOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         target_kind="track", target_id="nope", target_dbfs=-16.0,
     )
-    with pytest.raises(ReferenceError, match="target_id"):
-        _validate_references(op_bad_track, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_track, project, strict=True)
+    assert any("target_id" in e for e in errors)
 
     # unknown kind
     op_bad_kind = NormalizeAudioOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         target_kind="project", target_id="nope", target_dbfs=-16.0,
     )
-    with pytest.raises(ReferenceError, match="target_kind"):
-        _validate_references(op_bad_kind, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_kind, project, strict=True)
+    assert any("target_kind" in e for e in errors)
 
 
 def test_validate_references_group_ungroup_validates(tmp_path):
     """I2: GroupEditsOp + UngroupEditsOp must validate."""
     from open_edit.ir.types import GroupEditsOp, UngroupEditsOp, new_id
-    from open_edit.agent.sandbox_bridge import _validate_references
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     # group with non-existent edit_id
     op_bad_edit = GroupEditsOp(
         edit_id=new_id(), author="ai", parent_id="p1",
         edit_ids=["no_such_edit"], label="g1",
     )
-    with pytest.raises(ReferenceError, match="edit_id"):
-        _validate_references(op_bad_edit, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_edit, project, strict=True)
+    assert any("edit_id" in e for e in errors)
 
     # ungroup with non-existent label
     op_bad_label = UngroupEditsOp(
         edit_id=new_id(), author="ai", parent_id="p1", label="no_such_group",
     )
-    with pytest.raises(ReferenceError, match="label"):
-        _validate_references(op_bad_label, timeline, assets, edit_graph)
+    errors = validate_op_references(op_bad_label, project, strict=True)
+    assert any("label" in e for e in errors)
 
 
 def test_validate_references_raw_mlt_and_free_form_skip(tmp_path):
-    """I2: RawMltXmlOp and FreeFormCodeOp need no reference check."""
-    from open_edit.ir.types import RawMltXmlOp, FreeFormCodeOp, new_id
-    from open_edit.agent.sandbox_bridge import _validate_references
+    """I2: RawMltXmlOp and FreeFormCodeOp need no reference check — only the
+    parent_id stamp check (which both pass)."""
+    from open_edit.ir.types import FreeFormCodeOp, RawMltXmlOp, new_id
+    from open_edit.ir.validate import validate_op_references
 
-    _, timeline, edit_graph = _build_minimal_timeline(tmp_path)
-    assets = {}
+    project, _, _ = _build_minimal_timeline(tmp_path)
 
     op_raw = RawMltXmlOp(
         edit_id=new_id(), author="ai", parent_id="p1",
@@ -1188,14 +1196,83 @@ def test_validate_references_raw_mlt_and_free_form_skip(tmp_path):
         edit_id=new_id(), author="ai", parent_id="p1",
         code="pass",
     )
-    # Should not raise ReferenceError; they only trigger the parent_id check
-    # (which both pass). The catch is the lack of op-level reference check.
-    # We use a dummy parent_id to avoid the parent_id check.
-    op_raw.parent_id = "p1"
-    op_free.parent_id = "p1"
     # No reference error means validation passed.
-    _validate_references(op_raw, timeline, assets, edit_graph)
-    _validate_references(op_free, timeline, assets, edit_graph)
+    assert validate_op_references(op_raw, project, strict=True) == []
+    assert validate_op_references(op_free, project, strict=True) == []
+    # Without the IR-stamped parent_id the op is rejected.
+    op_raw.parent_id = None
+    errors = validate_op_references(op_raw, project, strict=True)
+    assert any("parent_id" in e for e in errors)
+
+
+def test_validate_ops_incrementally_raises_via_op_validation_error(tmp_path):
+    """Task 3.4: the sandbox surfaces reference failures as OpValidationError
+    (the IR reference-error type), wrapped in the line-numbered
+    _ValidationError — no bare ReferenceError."""
+    from open_edit.agent.exceptions import _ValidationError
+    from open_edit.agent.sandbox_bridge import _validate_ops_incrementally
+    from open_edit.ir.types import TrimClipOp, new_id
+    from open_edit.ir.validate import OpValidationError
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    EditGraphStore(workdir / "edit_graph.db")
+    (workdir / "assets").mkdir()
+
+    ops_path = workdir / "ops.jsonl"
+    op = TrimClipOp(
+        edit_id=new_id(), author="ai", parent_id="p1",
+        clip_id="nope", new_in_point_sec=0.0, new_out_point_sec=1.0,
+    )
+    ops_path.write_text(op.model_dump_json() + "\n")
+
+    with pytest.raises(_ValidationError) as exc_info:
+        _validate_ops_incrementally(ops_path, workdir)
+    assert isinstance(exc_info.value.__cause__, OpValidationError)
+    assert "clip_id 'nope' not in project" in str(exc_info.value)
+
+
+def test_validate_ops_incrementally_accepts_same_batch_chain(tmp_path):
+    """C6: a batch op may reference a clip created by an EARLIER op in the
+    SAME batch — validation runs against the growing working timeline, not
+    just the stored graph."""
+    from open_edit.agent.sandbox_bridge import _validate_ops_incrementally
+    from open_edit.ir.types import AddClipOp, TrimClipOp, new_id
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    EditGraphStore(workdir / "edit_graph.db")
+    h = "ab" * 32
+    assets_dir = workdir / "assets"
+    (assets_dir / h[:2]).mkdir(parents=True)
+    asset = Asset(
+        asset_hash=h, original_path="/x.mp4", stored_path="/x",
+        type="video", duration_sec=10.0,
+    )
+    (assets_dir / h[:2] / (h + ".meta.json")).write_text(asset.model_dump_json())
+
+    first = AddClipOp(
+        edit_id=new_id(), author="ai", parent_id="p1",
+        asset_hash=h, track_id="t1", position_sec=0.0,
+        in_point_sec=0.0, out_point_sec=5.0,
+    )
+    second = AddClipOp(
+        edit_id=new_id(), author="ai", parent_id="p1",
+        asset_hash=h, track_id="t1", position_sec=5.0,
+        in_point_sec=0.0, out_point_sec=5.0,
+    )
+    trim = TrimClipOp(
+        edit_id=new_id(), author="ai", parent_id="p1",
+        clip_id=second.clip_id, new_in_point_sec=0.0, new_out_point_sec=4.0,
+    )
+
+    ops_path = workdir / "ops.jsonl"
+    ops_path.write_text(
+        "\n".join(o.model_dump_json() for o in (first, second, trim)) + "\n"
+    )
+
+    ops, _ = _validate_ops_incrementally(ops_path, workdir)
+    assert [type(o).__name__ for o in ops] == ["AddClipOp", "AddClipOp", "TrimClipOp"]
 
 
 def test_load_assets_via_store_includes_unreferenced_assets(tmp_path):

@@ -54,15 +54,9 @@ from open_edit.agent.libs import (
 )
 from open_edit.ir.api import IR
 from open_edit.ir.apply import apply_operation, derive_timeline
+from open_edit.ir.validate import OpValidationError, validate_op_references
 from open_edit.ir.types import (
     OperationUnion, Project, Asset, new_id,
-    AddClipOp, TrimClipOp, MoveClipOp, RemoveClipOp,
-    AddEffectOp, SetKeyframeOp, SetAudioGainOp,
-    AddTransitionOp, RemoveTransitionOp, SetTransitionPropertyOp,
-    RemoveEffectOp, SetEffectParamOp, RemoveKeyframeOp,
-    SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
-    ReplaceClipSourceOp, SetClipSpeedRampOp, NormalizeAudioOp,
-    GroupEditsOp, UngroupEditsOp,
 )
 from pydantic import TypeAdapter
 from open_edit.storage.assets import AssetStore
@@ -610,7 +604,17 @@ def get_sandbox_backend() -> SandboxBackend:
 
 
 def _validate_ops_incrementally(ops_path: Path, workdir: Path) -> tuple[list, object]:
-    """C6: validate each op against a working-copy timeline, then apply."""
+    """C6: validate each op against a working-copy timeline, then apply.
+
+    Reference validation is delegated to
+    ``open_edit.ir.validate.validate_op_references(op, project, strict=True)``
+    (Task 3.4: the sandbox no longer owns a second reference checker). The
+    growing working timeline is passed in so a batch op may reference a clip
+    created earlier in the SAME batch; group labels / edit ids are still
+    resolved against the stored graph, exactly as before. Violations surface
+    as ``OpValidationError`` (the IR layer's reference-error type) wrapped in
+    a line-numbered ``_ValidationError``.
+    """
     try:
         project = _load_project_for_validation(workdir)
     except Exception as e:
@@ -624,7 +628,9 @@ def _validate_ops_incrementally(ops_path: Path, workdir: Path) -> tuple[list, ob
             continue
         try:
             op = TypeAdapter(OperationUnion).validate_python(json.loads(line))
-            _validate_references(op, timeline, project.assets, project.edit_graph)
+            errors = validate_op_references(op, project, strict=True, timeline=timeline)
+            if errors:
+                raise OpValidationError("; ".join(errors))
             timeline = apply_operation(timeline, op)
             ops.append(op)
         except Exception as e:
@@ -668,185 +674,6 @@ def _load_assets_via_store(store: EditGraphStore, workdir: Path) -> dict[str, As
             continue
         assets[asset.asset_hash] = asset
     return assets
-
-
-def _effects_for_clip(timeline, clip_id: str) -> list:
-    for t in timeline.tracks:
-        for c in t.clips:
-            if c.clip_id == clip_id:
-                return c.effects
-    return []
-
-
-def _validate_references(op: OperationUnion, timeline, assets, edit_graph=None) -> None:
-    """I2 (final-fixes): validate referential integrity for every op type.
-
-    Before the fix only 7 of 24 op classes were checked; ops added in T7
-    (transitions, effect params, slip/ripple/speed, replace-source, speed
-    ramp, normalize, group/ungroup) bypassed validation entirely. An op
-    with a non-existent reference would then silently no-op in
-    apply_operation (or crash). This function now raises ReferenceError
-    for every op type whose targets must exist in the current timeline /
-    asset store / edit graph.
-
-    RawMltXmlOp and FreeFormCodeOp are free-form and need no reference check.
-    """
-    asset_hashes = {a.asset_hash for a in assets.values()}
-    track_ids = {t.track_id for t in timeline.tracks}
-    clip_ids: set[str] = set()
-    effect_ids: set[str] = set()
-    for t in timeline.tracks:
-        for c in t.clips:
-            clip_ids.add(c.clip_id)
-            for e in c.effects:
-                effect_ids.add(e.effect_id)
-        for e in t.effects:
-            effect_ids.add(e.effect_id)
-
-    edit_ids: set[str] = set()
-    group_labels: set[str] = set()
-    if edit_graph is not None:
-        for e in edit_graph:
-            edit_ids.add(e.edit_id)
-            if isinstance(e, GroupEditsOp):
-                group_labels.add(e.label)
-
-    # ---- clip-targeting ops (clip_id must exist) ----
-    if isinstance(op, (
-        TrimClipOp, MoveClipOp, RemoveClipOp,
-        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
-        SetClipSpeedRampOp, SetAudioGainOp,
-    )):
-        if op.clip_id not in clip_ids:
-            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
-
-    # ---- AddClipOp: asset must exist; track is auto-created ----
-    if isinstance(op, AddClipOp):
-        if op.asset_hash not in asset_hashes:
-            raise ReferenceError(f"asset_hash {op.asset_hash!r} not in project")
-        # AddClipOp auto-creates the track via _get_or_create_track, so we
-        # do NOT pre-validate track_id here. The first op on a new track
-        # would otherwise be rejected before the track is created.
-
-    # ---- transitions ----
-    if isinstance(op, AddTransitionOp):
-        if op.clip_a_id not in clip_ids:
-            raise ReferenceError(f"clip_a_id {op.clip_a_id!r} not in project")
-        if op.clip_b_id not in clip_ids:
-            raise ReferenceError(f"clip_b_id {op.clip_b_id!r} not in project")
-    if isinstance(op, (RemoveTransitionOp, SetTransitionPropertyOp)):
-        # Transitions are stored as Effects on clip_a (effect_type starts
-        # with "transition_"). Validate against effect_ids which includes them.
-        if op.transition_id not in effect_ids:
-            raise ReferenceError(f"transition_id {op.transition_id!r} not in project")
-
-    # ---- effects ----
-    if isinstance(op, AddEffectOp):
-        if op.target_kind == "clip":
-            if op.target_id not in clip_ids:
-                raise ReferenceError(f"target_id {op.target_id!r} not in project")
-        elif op.target_kind == "track":
-            if op.target_id not in track_ids:
-                raise ReferenceError(f"target_id {op.target_id!r} not in project")
-        else:
-            raise ReferenceError(
-                f"AddEffectOp.target_kind must be 'clip' or 'track', "
-                f"got {op.target_kind!r}"
-            )
-    if isinstance(op, RemoveEffectOp):
-        if op.clip_id not in clip_ids:
-            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
-        effects = _effects_for_clip(timeline, op.clip_id)
-        if not (0 <= op.effect_index < len(effects)):
-            raise ReferenceError(
-                f"effect_index {op.effect_index} out of range for clip "
-                f"{op.clip_id!r} (has {len(effects)} effects)"
-            )
-    if isinstance(op, SetEffectParamOp):
-        if op.clip_id not in clip_ids:
-            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
-        effects = _effects_for_clip(timeline, op.clip_id)
-        if not (0 <= op.effect_index < len(effects)):
-            raise ReferenceError(
-                f"effect_index {op.effect_index} out of range for clip "
-                f"{op.clip_id!r} (has {len(effects)} effects)"
-            )
-        # Validate param_name exists in the effect's params dict.
-        eff = effects[op.effect_index]
-        if op.param_name not in eff.params:
-            raise ReferenceError(
-                f"param_name {op.param_name!r} not in effect {eff.effect_id!r} "
-                f"(has params: {sorted(eff.params.keys())})"
-            )
-
-    # ---- keyframes ----
-    if isinstance(op, SetKeyframeOp):
-        if op.effect_id not in effect_ids:
-            raise ReferenceError(f"effect_id {op.effect_id!r} not in project")
-    if isinstance(op, RemoveKeyframeOp):
-        if op.effect_id not in effect_ids:
-            raise ReferenceError(f"effect_id {op.effect_id!r} not in project")
-        # Look up the effect to check param + frame.
-        target = None
-        for t in timeline.tracks:
-            for c in t.clips:
-                for eff in c.effects:
-                    if eff.effect_id == op.effect_id:
-                        target = eff
-                        break
-                if target is not None:
-                    break
-            if target is not None:
-                break
-        if target is None:
-            for t in timeline.tracks:
-                for eff in t.effects:
-                    if eff.effect_id == op.effect_id:
-                        target = eff
-                        break
-        if target is not None:
-            if op.param not in target.keyframes:
-                raise ReferenceError(
-                    f"param {op.param!r} not in effect {op.effect_id!r} "
-                    f"keyframes (has: {sorted(target.keyframes.keys())})"
-                )
-
-    # ---- source-replacement ----
-    if isinstance(op, ReplaceClipSourceOp):
-        if op.clip_id not in clip_ids:
-            raise ReferenceError(f"clip_id {op.clip_id!r} not in project")
-        if op.new_asset_hash not in asset_hashes:
-            raise ReferenceError(
-                f"asset_hash {op.new_asset_hash!r} not in project"
-            )
-
-    # ---- audio normalize ----
-    if isinstance(op, NormalizeAudioOp):
-        if op.target_kind == "clip":
-            if op.target_id not in clip_ids:
-                raise ReferenceError(f"target_id {op.target_id!r} not in project")
-        elif op.target_kind == "track":
-            if op.target_id not in track_ids:
-                raise ReferenceError(f"target_id {op.target_id!r} not in project")
-        else:
-            raise ReferenceError(
-                f"NormalizeAudioOp.target_kind must be 'clip' or 'track', "
-                f"got {op.target_kind!r}"
-            )
-
-    # ---- groups ----
-    if isinstance(op, GroupEditsOp):
-        for eid in op.edit_ids:
-            if eid not in edit_ids:
-                raise ReferenceError(f"edit_id {eid!r} not in project edit_graph")
-    if isinstance(op, UngroupEditsOp):
-        if op.label not in group_labels:
-            raise ReferenceError(f"group label {op.label!r} not in project")
-
-    # ---- RawMltXmlOp + FreeFormCodeOp: no reference check (free-form) ----
-
-    if op.parent_id is None:
-        raise ReferenceError("op has no parent_id (IR class should stamp at build time)")
 
 
 def _render_bootstrap(
