@@ -98,6 +98,36 @@ class TestPhase1Integrity(unittest.TestCase):
             self.store.load_timeline_snapshot("hash1"), '{"tracks": []}'
         )
 
+    def test_reorder_family_invalidates_timeline_snapshots(self) -> None:
+        pid = self.store.project_id
+        self.store.save_timeline_snapshot("hash1", pid, '{"tracks": []}')
+        ops = [
+            AddClipOp(
+                author="user",
+                asset_hash=f"h{i}",
+                track_id="v1",
+                position_sec=float(i),
+            )
+            for i in range(3)
+        ]
+        for op in ops:
+            self.store.append(op)
+
+        self.store.reorder(ops[0].edit_id, ops[1].edit_id)
+        self.assertIsNone(self.store.load_timeline_snapshot("hash1"))
+
+        self.store.save_timeline_snapshot("hash1", pid, '{"tracks": []}')
+        self.store.move_arbitrary(ops[2].edit_id, 0)
+        self.assertIsNone(self.store.load_timeline_snapshot("hash1"))
+
+        self.store.save_timeline_snapshot("hash1", pid, '{"tracks": []}')
+        self.store.reorder_all([o.edit_id for o in reversed(ops)])
+        self.assertIsNone(self.store.load_timeline_snapshot("hash1"))
+
+        self.store.save_timeline_snapshot("hash1", pid, '{"tracks": []}')
+        self.store.delete_op(ops[1].edit_id)
+        self.assertIsNone(self.store.load_timeline_snapshot("hash1"))
+
     def test_load_all_preserves_sequence_order(self) -> None:
         ops = [
             AddClipOp(
