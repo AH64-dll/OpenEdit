@@ -30,26 +30,14 @@ class RenderSnapshot(BaseModel):
     label: str = ""
 
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS render_snapshots (
-    version_id      TEXT PRIMARY KEY,
-    project_id      TEXT NOT NULL,
-    edit_graph_hash TEXT NOT NULL,
-    render_path     TEXT NOT NULL,
-    created_at      TEXT NOT NULL,
-    status          TEXT NOT NULL CHECK (status IN ('rendering', 'ready', 'failed')),
-    label           TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_snapshots_project_created ON render_snapshots(project_id, created_at);
-"""
-
-
 class RenderSnapshotStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with open_conn(self.db_path) as con:
-            con.executescript(_SCHEMA)
+            from open_edit.storage.migrations import ensure_schema
+
+            ensure_schema(con)
 
     def append(self, snapshot: RenderSnapshot) -> str:
         with open_conn(self.db_path) as con:

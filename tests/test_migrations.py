@@ -7,7 +7,10 @@ from open_edit.storage.migrations import (
     run_migrations,
 )
 
-EXPECTED_TABLES = {"project_meta", "edits", "jobs"}
+EXPECTED_TABLES = {
+    "project_meta", "edits", "jobs", "edit_status_events", "commands",
+    "timeline_snapshots", "notes", "notes_archive", "render_snapshots",
+}
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
@@ -21,8 +24,9 @@ def test_run_migrations_applies_initial():
     conn = sqlite3.connect(":memory:")
     assert current_version(conn) == 0
     final = run_migrations(conn)
-    assert final == CURRENT_VERSION == 2
-    assert current_version(conn) == 2
+    assert final == CURRENT_VERSION
+    assert final == 5
+    assert current_version(conn) == final
     assert EXPECTED_TABLES <= _tables(conn)
 
 

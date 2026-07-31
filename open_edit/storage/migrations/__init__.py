@@ -19,10 +19,9 @@ import re
 import sqlite3
 from pathlib import Path
 
-CURRENT_VERSION: int = 2
+CURRENT_VERSION: int = 5
 
 MIGRATIONS_DIR = Path(__file__).parent
-_LEGACY_SCHEMA_PATH = MIGRATIONS_DIR.parent / "schema.sql"
 _MIGRATION_RE = re.compile(r"^(\d{4})_.*\.sql$")
 
 __all__ = [
@@ -80,15 +79,10 @@ def run_migrations(conn: sqlite3.Connection) -> int:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> int:
-    """Ensure the full schema exists.
+    """Ensure the full schema exists by applying all versioned migrations.
 
-    Runs the versioned migrations, then, as a safety net, re-applies the legacy
-    ``CREATE TABLE IF NOT EXISTS`` / ``CREATE INDEX IF NOT EXISTS`` statements
-    from ``schema.sql``. This guarantees behavior is unchanged even if a
-    migration file is missing. Returns the current schema version.
+    Idempotent: databases already at ``CURRENT_VERSION`` are left untouched.
+    Returns the current schema version.
     """
     run_migrations(conn)
-    if _LEGACY_SCHEMA_PATH.exists():
-        conn.executescript(_LEGACY_SCHEMA_PATH.read_text())
-        conn.commit()
     return current_version(conn)

@@ -25,7 +25,10 @@ class JobLock:
 
     def __init__(self, edit_graph: EditGraphStore):
         self.db_path = edit_graph.db_path
-        _ensure_schema(self.db_path)
+        with open_conn(self.db_path) as conn:
+            from open_edit.storage.migrations import ensure_schema
+
+            ensure_schema(conn)
 
     def try_acquire(self, kind: str) -> Optional[str]:
         _release_stale_locks(self.db_path)
@@ -64,15 +67,6 @@ class JobLock:
                 }
                 for row in cur.fetchall()
             ]
-
-
-def _ensure_schema(db_path: str | Path) -> None:
-    """Add partial unique index for atomic lock acquire (additive migration)."""
-    with open_conn(db_path) as conn:
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_one_running "
-            "ON jobs(status) WHERE status = 'running'"
-        )
 
 
 def _release_stale_locks(db_path: str | Path) -> None:

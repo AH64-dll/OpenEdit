@@ -6,6 +6,7 @@ from pathlib import Path
 
 from open_edit.ir.types import AddClipOp, RemoveClipOp
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.migrations import CURRENT_VERSION
 
 
 class TestPhase1Integrity(unittest.TestCase):
@@ -20,13 +21,13 @@ class TestPhase1Integrity(unittest.TestCase):
     def _raw(self) -> sqlite3.Connection:
         return sqlite3.connect(str(self.db_path))
 
-    def test_schema_user_version_is_2(self) -> None:
+    def test_schema_user_version_is_current(self) -> None:
         conn = self._raw()
         try:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
         finally:
             conn.close()
-        self.assertEqual(version, 2)
+        self.assertEqual(version, CURRENT_VERSION)
 
     def test_append_writes_status_event(self) -> None:
         op = AddClipOp(

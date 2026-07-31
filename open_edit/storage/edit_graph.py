@@ -26,9 +26,6 @@ from open_edit.storage.timeline_cache import TimelineSnapshotStore
 _APPEND_LOCK = threading.Lock()
 
 
-SCHEMA_PATH = Path(__file__).parent / "schema.sql"
-
-
 class GraphRevisionConflict(RuntimeError):
     """Raised when a mutation was composed against an obsolete graph revision."""
 
