@@ -571,7 +571,7 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
         raise HTTPException(status_code=400, detail="mode must be 'proxy', 'final', or 'overlay'")
 
     project_path = Path(state.path)
-    from .render_service import RenderEnqueueError
+    from open_edit.kernel.render_service import RenderEnqueueError
 
     encoder = (req.encoder or "").strip().lower() or None
     if encoder not in (None, "gpu", "cpu"):

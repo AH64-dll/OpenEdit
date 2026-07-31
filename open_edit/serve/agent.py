@@ -38,7 +38,7 @@ from .project_meta import is_verify_disabled
 from .providers import resolve_provider
 from .result_capper import cap_tool_result
 from .serve_env import get_visual_verify_config
-from .tool_schemas import (
+from open_edit.kernel.tool_schemas import (
     IR_MODEL_SUMMARY,
     TOOL_SCHEMAS,
     TOOL_USAGE_GUIDE,
@@ -377,7 +377,7 @@ def _build_system_prompt(state: projects_mod.ProjectState, supports_tools: bool 
 # because the canonical public surface uses these names. ``ToolNotFound``
 # is re-exported for callers that previously imported it from this module.
 import inspect  # noqa: E402, I001
-from .tool_executor import (  # noqa: E402, F401
+from open_edit.kernel.tool_executor import (  # noqa: E402, F401
     ToolNotFound,
     execute_tool as _execute_agent_tool,
     execute_trigger_render as _execute_trigger_render,
