@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-from open_edit.render.encoder import ffmpeg_video_args
+from open_edit.render.encoder import select_encoder
 
 
 class GraphicsOverlayError(RuntimeError):
@@ -111,11 +111,12 @@ def burn_overlays(
         last = f"[v{i}]"
 
     audio_bitrate = "320k" if final else "192k"
+    spec = select_encoder(encoder_backend, final=final)
     cmd = [
         "ffmpeg", "-y", *inputs,
         "-filter_complex", ";".join(filters),
         "-map", "[vout]", "-map", "0:a?",
-        *ffmpeg_video_args(encoder_backend, final=final),
+        "-c:v", spec.vcodec, *spec.ffmpeg_args,
         "-c:a", "aac", "-b:a", audio_bitrate,
         str(output_mp4),
     ]

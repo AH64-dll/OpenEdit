@@ -2,28 +2,52 @@
 
 Resolves the best available hardware encoder at runtime and exposes a
 stable API for melt consumers and ffmpeg overlay passes.
+
+``select_encoder`` is the single source for per-encoder quality args:
+one policy, rendered in both arg dialects (melt ``key=value`` consumer
+args and ffmpeg flags). ``profiles`` consumes ``EncoderSpec.melt_args``
+and ``graphics_overlay`` consumes ``EncoderSpec.ffmpeg_args``.
 """
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
+from dataclasses import dataclass
 from typing import Literal
 
 EncoderBackend = Literal["gpu", "cpu"]
 
-# Preference order when backend=gpu.
-_GPU_CANDIDATES: tuple[tuple[str, list[str]], ...] = (
-    ("h264_nvenc", ["-preset", "p4", "-rc", "constqp", "-cq", "20", "-profile:v", "high"]),
-    ("h264_amf", ["-quality", "balanced", "-rc", "cqp", "-qp_i", "20", "-qp_p", "20"]),
-    ("h264_qsv", ["-preset", "medium", "-global_quality", "20"]),
-    ("h264_vaapi", ["-qp", "20"]),
-)
+# GPU encoders probed in preference order when backend=gpu.
+_GPU_ORDER: tuple[str, ...] = ("h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi")
 
-_GPU_FINAL: tuple[tuple[str, list[str]], ...] = (
-    (
+
+@dataclass(frozen=True)
+class EncoderSpec:
+    """Quality args for one encoder, rendered in both arg dialects.
+
+    ``melt_args`` are ``key=value`` consumer args; ``ffmpeg_args`` are
+    ffmpeg flags (without ``-c:v``). Each dialect keeps its own value
+    spellings for the same policy (e.g. melt ``b=10M`` vs ffmpeg
+    ``-b:v 10M``, melt proxy ``cq=23`` vs ffmpeg preview ``-cq 20``).
+    """
+    vcodec: str
+    melt_args: tuple[str, ...]
+    ffmpeg_args: tuple[str, ...]
+
+
+# key: (vcodec, final) -> EncoderSpec. final=True is the deliverable
+# render; final=False is the fast proxy/preview pass.
+_SPECS: dict[tuple[str, bool], EncoderSpec] = {
+    ("h264_nvenc", False): EncoderSpec(
         "h264_nvenc",
-        [
+        melt_args=("rc=constqp", "cq=23", "preset=p4"),
+        ffmpeg_args=("-preset", "p4", "-rc", "constqp", "-cq", "20", "-profile:v", "high"),
+    ),
+    ("h264_nvenc", True): EncoderSpec(
+        "h264_nvenc",
+        melt_args=("rc=vbr", "b=10M", "maxrate=14M", "bufsize=20M", "preset=p5", "bf=2"),
+        ffmpeg_args=(
             "-preset", "p5",
             "-rc", "vbr",
             "-b:v", "10M",
@@ -31,12 +55,49 @@ _GPU_FINAL: tuple[tuple[str, list[str]], ...] = (
             "-bufsize", "20M",
             "-profile:v", "high",
             "-bf", "2",
-        ],
+        ),
     ),
-    ("h264_amf", ["-quality", "quality", "-rc", "vbr_peak", "-b:v", "10M", "-maxrate", "14M"]),
-    ("h264_qsv", ["-preset", "medium", "-global_quality", "18"]),
-    ("h264_vaapi", ["-qp", "18"]),
-)
+    ("h264_amf", False): EncoderSpec(
+        "h264_amf",
+        melt_args=(),
+        ffmpeg_args=("-quality", "balanced", "-rc", "cqp", "-qp_i", "20", "-qp_p", "20"),
+    ),
+    ("h264_amf", True): EncoderSpec(
+        "h264_amf",
+        melt_args=("quality=quality", "rc=vbr_peak", "b=10M", "maxrate=14M"),
+        ffmpeg_args=("-quality", "quality", "-rc", "vbr_peak", "-b:v", "10M", "-maxrate", "14M"),
+    ),
+    ("h264_qsv", False): EncoderSpec(
+        "h264_qsv",
+        melt_args=(),
+        ffmpeg_args=("-preset", "medium", "-global_quality", "20"),
+    ),
+    ("h264_qsv", True): EncoderSpec(
+        "h264_qsv",
+        melt_args=("global_quality=18", "preset=medium"),
+        ffmpeg_args=("-preset", "medium", "-global_quality", "18"),
+    ),
+    ("h264_vaapi", False): EncoderSpec(
+        "h264_vaapi",
+        melt_args=(),
+        ffmpeg_args=("-qp", "20"),
+    ),
+    ("h264_vaapi", True): EncoderSpec(
+        "h264_vaapi",
+        melt_args=("crf=18",),
+        ffmpeg_args=("-qp", "18"),
+    ),
+    ("libx264", False): EncoderSpec(
+        "libx264",
+        melt_args=("crf=23", "preset=veryfast"),
+        ffmpeg_args=("-preset", "veryfast", "-crf", "20"),
+    ),
+    ("libx264", True): EncoderSpec(
+        "libx264",
+        melt_args=("crf=18", "preset=medium", "vb=0", "profile=high"),
+        ffmpeg_args=("-preset", "medium", "-crf", "18", "-profile:v", "high"),
+    ),
+}
 
 
 def resolve_backend(requested: str | None = None) -> EncoderBackend:
@@ -83,38 +144,44 @@ def _probe_encoder(vcodec: str, extra: list[str]) -> bool:
     return proc.returncode == 0
 
 
+def select_encoder(backend: str | None = None, *, final: bool = False) -> EncoderSpec:
+    """Resolve the requested backend to an ``EncoderSpec``.
+
+    GPU backends probe the available hardware encoder at runtime and
+    fall back to libx264 when none is present; CPU always yields
+    libx264. ``final`` selects the deliverable (True) or proxy (False)
+    quality policy.
+    """
+    if resolve_backend(backend) == "cpu":
+        return _SPECS[("libx264", final)]
+    for vcodec in _GPU_ORDER:
+        spec = _SPECS[(vcodec, final)]
+        if _probe_encoder(vcodec, list(spec.ffmpeg_args)):
+            return spec
+    return _SPECS[("libx264", final)]
+
+
 def detect_gpu_vcodec(*, final: bool = False) -> tuple[str, list[str]] | None:
     """Return the first working GPU encoder and its quality args."""
-    candidates = _GPU_FINAL if final else _GPU_CANDIDATES
-    for vcodec, extra in candidates:
-        if _probe_encoder(vcodec, extra):
-            return vcodec, extra
+    for vcodec in _GPU_ORDER:
+        spec = _SPECS[(vcodec, final)]
+        if _probe_encoder(vcodec, list(spec.ffmpeg_args)):
+            return vcodec, list(spec.ffmpeg_args)
     return None
 
 
 def resolve_vcodec(backend: str | None = None, *, final: bool = False) -> tuple[str, list[str]]:
     """Return (vcodec, extra_ffmpeg_args) for the requested backend."""
-    if resolve_backend(backend) == "cpu":
-        if final:
-            return "libx264", ["-preset", "medium", "-crf", "18", "-profile:v", "high"]
-        return "libx264", ["-preset", "veryfast", "-crf", "20"]
-    detected = detect_gpu_vcodec(final=final)
-    if detected is not None:
-        return detected
-    if final:
-        return "libx264", ["-preset", "medium", "-crf", "18", "-profile:v", "high"]
-    return "libx264", ["-preset", "veryfast", "-crf", "20"]
+    spec = select_encoder(backend, final=final)
+    return spec.vcodec, list(spec.ffmpeg_args)
 
 
 def apply_profile_vcodec(profile_vcodec: str, backend: str | None = None) -> str:
     """Override a RenderProfile vcodec when backend requests GPU."""
-    if resolve_backend(backend) == "cpu":
-        return "libx264"
-    vcodec, _ = resolve_vcodec(backend)
-    return vcodec
+    return select_encoder(backend, final=False).vcodec
 
 
 def ffmpeg_video_args(backend: str | None = None, *, final: bool = False) -> list[str]:
     """ffmpeg ``-c:v`` and quality flags for overlay / post passes."""
-    vcodec, extra = resolve_vcodec(backend, final=final)
-    return ["-c:v", vcodec, *extra]
+    spec = select_encoder(backend, final=final)
+    return ["-c:v", spec.vcodec, *spec.ffmpeg_args]
