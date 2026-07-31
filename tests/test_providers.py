@@ -120,6 +120,15 @@ def test_every_runtime_registry_entry_derives_from_provider():
         assert rt.name == pspec.label
 
 
+def test_every_provider_has_adapter_and_env_keys():
+    from open_edit.serve.providers import PROVIDERS
+    from open_edit.serve.cli_adapter import get_adapter
+    from open_edit.serve.runtimes.keys_store import env_map
+    for pid in PROVIDERS:
+        assert get_adapter(pid) is not None, pid
+        assert pid in env_map, pid
+
+
 def test_anthropic_and_openai_appear_in_api_llm_config():
     """Regression: Anthropic and OpenAI must be in the available_providers
     list returned by the GET llm-config endpoint."""

@@ -4,6 +4,9 @@ Markdown skills for **any** agent host that drives Open Edit (MCP, built-in
 serve agent, Pi, Claude Code, Cursor, custom loops). Prefer these files over
 exploring `open_edit/**` source.
 
+> Generated — edit `skills/` only. `open_edit/harness_skills/` ships
+> byte-identical copies for wheel installs; do not edit them in place.
+
 ## Start here
 
 | Skill | File | When to load |

@@ -86,10 +86,32 @@ class CLIAdapter(Protocol):
 
 
 class _BaseCLIAdapter:
-    """Shared defaults so SDK stubs and plain-text adapters stay tiny."""
+    """Shared defaults so SDK stubs and plain-text adapters stay tiny.
+
+    Model list, defaults, and tool/image capabilities are derived from
+    the canonical :data:`open_edit.serve.providers.PROVIDERS` registry —
+    an adapter holds only CLI-specific behavior (command construction,
+    event normalization, auth).
+    """
 
     defers_done = False
     check_exit_status = False
+
+    def _spec(self):
+        from .providers import PROVIDERS
+        return PROVIDERS[self.name]
+
+    def default_model(self) -> str:
+        return self._spec().default_model
+
+    def available_models(self) -> list[str]:
+        return list(self._spec().models)
+
+    def supports_tools(self) -> bool:
+        return self._spec().supports_tools
+
+    def supports_images(self) -> bool:
+        return self._spec().supports_images
 
     def extension_path(self) -> str | None:
         return None
@@ -179,24 +201,6 @@ class _PiAdapter(_BaseCLIAdapter):
     default_timeout_s = 3600
     defers_done = True
     check_exit_status = True
-
-    def default_model(self) -> str:
-        return "minimax-m3"
-
-    def available_models(self) -> list[str]:
-        # Hand-curated; pi has no clean introspection.
-        return [
-            "minimax-m3",
-            "minimax-m2.7",
-            "deepseek-v4-flash",
-            "deepseek-v4-pro",
-        ]
-
-    def supports_tools(self) -> bool:
-        return True
-
-    def supports_images(self) -> bool:
-        return True
 
     def manages_own_auth(self) -> bool:
         return True  # reads ~/.pi/agent/auth.json
@@ -399,17 +403,9 @@ class _OpenCodeAdapter(_BaseCLIAdapter):
     name = "opencode"
     default_timeout_s = 3600
 
-    def default_model(self) -> str:
-        return "opencode-go/minimax-m3"
-
     def available_models(self) -> list[str]:
+        """Shell out to ``opencode models`` for live discovery."""
         return _opencode_models_via_cli()
-
-    def supports_tools(self) -> bool:
-        return False  # v1.7: no opencode-side extension yet
-
-    def supports_images(self) -> bool:
-        return False  # v1.7: chat mode only
 
     def manages_own_auth(self) -> bool:
         return True  # reads ~/.local/share/opencode/auth.json
@@ -461,24 +457,6 @@ class _JCodeAdapter(_BaseCLIAdapter):
     """
     name = "jcode"
     default_timeout_s = 3600
-
-    def default_model(self) -> str:
-        from .providers import PROVIDERS
-        spec = PROVIDERS.get("jcode")
-        return spec.default_model if spec and spec.default_model else "jcode-default"
-
-    def available_models(self) -> list[str]:
-        from .providers import PROVIDERS
-        spec = PROVIDERS.get("jcode")
-        if spec and spec.models:
-            return list(spec.models)
-        return ["jcode-default"]
-
-    def supports_tools(self) -> bool:
-        return False
-
-    def supports_images(self) -> bool:
-        return False
 
     def manages_own_auth(self) -> bool:
         return True  # reads ~/.jcode/auth.json
@@ -539,18 +517,6 @@ class _AnthropicAdapter(_BaseCLIAdapter):
     name = "anthropic"
     default_timeout_s = 120
 
-    def default_model(self) -> str:
-        return "claude-sonnet-4-5"
-
-    def available_models(self) -> list[str]:
-        return ["claude-sonnet-4-5", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"]
-
-    def supports_tools(self) -> bool:
-        return True
-
-    def supports_images(self) -> bool:
-        return True
-
     def manages_own_auth(self) -> bool:
         return False
 
@@ -563,18 +529,6 @@ class _OpenAIAdapter(_BaseCLIAdapter):
     name = "openai"
     default_timeout_s = 120
 
-    def default_model(self) -> str:
-        return "gpt-4o"
-
-    def available_models(self) -> list[str]:
-        return ["gpt-4o", "gpt-4o-mini", "o3-mini"]
-
-    def supports_tools(self) -> bool:
-        return True
-
-    def supports_images(self) -> bool:
-        return True
-
     def manages_own_auth(self) -> bool:
         return False
 
@@ -585,22 +539,6 @@ class _OpenAIAdapter(_BaseCLIAdapter):
 class _AntigravityAdapter(_BaseCLIAdapter):
     name = "antigravity"
     default_timeout_s = 3600
-
-    def default_model(self) -> str:
-        return "gemini-2.5-flash"
-
-    def available_models(self) -> list[str]:
-        from .providers import PROVIDERS
-        spec = PROVIDERS.get("antigravity")
-        if spec and spec.models:
-            return list(spec.models)
-        return ["gemini-2.5-flash", "gemini-3.5-flash-high"]
-
-    def supports_tools(self) -> bool:
-        return False
-
-    def supports_images(self) -> bool:
-        return False
 
     def manages_own_auth(self) -> bool:
         return True

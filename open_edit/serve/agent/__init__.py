@@ -62,6 +62,8 @@ from .cost_sidecar import (  # noqa: F401
     _load_cost_state,
     _save_cost_state,
     _save_cost_state_async,
+    accumulate_usage,
+    emit_cost_update,
 )
 from .prompts import (  # noqa: F401
     _build_state_summary,

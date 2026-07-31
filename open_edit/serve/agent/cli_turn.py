@@ -16,6 +16,7 @@ provider.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -27,7 +28,7 @@ from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
 
 from ..llm import _coerce_event
 
-from .cost_sidecar import _SOURCE_PRIORITY, _create_bg_task, _save_cost_state_async
+from .cost_sidecar import accumulate_usage, emit_cost_update
 from .history_store import _make_slim_history
 from .loop import AgentEvent
 
@@ -150,18 +151,7 @@ async def _run_cli_owned_turn(
                         },
                     )
             elif etype == "usage":
-                try:
-                    cost_ctx["turn_tokens"] += int(event.get("tokens", 0) or 0)
-                    cost_ctx["turn_cost_usd"] += float(event.get("cost_usd", 0.0) or 0.0)
-                except (TypeError, ValueError):
-                    pass
-                src = event.get("source", "unavailable")
-                if not isinstance(src, str):
-                    src = "unavailable"
-                prio = _SOURCE_PRIORITY.get(src, _SOURCE_PRIORITY["unavailable"])
-                if prio < cost_ctx["best_source_priority"]:
-                    cost_ctx["best_source_priority"] = prio
-                    cost_ctx["best_source"] = src
+                accumulate_usage(event, cost_ctx)
             elif etype == "error":
                 yield {"type": "error", "message": event.get("message", "provider error")}
             elif etype == "done":
@@ -208,20 +198,4 @@ async def _run_cli_owned_turn(
             _agent_pkg.append_to_conversation(project_id, conv_id, results_msg)
 
     yield {"type": "done", "stop_reason": stop_reason}
-    session_cost_usd = cost_ctx["previous_session_cost"] + cost_ctx["turn_cost_usd"]
-    yield {
-        "type": "cost_update",
-        "turn_tokens": cost_ctx["turn_tokens"],
-        "turn_cost_usd": round(cost_ctx["turn_cost_usd"], 9),
-        "session_cost_usd": round(session_cost_usd, 9),
-        "source": cost_ctx["best_source"],
-    }
-    if conv_id:
-        cost_ctx["cost_state"][conv_id] = {
-            "session_cost_usd": session_cost_usd,
-            "source": cost_ctx["best_source"],
-            "last_turn_cost_usd": cost_ctx["turn_cost_usd"],
-        }
-        _create_bg_task(
-            _save_cost_state_async(project_path, dict(cost_ctx["cost_state"]))
-        )
+    yield emit_cost_update(cost_ctx)

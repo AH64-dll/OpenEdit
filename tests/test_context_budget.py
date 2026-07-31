@@ -70,36 +70,6 @@ def test_truncate_within_budget_unchanged():
     assert result == hist
 
 
-def test_summarize_tool_result_truncates_long_fields():
-    budget = ContextBudget()
-    result = {"stdout": "x" * 5000, "stderr": "", "status": "ok"}
-    capped = budget.summarize_tool_result(result, max_chars=100)
-    assert len(capped["stdout"]) < 200
-    assert capped.get("_truncated") is True
-
-
-def test_summarize_tool_result_caps_lists():
-    budget = ContextBudget()
-    result = {"items": [{"i": n} for n in range(50)]}
-    capped = budget.summarize_tool_result(result)
-    assert len(capped["items"]) <= 21
-    assert capped.get("_truncated") is True
-
-
-def test_summarize_tool_result_small_unchanged():
-    budget = ContextBudget()
-    result = {"status": "ok", "value": 42}
-    capped = budget.summarize_tool_result(result)
-    assert capped == result
-
-
-def test_summarize_tool_result_render_strips_stdout():
-    budget = ContextBudget()
-    result = {"status": "ok", "stdout": "lots of debug output", "stderr": "", "output_path": "/tmp/x.mp4"}
-    capped = budget.summarize_tool_result(result, max_chars=10)
-    assert len(capped["stdout"]) < 100
-
-
 def test_compact_history_merges_plain_user_messages():
     hist = [
         {"role": "user", "content": "one"},

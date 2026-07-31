@@ -147,6 +147,7 @@ def _make_slim_history(
 ) -> list[dict[str, Any]]:
     """Build the slim LLM-facing view of ``history``."""
     from ..context_budget import ContextBudget, compact_history
+    from ..result_capper import cap_tool_result
 
     budget = ContextBudget()
 
@@ -176,7 +177,7 @@ def _make_slim_history(
                     if isinstance(inner, str) and len(inner) > 2000:
                         try:
                             parsed = json.loads(inner)
-                            block["content"] = json.dumps(budget.summarize_tool_result(parsed), default=str)
+                            block["content"] = json.dumps(cap_tool_result(parsed, max_chars=1000), default=str)
                         except (json.JSONDecodeError, TypeError):
                             pass
 

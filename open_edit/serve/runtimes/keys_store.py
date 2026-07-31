@@ -3,6 +3,9 @@
 Stores user-entered API keys in ~/.open_edit/keys.json with restricted (0600)
 file permissions so non-technical users can paste API keys directly into the UI
 without needing shell environment variables.
+
+The provider → env var map is derived from the canonical registry in
+``providers.py`` (``ProviderSpec.env_keys``) — no provider is listed here.
 """
 from __future__ import annotations
 
@@ -13,7 +16,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ..providers import PROVIDERS
+
 KEYS_FILE_PATH = Path.home() / ".open_edit" / "keys.json"
+
+# provider id → env vars that can supply its API key (from ProviderSpec).
+env_map: dict[str, list[str]] = {
+    spec.name: list(spec.env_keys) for spec in PROVIDERS.values()
+}
 
 
 def _ensure_keys_file_dir() -> Path:
@@ -83,25 +93,15 @@ def mask_key(key: str) -> str:
 def get_masked_keys_summary() -> dict[str, dict[str, Any]]:
     """Return dictionary of provider -> {has_key, masked_key, source}."""
     stored = load_all_stored_keys()
-    providers = ["antigravity", "opencode", "anthropic", "openai", "pi", "jcode"]
-
-    env_map = {
-        "antigravity": ["ANTIGRAVITY_API_KEY", "OPEN_EDIT_ANTIGRAVITY_KEY"],
-        "opencode": ["OPENCODE_API_KEY", "OPEN_EDIT_LLM_API_KEY"],
-        "anthropic": ["ANTHROPIC_API_KEY"],
-        "openai": ["OPENAI_API_KEY"],
-        "pi": ["PI_API_KEY"],
-        "jcode": ["JCODE_API_KEY"],
-    }
 
     summary: dict[str, dict[str, Any]] = {}
-    for p in providers:
+    for p, env_vars in env_map.items():
         has_key = False
         masked = ""
         source = "none"
 
         # Check env
-        for env_var in env_map.get(p, []):
+        for env_var in env_vars:
             env_val = os.environ.get(env_var, "").strip()
             if env_val:
                 has_key = True

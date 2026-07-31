@@ -106,3 +106,62 @@ async def _save_cost_state_async(
     await asyncio.to_thread(
         _write_cost_json_sync, _cost_sidecar_path(project_path), state,
     )
+
+
+# ---------------------------------------------------------------------------
+# Turn-level cost aggregation (single path for SDK and CLI-owned loops)
+# ---------------------------------------------------------------------------
+
+def accumulate_usage(event: dict[str, Any], state: dict[str, Any]) -> None:
+    """Merge one ``usage`` StreamEvent into the per-turn accumulation
+    ``state`` dict.
+
+    The state dict carries ``turn_tokens``, ``turn_cost_usd``,
+    ``best_source_priority`` and ``best_source``. The source-priority
+    ranking lives here (not in the loops) so the SDK loop and the
+    CLI-owned loop cannot drift on which source wins a mixed turn.
+    """
+    try:
+        state["turn_tokens"] += int(event.get("tokens", 0) or 0)
+        state["turn_cost_usd"] += float(event.get("cost_usd", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        pass
+    src = event.get("source", "unavailable")
+    if not isinstance(src, str):
+        src = "unavailable"
+    prio = _SOURCE_PRIORITY.get(src, _SOURCE_PRIORITY["unavailable"])
+    if prio < state["best_source_priority"]:
+        state["best_source_priority"] = prio
+        state["best_source"] = src
+
+
+def emit_cost_update(state: dict[str, Any]) -> dict[str, Any]:
+    """Build the terminal ``cost_update`` event for a turn and persist
+    the new session cumulative to the sidecar.
+
+    The state dict carries ``previous_session_cost``, ``turn_tokens``,
+    ``turn_cost_usd`` and ``best_source`` (from ``accumulate_usage``),
+    plus ``cost_state``, ``project_path`` and ``conv_id`` for the
+    persistence. Call sites yield the returned event after ``done``;
+    the sidecar write is fire-and-forget via ``_save_cost_state_async``
+    so turn completion never blocks on disk I/O.
+    """
+    session_cost_usd = state["previous_session_cost"] + state["turn_cost_usd"]
+    event = {
+        "type": "cost_update",
+        "turn_tokens": state["turn_tokens"],
+        "turn_cost_usd": round(state["turn_cost_usd"], 9),
+        "session_cost_usd": round(session_cost_usd, 9),
+        "source": state["best_source"],
+    }
+    conv_id = state.get("conv_id")
+    if conv_id:
+        state["cost_state"][conv_id] = {
+            "session_cost_usd": session_cost_usd,
+            "source": state["best_source"],
+            "last_turn_cost_usd": state["turn_cost_usd"],
+        }
+        _create_bg_task(
+            _save_cost_state_async(state["project_path"], dict(state["cost_state"]))
+        )
+    return event
