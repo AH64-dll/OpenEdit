@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+from importlib import metadata
 from pathlib import Path
 
 from open_edit.ir.apply import derive_timeline
@@ -372,6 +373,13 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     return mcp_main(argv)
 
 
+def _version() -> str:
+    try:
+        return metadata.version("open_edit")
+    except metadata.PackageNotFoundError:
+        return "0.0.0"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="open_edit",
@@ -514,7 +522,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.version:
-        print("open_edit 0.1.0")
+        print(f"open_edit {_version()}")
         return 0
     if not hasattr(args, "func"):
         parser.print_help()

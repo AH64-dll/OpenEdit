@@ -75,6 +75,19 @@ def test_render_subcommand_runs(tmp_path: Path) -> None:
     assert "ops" in (result.stderr + result.stdout).lower() or "empty" in (result.stderr + result.stdout).lower()
 
 
+def test_version_matches_package_metadata(capsys) -> None:
+    """`--version` reports the version from package metadata, not a
+    hard-coded string."""
+    from importlib import metadata
+
+    from open_edit import cli
+
+    rc = cli.main(["--version"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert captured.out.strip() == f"open_edit {metadata.version('open_edit')}"
+
+
 def test_notes_no_subcommand_prints_usage(capsys) -> None:
     """Regression: `open_edit notes` (no subcommand) used to crash with
     NameError because cmd_notes referenced `parser_notes` (a name that
