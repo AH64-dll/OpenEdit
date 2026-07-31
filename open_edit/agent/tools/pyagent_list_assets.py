@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from open_edit.agent.tools._contract import tool_result
 from open_edit.agent.tools._helpers import get_asset_store
 
 # Remotion materialize CAS names look like: <uuid>_<12hex>.mov|.webm
@@ -30,6 +31,7 @@ def _is_derivative(filename: str, codec: Any) -> bool:
     return False
 
 
+@tool_result
 def list_assets(args: dict, project_path: str) -> dict[str, Any]:
     """Return ingested assets for the project.
 
@@ -37,57 +39,54 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
     returns compact rows (hash/filename/duration). Pass
     ``include_derivatives: true`` and/or ``detail: true`` when needed.
     """
-    try:
-        store = get_asset_store(project_path)
-        assets_root = store.assets_dir
-        assets: list[dict[str, Any]] = []
-        include_derivatives = bool(
-            (args or {}).get("include_derivatives", False)
-        )
-        detail = bool((args or {}).get("detail", False))
+    store = get_asset_store(project_path)
+    assets_root = store.assets_dir
+    assets: list[dict[str, Any]] = []
+    include_derivatives = bool(
+        (args or {}).get("include_derivatives", False)
+    )
+    detail = bool((args or {}).get("detail", False))
 
-        if not assets_root.exists():
-            return {
-                "assets": assets,
-                "filtered": True,
-                "include_derivatives": include_derivatives,
-                "detail": detail,
-            }
-
-        skipped = 0
-        for meta_path in sorted(assets_root.glob("*/*.meta.json")):
-            try:
-                obj = json.loads(meta_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                continue
-            original = obj.get("original_path", "") or ""
-            filename = Path(original).name if original else meta_path.parent.name
-            codec = obj.get("codec")
-            if not include_derivatives and _is_derivative(filename, codec):
-                skipped += 1
-                continue
-            row: dict[str, Any] = {
-                "hash": obj.get("asset_hash", ""),
-                "filename": filename,
-                "duration_s": obj.get("duration_sec", 0),
-            }
-            if detail:
-                row.update({
-                    "type": obj.get("type", "unknown"),
-                    "width": obj.get("width"),
-                    "height": obj.get("height"),
-                    "fps": obj.get("fps"),
-                    "codec": codec,
-                    "has_audio": obj.get("has_audio", False),
-                })
-            assets.append(row)
-
+    if not assets_root.exists():
         return {
             "assets": assets,
-            "filtered": not include_derivatives,
-            "skipped_derivatives": skipped,
+            "filtered": True,
             "include_derivatives": include_derivatives,
             "detail": detail,
         }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+
+    skipped = 0
+    for meta_path in sorted(assets_root.glob("*/*.meta.json")):
+        try:
+            obj = json.loads(meta_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        original = obj.get("original_path", "") or ""
+        filename = Path(original).name if original else meta_path.parent.name
+        codec = obj.get("codec")
+        if not include_derivatives and _is_derivative(filename, codec):
+            skipped += 1
+            continue
+        row: dict[str, Any] = {
+            "hash": obj.get("asset_hash", ""),
+            "filename": filename,
+            "duration_s": obj.get("duration_sec", 0),
+        }
+        if detail:
+            row.update({
+                "type": obj.get("type", "unknown"),
+                "width": obj.get("width"),
+                "height": obj.get("height"),
+                "fps": obj.get("fps"),
+                "codec": codec,
+                "has_audio": obj.get("has_audio", False),
+            })
+        assets.append(row)
+
+    return {
+        "assets": assets,
+        "filtered": not include_derivatives,
+        "skipped_derivatives": skipped,
+        "include_derivatives": include_derivatives,
+        "detail": detail,
+    }

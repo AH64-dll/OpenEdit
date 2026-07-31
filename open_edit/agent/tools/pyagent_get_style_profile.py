@@ -5,9 +5,11 @@ slice of the style profile for the op_type it's about to plan.
 """
 from __future__ import annotations
 
+from open_edit.agent.tools._contract import tool_result
 from open_edit.style.retrieve import get_slice
 
 
+@tool_result
 def get_style_profile(args: dict, project_path: str) -> dict:
     """Return the style profile slice for ``args['op_type']``.
 
@@ -18,16 +20,13 @@ def get_style_profile(args: dict, project_path: str) -> dict:
         project_path: path to the project directory.
 
     Returns:
-        The style profile slice on success, or
+        ``{"status": "ok", "profile": {...}}`` on success, or
         ``{"status": "error", "error": "..."}`` on failure.
     """
-    try:
-        op_type = args.get("op_type")
-        if not op_type:
-            return {
-                "status": "error",
-                "error": "op_type is required. Call with {\"op_type\": \"<op_kind>\"}.",
-            }
-        return get_slice(op_type)
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    op_type = args.get("op_type")
+    if not op_type:
+        return {
+            "status": "error",
+            "error": "op_type is required. Call with {\"op_type\": \"<op_kind>\"}.",
+        }
+    return {"status": "ok", "profile": get_slice(op_type)}

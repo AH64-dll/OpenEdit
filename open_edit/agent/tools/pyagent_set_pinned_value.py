@@ -5,13 +5,12 @@ Per phase4-design-revised.md §3.2 (T3): the user can pin a preference
 """
 from __future__ import annotations
 
+from open_edit.agent.tools._contract import tool_result
 from open_edit.style.aggregate import set_pinned
 
 
+@tool_result
 def set_pinned_value(args: dict, project_path: str) -> dict:
     """Set pinned key=value in the global style profile."""
-    try:
-        set_pinned(args["key"], args["value"])
-        return {"status": "ok"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    set_pinned(args["key"], args["value"])
+    return {"status": "ok"}
