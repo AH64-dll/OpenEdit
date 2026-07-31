@@ -17,6 +17,7 @@ import concurrent.futures
 import json
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -148,7 +149,10 @@ def _build_render_spec(project_path: Path, mode: str, hyperframes_timeout: int) 
     }
 
 
-_MEDIA_SUFFIXES = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
+_MEDIA_LINE_RE = re.compile(
+    r"([^\s\"']*[/\\][^\s\"']*\.(?:mp4|mov|mkv|webm|m4v))",
+    re.IGNORECASE,
+)
 
 
 def _extract_output_path(stdout: str) -> str:
@@ -163,7 +167,8 @@ def _extract_output_path(stdout: str) -> str:
     1. try the last line as a JSON object carrying ``output_path``
        (the ``--json`` contract, if the CLI ever prints it);
     2. otherwise scan from the bottom for a line containing a path
-       separator AND a media extension (the ``Rendered: <path>`` line);
+       separator AND a media extension, returning just the path token
+       (the ``Rendered: <path>`` line; the regex ignores the prefix);
     3. return "" so the caller falls back to the newest MP4 in the
        project renders dir.
     """
@@ -179,8 +184,9 @@ def _extract_output_path(stdout: str) -> str:
             path = data.get("output_path")
             if isinstance(path, str) and path:
                 return path
-        if ("/" in stripped or "\\" in stripped) and stripped.lower().endswith(_MEDIA_SUFFIXES):
-            return stripped
+        match = _MEDIA_LINE_RE.search(stripped)
+        if match:
+            return match.group(1)
     return ""
 
 
