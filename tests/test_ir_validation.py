@@ -37,7 +37,8 @@ def test_validate_timeline_clean():
     assert validate_timeline(tl) == []
 
 
-from open_edit.ir.apply import derive_timeline, TimelineValidationError
+from open_edit.ir.derive import derive_timeline
+from open_edit.ir.validate import TimelineValidationError
 from open_edit.ir.types import Project
 
 

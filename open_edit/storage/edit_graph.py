@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,11 +16,11 @@ from typing import Any, Iterator
 
 from pydantic import TypeAdapter
 
-from open_edit.ir.types import OperationUnion, new_id
-
-import threading
-
 from open_edit.ir import validate as _ir_validate
+from open_edit.ir.types import OperationUnion, new_id
+from open_edit.storage import ordering as _ordering
+from open_edit.storage.commands import CommandStore
+from open_edit.storage.timeline_cache import TimelineSnapshotStore
 
 _APPEND_LOCK = threading.Lock()
 
@@ -42,6 +43,8 @@ class EditGraphStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.commands = CommandStore(self.db_path)
+        self.snapshots = TimelineSnapshotStore(self.db_path)
         self._init_schema()
 
     @contextmanager
@@ -105,7 +108,6 @@ class EditGraphStore:
             row = cur.fetchone()
             if row is not None:
                 return row[0]
-            from open_edit.ir.types import new_id
             pid = new_id()
             conn.execute(
                 "INSERT INTO project_meta (key, value) VALUES ('project_id', ?)",
@@ -240,81 +242,43 @@ class EditGraphStore:
         status: str = "pending", payload_hash: str | None = None,
     ) -> None:
         """Record a command for idempotency. No-op if command_id exists."""
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO commands "
-                "(command_id, project_id, tool_name, status, created_at, "
-                " payload_hash, result_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, NULL)",
-                (
-                    command_id, project_id, tool_name, status,
-                    self._now_iso(), payload_hash,
-                ),
-            )
+        self.commands.record_command(
+            command_id, project_id, tool_name,
+            status=status, payload_hash=payload_hash,
+        )
 
     def command_exists(self, command_id: str) -> bool:
         """Return True if a command with the given id has been recorded."""
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT 1 FROM commands WHERE command_id = ? LIMIT 1",
-                (command_id,),
-            )
-            return cur.fetchone() is not None
+        return self.commands.command_exists(command_id)
 
     def finish_command(
         self, command_id: str, status: str = "done",
         result_json: str | None = None,
     ) -> None:
         """Mark a command as finished with a status and optional result."""
-        with self._conn() as conn:
-            conn.execute(
-                "UPDATE commands SET status = ?, result_json = ? "
-                "WHERE command_id = ?",
-                (status, result_json, command_id),
-            )
+        self.commands.finish_command(
+            command_id, status=status, result_json=result_json,
+        )
 
     def get_command_result(self, command_id: str) -> str | None:
         """Return the stored result_json for a command, or None."""
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT result_json FROM commands WHERE command_id = ?",
-                (command_id,),
-            )
-            row = cur.fetchone()
-            return row[0] if row is not None else None
+        return self.commands.get_command_result(command_id)
 
     def get_command_status(self, command_id: str) -> str | None:
         """Return the stored status for a command, or None."""
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT status FROM commands WHERE command_id = ?",
-                (command_id,),
-            )
-            row = cur.fetchone()
-            return row[0] if row is not None else None
+        return self.commands.get_command_status(command_id)
 
     def save_timeline_snapshot(
         self, edit_graph_hash: str, project_id: str, timeline_json: str,
     ) -> None:
         """Store a derived timeline snapshot keyed by edit-graph hash."""
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO timeline_snapshots "
-                "(edit_graph_hash, project_id, timeline_json, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (edit_graph_hash, project_id, timeline_json, self._now_iso()),
-            )
+        self.snapshots.save_timeline_snapshot(
+            edit_graph_hash, project_id, timeline_json,
+        )
 
     def load_timeline_snapshot(self, edit_graph_hash: str) -> str | None:
         """Return the stored timeline_json for a hash, or None."""
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT timeline_json FROM timeline_snapshots "
-                "WHERE edit_graph_hash = ?",
-                (edit_graph_hash,),
-            )
-            row = cur.fetchone()
-            return row[0] if row is not None else None
+        return self.snapshots.load_timeline_snapshot(edit_graph_hash)
 
     def set_edit_graph_hash(self, h: str) -> None:
         """Store the canonical edit-graph hash in project_meta."""
@@ -327,21 +291,7 @@ class EditGraphStore:
         cleared (set to NULL) so the graph remains consistent.
         Returns True if an op was found and deleted.
         """
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT edit_id FROM edits WHERE edit_id = ?", (edit_id,)
-            )
-            if cur.fetchone() is None:
-                return False
-            conn.execute(
-                "UPDATE edits SET parent_id = NULL WHERE parent_id = ?",
-                (edit_id,),
-            )
-            conn.execute(
-                "DELETE FROM edits WHERE edit_id = ?", (edit_id,)
-            )
-            self._check_and_bump_revision(conn, expected_revision)
-        return True
+        return _ordering.delete_op(self, edit_id, expected_revision=expected_revision)
 
     def move_arbitrary(self, edit_id: str, new_sequence_num: int, expected_revision: int | None = None) -> bool:
         """Move an operation to any position in the sequence.
@@ -349,35 +299,9 @@ class EditGraphStore:
         This is a general reorder operation (not just adjacent swap).
         Returns True if the op was found and moved.
         """
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT sequence_num FROM edits WHERE edit_id = ?",
-                (edit_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return False
-            old_pos = row[0]
-            if old_pos == new_sequence_num:
-                return True
-            if old_pos < new_sequence_num:
-                conn.execute(
-                    "UPDATE edits SET sequence_num = sequence_num - 1 "
-                    "WHERE sequence_num > ? AND sequence_num <= ?",
-                    (old_pos, new_sequence_num),
-                )
-            else:
-                conn.execute(
-                    "UPDATE edits SET sequence_num = sequence_num + 1 "
-                    "WHERE sequence_num >= ? AND sequence_num < ?",
-                    (new_sequence_num, old_pos),
-                )
-            conn.execute(
-                "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
-                (new_sequence_num, edit_id),
-            )
-            self._check_and_bump_revision(conn, expected_revision)
-        return True
+        return _ordering.move_arbitrary(
+            self, edit_id, new_sequence_num, expected_revision=expected_revision,
+        )
 
     def reorder_all(self, edit_ids: list[str], expected_revision: int | None = None) -> int:
         """Atomically replace the complete edit ordering.
@@ -387,28 +311,9 @@ class EditGraphStore:
         reorder state when a browser sends a duplicate, omits an operation,
         or contains an unknown id.
         """
-        if len(edit_ids) != len(set(edit_ids)):
-            raise ValueError("reorder contains duplicate edit IDs")
-        with self._conn() as conn:
-            rows = conn.execute("SELECT edit_id FROM edits ORDER BY sequence_num").fetchall()
-            existing = [row[0] for row in rows]
-            if set(edit_ids) != set(existing) or len(edit_ids) != len(existing):
-                missing = sorted(set(existing) - set(edit_ids))
-                unknown = sorted(set(edit_ids) - set(existing))
-                details = []
-                if missing:
-                    details.append(f"missing IDs: {', '.join(missing)}")
-                if unknown:
-                    details.append(f"unknown IDs: {', '.join(unknown)}")
-                raise ValueError("reorder must be a complete permutation (" + "; ".join(details) + ")")
-            # A two-phase update avoids transient duplicate sequence numbers
-            # if a future schema makes sequence_num unique.
-            offset = len(existing) + 1
-            for index, edit_id in enumerate(edit_ids):
-                conn.execute("UPDATE edits SET sequence_num = ? WHERE edit_id = ?", (offset + index, edit_id))
-            for index, edit_id in enumerate(edit_ids):
-                conn.execute("UPDATE edits SET sequence_num = ? WHERE edit_id = ?", (index, edit_id))
-            return self._check_and_bump_revision(conn, expected_revision)
+        return _ordering.reorder_all(
+            self, edit_ids, expected_revision=expected_revision,
+        )
 
     def reorder(self, edit_id_a: str, edit_id_b: str, expected_revision: int | None = None) -> int:
         """Swap the sequence_num of two adjacent operations.
@@ -416,27 +321,6 @@ class EditGraphStore:
         Raises ValueError if either id does not exist or if the two ops
         are not adjacent in sequence_num.
         """
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT edit_id, sequence_num FROM edits "
-                "WHERE edit_id IN (?, ?) ORDER BY sequence_num",
-                (edit_id_a, edit_id_b),
-            )
-            rows = cur.fetchall()
-            if len(rows) != 2:
-                raise ValueError(f"Both edits must exist; got {len(rows)} rows")
-            (id1, seq1), (id2, seq2) = rows
-            if abs(seq1 - seq2) != 1:
-                raise ValueError(
-                    f"Edits must be adjacent to reorder; "
-                    f"got sequence_num gap {abs(seq1 - seq2)}"
-                )
-            conn.execute(
-                "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
-                (seq2, id1),
-            )
-            conn.execute(
-                "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
-                (seq1, id2),
-            )
-            return self._check_and_bump_revision(conn, expected_revision)
+        return _ordering.reorder(
+            self, edit_id_a, edit_id_b, expected_revision=expected_revision,
+        )

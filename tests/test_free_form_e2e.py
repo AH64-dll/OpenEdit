@@ -103,7 +103,7 @@ def test_chained_ops_succeed(tmp_project_with_assets):
 def test_free_form_then_render(tmp_project_with_assets):
     """L2: free-form + full render produces a non-empty mlt xml string."""
     from open_edit.agent.sandbox_bridge import run_free_form
-    from open_edit.ir.apply import derive_timeline
+    from open_edit.ir.derive import derive_timeline
     from open_edit.render.emitter import emit_timeline
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}

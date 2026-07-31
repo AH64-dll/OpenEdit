@@ -14,7 +14,8 @@ import sys
 import traceback
 from typing import Callable
 
-from open_edit.ir.apply import apply_operation, derive_timeline
+from open_edit.ir.apply import apply_operation
+from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,

@@ -197,7 +197,7 @@ class RenderService:
         digest = compute_edit_graph_hash(ops)
         timeline_status = "valid"
         try:
-            from open_edit.ir.apply import derive_timeline
+            from open_edit.ir.derive import derive_timeline
             from open_edit.ir.types import Project as IRProject
             from open_edit.storage.assets import list_assets_from_disk
 

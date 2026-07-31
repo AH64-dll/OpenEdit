@@ -485,7 +485,7 @@ def validate_op_references(
     """
     if strict:
         if timeline is None:
-            from open_edit.ir.apply import derive_timeline
+            from open_edit.ir.derive import derive_timeline
             timeline = derive_timeline(project)
         return _validate_references_strict(op, project, timeline)
 

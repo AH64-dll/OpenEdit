@@ -66,7 +66,7 @@ def _read_mlt_profile(project_path: Path) -> dict[str, Any]:
 
     Falls back to 1080p30 defaults when the edit graph is missing or empty.
     """
-    from open_edit.ir.apply import derive_timeline
+    from open_edit.ir.derive import derive_timeline
     from open_edit.ir.types import Project
     from open_edit.storage.edit_graph import EditGraphStore
 
@@ -107,7 +107,7 @@ def _should_use_composited(args: dict, project_path: Path, render_spec: dict) ->
 def _load_timeline(project_path: Path):
     """Load the Timeline from the project's edit graph; returns an empty
     Timeline if the project has no overlays."""
-    from open_edit.ir.apply import derive_timeline
+    from open_edit.ir.derive import derive_timeline
     from open_edit.ir.types import Project, Timeline
     from open_edit.storage.edit_graph import EditGraphStore
 
