@@ -61,13 +61,31 @@ def _openai_stream():
 
 
 def _pi_stream():
+    """Pi's stream is its own wrapper (CLI driver + cost extraction)."""
     from .llm import _stream_pi
-    return _stream_pi
+
+    async def _stream(messages, tools, system, model=None, session_id=None, project_path=None):
+        async for ev in _stream_pi(messages, tools, system, session_id, project_path, model):
+            yield ev
+    return _stream
 
 
-def _cli_stream():
+def _cli_stream_for(name: str):
+    """Name-bound CLI stream: resolves its adapter from the registry.
+
+    ``stream_chat`` calls every provider's ``stream`` with the uniform
+    shape ``(messages, tools, system, model, session_id=..., project_path=...)``;
+    SDK streams take the 4 positional args, CLI streams this closure.
+    """
     from .llm import _stream_cli
-    return _stream_cli
+    from .cli_adapter import get_adapter
+
+    async def _stream(messages, tools, system, model=None, session_id=None, project_path=None):
+        async for ev in _stream_cli(
+            get_adapter(name), model, messages, tools, system, session_id, project_path,
+        ):
+            yield ev
+    return _stream
 
 
 PROVIDERS: dict[str, ProviderSpec] = {
@@ -142,7 +160,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         label="OpenCode CLI",
         transport="cli",
         agent_mode="chat_only",
-        stream=_cli_stream(),
+        stream=_cli_stream_for("opencode"),
         missing_error=(
             "opencode provider: `opencode` binary not found on PATH. "
             "Install opencode (see https://opencode.ai) and ensure the "
@@ -165,7 +183,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         label="Antigravity (Google)",
         transport="cli",
         agent_mode="chat_only",
-        stream=_cli_stream(),
+        stream=_cli_stream_for("antigravity"),
         missing_error=(
             "antigravity provider: `antigravity` binary not found on "
             "PATH. Install antigravity and ensure the binary is on PATH."
@@ -193,7 +211,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         transport="cli",
         agent_mode="chat_only",
         hidden=True,
-        stream=_cli_stream(),
+        stream=_cli_stream_for("jcode"),
         missing_error=(
             "jcode provider: `jcode` binary not found on PATH. Install "
             "jcode and ensure the binary is on PATH."
