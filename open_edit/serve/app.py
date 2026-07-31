@@ -111,11 +111,10 @@ class RenderJobResponse(BaseModel):
     job_id: str
     project_id: str
     mode: str
-    status: str  # "queued" | "running" | "complete" | "failed"
+    status: str  # RenderService JobStatus: "queued" | "running" | "succeeded" | "failed" | ...
     output_path: str | None = None
     error: str | None = None
-    # Set on registration; used by the render-job pruner (P5) to drop
-    # terminal entries (complete/failed) older than ``_RENDER_JOB_TTL_S``.
+    # Set when the job is persisted by the durable RenderService.
     # Not part of the public API contract — kept on the model so the
     # field survives Pydantic serialization roundtrips in tests.
     created_at: float = Field(default_factory=time.time)
@@ -156,115 +155,6 @@ class CreateNoteRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# In-memory render job registry (production: replace with a real queue)
-# ---------------------------------------------------------------------------
-
-_RENDER_JOBS: dict[str, RenderJobResponse] = {}
-
-# v1.6 P5: terminal jobs (status in {"complete", "failed"}) older than
-# this many seconds are pruned from ``_RENDER_JOBS`` on every register.
-# In-flight jobs (status in {"queued", "running"}) are never pruned
-# regardless of age. Default 1h matches the spec.
-_RENDER_JOB_TTL_S: float = 3600.0
-
-
-def _prune_render_jobs(now: float | None = None) -> int:
-    """Remove terminal entries older than ``_RENDER_JOB_TTL_S``.
-
-    Only entries with ``status in {"complete", "failed"}`` are eligible;
-    ``queued`` and ``running`` jobs are kept so an in-flight render is
-    never accidentally GC'd while a client is polling for its status.
-
-    Returns the number of entries removed. The ``now`` parameter is
-    injectable so tests can fake the clock without monkey-patching
-    ``time.time``.
-    """
-    if now is None:
-        now = time.time()
-    cutoff = now - _RENDER_JOB_TTL_S
-    terminal = ("complete", "failed")
-    stale_ids = [
-        jid for jid, job in _RENDER_JOBS.items()
-        if job.status in terminal and job.created_at < cutoff
-    ]
-    for jid in stale_ids:
-        _RENDER_JOBS.pop(jid, None)
-    if stale_ids:
-        _LOG.debug("pruned %d terminal render job(s) older than %ss", len(stale_ids), _RENDER_JOB_TTL_S)
-    return len(stale_ids)
-
-
-def _register_job(project_id: str, mode: str) -> RenderJobResponse:
-    # Prune first so the new entry doesn't see its own ``created_at``
-    # checked against a cutoff that excludes it. Cheap; the dict is
-    # small in steady state.
-    _prune_render_jobs()
-    job_id = uuid.uuid4().hex[:12]
-    job = RenderJobResponse(
-        job_id=job_id,
-        project_id=project_id,
-        mode=mode,
-        status="queued",
-    )
-    _RENDER_JOBS[job_id] = job
-    return job
-
-
-_RENDER_TASKS: dict[str, asyncio.Task] = {}
-
-# Durable scheduling is the canonical render path.  The legacy dictionaries
-# above remain temporarily for backwards-compatible helper tests only.
-_RENDER_SERVICE = DEFAULT_RENDER_SERVICE
-
-
-async def _run_render_job(job: RenderJobResponse, project_path: Path) -> None:
-    """Run ``open_edit render --mode <mode>`` in the background."""
-    proc = None
-    job.status = "running"
-    _RENDER_TASKS[job.job_id] = asyncio.current_task()
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "open_edit", "render", "--mode", job.mode,
-            cwd=str(project_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=16 * 1024 * 1024,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
-        except asyncio.TimeoutError:
-            proc.terminate()
-            await proc.wait()
-            raise
-        if proc.returncode != 0:
-            raise RuntimeError(f"render failed (exit {proc.returncode}): {stderr.decode(errors='replace')}")
-        last_line = ""
-        for line in reversed(stdout.decode(errors="replace").splitlines()):
-            if line.strip():
-                last_line = line.strip()
-                break
-        job.output_path = last_line if ("/" in last_line or "\\" in last_line) else ""
-        job.status = "complete"
-    except asyncio.CancelledError:
-        job.status = "failed"
-        job.error = "cancelled"
-        if proc is not None:
-            proc.terminate()
-            await proc.wait()
-    except Exception as exc:
-        job.status = "failed"
-        job.error = str(exc)
-        if proc is not None:
-            proc.terminate()
-            try:
-                await proc.wait()
-            except Exception:
-                pass
-    finally:
-        _RENDER_TASKS.pop(job.job_id, None)
-
-
-# ---------------------------------------------------------------------------
 # Rate limiting (simple in-memory sliding window)
 # ---------------------------------------------------------------------------
 
@@ -296,7 +186,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A process ID cannot be safely recovered after an application restart.
     # Preserve the audit trail and make the interrupted state explicit.
     for project in await projects_mod.list_projects():
-        _RENDER_SERVICE.recover(Path(project.path))
+        DEFAULT_RENDER_SERVICE.recover(Path(project.path))
     yield
 
 
@@ -578,7 +468,7 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
         raise HTTPException(status_code=400, detail="encoder must be 'gpu' or 'cpu'")
 
     try:
-        job = _RENDER_SERVICE.enqueue(
+        job = DEFAULT_RENDER_SERVICE.enqueue(
             project_id,
             project_path,
             req.mode,
@@ -606,7 +496,7 @@ async def cancel_render_job(project_id: str, job_id: str) -> dict:
     """Cancel a running render job."""
     await _require_project(project_id)
     state = await _require_project(project_id)
-    job = await _RENDER_SERVICE.cancel(Path(state.path), job_id)
+    job = await DEFAULT_RENDER_SERVICE.cancel(Path(state.path), job_id)
     if job is None or job.project_id != project_id:
         raise HTTPException(status_code=404, detail=f"render job not found: {job_id}")
     if job.status not in ("queued", "running", "cancelling"):
@@ -619,7 +509,7 @@ async def get_render_job(project_id: str, job_id: str) -> RenderJobResponse:
     """Poll a background render job's status."""
     await _require_project(project_id)
     state = await _require_project(project_id)
-    job = _RENDER_SERVICE.get(Path(state.path), job_id)
+    job = DEFAULT_RENDER_SERVICE.get(Path(state.path), job_id)
     if job is None or job.project_id != project_id:
         raise HTTPException(status_code=404, detail=f"render job not found: {job_id}")
     return RenderJobResponse(
@@ -703,7 +593,7 @@ def _resolve_render_mp4(project_path: Path, render_id: str) -> Path | None:
         return None
     if ".melt" in render_id.lower():
         return None
-    job = _RENDER_SERVICE.get(project_path, render_id)
+    job = DEFAULT_RENDER_SERVICE.get(project_path, render_id)
     if job is not None and job.output_path:
         candidate = Path(job.output_path).resolve()
         if (
