@@ -10,8 +10,7 @@ returned beat types as a real structural analysis.
 """
 from __future__ import annotations
 
-from open_edit.agent.tools._contract import tool_result
-from open_edit.agent.tools._helpers import get_asset_store
+from open_edit.agent.tools._contract import get_asset_or_error, require_alignment, tool_result
 
 
 @tool_result
@@ -31,21 +30,12 @@ def analyze_narrative(args: dict, project_path: str) -> dict:
     asset_hash = args.get("asset_hash")
     if not asset_hash:
         return {"status": "error", "error": "asset_hash is required"}
-    asset_store = get_asset_store(project_path)
-    asset = asset_store.get(asset_hash)
-    if asset is None:
-        return {"status": "error", "error": f"asset {asset_hash} not found"}
-    if not asset.alignment:
-        return {
-            "status": "error",
-            "error": (
-                "asset has no word-level alignment yet. Transcription "
-                "may still be running server-side. Wait a few seconds "
-                "and retry before concluding the asset has no "
-                "transcript."
-            ),
-            "retry": True,
-        }
+    asset, err = get_asset_or_error(project_path, asset_hash)
+    if err:
+        return err
+    err = require_alignment(asset)
+    if err:
+        return err
     from open_edit.agent.skills.narrative_analyzer import analyze
     segments = analyze(asset, use_llm=args.get("use_llm", False))
     return {"status": "ok", "segments": [s.model_dump() for s in segments]}

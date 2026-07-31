@@ -7,7 +7,8 @@ Per phase4-design-revised.md section 4.3 (W7): the agent picks a beat
 """
 from __future__ import annotations
 
-from open_edit.agent.tools._helpers import _project_root, get_asset_store
+from open_edit.agent.tools._contract import get_asset_or_error
+from open_edit.agent.tools._helpers import _project_root
 
 
 def generate_visual_for_segment(args: dict, project_path: str) -> dict:
@@ -28,10 +29,9 @@ def generate_visual_for_segment(args: dict, project_path: str) -> dict:
         or {"status": "error", "error": "..."} on failure.
     """
     try:
-        asset_store = get_asset_store(project_path)
-        asset = asset_store.get(args["asset_hash"])
-        if asset is None:
-            return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
+        asset, err = get_asset_or_error(project_path, args["asset_hash"])
+        if err:
+            return err
         from open_edit.agent.skills.motion_graphics.engine import generate_visual
         from open_edit.agent.skills.narrative_analyzer import analyze
         segments = analyze(asset, use_llm=False)

@@ -11,8 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from open_edit.agent.tools._contract import tool_result
-from open_edit.agent.tools._helpers import get_asset_store
+from open_edit.agent.tools._contract import get_asset_or_error, tool_result
 
 
 @tool_result
@@ -31,10 +30,9 @@ def place_sfx(args: dict, project_path: str) -> dict:
         {"status": "ok", "ops": [AddEffectOp.model_dump(), ...]}
         or {"status": "error", "error": "..."} on failure.
     """
-    asset_store = get_asset_store(project_path)
-    asset = asset_store.get(args["asset_hash"])
-    if asset is None:
-        return {"status": "error", "error": f"asset {args['asset_hash']} not found"}
+    asset, err = get_asset_or_error(project_path, args["asset_hash"])
+    if err:
+        return err
     from open_edit.agent.skills.narrative_analyzer import analyze
     from open_edit.agent.skills.sfx_placer import place
     segments = analyze(asset, use_llm=False)

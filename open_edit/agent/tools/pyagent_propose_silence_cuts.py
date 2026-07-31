@@ -6,8 +6,7 @@ gap suggestions; the agent decides whether to apply them as IR ops.
 """
 from __future__ import annotations
 
-from open_edit.agent.tools._contract import tool_result
-from open_edit.agent.tools._helpers import get_asset_store
+from open_edit.agent.tools._contract import get_asset_or_error, require_alignment, tool_result
 
 
 @tool_result
@@ -25,28 +24,19 @@ def propose_silence_cuts(args: dict, project_path: str) -> dict:
 
     Returns:
         ``{"status": "ok", "gaps": [...]}`` on success,
-        or ``{"status": "error", "error": "...", "retry": bool}`` on
-        failure. When the asset has no alignment, ``retry`` is True
-        (transcription may still be in progress).
+        ``{"status": "error", "error": "..."}`` on failure, or
+        ``{"status": "retry", "error": "..."}`` when the asset has no
+        alignment yet (transcription may still be in progress).
     """
     asset_hash = args.get("asset_hash")
     if not asset_hash:
         return {"status": "error", "error": "asset_hash is required"}
-    asset_store = get_asset_store(project_path)
-    asset = asset_store.get(asset_hash)
-    if asset is None:
-        return {"status": "error", "error": f"asset {asset_hash} not found"}
-    if not asset.alignment:
-        return {
-            "status": "error",
-            "error": (
-                "asset has no word-level alignment yet. Transcription "
-                "may still be running server-side. Wait a few seconds "
-                "and retry; do NOT fall back to raw ffmpeg "
-                "silencedetect on the asset file."
-            ),
-            "retry": True,
-        }
+    asset, err = get_asset_or_error(project_path, asset_hash)
+    if err:
+        return err
+    err = require_alignment(asset)
+    if err:
+        return err
     from open_edit.agent.skills.silence_cutter import propose_cuts
     gaps = propose_cuts(
         asset,

@@ -4,8 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from open_edit.agent.tools._contract import tool_result
-from open_edit.agent.tools._helpers import get_asset_store
+from open_edit.agent.tools._contract import get_asset_or_error, require_alignment, tool_result
 from open_edit.storage.transcription import pack_transcript
 
 
@@ -25,24 +24,16 @@ def get_transcript_packed(args: dict, project_path: str | Path) -> dict[str, Any
     if not asset_hash:
         return {"status": "error", "error": "asset_hash is required"}
 
-    store = get_asset_store(project_path)
-    asset = store.get(asset_hash)
-    if asset is None:
-        return {"status": "error", "error": f"asset {asset_hash} not found"}
+    asset, err = get_asset_or_error(project_path, asset_hash)
+    if err:
+        return err
 
     pause_thresh = float(
         args.get("pause_threshold_sec", args.get("pause_threshold_s", 0.5))
     )
-    if not asset.alignment:
-        return {
-            "status": "error",
-            "error": (
-                "asset has no word-level alignment yet. "
-                "Transcription may still be running server-side. "
-                "Wait a few seconds and retry."
-            ),
-            "retry": True,
-        }
+    err = require_alignment(asset)
+    if err:
+        return err
 
     packed = pack_transcript(asset.alignment, pause_threshold_sec=pause_thresh)
 
