@@ -28,3 +28,4 @@ projects/
 *.log
 .venv/
 .worktrees
+.superpowers/
