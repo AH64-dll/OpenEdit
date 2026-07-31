@@ -111,19 +111,18 @@ def _run_agent_tool(tool_name: str, args: dict[str, Any], project_path: Path) ->
     # Validate AFTER project_id injection so injected fields don't fail
     # schema required-field checks (e.g. add_marker requires project_id
     # but the bridge auto-injects it).
-    from .schema_validator import validate_or_error as _validate_or_error
-    err = _validate_or_error(tool_name, args)
+    err = validate_or_error(tool_name, args)
     if err is not None:
         return err
 
     # Pillar tool routing (Plan D).
     if tool_name == "query_project":
-        from .pillar_tools import dispatch_query
+        from open_edit.kernel.pillar_tools import dispatch_query
 
         return dispatch_query(args.get("query", ""), args.get("params", {}), project_path)
 
     if tool_name == "edit_project":
-        from .pillar_tools import dispatch_edit, dispatch_generate
+        from open_edit.kernel.pillar_tools import dispatch_edit, dispatch_generate
 
         generate = args.get("generate")
         if generate:
