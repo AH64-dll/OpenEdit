@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import json
 import logging
 import os
 import subprocess
@@ -147,6 +148,42 @@ def _build_render_spec(project_path: Path, mode: str, hyperframes_timeout: int) 
     }
 
 
+_MEDIA_SUFFIXES = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
+
+
+def _extract_output_path(stdout: str) -> str:
+    """Extract the rendered output path from ``open_edit render`` stdout.
+
+    v1.10: the CLI's non-JSON output ends with the QC report, whose
+    ``thumbnail`` check prints a ``*.jpg`` path as its detail. The old
+    "last line containing a slash" heuristic mistook that thumb for the
+    render output, so a successful render was reported as
+    ``no_video_stream`` (ffprobe on a JPEG). We now:
+
+    1. try the last line as a JSON object carrying ``output_path``
+       (the ``--json`` contract, if the CLI ever prints it);
+    2. otherwise scan from the bottom for a line containing a path
+       separator AND a media extension (the ``Rendered: <path>`` line);
+    3. return "" so the caller falls back to the newest MP4 in the
+       project renders dir.
+    """
+    for line in reversed(stdout.splitlines()):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            data = json.loads(stripped)
+        except (ValueError, TypeError):
+            data = None
+        if isinstance(data, dict):
+            path = data.get("output_path")
+            if isinstance(path, str) and path:
+                return path
+        if ("/" in stripped or "\\" in stripped) and stripped.lower().endswith(_MEDIA_SUFFIXES):
+            return stripped
+    return ""
+
+
 def _run_mlt_only_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Existing v1.5 bare-MLT render path.
 
@@ -180,12 +217,7 @@ def _run_mlt_only_render(args: dict[str, Any], project_path: Path) -> dict[str, 
             detail=f"exit {proc.returncode}: {proc.stderr.strip() or proc.stdout.strip()}",
         )
 
-    last_line = ""
-    for line in reversed(proc.stdout.splitlines()):
-        if line.strip():
-            last_line = line.strip()
-            break
-    output_path = last_line if (last_line and ("/" in last_line or "\\" in last_line)) else ""
+    output_path = _extract_output_path(proc.stdout)
     if not output_path:
         renders_dir = project_path / ".open_edit" / "renders"
         if renders_dir.exists():
@@ -270,10 +302,15 @@ def run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, An
                 "overlay_render_failed", "render_overlay_fallback",
                 detail=str(exc),
             )
+        try:
+            duration_s = _probe_duration(result_path)
+        except Exception:
+            # Never fail a completed render on a probe hiccup.
+            duration_s = 0.0
         return {
             "output_path": str(result_path),
             "mode": mode,
-            "duration_s": 0.0,
+            "duration_s": duration_s,
             "render_id": f"render_{os.urandom(6).hex()}",
         }
     return _run_mlt_only_render(args, project_path)

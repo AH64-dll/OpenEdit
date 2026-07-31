@@ -7,6 +7,7 @@ and share a single process-group cancellation policy.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -300,7 +301,20 @@ class RenderJobService:
     async def wait(self, project_path: Path, job_id: str) -> RenderJob:
         task = self._tasks.get(job_id)
         if task is not None:
-            await asyncio.shield(task)
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # The job task was cancelled via ``cancel()``; the durable row
+                # is (or is about to be) terminal. Distinguish that from the
+                # *caller's own* cancellation: if the job is not in a cancel
+                # state, re-raise so the caller's cancellation propagates.
+                job = self.get(project_path, job_id)
+                if job is None or job.status not in ("cancelling", "cancelled"):
+                    raise
+                # Give ``_run`` a bounded moment to finish its CancelledError
+                # handler so the row reaches the terminal ``cancelled`` status.
+                with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                    await asyncio.wait_for(task, timeout=self.cancel_grace_s)
         job = self.get(project_path, job_id)
         if job is None:
             raise LookupError(f"render job not found: {job_id}")

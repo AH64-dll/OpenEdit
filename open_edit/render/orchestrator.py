@@ -19,18 +19,18 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from open_edit.storage.timeline_cache import derive_or_load_timeline
 from open_edit.ir.types import Project
-from open_edit.render.cache import RenderCache, canonical_json_hash
+from open_edit.render.cache import RenderCache, canonical_json_hash, render_cache_key
 from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.graphics_overlay import GraphicsOverlayError, burn_overlays
 from open_edit.render.materialize import RemotionMaterializeError, materialize_remotion_compositions
 from open_edit.render.melt_runner import MeltRunner, MeltTimeoutError
-from open_edit.render.profiles import RenderProfile
+from open_edit.render.profiles import RenderProfile, profile_fingerprint
 from open_edit.render.snapshot_recorder import record_snapshot
 from open_edit.render.timeline_plan import build_render_plan
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.timeline_cache import derive_or_load_timeline
 
 
 class RenderResult(BaseModel):
@@ -122,8 +122,13 @@ def render_project(
         nice_level=nice_level,
         encoder_backend=encoder_backend,
     )
+    # Cache key = graph hash + profile identity. Without the profile
+    # fingerprint, a proxy render and a final render of the same graph
+    # share one cache slot and the final output silently becomes the
+    # proxy encode (and quality/crf/codec overrides collide too).
+    cache_key = render_cache_key(graph_hash, profile_fingerprint(profile, encoder_backend))
     if not force:
-        cached = runner.cached(graph_hash)
+        cached = runner.cached(cache_key)
         if cached and runner.is_fresh(cached):
             return RenderResult(
                 ok=True, output_path=str(cached), mode=mode,
@@ -194,7 +199,7 @@ def render_project(
         # No Remotion overlays — melt output is final.
         melt_mp4.replace(output_mp4)
 
-    runner.cache_put(graph_hash, output_mp4)
+    runner.cache_put(cache_key, output_mp4)
     record_snapshot(project_dir, project_id, graph_hash, output_mp4, success=True)
 
     return RenderResult(
