@@ -44,8 +44,11 @@ def _default_profile() -> dict:
     }
 
 
-def get_project_meta(project_id: str) -> dict:
-    """Return per-project metadata. Creates the file on first access.
+def get_user_project_meta(project_id: str) -> dict:
+    """Return user-level (file-based) per-project metadata. Creates the file on first access.
+
+    Distinct from the canonical per-project store
+    ``EditGraphStore.get_project_meta`` (SQLite ``project_meta`` table).
 
     Per phase4-design-revised.md §3.5 (T7): creativity_level is a per-project
     default; per-message override via the WS `prompt` message. Stored at
@@ -59,8 +62,8 @@ def get_project_meta(project_id: str) -> dict:
     return json.loads(p.read_text())
 
 
-def set_project_meta(project_id: str, key: str, value) -> None:
-    """Set a key in the project's metadata; create the file if missing."""
+def set_user_project_meta(project_id: str, key: str, value) -> None:
+    """Set a key in the user-level (file-based) project metadata; create the file if missing."""
     p = get_config_dir() / "projects" / project_id / "project_meta.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     meta: dict
