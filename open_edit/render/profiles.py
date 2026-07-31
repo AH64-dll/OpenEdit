@@ -1,15 +1,24 @@
 """Render profile selection and MLT consumer arg generation."""
 from __future__ import annotations
 
-import os
+import re
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
-from open_edit.render.encoder import select_encoder
+from open_edit.render.encoder import (
+    TIERS,
+    EncoderSpec,
+    apply_overrides,
+    resolve_backend,
+    select_encoder,
+)
+
+_KB = re.compile(r"^\d+[kKM]?$")
+_SCALE = re.compile(r"^\d{2,5}x\d{2,5}$")
 
 
 class RenderProfile(BaseModel):
-    """A render profile (resolution, fps, codec)."""
+    """A render profile (resolution, fps, codec, quality)."""
     name: str
     width: int
     height: int
@@ -17,6 +26,55 @@ class RenderProfile(BaseModel):
     frame_rate_den: int
     vcodec: str = "libx264"
     acodec: str = "aac"
+    quality: str | None = None
+    crf: int | None = None
+    vb: str | None = None
+    preset: str | None = None
+    scale: str | None = None
+    codec: str | None = None
+    ab: str | None = None
+
+    @field_validator("quality")
+    @classmethod
+    def _quality_known(cls, v: str | None) -> str | None:
+        if v is not None and v not in TIERS:
+            raise ValueError(f"unknown quality {v!r}; expected one of {TIERS}")
+        return v
+
+    @field_validator("crf")
+    @classmethod
+    def _crf_range(cls, v: int | None) -> int | None:
+        if v is not None and not (0 <= v <= 51):
+            raise ValueError(f"crf must be in 0..51, got {v}")
+        return v
+
+    @field_validator("vb")
+    @classmethod
+    def _vb_shape(cls, v: str | None) -> str | None:
+        if v is not None and not _KB.match(v):
+            raise ValueError(f"vb must look like '10M', got {v!r}")
+        return v
+
+    @field_validator("scale")
+    @classmethod
+    def _scale_shape(cls, v: str | None) -> str | None:
+        if v is not None and not _SCALE.match(v):
+            raise ValueError(f"scale must look like '1920x1080', got {v!r}")
+        return v
+
+    @field_validator("codec")
+    @classmethod
+    def _codec_known(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("h264", "hevc", "av1"):
+            raise ValueError(f"codec must be h264|hevc|av1, got {v!r}")
+        return v
+
+    @field_validator("preset")
+    @classmethod
+    def _preset_nonempty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("preset must not be empty")
+        return v
 
 
 DEFAULT_PROFILES: list[RenderProfile] = [
@@ -36,21 +94,59 @@ def select_profile(name: str) -> RenderProfile:
     return _PROFILE_BY_NAME[name]
 
 
+def _mode_default_quality(mode: str) -> str:
+    return "standard" if mode == "final" else "fast"
+
+
+def profile_with_quality(
+    profile_name: str | None,
+    mode: str,
+    quality: str | None = None,
+    overrides: dict | None = None,
+) -> RenderProfile:
+    """Resolve a profile name + mode into a RenderProfile carrying quality.
+
+    Defaults: profile None -> 1080p30 (final) / 720p30 (proxy);
+    quality None -> standard (final) / fast (proxy).
+    """
+    if not profile_name:
+        profile_name = "1080p30" if mode == "final" else "720p30"
+    profile = select_profile(profile_name)
+    update: dict = {"quality": quality or _mode_default_quality(mode)}
+    for key in ("crf", "vb", "preset", "scale", "codec", "ab"):
+        if overrides and overrides.get(key) is not None:
+            update[key] = overrides[key]
+    return profile.model_copy(update=update)
+
+
+def resolve_encoder_args(profile: RenderProfile, backend: str | None = None) -> EncoderSpec:
+    """The EncoderSpec for a profile: tier (profile.quality) + raw overrides."""
+    spec = select_encoder(backend, tier=profile.quality or "standard",
+                          codec=profile.codec or "h264")
+    overrides = {k: getattr(profile, k) for k in ("crf", "vb", "preset")
+                 if getattr(profile, k) is not None}
+    return apply_overrides(spec, overrides)
+
+
+def profile_fingerprint(profile: RenderProfile, backend: str | None = None) -> str:
+    """Stable cache-key component: resolution + quality + overrides + backend."""
+    parts = [profile.name, f"q={profile.quality or 'fast'}"]
+    for key in ("crf", "vb", "preset", "scale", "codec"):
+        value = getattr(profile, key)
+        if value is not None:
+            parts.append(f"{key}={value}")
+    parts.append(f"enc={resolve_backend(backend)}")
+    return "|".join(parts)
+
+
 def profile_to_mlt_args(
     profile: RenderProfile,
     backend: str | None = None,
     *,
     mode: str = "proxy",
 ) -> list[str]:
-    """Convert a profile to melt consumer args.
-
-    Final mode uses High profile + tighter quantizer so melt is not a
-    low-bitrate destroy pass before ffmpeg overlay burn-in. Codec quality
-    args come from ``EncoderSpec.melt_args`` (single source in
-    ``encoder.select_encoder``).
-    """
-    resolved_backend = backend or os.environ.get("OPEN_EDIT_RENDER_BACKEND", "gpu")
-    spec = select_encoder(resolved_backend, final=(mode == "final"))
+    spec = resolve_encoder_args(profile, backend)
+    ab = profile.ab or ("320k" if mode == "final" else "160k")
     args = [
         f"s={profile.width}x{profile.height}",
         f"frame_rate_num={profile.frame_rate_num}",
@@ -63,17 +159,9 @@ def profile_to_mlt_args(
         "colorspace=709",
         f"vcodec={spec.vcodec}",
         f"acodec={profile.acodec}",
+        f"ab={ab}",
+        "frequency=48000",
+        "channels=2",
+        *spec.melt_args,
     ]
-    if mode == "final":
-        # Match source-ish quality: High profile, strong bitrate floor.
-        args += [
-            "vprofile=high",
-            "ab=320k",
-            "frequency=48000",
-            "channels=2",
-            *spec.melt_args,
-        ]
-    else:
-        # Proxy: keep fast/small.
-        args += ["ab=160k", *spec.melt_args]
     return args
