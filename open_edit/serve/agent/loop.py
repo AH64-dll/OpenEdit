@@ -34,9 +34,9 @@ from ..serve_env import get_visual_verify_config
 
 from .cost_sidecar import (
     _SOURCE_PRIORITY,
-    _create_bg_task,
     _load_cost_state,
-    _save_cost_state_async,
+    accumulate_usage,
+    emit_cost_update,
 )
 from .history_store import (
     _build_tool_result_message,
@@ -160,14 +160,21 @@ async def run_agent_turn(
             )
         except (TypeError, ValueError):
             previous_session_cost = 0.0
-    turn_tokens = 0
-    turn_cost_usd = 0.0
-    # The source for the cost_update: highest-priority non-"unavailable"
-    # source seen in this turn. Defaults to "unavailable" so a turn
-    # that yields zero ``usage`` events (rare) still produces a
-    # well-formed cost_update.
-    best_source_priority = _SOURCE_PRIORITY["unavailable"]
-    best_source = "unavailable"
+    # Per-turn cost accumulation — the single state dict shared by
+    # ``accumulate_usage`` (merges ``usage`` events) and
+    # ``emit_cost_update`` (terminal cost_update event + sidecar
+    # persistence). The CLI-owned turn receives the same dict as its
+    # ``cost_ctx`` so both loops aggregate cost identically.
+    turn_cost = {
+        "cost_state": cost_state,
+        "project_path": project_path,
+        "conv_id": conv_id,
+        "previous_session_cost": previous_session_cost,
+        "turn_tokens": 0,
+        "turn_cost_usd": 0.0,
+        "best_source_priority": _SOURCE_PRIORITY["unavailable"],
+        "best_source": "unavailable",
+    }
 
     cfg = get_visual_verify_config()
     verify_active = cfg["enabled"] and not _agent_pkg.is_verify_disabled(project_path)
@@ -196,14 +203,6 @@ async def run_agent_turn(
     except KeyError:
         provider_spec = None
     if provider_spec is not None and provider_spec.agent_mode == "external_loop":
-        cost_ctx = {
-            "cost_state": cost_state,
-            "previous_session_cost": previous_session_cost,
-            "turn_tokens": turn_tokens,
-            "turn_cost_usd": turn_cost_usd,
-            "best_source_priority": best_source_priority,
-            "best_source": best_source,
-        }
         async for event in _agent_pkg._run_cli_owned_turn(
             project_id=project_id,
             project_path=project_path,
@@ -212,7 +211,7 @@ async def run_agent_turn(
             system_prompt=system_prompt,
             should_cancel=should_cancel,
             _is_cancelled=_is_cancelled,
-            cost_ctx=cost_ctx,
+            cost_ctx=turn_cost,
         ):
             yield event
         return
@@ -292,22 +291,10 @@ async def run_agent_turn(
                     pass
                 elif etype == "usage":
                     # v1.4 P1-3: aggregate per-call cost data into
-                    # the turn total. The source priority ranking
-                    # ensures the cost_update reports the most
-                    # informative source when a turn mixes
-                    # providers.
-                    try:
-                        turn_tokens += int(event.get("tokens", 0) or 0)
-                        turn_cost_usd += float(event.get("cost_usd", 0.0) or 0.0)
-                    except (TypeError, ValueError):
-                        pass
-                    src = event.get("source", "unavailable")
-                    if not isinstance(src, str):
-                        src = "unavailable"
-                    prio = _SOURCE_PRIORITY.get(src, _SOURCE_PRIORITY["unavailable"])
-                    if prio < best_source_priority:
-                        best_source_priority = prio
-                        best_source = src
+                    # the turn total. ``accumulate_usage`` owns the
+                    # source-priority ranking so the SDK and CLI
+                    # loops cannot drift.
+                    accumulate_usage(event, turn_cost)
                 elif etype == "error":
                     yield event
                 elif etype == "done":
@@ -320,23 +307,7 @@ async def run_agent_turn(
             # UI doesn't get stuck on a missing event.
             yield {"type": "error", "message": f"LLM stream error: {exc}"}
             yield {"type": "done", "stop_reason": "error"}
-            session_cost_usd = previous_session_cost + turn_cost_usd
-            yield {
-                "type": "cost_update",
-                "turn_tokens": turn_tokens,
-                "turn_cost_usd": round(turn_cost_usd, 9),
-                "session_cost_usd": round(session_cost_usd, 9),
-                "source": best_source,
-            }
-            if conv_id:
-                cost_state[conv_id] = {
-                    "session_cost_usd": session_cost_usd,
-                    "source": best_source,
-                    "last_turn_cost_usd": turn_cost_usd,
-                }
-                _create_bg_task(
-                    _save_cost_state_async(project_path, dict(cost_state))
-                )
+            yield emit_cost_update(turn_cost)
             return
 
         if pending_verification is not None:
@@ -379,28 +350,11 @@ async def run_agent_turn(
         # session cumulative to the sidecar JSON (off-loop).
         if not tool_use_blocks:
             yield {"type": "done", "stop_reason": stop_reason}
-            session_cost_usd = previous_session_cost + turn_cost_usd
-            yield {
-                "type": "cost_update",
-                "turn_tokens": turn_tokens,
-                "turn_cost_usd": round(turn_cost_usd, 9),
-                "session_cost_usd": round(session_cost_usd, 9),
-                "source": best_source,
-            }
-            if conv_id:
-                cost_state[conv_id] = {
-                    "session_cost_usd": session_cost_usd,
-                    "source": best_source,
-                    "last_turn_cost_usd": turn_cost_usd,
-                }
-                # Fire-and-forget write; the cost_update has
-                # already been yielded so the user sees the
-                # number immediately. If the write fails the
-                # next turn will reconcile from the in-memory
-                # state we just stashed here.
-                _create_bg_task(
-                    _save_cost_state_async(project_path, dict(cost_state))
-                )
+            # The sidecar write is fire-and-forget inside the helper;
+            # the cost_update has already been yielded so the user
+            # sees the number immediately, and a failed write
+            # reconciles from the in-memory state next turn.
+            yield emit_cost_update(turn_cost)
             return
 
         # Execute tool calls. v1.5: reorder so mutations run before
@@ -658,20 +612,4 @@ async def run_agent_turn(
         "message": f"agent hit the {_agent_pkg.MAX_AGENT_ITERATIONS}-iteration cap without finishing.",
     }
     yield {"type": "done", "stop_reason": "max_iterations"}
-    session_cost_usd = previous_session_cost + turn_cost_usd
-    yield {
-        "type": "cost_update",
-        "turn_tokens": turn_tokens,
-        "turn_cost_usd": round(turn_cost_usd, 9),
-        "session_cost_usd": round(session_cost_usd, 9),
-        "source": best_source,
-    }
-    if conv_id:
-        cost_state[conv_id] = {
-            "session_cost_usd": session_cost_usd,
-            "source": best_source,
-            "last_turn_cost_usd": turn_cost_usd,
-        }
-        _create_bg_task(
-            _save_cost_state_async(project_path, dict(cost_state))
-        )
+    yield emit_cost_update(turn_cost)
