@@ -16,7 +16,6 @@ from open_edit.render.ffmpeg_probe import detect_silence_spans, probe_duration
 DEFAULT_THRESHOLD_DB = -35.0
 DEFAULT_MAX_SILENCE_S = 0.2
 DEFAULT_DETECT_MIN_S = 0.2
-DEFAULT_WORKERS = 8
 MIN_SEGMENT_S = 0.05
 
 
@@ -131,17 +130,27 @@ def compress_silence(
     max_silence_s: float = DEFAULT_MAX_SILENCE_S,
     threshold_db: float = DEFAULT_THRESHOLD_DB,
     detect_min_s: float = DEFAULT_DETECT_MIN_S,
-    workers: int = DEFAULT_WORKERS,  # reserved for future parallel strategies
     audio_only: bool = False,
+    gaps: list[tuple[float, float]] | None = None,
 ) -> dict:
-    """Trim silences longer than ``max_silence_s``; return summary stats."""
+    """Trim silences longer than ``max_silence_s``; return summary stats.
+
+    When ``gaps`` is provided (source-time (start, end) spans), those
+    spans are used as the silence list and ffmpeg silence detection is
+    skipped — this is how the agent wires word-alignment cut proposals
+    (``propose_silence_cuts`` with ``compress=true``) into compression.
+    """
     t_total = time.monotonic()
     input_path = Path(input_path)
     output_path = Path(output_path)
 
     duration = probe_duration(input_path)
-    silences = detect_silence_spans(
-        input_path, threshold_db=threshold_db, min_s=detect_min_s,
+    silences = (
+        gaps
+        if gaps is not None
+        else detect_silence_spans(
+            input_path, threshold_db=threshold_db, min_s=detect_min_s,
+        )
     )
     keep = build_keep_ranges(duration, silences, max_silence_s)
     new_duration = sum(e - s for s, e in keep)

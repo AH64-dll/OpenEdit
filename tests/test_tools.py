@@ -155,6 +155,103 @@ def test_propose_silence_cuts_asset_not_found(tmp_path: Path):
     assert "not found" in result["error"]
 
 
+def _aligned_asset(asset_hash: str = "src123"):
+    from open_edit.ir.types import Asset, WordAlignment
+    return Asset(
+        asset_hash=asset_hash,
+        original_path="/tmp/x.mp4",
+        stored_path="/tmp/x.mp4",
+        type="video",
+        duration_sec=10.0,
+        fps=30.0, width=1920, height=1080, codec="h264", has_audio=True,
+        alignment=[WordAlignment(word="hi", t_start=0.0, t_end=0.5, confidence=1.0)],
+    )
+
+
+def _mock_store(src_asset):
+    store = mock.MagicMock()
+    store.get.return_value = src_asset
+    return store
+
+
+def test_propose_silence_cuts_compress_ingests_new_asset(tmp_path: Path):
+    """compress=true: run compress_silence with the proposed gaps and ingest the output."""
+    new_asset = _aligned_asset(asset_hash="comp123")
+    store = _mock_store(_aligned_asset())
+    store.ingest.return_value = new_asset
+    compress_stats = {
+        "ok": True, "changed": True, "input_duration_s": 10.0,
+        "output_duration_s": 9.0, "removed_s": 1.0, "silence_count": 1,
+        "segment_count": 2, "elapsed_s": 0.1,
+    }
+    with mock.patch(
+        "open_edit.agent.tools._contract.get_asset_store", return_value=store,
+    ), mock.patch(
+        "open_edit.agent.tools.pyagent_propose_silence_cuts.get_asset_store", return_value=store,
+    ), mock.patch(
+        "open_edit.agent.skills.silence_cutter.propose_cuts",
+        return_value=[
+            {"t_start": 0.5, "t_end": 1.5, "suggested_kind": "trim"},
+        ],
+    ), mock.patch(
+        "open_edit.render.silence_compress.compress_silence",
+        return_value=compress_stats,
+    ) as compress:
+        result = propose_silence_cuts(
+            {"asset_hash": "src123", "compress": True}, str(tmp_path),
+        )
+    assert result["status"] == "ok"
+    assert result["gaps"][0]["t_start"] == 0.5
+    assert result["compressed_asset_hash"] == "comp123"
+    assert result["compression"]["removed_s"] == 1.0
+    compress.assert_called_once()
+    assert compress.call_args.args[0] == "/tmp/x.mp4"
+    assert compress.call_args.kwargs["gaps"] == [(0.5, 1.5)]
+    store.ingest.assert_called_once()
+
+
+def test_propose_silence_cuts_compress_unchanged_skips_ingest(tmp_path: Path):
+    """compress=true but nothing to trim -> no new asset, no hash key."""
+    store = _mock_store(_aligned_asset())
+    with mock.patch(
+        "open_edit.agent.tools._contract.get_asset_store", return_value=store,
+    ), mock.patch(
+        "open_edit.agent.tools.pyagent_propose_silence_cuts.get_asset_store", return_value=store,
+    ), mock.patch(
+        "open_edit.agent.skills.silence_cutter.propose_cuts", return_value=[],
+    ), mock.patch(
+        "open_edit.render.silence_compress.compress_silence",
+        return_value={"ok": True, "changed": False, "removed_s": 0.0},
+    ):
+        result = propose_silence_cuts(
+            {"asset_hash": "src123", "compress": True}, str(tmp_path),
+        )
+    assert result["status"] == "ok"
+    assert "compressed_asset_hash" not in result
+    assert result["compression"]["changed"] is False
+    store.ingest.assert_not_called()
+
+
+def test_propose_silence_cuts_compress_default_off(tmp_path: Path):
+    """compress defaults to false: no compression, no extra keys."""
+    store = _mock_store(_aligned_asset())
+    with mock.patch(
+        "open_edit.agent.tools._contract.get_asset_store", return_value=store,
+    ), mock.patch(
+        "open_edit.agent.skills.silence_cutter.propose_cuts",
+        return_value=[{"t_start": 0.5, "t_end": 1.5, "suggested_kind": "trim"}],
+    ), mock.patch(
+        "open_edit.render.silence_compress.compress_silence",
+    ) as compress:
+        result = propose_silence_cuts({"asset_hash": "src123"}, str(tmp_path))
+    assert result["status"] == "ok"
+    assert result["gaps"][0]["t_end"] == 1.5
+    assert "compressed_asset_hash" not in result
+    assert "compression" not in result
+    compress.assert_not_called()
+    store.ingest.assert_not_called()
+
+
 # ============================================================================
 # run_python
 # ============================================================================
