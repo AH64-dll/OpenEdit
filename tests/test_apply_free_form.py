@@ -10,7 +10,7 @@ Notes (mirroring Task 8's report):
   neither has a `project_id` field (Task 8's test_sandbox_bridge.py:6-7
   noted the same bug). We drop it.
 - `free_form.py` imports `run_free_form` at module level from
-  `open_edit.agent.sandbox_bridge`, so we patch at the point of use:
+  `open_edit.agent.sandbox`, so we patch at the point of use:
   `open_edit.agent.free_form.run_free_form`.
 """
 from unittest.mock import patch

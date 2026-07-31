@@ -56,7 +56,7 @@ pytestmark = pytest.mark.skipif(
 
 def test_pyagent_run_python_50_lines(tmp_project_with_assets):
     """The design's "Done when" criterion: 50-line script -> 50 child ops."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     from open_edit.ir.types import AddClipOp
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}
@@ -81,7 +81,7 @@ def test_pyagent_run_python_50_lines(tmp_project_with_assets):
 
 def test_chained_ops_succeed(tmp_project_with_assets):
     """L4: covers C6 -- `ir.add_clip(...)` returns cid, `ir.trim_clip(cid, ...)` works."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     from open_edit.ir.types import AddClipOp, TrimClipOp
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}
@@ -102,7 +102,7 @@ def test_chained_ops_succeed(tmp_project_with_assets):
 
 def test_free_form_then_render(tmp_project_with_assets):
     """L2: free-form + full render produces a non-empty mlt xml string."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     from open_edit.ir.derive import derive_timeline
     from open_edit.render.emitter import emit_timeline
     code = textwrap.dedent('''
@@ -127,7 +127,7 @@ def test_free_form_then_render(tmp_project_with_assets):
 
 def test_free_form_failure_does_not_corrupt_graph(tmp_project_with_assets):
     """L3: a free-form script that raises an exception does NOT corrupt the graph."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     pre_ops = list(tmp_project_with_assets.edit_graph)
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}
@@ -158,7 +158,7 @@ def test_free_form_failure_does_not_corrupt_graph(tmp_project_with_assets):
 def test_source_ro_blocks_writes(tmp_project_with_assets):
     """L1: ro-bound source raises OSError(EROFS). The script catches the
     error and records the errno via position_sec (AddClipOp has no label)."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}
         try:

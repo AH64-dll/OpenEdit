@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 from open_edit.agent.exceptions import FreeFormResult
-from open_edit.agent.sandbox_bridge import run_free_form
+from open_edit.agent.sandbox import run_free_form
 from open_edit.agent.tools._contract import tool_result
 from open_edit.agent.tools._helpers import _db_path
 from open_edit.storage.edit_graph import EditGraphStore

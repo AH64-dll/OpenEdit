@@ -18,12 +18,12 @@ def test_cli_free_form_runs_script(tmp_path, capsys, monkeypatch):
         # Just a header check; full e2e in test_free_form_e2e.py
     '''))
 
-    # Use a mocked sandbox_bridge to avoid the actual Rust binary
+    # Use a mocked sandbox to avoid the actual Rust binary
     from open_edit.agent.exceptions import FreeFormResult
     def _mock_run(*args, **kwargs):
         return FreeFormResult.ok(ops=[], duration_s=0.0)
     monkeypatch.setattr(
-        "open_edit.agent.sandbox_bridge.run_free_form", _mock_run,
+        "open_edit.agent.sandbox.run_free_form", _mock_run,
     )
 
     rc = main(["free-form", str(code_file), str(project_dir)])

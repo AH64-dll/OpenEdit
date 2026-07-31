@@ -52,5 +52,5 @@ class SandboxError(Exception):
 
 class _ValidationError(Exception):
     """Internal: a single op in ops.jsonl failed referential or schema validation.
-    Caught by sandbox_bridge and mapped to FreeFormResult.fail('invalid_op').
+    Caught by the sandbox and mapped to FreeFormResult.fail('invalid_op').
     """

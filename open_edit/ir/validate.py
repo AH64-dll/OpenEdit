@@ -296,7 +296,7 @@ def _validate_references_strict(op: OperationUnion, project: Project, timeline) 
     """Strict reference checks (sandbox parity), returning error strings.
 
     This is the historical ``_validate_references`` from
-    ``agent/sandbox_bridge.py`` transcribed verbatim (raise -> error string):
+    ``agent/sandbox/staging.py`` transcribed verbatim (raise -> error string):
     identity is timeline-derived (a batch op referencing a clip created
     earlier in the SAME batch passes because the caller passes the growing
     timeline), asset existence is enforced for ``AddClipOp`` /

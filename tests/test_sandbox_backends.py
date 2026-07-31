@@ -1,6 +1,6 @@
 """Pluggable sandbox backend selection + fail-closed behavior.
 
-Covers the refactor of sandbox_bridge into a SandboxBackend interface with a
+Covers the refactor of the sandbox module into a SandboxBackend interface with a
 default (secure) BwrapBackend and an opt-in DevSubprocessBackend, plus the
 fail-closed SandboxUnavailable contract.
 """
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from open_edit.agent.sandbox_bridge import (
+from open_edit.agent.sandbox import (
     BwrapBackend,
     DevSubprocessBackend,
     SandboxBackend,
@@ -73,8 +73,8 @@ def test_unknown_backend_raises_value_error(monkeypatch):
 def test_run_free_form_uses_dev_backend(monkeypatch, tmp_path):
     """OPEN_EDIT_SANDBOX_BACKEND=dev routes run_free_form through the dev
     backend, which runs a plain subprocess (no bwrap)."""
-    from open_edit.agent import sandbox_bridge
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import backends, run_free_form
+    from open_edit.agent.sandbox import staging
 
     monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "dev")
     workdir = _make_project(tmp_path)
@@ -84,7 +84,7 @@ def test_run_free_form_uses_dev_backend(monkeypatch, tmp_path):
     def _fake_run(cmd, **kwargs):
         # Assert we did NOT invoke bwrap / the Rust binary — just python -c.
         captured["cmd"] = cmd
-        assert cmd[0] == sandbox_bridge.PINNED_PYTHON_BIN
+        assert cmd[0] == backends.PINNED_PYTHON_BIN
         assert "-c" in cmd
         # Emulate the sandboxed script writing an (empty) ops file.
         ops_idx = cmd.index("-c")
@@ -93,9 +93,9 @@ def test_run_free_form_uses_dev_backend(monkeypatch, tmp_path):
         assert "open-edit-sandbox" not in runner
         return MagicMock(returncode=0, stdout="", stderr="")
 
-    with patch.object(sandbox_bridge.subprocess, "run", side_effect=_fake_run), \
+    with patch.object(backends.subprocess, "run", side_effect=_fake_run), \
          patch.object(
-             sandbox_bridge, "_validate_ops_incrementally", return_value=([], None)
+             staging, "_validate_ops_incrementally", return_value=([], None)
          ):
         # ops.jsonl won't exist (our fake didn't write it) -> ops_missing,
         # but that still proves the dev path executed a plain subprocess.
@@ -113,7 +113,7 @@ def test_run_free_form_uses_dev_backend(monkeypatch, tmp_path):
 def test_dev_backend_executes_real_python(monkeypatch, tmp_path):
     """End-to-end (no mocks): the dev backend actually runs the generated
     bootstrap + user code with the real interpreter and produces ops."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     from open_edit.storage.edit_graph import EditGraphStore
 
     monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "dev")
@@ -165,13 +165,13 @@ def _bwrap_fail_proc():
 def test_bwrap_backend_raises_sandbox_unavailable(tmp_path):
     """BwrapBackend.run raises SandboxUnavailable when bwrap can't create
     its namespaces (fail-closed)."""
-    from open_edit.agent import sandbox_bridge
+    from open_edit.agent.sandbox import backends
 
     workdir = _make_project(tmp_path)
     with patch.object(
-        sandbox_bridge, "_resolve_sandbox_bin", return_value="/fake/open-edit-sandbox",
+        backends, "_resolve_sandbox_bin", return_value="/fake/open-edit-sandbox",
     ), patch.object(
-        sandbox_bridge.subprocess, "run", return_value=_bwrap_fail_proc(),
+        backends.subprocess, "run", return_value=_bwrap_fail_proc(),
     ):
         with pytest.raises(SandboxUnavailable, match="OPEN_EDIT_SANDBOX_BACKEND=dev"):
             BwrapBackend().run(
@@ -190,19 +190,19 @@ def test_run_free_form_fails_closed_not_dev_fallback(monkeypatch, tmp_path):
     """When bwrap is selected (default) and its launch fails, run_free_form
     returns reason='sandbox_unavailable' and does NOT silently run in dev
     mode."""
-    from open_edit.agent import sandbox_bridge
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import backends
+    from open_edit.agent.sandbox import run_free_form
 
     monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "bwrap")
     workdir = _make_project(tmp_path)
 
     dev_run = MagicMock()
     with patch.object(
-        sandbox_bridge, "_resolve_sandbox_bin", return_value="/fake/open-edit-sandbox",
+        backends, "_resolve_sandbox_bin", return_value="/fake/open-edit-sandbox",
     ), patch.object(
-        sandbox_bridge.subprocess, "run", return_value=_bwrap_fail_proc(),
+        backends.subprocess, "run", return_value=_bwrap_fail_proc(),
     ), patch.object(
-        sandbox_bridge.DevSubprocessBackend, "run", dev_run,
+        backends.DevSubprocessBackend, "run", dev_run,
     ):
         result = run_free_form(
             code="# ir_api_version: 0.1; libs: {}",
@@ -220,7 +220,7 @@ def test_run_free_form_fails_closed_not_dev_fallback(monkeypatch, tmp_path):
 def test_bwrap_usage_error_is_not_sandbox_unavailable(tmp_path):
     """A plain non-namespace bwrap/usage error must NOT be misclassified as
     SandboxUnavailable (preserves the existing sandbox_protocol_error path)."""
-    from open_edit.agent import sandbox_bridge
+    from open_edit.agent.sandbox import backends
 
     workdir = _make_project(tmp_path)
     proc = MagicMock(
@@ -229,9 +229,9 @@ def test_bwrap_usage_error_is_not_sandbox_unavailable(tmp_path):
         stderr="error: the following required arguments were not provided\n",
     )
     with patch.object(
-        sandbox_bridge, "_resolve_sandbox_bin", return_value="/fake/open-edit-sandbox",
+        backends, "_resolve_sandbox_bin", return_value="/fake/open-edit-sandbox",
     ), patch.object(
-        sandbox_bridge.subprocess, "run", return_value=proc,
+        backends.subprocess, "run", return_value=proc,
     ):
         result = BwrapBackend().run(
             code="# ir_api_version: 0.1; libs: {}",

@@ -1,4 +1,4 @@
-"""Phase 4 Task 1: originating_note_id on Operation + IR API + sandbox_bridge."""
+"""Phase 4 Task 1: originating_note_id on Operation + IR API + sandbox."""
 import json
 import pytest
 from pathlib import Path

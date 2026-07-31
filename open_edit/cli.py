@@ -206,7 +206,7 @@ def cmd_render(args: argparse.Namespace) -> int:
 
 def cmd_free_form(args: argparse.Namespace) -> int:
     """Run a free-form Python script in the sandbox against a project."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     from open_edit.storage.edit_graph import EditGraphStore
     code = Path(args.code_file).read_text()
     db_path = Path(args.project_dir) / "edit_graph.db"

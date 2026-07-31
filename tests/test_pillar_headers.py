@@ -18,7 +18,7 @@ def test_run_script_is_run_python():
 
 
 def test_header_auto_inject_missing():
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     assert callable(run_free_form)
 
 

@@ -1,4 +1,4 @@
-"""Phase 3 Task 8: sandbox_bridge unit tests with mocked Rust binary.
+"""Phase 3 Task 8: sandbox unit tests with mocked Rust binary.
 
 Note: The brief's test draft had two bugs vs. the real code:
   1. _FlushingBuffer() needs an ops_file argument (the brief's class signature
@@ -15,8 +15,9 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from open_edit.agent.sandbox_bridge import (
-    _render_bootstrap, _FlushingBuffer, _load_assets_via_store,
+from open_edit.agent.sandbox.bootstrap import render_bootstrap
+from open_edit.agent.sandbox.staging import (
+    _FlushingBuffer, _load_assets_via_store,
 )
 from open_edit.agent.exceptions import FreeFormResult
 from open_edit.ir.types import Asset
@@ -63,7 +64,7 @@ def test_flushing_buffer_writes_first_then_appends(tmp_path):
 
 def test_render_bootstrap_is_self_contained():
     """C2: bootstrap does NOT `import open_edit`."""
-    bootstrap = _render_bootstrap(project_id="p1", parent_op_id="e1")
+    bootstrap = render_bootstrap(project_id="p1", parent_op_id="e1")
     # The bootstrap should inline the IR class; no `from open_edit` import
     # for IR/op models (the imports block only has typing/pydantic/datetime).
     assert "from open_edit.ir.api import IR" not in bootstrap
@@ -85,7 +86,7 @@ def test_render_bootstrap_inlines_all_op_classes():
     Self-enforcing: derives the expected set from `OperationUnion` itself via
     `typing.get_args`, not a hardcoded list. Adding a 25th op class to
     `OperationUnion` (and forgetting to add it to `op_types` in
-    `sandbox_bridge._render_bootstrap`) will fail this test with a clear
+    `render_bootstrap`) will fail this test with a clear
     "Missing op class definitions" message naming the missing op.
     """
     from typing import get_args
@@ -97,7 +98,7 @@ def test_render_bootstrap_inlines_all_op_classes():
     op_classes = get_args(_op_union)  # tuple of all op classes
     expected_names = {cls.__name__ for cls in op_classes}
 
-    bootstrap = _render_bootstrap(project_id="p1", parent_op_id="e1")
+    bootstrap = render_bootstrap(project_id="p1", parent_op_id="e1")
 
     missing = sorted(
         name for name in expected_names
@@ -106,7 +107,7 @@ def test_render_bootstrap_inlines_all_op_classes():
     assert not missing, (
         f"Missing op class definitions in bootstrap: {missing}. "
         f"Either add them to `op_types` in "
-        f"open_edit/agent/sandbox_bridge.py:_render_bootstrap, "
+        f"open_edit/agent/sandbox/bootstrap.py:render_bootstrap, "
         f"or this is a regression of the C1 fix."
     )
 
@@ -115,7 +116,7 @@ def test_bootstrap_exec_instantiates_all_24_op_classes(tmp_path):
     """C1 (final-fixes): executing the bootstrap must make every op class
     available in scope (no NameError when IR methods construct them).
     """
-    bootstrap = _render_bootstrap(
+    bootstrap = render_bootstrap(
         project_id="p1",
         parent_op_id="e1",
         originating_note_id="n1",
@@ -169,7 +170,7 @@ def test_bootstrap_exec_instantiates_all_24_op_classes(tmp_path):
 
 def test_run_free_form_auto_injects_missing_header(tmp_path):
     """No ``# ir_api_version:`` header is auto-injected (not a preflight fail)."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -183,7 +184,7 @@ def test_run_free_form_auto_injects_missing_header(tmp_path):
 
 
 def test_run_free_form_unsupported_version_returns_fail(tmp_path):
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -198,7 +199,7 @@ def test_run_free_form_unsupported_version_returns_fail(tmp_path):
 
 
 def test_run_free_form_unsupported_lib_returns_fail(tmp_path):
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -214,8 +215,9 @@ def test_run_free_form_unsupported_lib_returns_fail(tmp_path):
 
 def test_run_free_form_clamps_timeout_and_mem():
     """H9: hard caps MAX_FREEFORM_TIMEOUT_SEC=300, MAX_FREEFORM_MEM_MB=4096."""
-    from open_edit.agent.sandbox_bridge import (
-        MAX_FREEFORM_TIMEOUT_SEC, MAX_FREEFORM_MEM_MB, run_free_form,
+    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.sandbox.bridge import (
+        MAX_FREEFORM_TIMEOUT_SEC, MAX_FREEFORM_MEM_MB,
     )
     # Test the constants exist with the right values
     assert MAX_FREEFORM_TIMEOUT_SEC == 300
@@ -224,12 +226,11 @@ def test_run_free_form_clamps_timeout_and_mem():
     # covered in test_free_form_e2e.py.
 
 
-@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+@patch("open_edit.agent.sandbox.backends.subprocess.run")
 def test_timeout_clamped_to_max(mock_run, tmp_path):
     """T5: a timeout > MAX_FREEFORM_TIMEOUT_SEC is clamped before reaching the binary."""
-    from open_edit.agent.sandbox_bridge import (
-        run_free_form, MAX_FREEFORM_TIMEOUT_SEC,
-    )
+    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.sandbox.bridge import MAX_FREEFORM_TIMEOUT_SEC
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -252,12 +253,11 @@ def test_timeout_clamped_to_max(mock_run, tmp_path):
         f"expected {MAX_FREEFORM_TIMEOUT_SEC}, got {cmd[idx + 1]}"
 
 
-@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+@patch("open_edit.agent.sandbox.backends.subprocess.run")
 def test_mem_mb_clamped_to_max(mock_run, tmp_path):
     """T5: a mem_mb > MAX_FREEFORM_MEM_MB is clamped before reaching the binary."""
-    from open_edit.agent.sandbox_bridge import (
-        run_free_form, MAX_FREEFORM_MEM_MB,
-    )
+    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.sandbox.bridge import MAX_FREEFORM_MEM_MB
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -287,12 +287,12 @@ def test_run_free_form_sandbox_binary_missing(tmp_path):
     candidate exists it raises FileNotFoundError and the bridge maps that
     to a sandbox_binary_missing result.
     """
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_sandbox_bin",
+        "open_edit.agent.sandbox.backends._resolve_sandbox_bin",
         side_effect=FileNotFoundError("not in any known location"),
     ):
         result = run_free_form(
@@ -313,7 +313,7 @@ def test_resolve_sandbox_bin_ignores_path(monkeypatch, tmp_path):
     via shutil.which, so a planted attacker binary on PATH cannot win
     even if it appears earlier than the legitimate one.
     """
-    from open_edit.agent.sandbox_bridge import _resolve_sandbox_bin
+    from open_edit.agent.sandbox.backends import _resolve_sandbox_bin
 
     hostile_dir = tmp_path / "hostile_dir"
     hostile_dir.mkdir()
@@ -335,7 +335,7 @@ def test_resolve_sandbox_bin_finds_allowlisted(monkeypatch, tmp_path):
     """P8: a binary at ~/.local/bin/open-edit-sandbox IS found (allow-list
     member, not a PATH hit).
     """
-    from open_edit.agent.sandbox_bridge import _resolve_sandbox_bin
+    from open_edit.agent.sandbox.backends import _resolve_sandbox_bin
 
     fake = tmp_path / ".local" / "bin" / "open-edit-sandbox"
     fake.parent.mkdir(parents=True)
@@ -359,7 +359,7 @@ def test_validate_workdir_accepts_real_project_outside_root(tmp_path, monkeypatc
     is accepted regardless of OPEN_EDIT_PROJECTS_ROOT. The AI may operate on
     any directory; only the functional 'is a real project' check remains.
     """
-    from open_edit.agent.sandbox_bridge import _validate_workdir
+    from open_edit.agent.sandbox.bridge import _validate_workdir
 
     # Narrow the allowed root to a sub-dir of tmp_path; the workdir below
     # is a SIBLING of that sub-dir (outside the root) and must still be
@@ -377,7 +377,7 @@ def test_validate_workdir_accepts_real_project_outside_root(tmp_path, monkeypatc
 
 def test_run_free_form_rejects_nonexistent_workdir(tmp_path):
     """P9: a workdir that doesn't exist (or has no edit_graph.db) is rejected."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
 
     workdir = tmp_path / "does_not_exist"
     # don't create it
@@ -396,7 +396,7 @@ def test_run_render_rejects_workdir_outside_allowed_root(tmp_path, monkeypatch):
     root returns RenderResult(ok=False, detail='invalid_argument') and does
     NOT stage _render_code.py on the host.
     """
-    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.sandbox import run_render
     from open_edit.agent.exceptions import RenderResult
 
     allowed = tmp_path / "allowed"
@@ -431,7 +431,7 @@ def test_run_free_form_internal_error_does_not_leak_paths(tmp_path):
     """5a: a top-level exception in the run path must not include the
     absolute path / secret args of the original exception in result.detail.
     """
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
@@ -443,7 +443,7 @@ def test_run_free_form_internal_error_does_not_leak_paths(tmp_path):
         raise RuntimeError(f"database error at {secret}")
 
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_sandbox_bin",
+        "open_edit.agent.sandbox.backends._resolve_sandbox_bin",
         side_effect=_raise,
     ):
         result = run_free_form(
@@ -474,7 +474,7 @@ def test_run_free_form_sandbox_error_stderr_sanitized(tmp_path):
     control-char-laden stderr, the wrapper's result detail is one line,
     no control chars, bounded length.
     """
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
@@ -490,7 +490,7 @@ def test_run_free_form_sandbox_error_stderr_sanitized(tmp_path):
         }) + "\n",
     )
     with patch(
-        "open_edit.agent.sandbox_bridge.subprocess.run",
+        "open_edit.agent.sandbox.backends.subprocess.run",
         return_value=mock_run,
     ):
         result = run_free_form(
@@ -513,7 +513,7 @@ def test_run_render_stderr_not_in_detail(tmp_path):
     """5b: render sandbox stderr/stdout is logged server-side but NOT
     surfaced in result.detail — only a coarse reason.
     """
-    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.sandbox import run_render
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
@@ -526,10 +526,10 @@ def test_run_render_stderr_not_in_detail(tmp_path):
     fake_proc.stderr = "stderr-secret /etc/passwd token123"
 
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_render_binary",
+        "open_edit.agent.sandbox.backends._resolve_render_binary",
         return_value="/fake/binary",
     ), patch(
-        "open_edit.agent.sandbox_bridge.subprocess.run",
+        "open_edit.agent.sandbox.bridge.subprocess.run",
         return_value=fake_proc,
     ):
         result = run_render(
@@ -551,13 +551,13 @@ def test_run_render_stderr_not_in_detail(tmp_path):
 # on disk forever.
 # =========================================================================
 
-@patch("open_edit.agent.sandbox_bridge._validate_ops_incrementally")
-@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+@patch("open_edit.agent.sandbox.staging._validate_ops_incrementally")
+@patch("open_edit.agent.sandbox.backends.subprocess.run")
 def test_run_free_form_removes_scratch_dir_on_success(
     mock_run, mock_validate, tmp_path,
 ):
     """6a: scratch dir is removed on success."""
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
 
     workdir = tmp_path / "proj"
     workdir.mkdir()
@@ -595,7 +595,7 @@ def test_run_free_form_removes_scratch_dir_on_success(
         )
 
 
-@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+@patch("open_edit.agent.sandbox.backends.subprocess.run")
 def test_run_free_form_passes_ops_output_to_sandbox(mock_run, tmp_path):
     """Regression guard for the bridge -> binary CLI contract.
 
@@ -605,7 +605,7 @@ def test_run_free_form_passes_ops_output_to_sandbox(mock_run, tmp_path):
     the wrapper reads that path directly. The bridge MUST pass the flags
     the binary actually requires/accepts.
     """
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -632,7 +632,7 @@ def test_run_free_form_passes_ops_output_to_sandbox(mock_run, tmp_path):
         assert flag in cmd, f"bridge must pass {flag}; got cmd: {cmd}"
 
 
-@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+@patch("open_edit.agent.sandbox.backends.subprocess.run")
 def test_run_free_form_no_json_in_stdout_returns_protocol_error(mock_run, tmp_path):
     """Defense in depth: if the Rust binary exits without writing any
     JSON to stdout (e.g. a usage error from a missing required arg), the
@@ -643,7 +643,7 @@ def test_run_free_form_no_json_in_stdout_returns_protocol_error(mock_run, tmp_pa
     future bug removes the --ops-output flag again, the user gets a useful
     error instead of an internal_error with a stack trace.
     """
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -675,7 +675,7 @@ def test_run_free_form_no_json_in_stdout_returns_protocol_error(mock_run, tmp_pa
 # raises JSONDecodeError and the wrapper returns sandbox_protocol_error.
 # =========================================================================
 
-@patch("open_edit.agent.sandbox_bridge.subprocess.run")
+@patch("open_edit.agent.sandbox.backends.subprocess.run")
 def test_free_form_print_does_not_corrupt_protocol_json(mock_run, tmp_path):
     """A free-form script's print() output must not corrupt the protocol JSON.
 
@@ -684,7 +684,7 @@ def test_free_form_print_does_not_corrupt_protocol_json(mock_run, tmp_path):
     bug) before the final protocol JSON line. The wrapper must find and
     parse the JSON, not fail with sandbox_protocol_error.
     """
-    from open_edit.agent.sandbox_bridge import run_free_form
+    from open_edit.agent.sandbox import run_free_form
     workdir = tmp_path / "proj"
     workdir.mkdir()
     (workdir / "edit_graph.db").touch()
@@ -726,7 +726,7 @@ def test_run_render_binary_missing_returns_failed_result(tmp_path):
     must NEVER raise; it must return a structured RenderResult with
     ok=False and a detail string.
     """
-    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.sandbox import run_render
     from open_edit.agent.exceptions import RenderResult
 
     workdir = tmp_path / "proj"
@@ -736,7 +736,7 @@ def test_run_render_binary_missing_returns_failed_result(tmp_path):
 
     # Force _resolve_render_binary to raise (no binary in any known location).
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_render_binary",
+        "open_edit.agent.sandbox.backends._resolve_render_binary",
         side_effect=FileNotFoundError("no render binary"),
     ):
         result = run_render(
@@ -758,7 +758,7 @@ def test_run_render_nonzero_exit_returns_failed_result(tmp_path):
     The detail carries a coarse reason (the exit code) and the full
     stderr is logged server-side instead.
     """
-    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.sandbox import run_render
     from open_edit.agent.exceptions import RenderResult
 
     workdir = tmp_path / "proj"
@@ -772,10 +772,10 @@ def test_run_render_nonzero_exit_returns_failed_result(tmp_path):
     fake_proc.stderr = "render crashed with internal stack trace"
 
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_render_binary",
+        "open_edit.agent.sandbox.backends._resolve_render_binary",
         return_value="/fake/binary",
     ), patch(
-        "open_edit.agent.sandbox_bridge.subprocess.run",
+        "open_edit.agent.sandbox.bridge.subprocess.run",
         return_value=fake_proc,
     ):
         result = run_render(
@@ -794,7 +794,7 @@ def test_run_render_nonzero_exit_returns_failed_result(tmp_path):
 
 def test_run_render_missing_output_returns_failed_result(tmp_path):
     """I1: render binary exits 0 but doesn't produce output → RenderResult(ok=False)."""
-    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.sandbox import run_render
     from open_edit.agent.exceptions import RenderResult
 
     workdir = tmp_path / "proj"
@@ -808,10 +808,10 @@ def test_run_render_missing_output_returns_failed_result(tmp_path):
     fake_proc.stderr = ""
 
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_render_binary",
+        "open_edit.agent.sandbox.backends._resolve_render_binary",
         return_value="/fake/binary",
     ), patch(
-        "open_edit.agent.sandbox_bridge.subprocess.run",
+        "open_edit.agent.sandbox.bridge.subprocess.run",
         return_value=fake_proc,
     ):
         result = run_render(
@@ -827,7 +827,7 @@ def test_run_render_missing_output_returns_failed_result(tmp_path):
 
 def test_run_render_timeout_returns_failed_result(tmp_path):
     """I1: subprocess.TimeoutExpired → RenderResult(ok=False), no exception."""
-    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.sandbox import run_render
     from open_edit.agent.exceptions import RenderResult
     import subprocess as _subprocess
 
@@ -837,10 +837,10 @@ def test_run_render_timeout_returns_failed_result(tmp_path):
     output_path = workdir / "out.mp4"
 
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_render_binary",
+        "open_edit.agent.sandbox.backends._resolve_render_binary",
         return_value="/fake/binary",
     ), patch(
-        "open_edit.agent.sandbox_bridge.subprocess.run",
+        "open_edit.agent.sandbox.bridge.subprocess.run",
         side_effect=_subprocess.TimeoutExpired(cmd="x", timeout=10),
     ):
         result = run_render(
@@ -856,7 +856,7 @@ def test_run_render_timeout_returns_failed_result(tmp_path):
 
 def test_run_render_success_returns_ok_result(tmp_path):
     """I1: successful render → RenderResult(ok=True, path=output_path)."""
-    from open_edit.agent.sandbox_bridge import run_render
+    from open_edit.agent.sandbox import run_render
     from open_edit.agent.exceptions import RenderResult
 
     workdir = tmp_path / "proj"
@@ -874,10 +874,10 @@ def test_run_render_success_returns_ok_result(tmp_path):
         return fake_proc
 
     with patch(
-        "open_edit.agent.sandbox_bridge._resolve_render_binary",
+        "open_edit.agent.sandbox.backends._resolve_render_binary",
         return_value="/fake/binary",
     ), patch(
-        "open_edit.agent.sandbox_bridge.subprocess.run",
+        "open_edit.agent.sandbox.bridge.subprocess.run",
         side_effect=_create_output,
     ):
         result = run_render(
@@ -1210,7 +1210,7 @@ def test_validate_ops_incrementally_raises_via_op_validation_error(tmp_path):
     (the IR reference-error type), wrapped in the line-numbered
     _ValidationError — no bare ReferenceError."""
     from open_edit.agent.exceptions import _ValidationError
-    from open_edit.agent.sandbox_bridge import _validate_ops_incrementally
+    from open_edit.agent.sandbox.staging import _validate_ops_incrementally
     from open_edit.ir.types import TrimClipOp, new_id
     from open_edit.ir.validate import OpValidationError
 
@@ -1236,7 +1236,7 @@ def test_validate_ops_incrementally_accepts_same_batch_chain(tmp_path):
     """C6: a batch op may reference a clip created by an EARLIER op in the
     SAME batch — validation runs against the growing working timeline, not
     just the stored graph."""
-    from open_edit.agent.sandbox_bridge import _validate_ops_incrementally
+    from open_edit.agent.sandbox.staging import _validate_ops_incrementally
     from open_edit.ir.types import AddClipOp, TrimClipOp, new_id
 
     workdir = tmp_path / "proj"

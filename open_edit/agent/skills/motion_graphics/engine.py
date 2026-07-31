@@ -14,7 +14,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from open_edit.agent.sandbox_bridge import run_render
+from open_edit.agent.sandbox import run_render
 from open_edit.agent.skills.motion_graphics import templates
 from open_edit.agent.skills.narrative_analyzer import NarrativeSegment
 from open_edit.ir.types import AddClipOp

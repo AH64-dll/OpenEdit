@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from open_edit.agent.sandbox_bridge import (
+from open_edit.agent.sandbox import (
     DevSubprocessBackend,
     get_sandbox_backend,
     run_render,
@@ -19,7 +19,7 @@ from open_edit.render.profiles import RenderProfile
 
 def test_windows_default_sandbox_backend_is_dev(monkeypatch):
     monkeypatch.delenv("OPEN_EDIT_SANDBOX_BACKEND", raising=False)
-    with patch("open_edit.agent.sandbox_bridge.sys.platform", "win32"):
+    with patch("open_edit.agent.sandbox.backends.sys.platform", "win32"):
         backend = get_sandbox_backend()
     assert isinstance(backend, DevSubprocessBackend)
     assert backend.name == "dev"
@@ -27,14 +27,14 @@ def test_windows_default_sandbox_backend_is_dev(monkeypatch):
 
 def test_windows_explicit_bwrap_raises(monkeypatch):
     monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "bwrap")
-    with patch("open_edit.agent.sandbox_bridge.sys.platform", "win32"):
+    with patch("open_edit.agent.sandbox.backends.sys.platform", "win32"):
         with pytest.raises(ValueError, match="not supported on Windows"):
             get_sandbox_backend()
 
 
 def test_windows_run_render_unsupported(tmp_path):
     out = tmp_path / "out.mp4"
-    with patch("open_edit.agent.sandbox_bridge.sys.platform", "win32"):
+    with patch("open_edit.agent.sandbox.bridge.sys.platform", "win32"):
         result = run_render("print(1)", tmp_path, out)
     assert result.ok is False
     assert result.detail == "render_sandbox_unsupported_on_windows"

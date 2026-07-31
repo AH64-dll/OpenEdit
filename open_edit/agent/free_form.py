@@ -6,7 +6,7 @@ layer (pure domain) no longer depends on the agent layer.
 
 from __future__ import annotations
 
-from open_edit.agent.sandbox_bridge import run_free_form
+from open_edit.agent.sandbox import run_free_form
 from open_edit.ir.apply import ApplyError
 from open_edit.ir.types import FreeFormCodeOp, Project
 
