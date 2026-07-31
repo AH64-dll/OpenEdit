@@ -55,7 +55,7 @@ def run_python(args: dict, project_path: str) -> dict:
             "status": "ok" if result.success else "error",
             "ops_appended": appended,
             "ops_summary": op_summaries,
-            "graph_revision": store.graph_revision,
+            "graph_revision": store.graph_revision(),
             "error": (result.reason + ": " + result.detail) if not result.success else None,
         }
         # Full dumps are huge — only when explicitly requested.
