@@ -7,6 +7,7 @@ validation, and C7 error mapping live here; execution lives in
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,8 +27,78 @@ from open_edit.storage.paths import ProjectPaths
 # H9: hard caps so FreeFormCodeOp.timeout_sec can't hold the JobLock forever.
 MAX_FREEFORM_TIMEOUT_SEC = 300
 MAX_FREEFORM_MEM_MB = 4096
+SANDBOX_DEV_REMEDIATION = (
+    "For local productivity, set OPEN_EDIT_SANDBOX_BACKEND=dev "
+    "to run without isolation."
+)
 
 logger = logging.getLogger(__name__)
+
+_POSIX_PATH_RE = re.compile(r"(?<![\w])/(?:[^/\s]+/)*[^/\s]+")
+_WINDOWS_PATH_RE = re.compile(
+    r"(?<![\w])[A-Za-z]:\\(?:[^\\\s]+\\)*[^\\\s]+"
+)
+_SANDBOX_SETUP_FAILURES = frozenset({
+    "sandbox_binary_missing",
+    "sandbox_protocol_error",
+    "sandbox_unavailable",
+})
+
+
+def _sanitize_agent_detail(detail: object, *, max_len: int = 300) -> str:
+    """Return a bounded, single-line detail safe to show to an agent.
+
+    Backend details can contain child-process output or resolver diagnostics.
+    Keep a useful first-line hint while redacting absolute paths so project
+    locations and host filesystem layout do not cross the agent boundary.
+    """
+    if not detail:
+        return ""
+    text = str(detail).splitlines()[0]
+    text = "".join(c for c in text if c.isprintable() or c in " \t")
+    text = _WINDOWS_PATH_RE.sub("<path>", text)
+    text = _POSIX_PATH_RE.sub("<path>", text)
+    if len(text) > max_len:
+        text = text[:max_len] + "..."
+    return text
+
+
+def _free_form_failure(reason: str, detail: object = "") -> FreeFormResult:
+    """Build a sanitized free-form failure with relevant operator hints."""
+    safe_detail = _sanitize_agent_detail(detail)
+    if reason in _SANDBOX_SETUP_FAILURES:
+        if "OPEN_EDIT_SANDBOX_BACKEND=dev" not in safe_detail:
+            safe_detail = (
+                f"{safe_detail}. {SANDBOX_DEV_REMEDIATION}"
+                if safe_detail
+                else SANDBOX_DEV_REMEDIATION
+            )
+    if "timeout" in reason.lower() or "timed out" in safe_detail.lower():
+        timeout_hint = f"timeout cap: {MAX_FREEFORM_TIMEOUT_SEC}s"
+        if timeout_hint not in safe_detail:
+            safe_detail = (
+                f"{safe_detail}. {timeout_hint}"
+                if safe_detail
+                else timeout_hint
+            )
+    return FreeFormResult.fail(reason, safe_detail)
+
+
+def _coerce_positive_int(value: object, field_name: str) -> int:
+    """Normalize an integer limit without allowing malformed values through."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a positive integer")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"{field_name} must be a positive integer")
+    try:
+        normalized = int(value)
+    except Exception as exc:
+        # Do not surface exception text from caller-controlled conversion
+        # objects; the bridge's result is an agent-facing boundary.
+        raise ValueError(f"{field_name} must be a positive integer") from exc
+    if normalized <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return normalized
 
 
 def _validate_workdir(workdir: Path) -> Path:
@@ -75,9 +146,19 @@ def run_free_form(
     `originating_note_id` is stamped on every op produced inside the sandbox
     so the round-trip from a user note → agent IR op is auditable.
     """
-    timeout = min(int(timeout), MAX_FREEFORM_TIMEOUT_SEC)
-    mem_mb = min(int(mem_mb), MAX_FREEFORM_MEM_MB)
     try:
+        try:
+            timeout = _coerce_positive_int(timeout, "timeout")
+            mem_mb = _coerce_positive_int(mem_mb, "mem_mb")
+        except ValueError as e:
+            return _free_form_failure("invalid_argument", str(e))
+        if cpu_sec is not None:
+            try:
+                cpu_sec = _coerce_positive_int(cpu_sec, "cpu_sec")
+            except ValueError as e:
+                return _free_form_failure("invalid_argument", str(e))
+        timeout = min(timeout, MAX_FREEFORM_TIMEOUT_SEC)
+        mem_mb = min(mem_mb, MAX_FREEFORM_MEM_MB)
         # P9: validate workdir FIRST, before any other I/O. A hostile
         # tool call with project_path="/etc" must NOT cause code.py /
         # _render_code.py / bootstrap.py to be staged on the host.
@@ -91,14 +172,14 @@ def run_free_form(
         try:
             declared_version, declared_libs = parse_header(code)
         except SandboxError as e:
-            return FreeFormResult.fail("preflight_failed", str(e))
+            return _free_form_failure("preflight_failed", str(e))
         if not version_supported(declared_version):
-            return FreeFormResult.fail(
+            return _free_form_failure(
                 "ir_api_version_unsupported", f"got {declared_version}"
             )
         for lib_name, lib_ver in declared_libs.items():
             if not lib_version_supported(lib_name, lib_ver):
-                return FreeFormResult.fail(
+                return _free_form_failure(
                     "lib_version_unsupported", f"{lib_name}=={lib_ver}"
                 )
 
@@ -109,10 +190,14 @@ def run_free_form(
         lock = JobLock(store)
         job_id = lock.try_acquire('free_form_python')
         if job_id is None:
-            return FreeFormResult.fail("busy", "another job is in progress")
+            return _free_form_failure(
+                "busy",
+                "another job is in progress; retry after it finishes "
+                f"(timeout cap: {MAX_FREEFORM_TIMEOUT_SEC}s)",
+            )
         try:
             backend = backends.get_sandbox_backend()
-            return backend.run(
+            result = backend.run(
                 code=code,
                 workdir=workdir,
                 project_id=project_id,
@@ -122,6 +207,9 @@ def run_free_form(
                 cpu_sec=cpu_sec,
                 originating_note_id=originating_note_id,
             )
+            if not result.success:
+                return _free_form_failure(result.reason, result.detail)
+            return result
         finally:
             lock.release(job_id, "completed")
     except backends.SandboxUnavailable as e:
@@ -131,14 +219,19 @@ def run_free_form(
         # — the operator must opt in via OPEN_EDIT_SANDBOX_BACKEND=dev. C7 is
         # preserved (run_free_form still returns a result, never raises).
         logger.error("sandbox unavailable: %s", e)
-        return FreeFormResult.fail("sandbox_unavailable", str(e))
+        return _free_form_failure("sandbox_unavailable", str(e))
     except ValueError as e:
-        # P9: workdir failed validation.
-        return FreeFormResult.fail("invalid_argument", str(e))
-    except subprocess.TimeoutExpired:
+        # P9: workdir failed validation — do not echo absolute paths.
+        logger.info("run_free_form invalid_argument: %s", e)
         return FreeFormResult.fail(
+            "invalid_argument",
+            "workdir is not a valid project directory",
+        )
+    except subprocess.TimeoutExpired:
+        return _free_form_failure(
             "parent_watchdog_timeout",
-            "sandbox did not exit within timeout+10s",
+            "sandbox did not exit within timeout+10s "
+            f"(requested timeout capped at {MAX_FREEFORM_TIMEOUT_SEC}s)",
         )
     except Exception as e:
         # 5a: never-raises safety net. Log the full repr server-side
@@ -148,13 +241,45 @@ def run_free_form(
         # the caller, which is mild info disclosure and a usable
         # prompt-injection surface.
         logger.exception("run_free_form internal error")
-        return FreeFormResult.fail(
+        return _free_form_failure(
             "internal_error",
             f"{type(e).__name__}: <sanitized>",
         )
 
 
 def run_render(
+    code: str,
+    workdir: Path,
+    output_path: Path,
+    timeout_sec: int = 3600,
+    mem_mb: int = 4096,
+    with_hwaccel: bool = False,
+) -> RenderResult:
+    """Run a render and always return a structured result."""
+    try:
+        return _run_render_impl(
+            code, workdir, output_path, timeout_sec, mem_mb, with_hwaccel,
+        )
+    except FileNotFoundError:
+        logger.exception("render sandbox binary disappeared")
+        try:
+            safe_path = Path(output_path)
+        except Exception:
+            safe_path = Path(".")
+        return RenderResult(
+            path=safe_path, ok=False,
+            detail="render sandbox binary unavailable",
+        )
+    except Exception:
+        logger.exception("run_render internal error")
+        try:
+            safe_path = Path(output_path)
+        except Exception:
+            safe_path = Path(".")
+        return RenderResult(path=safe_path, ok=False, detail="internal_error")
+
+
+def _run_render_impl(
     code: str,
     workdir: Path,
     output_path: Path,
@@ -207,19 +332,27 @@ def run_render(
         # live under the workdir so the rebind exposes it inside the sandbox.
         return RenderResult(
             path=output_path, ok=False,
-            detail=f"output_path {output_path} must live under workdir {workdir}",
+            detail="output_path must live under workdir",
         )
 
     code_file = workdir / "_render_code.py"
     try:
         code_file.write_text(code)
     except OSError as e:
-        return RenderResult(path=output_path, ok=False, detail=f"failed to stage code: {e}")
+        logger.error("failed to stage render code: %s", e)
+        return RenderResult(
+            path=output_path, ok=False, detail="failed to stage render code"
+        )
     try:
         try:
             binary = backends._resolve_render_binary()
         except FileNotFoundError as e:
-            return RenderResult(path=output_path, ok=False, detail=str(e))
+            logger.error("render sandbox binary unavailable: %s", e)
+            return RenderResult(
+                path=output_path,
+                ok=False,
+                detail="render sandbox binary unavailable",
+            )
         cmd = [
             str(binary),
             "--code", str(code_file),
@@ -238,7 +371,9 @@ def run_render(
         except subprocess.TimeoutExpired:
             return RenderResult(
                 path=output_path, ok=False,
-                detail=f"render sandbox timed out after {timeout_sec + 30}s",
+                detail=_sanitize_agent_detail(
+                    f"render sandbox timed out after {timeout_sec + 30}s"
+                ),
             )
         if result.returncode != 0:
             # 5b: log the raw stderr/stdout server-side, but DO NOT echo
@@ -255,7 +390,7 @@ def run_render(
         if not output_path.exists():
             return RenderResult(
                 path=output_path, ok=False,
-                detail=f"render sandbox did not produce {output_path}",
+                detail="render sandbox did not produce output",
             )
         return RenderResult(path=output_path, ok=True, detail="")
     finally:

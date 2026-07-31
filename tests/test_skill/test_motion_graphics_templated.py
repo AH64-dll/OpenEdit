@@ -64,6 +64,57 @@ def test_generate_visual_emits_code(tmp_path, monkeypatch):
     assert op.out_point_sec == 3.0
 
 
+def test_generate_visual_uses_unique_output_paths(tmp_path, monkeypatch):
+    """Concurrent runs must not share the renderer's output filename."""
+    fake_output = tmp_path / "rendered.mp4"
+    fake_output.write_bytes(b"fake mp4")
+    output_paths = []
+
+    def fake_run_render(**kwargs):
+        output_paths.append(kwargs["output_path"])
+        return type("R", (), {"path": fake_output, "ok": True})()
+
+    monkeypatch.setattr(
+        "open_edit.agent.skills.motion_graphics.engine.run_render",
+        fake_run_render,
+    )
+    from open_edit.ir.types import Asset
+    fake_asset = Asset(
+        asset_hash="fakehash",
+        original_path=str(fake_output),
+        stored_path=str(fake_output),
+        type="video",
+        duration_sec=3.0,
+        fps=30.0, width=1920, height=1080, codec="h264", has_audio=False,
+    )
+    monkeypatch.setattr(
+        "open_edit.storage.assets.AssetStore.ingest_paths",
+        lambda self, paths: [fake_asset],
+    )
+
+    segment = NarrativeSegment(
+        beat_type="hook", t_start=0.0, t_end=3.0, text="Welcome",
+    )
+    params = {
+        "text": "Welcome",
+        "background_color": "#000",
+        "text_color": "#FFF",
+        "animation_speed": 1.0,
+    }
+    for _ in range(2):
+        generate_visual(
+            segment=segment,
+            template="hook_fade_text",
+            params=params,
+            project_id="p1",
+            workdir=tmp_path,
+        )
+
+    assert len(output_paths) == 2
+    assert output_paths[0] != output_paths[1]
+    assert all(path.parent == tmp_path for path in output_paths)
+
+
 def test_all_seven_beat_templates_exist():
     """The 7 spec beat types each have a template function in the
     templates package, named ``<beat>_fade_text`` (or appropriate

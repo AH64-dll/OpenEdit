@@ -2,11 +2,13 @@
 
 Per phase4-design-revised.md section 4.1 (W4).
 
-NOTE: the LLM-backed analysis path is NOT implemented. `analyze(use_llm=True)`
-emits a warning and falls back to the rule-based stub. The returned beat types
-are positional heuristics (first window -> hook, last -> button, ...), NOT a
-real narrative analysis. Do not use them for structural edit decisions
-(reordering, cuts) without independent verification.
+The deterministic path uses sentence-like boundaries in the word alignment
+(terminal punctuation, with long pauses as a fallback), not fixed time windows.
+It reports the source-time gap after each segment so callers can cut on natural
+boundaries. The LLM-backed path is not implemented: ``use_llm=True`` warns and
+uses this same deterministic transcript-aligned path; it never claims an LLM
+ran. Beat labels remain positional heuristics and should be independently
+verified for structural edit decisions.
 """
 from __future__ import annotations
 
@@ -26,14 +28,15 @@ class NarrativeSegment(BaseModel):
     t_end: float
     text: str
     suggested_visual_concept: str = ""
+    gap_after_s: float = 0.0
 
 
 def analyze(asset: Asset, use_llm: bool = True) -> list[NarrativeSegment]:
     """Analyze the asset's transcript and return narrative segments.
 
-    With use_llm=True, this currently warns and falls back to the
-    rule-based segmentation (the LLM path is not implemented). With
-    use_llm=False it directly returns the rule-based result.
+    With use_llm=True, this warns and uses the deterministic
+    transcript-aligned segmentation because no LLM provider is configured.
+    With use_llm=False it directly returns that deterministic result.
     """
     if not asset.alignment:
         return []
@@ -43,29 +46,31 @@ def analyze(asset: Asset, use_llm: bool = True) -> list[NarrativeSegment]:
 
 
 def _analyze_rule_based(asset: Asset) -> list[NarrativeSegment]:
-    """Simple rule-based fallback: segment by 5s windows, classify by position."""
-    segments = []
+    """Segment aligned words at sentence-like boundaries."""
     alignment = asset.alignment
-    window_s = 5.0
     if not alignment:
         return []
-    t_start_anchor = alignment[0].t_start
-    t_end_anchor = alignment[-1].t_end
-    duration = t_end_anchor - t_start_anchor
-    if duration == 0:
-        return []
-    n_windows = max(1, int(duration / window_s))
-    window_size = duration / n_windows
-    for i in range(n_windows):
-        w_start = t_start_anchor + i * window_size
-        w_end = t_start_anchor + (i + 1) * window_size
-        words_in_window = [w for w in alignment if w.t_start >= w_start and w.t_end <= w_end]
-        if not words_in_window:
-            continue
-        text = " ".join(w.word for w in words_in_window)
+    groups: list[list] = []
+    current: list = []
+    for word in alignment:
+        # Transcripts without punctuation still expose sense boundaries through
+        # substantial pauses (and this keeps long-form assets segmented).
+        if current and word.t_start - current[-1].t_end >= 0.6:
+            groups.append(current)
+            current = []
+        current.append(word)
+        token = word.word.rstrip()
+        if token.endswith((".", "!", "?", "。", "！", "？")):
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+
+    segments = []
+    for i, words in enumerate(groups):
         if i == 0:
             beat = "hook"
-        elif i == n_windows - 1:
+        elif i == len(groups) - 1:
             beat = "button"
         elif i == 1:
             beat = "turn"
@@ -73,8 +78,17 @@ def _analyze_rule_based(asset: Asset) -> list[NarrativeSegment]:
             beat = "scope"
         else:
             beat = "mechanism"
+        gap_after_s = (
+            max(0.0, groups[i + 1][0].t_start - words[-1].t_end)
+            if i + 1 < len(groups)
+            else 0.0
+        )
         segments.append(NarrativeSegment(
-            beat_type=beat, t_start=w_start, t_end=w_end, text=text,
+            beat_type=beat,
+            t_start=words[0].t_start,
+            t_end=words[-1].t_end,
+            text=" ".join(w.word for w in words),
+            gap_after_s=gap_after_s,
         ))
     return segments
 

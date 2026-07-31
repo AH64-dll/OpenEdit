@@ -14,7 +14,7 @@ Inspect project state. Sub-queries:
 | Name | Required params | Returns |
 |---|---|---|
 | `list_assets` | — | All known assets with hash, path, duration, alignment status. |
-| `search_assets` | `query` (text) | Assets whose transcript matches the query. |
+| `search_assets` | `query` (text) | Internet stock search across Pexels/Freesound/Openverse (video, photo, and audio). |
 | `get_pending_notes` | `project_id` | Notes the user attached to the project. |
 | `get_style_profile` | `op_type` | Style guidance for the given op type (cut, transition, effect, etc.). |
 | `analyze_narrative` | `asset_hash` | Rule-based narrative segments. |
@@ -59,6 +59,11 @@ Creative generation (use these INSTEAD of hand-rolling):
   overlays for simple `{{var}}` lower thirds. See `skills/remotion_motion.md`.
 - `generate=sfx` — produce a sound effect.
 - `generate=music` — produce a music bed.
+
+**Search before generate:** Before `generate=visual`, `generate=music`, or
+`generate=sfx`, prefer `search_assets` followed by `import_asset` when
+licensed Pexels/Freesound/Openverse stock is a suitable fit. Generate only when stock
+does not meet the brief or licensing requirements.
 
 `apply_generated_ops` validates structured ops and rejects the batch
 on the first failure. `RawMltXmlOp` and `FreeFormCodeOp` BYPASS this

@@ -27,7 +27,9 @@ def place_sfx(args: dict, project_path: str) -> dict:
         project_path: path to the project directory (or .kdenlive file).
 
     Returns:
-        {"status": "ok", "ops": [AddEffectOp.model_dump(), ...]}
+        {"status": "ok", "ops": [AddEffectOp.model_dump(), ...],
+         "timing": {"mode": "music_downbeats"|"narrative_transition",
+                    "reason": str|None}}
         or {"status": "error", "error": "..."} on failure.
     """
     asset, err = get_asset_or_error(project_path, args["asset_hash"])
@@ -37,8 +39,17 @@ def place_sfx(args: dict, project_path: str) -> dict:
     from open_edit.agent.skills.sfx_placer import place
     segments = analyze(asset, use_llm=False)
     library = _load_sfx_library(args.get("library_path"))
-    ops = place(segments, music_downbeats=args.get("music_downbeats", []), library=library)
-    return {"status": "ok", "ops": [op.model_dump() for op in ops]}
+    downbeats = args.get("music_downbeats", [])
+    ops = place(segments, music_downbeats=downbeats, library=library)
+    timing = (
+        {"mode": "music_downbeats", "reason": None}
+        if downbeats
+        else {
+            "mode": "narrative_transition",
+            "reason": "music_downbeats were not provided; used nearest narrative transition",
+        }
+    )
+    return {"status": "ok", "ops": [op.model_dump() for op in ops], "timing": timing}
 
 
 def _load_sfx_library(path: str | None) -> list[SfxClip]:  # noqa: F821

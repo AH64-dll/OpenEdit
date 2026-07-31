@@ -50,7 +50,7 @@ Use the host's MCP client to call these tools. Do not re-implement with shell
 | `get_pending_notes` | often needs `project_id` | Review-UI notes |
 | `get_style_profile` | `op_type` | Style before generating ops |
 | `analyze_narrative` | `asset_hash` | Segment structure |
-| `search_assets` | `query` text | Find moments by transcript |
+| `search_assets` | `query` text | Search internet stock (Pexels/Freesound/Openverse) |
 
 ## `edit_project` operations (immediate)
 
@@ -81,6 +81,10 @@ Use the host's MCP client to call these tools. Do not re-implement with shell
 
 Silence cuts return gaps; apply with `operation=apply_silence_gaps` (or
 `trim_clip` for a single gap), not a separate audio-only silenceremove pass.
+
+Before generating visual, music, or SFX assets, search first with
+`search_assets` and use `import_asset` when licensed Pexels/Freesound/Openverse stock is
+a suitable fit. Generate only when stock is unavailable or unsuitable.
 
 ## Render
 

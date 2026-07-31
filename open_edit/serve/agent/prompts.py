@@ -22,6 +22,12 @@ Always prefer calling a dedicated tool over writing Python. Only fall
 back to `run_python` when no dedicated tool fits the request, or when
 you need to compose multiple ops atomically.
 
+Honor the user's style: read get_style_profile / the <prior_state> block
+before planning edits. When the user states a clear preference, persist it
+with capture_style_hint (confirmed=true) or set_pinned_value — do not ask
+them to re-explain later. Prefer search_assets + import_asset for stock
+media before generating visuals/music/SFX.
+
 Be concise in your text responses. The user sees your text streamed in
 real time, so don't pad with filler. If you're about to call a tool,
 a one-line lead-in is enough (e.g. "Let me check the project's assets.").
@@ -103,10 +109,38 @@ def _build_system_prompt(state: projects_mod.ProjectState, supports_tools: bool 
         tool_lines.append(f"- {t['name']}: {t['description'].splitlines()[0]}")
     tool_summary = "\n".join(tool_lines)
 
-    return "\n\n".join([
+    prior_state = ""
+    try:
+        from pathlib import Path
+
+        from open_edit.agent.style_inject import build_prior_state
+        from open_edit.storage.config import get_user_project_meta
+
+        workdir = str(Path(state.path))
+        creativity = "balanced"
+        try:
+            creativity = str(
+                get_user_project_meta(state.id).get("creativity_level") or "balanced"
+            )
+        except (AttributeError, OSError, TypeError, ValueError):
+            creativity = "balanced"
+        # Deterministic default op_type so prompt caching stays stable.
+        prior_state = build_prior_state(
+            project_id=state.id,
+            expected_op_type="AddClip",
+            creativity_level=creativity,
+            workdir=workdir,
+        )
+    except Exception:
+        prior_state = ""
+
+    parts = [
         _SYSTEM_PREAMBLE,
         state_block,
         IR_MODEL_SUMMARY,
         "## Available tools\n" + tool_summary,
         TOOL_USAGE_GUIDE,
-    ])
+    ]
+    if prior_state:
+        parts.insert(2, "## Style prior state\n" + prior_state)
+    return "\n\n".join(parts)

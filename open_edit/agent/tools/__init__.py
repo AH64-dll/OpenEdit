@@ -1,11 +1,11 @@
 """Agent tool registry.
 
-This package is the canonical registry of agent tools. It re-exports 19
+This package is the canonical registry of agent tools. It re-exports 20
 tool functions (``pyagent_*.py`` modules) plus the 7 ``pyagent_timeline_ops``
 functions and exposes them all in a single explicit table:
 
 ``TOOL_TABLE: dict[str, Callable]`` maps every callable tool name to its
-function (26 entries: 19 re-exported + 7 timeline ops). Kernel dispatch
+function (27 entries: 20 re-exported + 7 timeline ops). Kernel dispatch
 (``open_edit.kernel.tool_executor._run_tool``) and pillar routing
 (``open_edit.kernel.pillar_tools``) both consume this one table — there is
 no longer any ``getattr(open_edit.agent.tools, name)`` lookup.
@@ -36,6 +36,7 @@ from typing import Callable
 
 from open_edit.agent.tools.pyagent_add_marker import add_marker
 from open_edit.agent.tools.pyagent_analyze_narrative import analyze_narrative
+from open_edit.agent.tools.pyagent_capture_style_hint import capture_style_hint
 from open_edit.agent.tools.pyagent_generate_remotion_composition import (
     generate_remotion_composition,
 )
@@ -71,6 +72,7 @@ from open_edit.agent.tools.pyagent_write_remotion_composition import (
 __all__ = [
     "add_marker",
     "analyze_narrative",
+    "capture_style_hint",
     "generate_remotion_composition",
     "generate_visual_for_segment",
     "get_pending_notes",
@@ -98,9 +100,10 @@ __all__ = [
 ]
 
 TOOL_TABLE: dict[str, Callable] = {
-    # 19 re-exported tool functions (pyagent_*.py modules).
+    # 20 re-exported tool functions (pyagent_*.py modules).
     "add_marker": add_marker,
     "analyze_narrative": analyze_narrative,
+    "capture_style_hint": capture_style_hint,
     "generate_remotion_composition": generate_remotion_composition,
     "generate_visual_for_segment": generate_visual_for_segment,
     "get_pending_notes": get_pending_notes,

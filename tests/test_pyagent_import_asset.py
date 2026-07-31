@@ -104,8 +104,8 @@ def test_import_asset_by_result_id_uses_cached_metadata(tmp_path, monkeypatch):
         "source": "pexels",
         "kind": "video",
         "title": "rain on a window",
-        "thumbnail_url": "https://example.com/thumb.jpg",
-        "preview_url": "https://example.com/clip.mp4",
+        "thumbnail_url": "https://images.pexels.com/thumb.jpg",
+        "preview_url": "https://videos.pexels.com/clip.mp4",
         "duration_seconds": 12,
         "license": "Pexels License",
         "attribution_required": False,
@@ -177,7 +177,7 @@ def test_import_asset_by_source_url_without_license(tmp_path, monkeypatch):
     with mock.patch.object(mod, "_http_download", return_value=real_bytes):
         res = import_asset(
             {
-                "source_url": "https://example.com/some-clip.mp4",
+                "source_url": "https://cdn.freesound.org/some-clip.mp4",
                 "project_id": "x",
             },
             str(project),
@@ -207,7 +207,7 @@ def test_import_asset_with_explicit_license_attribution(tmp_path, monkeypatch):
     with mock.patch.object(mod, "_http_download", return_value=real_bytes):
         res = import_asset(
             {
-                "source_url": "https://example.com/x.mp4",
+                "source_url": "https://cdn.freesound.org/x.mp4",
                 "license": "CC BY 4.0",
                 "attribution": "'x' by alice (CC BY 4.0)",
                 "project_id": "x",
@@ -235,11 +235,56 @@ def test_import_asset_rejects_non_https_url(tmp_path, monkeypatch):
     _bootstrap_project(project)
 
     res = import_asset(
-        {"source_url": "http://example.com/x.mp4", "project_id": "x"},
+        {"source_url": "http://cdn.freesound.org/x.mp4", "project_id": "x"},
         str(project),
     )
     assert res["status"] == "error"
     assert "https" in res["error"].lower()
+
+
+def test_import_asset_rejects_unknown_https_host(tmp_path):
+    """HTTPS alone is insufficient; direct downloads stay provider-scoped."""
+    res = import_asset(
+        {"source_url": "https://untrusted.example.net/x.mp4", "project_id": "x"},
+        str(tmp_path),
+    )
+    assert res["status"] == "error"
+    assert "known media provider" in res["error"]
+
+
+def test_import_asset_allows_cached_openverse_cdn(tmp_path, monkeypatch):
+    """A cached Openverse result may use an otherwise unknown HTTPS CDN."""
+    if not shutil.which("open_edit"):
+        pytest.skip("open_edit CLI not on PATH; cannot bootstrap project")
+    if not shutil.which("ffprobe"):
+        pytest.skip("ffprobe not installed; cannot ingest media in tests")
+
+    project = tmp_path / "proj"
+    _bootstrap_project(project)
+    cache = tmp_path / "search_cache"
+    result_id = "openverse-photo-cdn"
+    _seed_search_result_file(cache, result_id, {
+        "id": result_id,
+        "source": "openverse",
+        "kind": "photo",
+        "title": "rain",
+        "preview_url": "https://cdn.openverse-cdn.example.net/rain.mp4",
+        "license": "CC0 1.0",
+        "attribution_required": False,
+        "attribution": "",
+    })
+    monkeypatch.setattr(mod, "_SEARCH_RESULT_CACHE_DIR", cache)
+
+    with mock.patch.object(
+        mod, "_http_download", return_value=_REAL_MP4.read_bytes(),
+    ) as download:
+        res = import_asset(
+            {"result_id": result_id, "project_id": "x"},
+            str(project),
+        )
+
+    assert res["status"] == "ok", res
+    assert download.call_args.kwargs["allow_any_https"] is True
 
 
 def test_import_asset_rejects_both_result_id_and_source_url_missing(tmp_path, monkeypatch):
@@ -274,7 +319,7 @@ def test_import_asset_download_failure_returns_error(tmp_path, monkeypatch):
         side_effect=RuntimeError("upstream 404: not found"),
     ):
         res = import_asset(
-            {"source_url": "https://example.com/missing.mp4", "project_id": "x"},
+            {"source_url": "https://cdn.freesound.org/missing.mp4", "project_id": "x"},
             str(project),
         )
     assert res["status"] == "error"
@@ -293,10 +338,19 @@ def test_http_download_uses_urlopen(monkeypatch):
     class _FakeResp:
         def __init__(self, body):
             self._body = body
-        def read(self):
-            return self._body
+            self._offset = 0
+        def read(self, n=-1):
+            if n is None or n < 0:
+                chunk = self._body[self._offset:]
+                self._offset = len(self._body)
+                return chunk
+            chunk = self._body[self._offset:self._offset + n]
+            self._offset += len(chunk)
+            return chunk
         def getcode(self):
             return 200
+        def geturl(self):
+            return "https://cdn.freesound.org/x.mp4"
         def __enter__(self): return self
         def __exit__(self, *a): return False
 
@@ -305,15 +359,79 @@ def test_http_download_uses_urlopen(monkeypatch):
         captured_urls.append((req.full_url, req.headers, timeout))
         return _FakeResp(b"hello-bytes")
 
-    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        mod, "_open_url",
+        lambda req, **kwargs: fake_urlopen(req, timeout=kwargs["timeout"]),
+    )
 
-    out = mod._http_download("https://example.com/x.mp4", headers={"X-Foo": "bar"})
+    out = mod._http_download(
+        "https://cdn.freesound.org/x.mp4", headers={"X-Foo": "bar"},
+    )
     assert out == b"hello-bytes"
     assert captured_urls
     url, headers, timeout = captured_urls[0]
-    assert url == "https://example.com/x.mp4"
+    assert url == "https://cdn.freesound.org/x.mp4"
     assert headers.get("X-foo") == "bar"
     assert timeout is not None
+
+
+def test_http_download_revalidates_redirect_target(monkeypatch):
+    """A redirect to an untrusted host is rejected before bytes are used."""
+    class _RedirectResp:
+        status = 200
+
+        def read(self, n=-1):
+            return b"should-not-be-accepted"
+
+        def geturl(self):
+            return "https://untrusted.example.net/x.mp4"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        mod, "_open_url", lambda req, **kwargs: _RedirectResp(),
+    )
+
+    with pytest.raises(RuntimeError, match="redirect target host"):
+        mod._http_download("https://cdn.freesound.org/x.mp4")
+
+
+def test_http_download_enforces_bounded_stream(monkeypatch):
+    """The reader is chunked and stops once the configured cap is exceeded."""
+    class _ChunkedResp:
+        status = 200
+
+        def __init__(self):
+            self.chunks = [b"1234", b"56"]
+            self.read_sizes = []
+
+        def read(self, n=-1):
+            self.read_sizes.append(n)
+            return self.chunks.pop(0) if self.chunks else b""
+
+        def geturl(self):
+            return "https://cdn.freesound.org/x.mp4"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    response = _ChunkedResp()
+    monkeypatch.setattr(mod, "_MAX_DOWNLOAD_BYTES", 5)
+    monkeypatch.setattr(
+        mod, "_open_url", lambda req, **kwargs: response,
+    )
+
+    with pytest.raises(RuntimeError, match="exceeds"):
+        mod._http_download("https://cdn.freesound.org/x.mp4")
+
+    assert response.read_sizes == [mod._DOWNLOAD_CHUNK_BYTES] * 2
 
 
 # ---------------------------------------------------------------------------

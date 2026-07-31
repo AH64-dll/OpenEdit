@@ -11,10 +11,12 @@ track.
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 from open_edit.agent.sandbox import run_render
+from open_edit.agent.sandbox.staging import _assets_dir_for_workdir
 from open_edit.agent.skills.motion_graphics import templates
 from open_edit.agent.skills.narrative_analyzer import NarrativeSegment
 from open_edit.ir.types import AddClipOp
@@ -52,7 +54,7 @@ def generate_visual(
         params: keyword args for ``MotionTemplateParams``.
         project_id: used for tracing/render-sandbox bookkeeping.
         workdir: project working directory; the rendered file is written
-            under ``workdir/_render_output.mp4`` and ingested into
+        under a unique ``workdir/_render_output_<run-id>.mp4`` path and ingested into
             ``workdir/assets``.
 
     Returns:
@@ -69,7 +71,8 @@ def generate_visual(
     duration_s = segment.t_end - segment.t_start
     code = template_fn(motion_params, duration_s)
 
-    output_path = workdir / "_render_output.mp4"
+    # Concurrent template renders must not overwrite one another.
+    output_path = workdir / f"_render_output_{uuid4().hex}.mp4"
     render_result = run_render(
         code=code,
         workdir=workdir,
@@ -83,9 +86,17 @@ def generate_visual(
             f"(segment {segment.beat_type!r}): {render_result.detail}"
         )
 
-    asset_store = AssetStore(workdir / "assets")
-    assets = asset_store.ingest_paths([str(output_path)])
-    asset_hash = assets[0].asset_hash
+    try:
+        asset_store = AssetStore(_assets_dir_for_workdir(workdir))
+        assets = asset_store.ingest_paths([str(output_path)])
+        asset_hash = assets[0].asset_hash
+    finally:
+        # AssetStore has copied the render into CAS; the render scratch file
+        # must not accumulate across repeated or concurrent generations.
+        try:
+            output_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     return AddClipOp(
         author="ai",

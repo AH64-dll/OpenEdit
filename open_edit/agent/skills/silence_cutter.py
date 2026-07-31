@@ -10,6 +10,8 @@ Detects three kinds of silence:
 Adjacent gaps separated by a speech segment shorter than ``min_segment_s``
 are merged, so very short speech fragments are not proposed as cuts (this
 prevents the "hyper-choppy" edit that fragments speech into sub-2s clips).
+The default policy keeps breaths shorter than 600ms and protects sub-2s
+speech fragments.
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ def find_silence_gaps(
     threshold_ms: int = 400,
     duration: float | None = None,
     min_segment_s: float = 0.0,
+    keep_breath_ms: int = 0,
 ) -> list[tuple[float, float]]:
     """Find silence intervals >= ``threshold_ms`` in source time.
 
@@ -37,7 +40,8 @@ def find_silence_gaps(
     """
     if not alignment:
         return []
-    threshold_s = threshold_ms / 1000.0
+    # Catch candidate pauses while preserving natural breaths by default.
+    threshold_s = max(threshold_ms, keep_breath_ms) / 1000.0
     gaps: list[tuple[float, float]] = []
 
     first = alignment[0]
@@ -73,7 +77,8 @@ def find_silence_gaps(
 def propose_cuts(
     asset: Asset,
     silence_threshold_ms: int = 400,
-    min_segment_s: float = 0.0,
+    min_segment_s: float = 2.0,
+    keep_breath_ms: int = 600,
 ) -> list[dict]:
     """Return gap-based cut suggestions for `asset`.
 
@@ -98,6 +103,7 @@ def propose_cuts(
         threshold_ms=silence_threshold_ms,
         duration=getattr(asset, "duration_sec", None),
         min_segment_s=min_segment_s,
+        keep_breath_ms=keep_breath_ms,
     )
     return [
         {"t_start": t_start, "t_end": t_end, "suggested_kind": "trim"}

@@ -35,6 +35,32 @@ def test_sfx_clip_pydantic():
     assert s.kind == "whoosh"
 
 
+def test_place_aligns_transition_to_nearest_music_downbeat():
+    segments = [
+        NarrativeSegment(beat_type="hook", t_start=0.0, t_end=3.0, text="Welcome"),
+        NarrativeSegment(beat_type="turn", t_start=3.2, t_end=7.0, text="But..."),
+    ]
+    ops = place(
+        segments,
+        music_downbeats=[2.0, 3.0, 4.0],
+        library=[SfxClip(sfx_id="whoosh", kind="whoosh", duration_s=0.5)],
+    )
+    assert ops[0].params["t_start"] == 3.0
+
+
+def test_place_ignores_distant_or_negative_downbeats():
+    segments = [
+        NarrativeSegment(beat_type="hook", t_start=0.0, t_end=3.0, text="Welcome"),
+        NarrativeSegment(beat_type="turn", t_start=3.0, t_end=7.0, text="But..."),
+    ]
+    ops = place(
+        segments,
+        music_downbeats=[-1.0, 10.0],
+        library=[SfxClip(sfx_id="whoosh", kind="whoosh", duration_s=0.5)],
+    )
+    assert ops[0].params["t_start"] == 3.0
+
+
 def test_sfx_in_catalog_and_validates():
     """Regression: sfx must be in the effect catalog and the ops the sfx
     placer emits must pass validate_op. Without a catalog entry, validate_op

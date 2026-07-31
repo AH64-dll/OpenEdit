@@ -9,13 +9,14 @@ Note: The brief's test draft had two bugs vs. the real code:
 Both are fixed here. The intent of H10 (write-first-then-append) and the
 structural check on the rendered bootstrap are preserved.
 """
+import ast
 import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-from open_edit.agent.sandbox.bootstrap import render_bootstrap
+from open_edit.agent.sandbox.bootstrap import BOOTSTRAP_SCHEMA_VERSION, render_bootstrap
 from open_edit.agent.sandbox.staging import (
     _FlushingBuffer, _load_assets_via_store,
 )
@@ -76,8 +77,48 @@ def test_render_bootstrap_is_self_contained():
     # Project and parent IDs are injected
     assert "'p1'" in bootstrap
     assert "'e1'" in bootstrap
-    # OPS_FILE is /scratch/ops.jsonl (in-sandbox path, C1)
-    assert '"/scratch/ops.jsonl"' in bootstrap
+    # OPS_FILE is /scratch/ops.jsonl (in-sandbox path, C1); emitted via !r.
+    assert "OPS_FILE = '/scratch/ops.jsonl'" in bootstrap
+
+
+def test_render_bootstrap_schema_and_required_symbols_parse():
+    """The generated source must remain executable and structurally complete."""
+    bootstrap = render_bootstrap(project_id="p1", parent_op_id="e1")
+    ast.parse(bootstrap)
+    assert f"BOOTSTRAP_SCHEMA_VERSION = {BOOTSTRAP_SCHEMA_VERSION}" in bootstrap
+    for name in (
+        "IR",
+        "_FlushingBuffer",
+        "AddClipOp",
+        "RemoveClipOp",
+        "MoveClipOp",
+        "TrimClipOp",
+        "AddTransitionOp",
+        "RemoveTransitionOp",
+        "SetTransitionPropertyOp",
+        "AddEffectOp",
+        "RemoveEffectOp",
+        "SetEffectParamOp",
+        "SetKeyframeOp",
+        "RemoveKeyframeOp",
+        "SlipClipOp",
+        "RippleDeleteClipOp",
+        "ChangeClipSpeedOp",
+        "SplitClipOp",
+        "ReplaceClipSourceOp",
+        "SetClipSpeedRampOp",
+        "SetAudioGainOp",
+        "NormalizeAudioOp",
+        "GroupEditsOp",
+        "UngroupEditsOp",
+        "RawMltXmlOp",
+        "FreeFormCodeOp",
+        "AddHtmlOverlayOp",
+        "RemoveHtmlOverlayOp",
+        "AddRemotionCompositionOp",
+        "RemoveRemotionCompositionOp",
+    ):
+        assert f"class {name}" in bootstrap
 
 
 def test_render_bootstrap_inlines_all_op_classes():
@@ -213,17 +254,94 @@ def test_run_free_form_unsupported_lib_returns_fail(tmp_path):
     assert result.reason == "lib_version_unsupported"
 
 
-def test_run_free_form_clamps_timeout_and_mem():
-    """H9: hard caps MAX_FREEFORM_TIMEOUT_SEC=300, MAX_FREEFORM_MEM_MB=4096."""
+def test_run_free_form_rejects_non_positive_limits(tmp_path):
+    """Malformed / non-positive timeout & mem_mb must never raise."""
     from open_edit.agent.sandbox import run_free_form
-    from open_edit.agent.sandbox.bridge import (
-        MAX_FREEFORM_TIMEOUT_SEC, MAX_FREEFORM_MEM_MB,
-    )
-    # Test the constants exist with the right values
-    assert MAX_FREEFORM_TIMEOUT_SEC == 300
-    assert MAX_FREEFORM_MEM_MB == 4096
-    # Note: full behavior test requires a real (or mocked) Rust binary;
-    # covered in test_free_form_e2e.py.
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+    for kwargs in (
+        {"timeout": -1},
+        {"timeout": 0},
+        {"timeout": None},
+        {"timeout": "nope"},
+        {"timeout": 1.5},
+        {"timeout": float("inf")},
+        {"mem_mb": -5},
+        {"mem_mb": None},
+        {"mem_mb": 1.5},
+        {"mem_mb": float("-inf")},
+        {"cpu_sec": 0},
+        {"cpu_sec": "nope"},
+        {"cpu_sec": 1.5},
+    ):
+        result = run_free_form(
+            code="# ir_api_version: 0.1; libs: {}",
+            workdir=workdir,
+            project_id="p1",
+            parent_op_id="e1",
+            **kwargs,
+        )
+        assert result.success is False
+        assert result.reason == "invalid_argument"
+
+
+def test_run_free_form_backend_errors_are_actionable_without_paths(tmp_path):
+    from open_edit.agent.sandbox import run_free_form
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+    secret = str(tmp_path / "private" / "open-edit-sandbox")
+
+    with patch(
+        "open_edit.agent.sandbox.backends._resolve_sandbox_bin",
+        side_effect=FileNotFoundError(f"tried: {secret}"),
+    ):
+        result = run_free_form(
+            code="# ir_api_version: 0.1; libs: {}",
+            workdir=workdir,
+            project_id="p1",
+            parent_op_id="e1",
+        )
+
+    assert result.reason == "sandbox_binary_missing"
+    assert secret not in result.detail
+    assert "OPEN_EDIT_SANDBOX_BACKEND=dev" in result.detail
+
+
+def test_run_free_form_watchdog_error_mentions_timeout_cap(tmp_path):
+    from subprocess import TimeoutExpired
+
+    from open_edit.agent.sandbox import run_free_form
+
+    workdir = tmp_path / "proj"
+    workdir.mkdir()
+    (workdir / "edit_graph.db").touch()
+
+    with patch(
+        "open_edit.agent.sandbox.backends._resolve_sandbox_bin",
+        side_effect=TimeoutExpired(cmd="sandbox", timeout=10),
+    ):
+        result = run_free_form(
+            code="# ir_api_version: 0.1; libs: {}",
+            workdir=workdir,
+            project_id="p1",
+            parent_op_id="e1",
+        )
+
+    assert result.reason == "parent_watchdog_timeout"
+    assert "timeout cap: 300s" in result.detail
+
+
+def test_bootstrap_ops_file_uses_repr_for_hostile_paths():
+    from open_edit.agent.sandbox.bootstrap import render_bootstrap
+
+    src = render_bootstrap("p1", "e1", ops_file='/tmp/a"b/ops.jsonl')
+    assert "OPS_FILE = '/tmp/a\"b/ops.jsonl'" in src
+    compile(src, "<bootstrap>", "exec")
+
 
 
 @patch("open_edit.agent.sandbox.backends.subprocess.run")
@@ -822,7 +940,8 @@ def test_run_render_missing_output_returns_failed_result(tmp_path):
 
     assert isinstance(result, RenderResult)
     assert result.ok is False
-    assert str(output_path) in result.detail
+    assert str(output_path) not in result.detail
+    assert "did not produce output" in result.detail
 
 
 def test_run_render_timeout_returns_failed_result(tmp_path):

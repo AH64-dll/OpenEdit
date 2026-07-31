@@ -25,8 +25,8 @@ def propose_silence_cuts(args: dict, project_path: str) -> dict:
         args: {
             "asset_hash": str (required),
             "threshold_ms": int (optional, default 400),
-            "min_segment_s": float (optional, default 0.0; merge gaps
-                separated by shorter speech),
+            "min_segment_s": float (optional, default 2.0; merge gaps
+                separated by shorter speech — protects sub-2s fragments),
             "compress": bool (optional, default false; when true, trim the
                 proposed gaps from the asset via compress_silence, ingest
                 the result as a new asset, and return its hash in
@@ -55,7 +55,8 @@ def propose_silence_cuts(args: dict, project_path: str) -> dict:
     gaps = propose_cuts(
         asset,
         silence_threshold_ms=args.get("threshold_ms", 400),
-        min_segment_s=args.get("min_segment_s", 0.0),
+        min_segment_s=args.get("min_segment_s", 2.0),
+        keep_breath_ms=args.get("keep_breath_ms", 600),
     )
     result = {"status": "ok", "gaps": gaps}
     if not args.get("compress"):

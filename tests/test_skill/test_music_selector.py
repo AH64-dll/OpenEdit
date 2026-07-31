@@ -31,6 +31,18 @@ def test_music_track_pydantic():
     assert t.mood == "upbeat"
 
 
+def test_select_prefers_duration_fit_within_mood():
+    segments = [
+        NarrativeSegment(beat_type="hook", t_start=0.0, t_end=8.0, text="Welcome"),
+    ]
+    library = [
+        MusicTrack(track_id="short", mood="upbeat", bpm=120, energy=0.8, duration_s=3.0),
+        MusicTrack(track_id="fit", mood="upbeat", bpm=110, energy=0.7, duration_s=8.0),
+    ]
+    ops = select(segments, library)
+    assert ops[0].params["track_id"] == "fit"
+
+
 def test_music_bed_in_catalog_and_validates():
     """Regression: music_bed must be in the effect catalog and the ops
     the music selector emits must pass validate_op. Without a catalog

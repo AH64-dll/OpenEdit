@@ -28,7 +28,7 @@ def test_find_silence_gaps():
         WordAlignment(word="world", t_start=1.5, t_end=2.0, confidence=1.0),
         WordAlignment(word="foo", t_start=2.1, t_end=2.5, confidence=1.0),
     ]
-    gaps = find_silence_gaps(alignment, threshold_ms=400)
+    gaps = find_silence_gaps(alignment, threshold_ms=400, keep_breath_ms=0)
     # 0.5 -> 1.5 = 1.0s gap (yes), 2.0 -> 2.1 = 0.1s gap (no)
     assert len(gaps) == 1
     assert gaps[0] == (0.5, 1.5)
@@ -41,7 +41,7 @@ def test_find_silence_gaps_threshold_exact():
         WordAlignment(word="b", t_start=1.0, t_end=1.5, confidence=1.0),
     ]
     # 0.6 -> 1.0 = 0.4s gap (== threshold_ms=400)
-    gaps = find_silence_gaps(alignment, threshold_ms=400)
+    gaps = find_silence_gaps(alignment, threshold_ms=400, keep_breath_ms=0)
     assert len(gaps) == 1
     assert gaps[0] == (0.6, 1.0)
 
@@ -74,7 +74,18 @@ def test_propose_cuts_default_threshold():
     ], duration_sec=1.5)
     # 0.5 -> 1.0 = 0.5s gap, exceeds default 400ms
     cuts = propose_cuts(asset)
-    assert len(cuts) == 1
+    # The default policy preserves sub-600ms breaths.
+    assert cuts == []
+
+
+def test_propose_cuts_keeps_breath_but_allows_long_pause():
+    asset = _make_asset([
+        WordAlignment(word="a", t_start=0.0, t_end=0.5, confidence=1.0),
+        WordAlignment(word="b", t_start=1.0, t_end=1.2, confidence=1.0),
+        WordAlignment(word="c", t_start=2.5, t_end=2.7, confidence=1.0),
+    ], duration_sec=2.7)
+    cuts = propose_cuts(asset)
+    assert [(c["t_start"], c["t_end"]) for c in cuts] == [(1.2, 2.5)]
 
 
 def test_no_word_split_qc_check_mid_word_fails():

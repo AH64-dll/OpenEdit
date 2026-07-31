@@ -88,7 +88,13 @@ def build_prior_state(
 
 
 def _load_profile() -> dict:
-    return json.loads(get_profile_path().read_text())
+    try:
+        data = json.loads(get_profile_path().read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return {}
 
 
 def _format_slice(slice_data: dict) -> str:

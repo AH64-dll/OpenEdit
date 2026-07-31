@@ -25,6 +25,7 @@ _EXPECTED_KEYS = {
     "chromium_available",
     "sandbox_backend",
     "sandbox_available",
+    "sandbox",
     "disk_free_bytes",
     "config_summary",
 }
@@ -43,6 +44,10 @@ def test_collect_diagnostics_types():
     assert isinstance(diag["chromium_available"], bool)
     assert isinstance(diag["sandbox_available"], bool)
     assert isinstance(diag["sandbox_backend"], str)
+    assert isinstance(diag["sandbox"], dict)
+    assert isinstance(diag["sandbox"]["backend"], str)
+    assert isinstance(diag["sandbox"]["binary_found"], bool)
+    assert isinstance(diag["sandbox"]["namespace_capability_hint"], str)
     assert isinstance(diag["config_summary"], dict)
     assert diag["disk_free_bytes"] is None or isinstance(diag["disk_free_bytes"], int)
 
@@ -53,6 +58,59 @@ def test_collect_diagnostics_never_raises_when_detectors_fail(monkeypatch):
     diag = diagnostics.collect_diagnostics()
     assert set(diag) == _EXPECTED_KEYS
     assert diag["disk_free_bytes"] is None
+
+
+def test_sandbox_diagnostics_are_actionable_and_redacted(monkeypatch):
+    from open_edit.agent.sandbox import backends
+
+    monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "bwrap")
+    monkeypatch.setattr(
+        backends,
+        "_resolve_sandbox_bin",
+        lambda: (_ for _ in ()).throw(FileNotFoundError),
+    )
+    sandbox = diagnostics.collect_diagnostics()["sandbox"]
+    assert sandbox["backend"] == "bwrap"
+    assert sandbox["binary_found"] is False
+    assert sandbox["namespace_capability_hint"]
+    assert "OPEN_EDIT_SANDBOX_BACKEND=dev" in sandbox["remediation"]
+    assert "/" not in (sandbox["binary_path"] or "")
+
+
+def test_bwrap_restricted_has_dev_remediation(monkeypatch):
+    from open_edit.agent.sandbox import backends
+
+    monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "bwrap")
+    monkeypatch.setattr(
+        backends, "_resolve_sandbox_bin", lambda: "/private/open-edit-sandbox"
+    )
+    namespace_file = Path("/proc/sys/kernel/unprivileged_userns_clone")
+    monkeypatch.setattr(
+        diagnostics.Path, "is_file", lambda self: self == namespace_file
+    )
+    monkeypatch.setattr(diagnostics.Path, "read_text", lambda self: "0\n")
+
+    sandbox = diagnostics._sandbox_diagnostics()
+    assert sandbox["backend"] == "bwrap"
+    assert sandbox["binary_found"] is True
+    assert sandbox["namespace_capability_hint"] == "restricted"
+    assert "OPEN_EDIT_SANDBOX_BACKEND=dev" in sandbox["remediation"]
+    assert sandbox["binary_path"] == "open-edit-sandbox"
+
+
+def test_dev_backend_diagnostics_do_not_require_sandbox_binary(monkeypatch):
+    from open_edit.agent.sandbox import backends
+
+    monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "  DEV ")
+    resolver = mock.Mock(side_effect=AssertionError("dev must not resolve bwrap"))
+    monkeypatch.setattr(backends, "_resolve_sandbox_bin", resolver)
+
+    sandbox = diagnostics._sandbox_diagnostics()
+    assert sandbox["backend"] == "dev"
+    assert sandbox["binary_found"] is False
+    assert sandbox["namespace_capability_hint"] == "not_required"
+    assert sandbox["remediation"] == ""
+    resolver.assert_not_called()
 
 
 def test_config_summary_has_no_secrets():

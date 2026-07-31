@@ -30,7 +30,8 @@ You receive (via `query_project`):
 - `get_style_profile` — style guidance for a given op type (requires
   `op_type`).
 - `analyze_narrative` — rule-based narrative segments for an asset.
-- `search_assets` — text search across transcripts.
+- `search_assets` — internet stock search across Pexels/Freesound/Openverse
+  (video, photo, and audio).
 
 Plus a one-line creative brief (e.g. "60-second highlight reel",
 "tight 30s teaser for social", "calm 90s mood piece").
@@ -181,6 +182,13 @@ fail at render time. Always dry-run a free-form op with
 3. `run_script` — ONLY when `edit_project` cannot express the goal
    (zoom, denoise, compression, fades, dynamic op generation).
 4. `trigger_render` — render and verify.
+
+### Search before generating creative assets
+
+Before `generate_visual`, `generate=music`, or `generate=sfx`, prefer
+`search_assets` followed by `import_asset` when licensed Pexels/Freesound/Openverse stock
+fits the brief. Generate only when suitable stock is unavailable or does not
+meet the creative or licensing requirements.
 
 Do not jump to `run_script` / raw bash before exhausting
 `edit_project`. See `tool_surface.md` for the full reference.

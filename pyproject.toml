@@ -61,6 +61,7 @@ packages = ["open_edit"]
 "open_edit/harness_skills/remotion_motion.md" = "open_edit/harness_skills/remotion_motion.md"
 "open_edit/harness_skills/qc-standards.md" = "open_edit/harness_skills/qc-standards.md"
 "open_edit/harness_skills/freeform_and_effects.md" = "open_edit/harness_skills/freeform_and_effects.md"
+"open_edit/harness_skills/style-memory.md" = "open_edit/harness_skills/style-memory.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

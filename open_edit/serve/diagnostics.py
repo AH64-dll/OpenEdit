@@ -69,29 +69,101 @@ def _sandbox_backend() -> str:
     """Return the configured sandbox backend name, or ``"unknown"``.
 
     Honours ``OPEN_EDIT_SANDBOX_BACKEND`` when set. On Windows defaults to
-    ``"dev"`` (no bwrap). Elsewhere infer ``"bwrap"`` when the sandbox binary
-    is resolvable, else ``"dev"``.
+    ``"dev"`` (no bwrap). Elsewhere defaults to ``"bwrap"`` and reports
+    availability separately.
     """
     try:
-        override = os.environ.get("OPEN_EDIT_SANDBOX_BACKEND", "").strip()
+        override = os.environ.get("OPEN_EDIT_SANDBOX_BACKEND", "").strip().lower()
         if override:
             return override
         if sys.platform == "win32":
             return "dev"
-        return "bwrap" if _sandbox_available() else "dev"
+        return "bwrap"
     except Exception:
         return "unknown"
 
 
 def _sandbox_available() -> bool:
-    """Best-effort check for the sandbox binary. Never launches a sandbox."""
+    """True when the selected backend can run free-form work.
+
+    ``dev`` needs no bwrap binary. ``bwrap`` requires the allow-listed
+    sandbox binary (same resolver as execution).
+    """
     try:
+        backend = _sandbox_backend()
+        if backend == "dev":
+            return True
+        if backend != "bwrap":
+            return False
         from open_edit.agent.sandbox import backends
 
         backends._resolve_sandbox_bin()
         return True
     except Exception:
         return False
+
+
+def _sandbox_diagnostics() -> dict:
+    """Return actionable, redacted details about the selected sandbox."""
+    try:
+        configured = os.environ.get("OPEN_EDIT_SANDBOX_BACKEND", "").strip()
+        backend = _sandbox_backend()
+    except Exception:
+        configured = ""
+        backend = "unknown"
+
+    binary_path = None
+    binary_found = False
+    if backend == "bwrap":
+        try:
+            from open_edit.agent.sandbox import backends
+
+            resolved = backends._resolve_sandbox_bin()
+            # Never expose home directories or other host paths in diagnostics.
+            binary_path = Path(resolved).name
+            binary_found = True
+        except Exception:
+            pass
+
+    namespace_hint = "not_checked"
+    try:
+        if backend == "dev":
+            namespace_hint = "not_required"
+        elif backend == "bwrap" and sys.platform == "win32":
+            namespace_hint = "unsupported_platform"
+        elif backend == "bwrap" and binary_found:
+            # Execution resolves the binary via allow-list, not $PATH.
+            if Path("/proc/sys/kernel/unprivileged_userns_clone").is_file():
+                value = Path(
+                    "/proc/sys/kernel/unprivileged_userns_clone"
+                ).read_text().strip()
+                namespace_hint = "likely_available" if value == "1" else "restricted"
+            else:
+                namespace_hint = "kernel_setting_unavailable"
+        elif backend == "bwrap" and shutil.which("bwrap") is None:
+            namespace_hint = "bwrap_not_on_path"
+        elif backend == "bwrap":
+            namespace_hint = "sandbox_binary_missing"
+    except Exception:
+        namespace_hint = "unknown"
+
+    remediation = ""
+    if backend == "bwrap" and (
+        not binary_found or namespace_hint != "likely_available"
+    ):
+        remediation = (
+            "For local productivity, set "
+            "OPEN_EDIT_SANDBOX_BACKEND=dev to run without isolation."
+        )
+
+    return {
+        "backend": backend,
+        "configured_backend": configured or None,
+        "binary_path": binary_path,
+        "binary_found": binary_found,
+        "namespace_capability_hint": namespace_hint,
+        "remediation": remediation,
+    }
 
 
 def _disk_free_bytes() -> int | None:
@@ -135,6 +207,20 @@ def collect_diagnostics() -> dict:
         sqlite_version = sqlite3.sqlite_version
     except Exception:
         sqlite_version = None
+    try:
+        sandbox = _sandbox_diagnostics()
+    except Exception:
+        sandbox = {
+            "backend": "unknown",
+            "configured_backend": None,
+            "binary_path": None,
+            "binary_found": False,
+            "namespace_capability_hint": "unknown",
+            "remediation": (
+                "For local productivity, set "
+                "OPEN_EDIT_SANDBOX_BACKEND=dev to run without isolation."
+            ),
+        }
     return {
         "python_version": sys.version,
         "sqlite_version": sqlite_version,
@@ -142,6 +228,7 @@ def collect_diagnostics() -> dict:
         "chromium_available": _chromium_available(),
         "sandbox_backend": _sandbox_backend(),
         "sandbox_available": _sandbox_available(),
+        "sandbox": sandbox,
         "disk_free_bytes": _disk_free_bytes(),
         "config_summary": _config_summary(),
     }

@@ -15,6 +15,7 @@ class MusicTrack(BaseModel):
     mood: str  # "upbeat" | "contemplative" | "dramatic" | "corporate" | etc.
     bpm: int
     energy: float  # 0.0 - 1.0
+    duration_s: float | None = None
 
 
 # Per-beat mood mapping
@@ -30,7 +31,7 @@ BEAT_MOOD_MAP = {
 
 
 def select(segments: list[NarrativeSegment], library: list[MusicTrack]) -> list[AddEffectOp]:
-    """Pick a music track per segment based on beat mood."""
+    """Pick tracks using mood first and duration fit as a tie-breaker."""
     ops = []
     for seg in segments:
         target_mood = BEAT_MOOD_MAP.get(seg.beat_type, "contemplative")
@@ -39,7 +40,18 @@ def select(segments: list[NarrativeSegment], library: list[MusicTrack]) -> list[
             candidates = library
         if not candidates:
             continue
-        chosen = candidates[0]
+        target_duration = max(0.0, seg.t_end - seg.t_start)
+        chosen = min(
+            candidates,
+            key=lambda track: (
+                0 if track.mood == target_mood else 1,
+                abs(track.duration_s - target_duration)
+                if track.duration_s is not None
+                else float("inf"),
+                abs(track.energy - _target_energy(seg.beat_type)),
+                track.track_id,
+            ),
+        )
         ops.append(AddEffectOp(
             author="ai",
             target_kind="track",
@@ -53,3 +65,8 @@ def select(segments: list[NarrativeSegment], library: list[MusicTrack]) -> list[
             },
         ))
     return ops
+
+
+def _target_energy(beat_type: str) -> float:
+    """Return a modest energy prior used only to break equal-fit ties."""
+    return 0.75 if beat_type in {"hook", "tease", "button"} else 0.45
