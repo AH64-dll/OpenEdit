@@ -53,7 +53,9 @@ TOOL_USAGE_GUIDE = """\
 Harness playbook (preferred over exploring source): skills/open-edit-mcp.md
 (also MCP resource open-edit://skills/open-edit-mcp / prompt open-edit-playbook).
 
-You have 4 tools available. Use them in this order of priority:
+You have 6 tools available: the 4 pillars below plus the
+``get_render_job`` / ``cancel_render_job`` render helpers. Use the
+pillars in this order of priority:
 
 ## 1. query_project (preferred first)
 Use this for ALL read-only queries about the project:
@@ -76,6 +78,11 @@ For complex multi-step edits that can't be expressed as a single edit_project op
 
 ## 4. trigger_render (when you need to see the result)
 Render the current timeline to a video file for preview or verification.
+
+## 5. get_render_job / cancel_render_job (render polling helpers)
+Use after a non-blocking ``trigger_render``: poll ``get_render_job``
+with the returned ``job_id`` for status, or ``cancel_render_job`` to
+stop a queued/running job.
 """
 
 

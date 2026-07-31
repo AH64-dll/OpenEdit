@@ -76,14 +76,16 @@ def _bootstrap_project(project_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_bridge_list_tools():
-    """--list-tools returns the 4 pillar tool names."""
+    """--list-tools returns the 6 advertised tool names."""
     res = _run_bridge("--list-tools")
     tools = res.get("tools", [])
     assert "query_project" in tools
     assert "edit_project" in tools
     assert "run_script" in tools
     assert "trigger_render" in tools
-    assert len(tools) == 4
+    assert "get_render_job" in tools
+    assert "cancel_render_job" in tools
+    assert len(tools) == 6
 
 
 def test_bridge_invalid_args_returns_error():
@@ -177,14 +179,16 @@ def test_bridge_add_marker_without_project_id_in_args(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_bridge_list_tools_includes_pillar_tools():
-    """``--list-tools`` returns the 4 pillar tool names."""
+    """``--list-tools`` returns the 6 advertised tool names."""
     res = _run_bridge("--list-tools")
     tools = res.get("tools", [])
     assert "query_project" in tools
     assert "edit_project" in tools
     assert "run_script" in tools
     assert "trigger_render" in tools
-    assert len(tools) == 4, tools
+    assert "get_render_job" in tools
+    assert "cancel_render_job" in tools
+    assert len(tools) == 6, tools
 
 
 def test_bridge_search_assets_missing_key_returns_structured_error(tmp_path):

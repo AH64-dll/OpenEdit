@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -13,53 +12,17 @@ from open_edit.kernel.tool_executor import execute_tool, execute_trigger_render
 from open_edit.kernel.tool_registry import TOOL_REGISTRY, build_tool_schemas
 
 
-_GET_RENDER_JOB_SCHEMA: dict[str, Any] = {
-    "name": "get_render_job",
-    "description": (
-        "Poll a durable render job by job_id. Use after trigger_render "
-        "when you need status without blocking, or to inspect a prior job."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "job_id": {"type": "string", "description": "Render job id"},
-        },
-        "required": ["job_id"],
-        "additionalProperties": False,
-    },
-}
-
-_CANCEL_RENDER_JOB_SCHEMA: dict[str, Any] = {
-    "name": "cancel_render_job",
-    "description": (
-        "Cancel a queued or running render job by job_id."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "job_id": {"type": "string", "description": "Render job id"},
-        },
-        "required": ["job_id"],
-        "additionalProperties": False,
-    },
-}
-
 HELPER_TOOL_NAMES = frozenset({"get_render_job", "cancel_render_job"})
 
 
 def mcp_tool_schemas() -> list[dict[str, Any]]:
     """Anthropic-shaped schemas for pillars + render helpers."""
-    return [*build_tool_schemas(), _GET_RENDER_JOB_SCHEMA, _CANCEL_RENDER_JOB_SCHEMA]
+    return build_tool_schemas()
 
 
 def result_to_json(result: Any) -> str:
     """Serialize a tool result for MCP TextContent."""
     return json.dumps(result, default=str, sort_keys=True)
-
-
-def _job_to_dict(job: Any) -> dict[str, Any]:
-    data = asdict(job) if hasattr(job, "__dataclass_fields__") else dict(job)
-    return {"ok": True, **data}
 
 
 async def dispatch_mcp_tool(
@@ -87,12 +50,15 @@ async def dispatch_mcp_tool(
                 "error": "job_id is required",
                 "expected_keys": ["job_id"],
             }
-        from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE
+        from open_edit.kernel.render_service import (
+            DEFAULT_RENDER_SERVICE,
+            public_job,
+        )
 
         job = DEFAULT_RENDER_SERVICE.get(project_path, job_id)
         if job is None:
             return {"ok": False, "error": f"render job not found: {job_id}"}
-        return _job_to_dict(job)
+        return {"ok": True, **public_job(job)}
 
     if name == "cancel_render_job":
         job_id = args.get("job_id")
@@ -102,12 +68,15 @@ async def dispatch_mcp_tool(
                 "error": "job_id is required",
                 "expected_keys": ["job_id"],
             }
-        from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE
+        from open_edit.kernel.render_service import (
+            DEFAULT_RENDER_SERVICE,
+            public_job,
+        )
 
         job = await DEFAULT_RENDER_SERVICE.cancel(project_path, job_id)
         if job is None:
             return {"ok": False, "error": f"render job not found: {job_id}"}
-        return _job_to_dict(job)
+        return {"ok": True, **public_job(job)}
 
     if name in TOOL_REGISTRY:
         try:

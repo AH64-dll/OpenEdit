@@ -9,9 +9,16 @@ from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
 
 
 def test_4_pillar_schemas():
-    assert len(TOOL_SCHEMAS) == 4
+    assert len(TOOL_SCHEMAS) == 6
     names = {t["name"] for t in TOOL_SCHEMAS}
-    assert names == {"query_project", "edit_project", "run_script", "trigger_render"}
+    assert names == {
+        "query_project",
+        "edit_project",
+        "run_script",
+        "trigger_render",
+        "get_render_job",
+        "cancel_render_job",
+    }
 
 
 def test_query_project_unknown_query(tmp_path):

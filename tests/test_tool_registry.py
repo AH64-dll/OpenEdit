@@ -7,9 +7,16 @@ from open_edit.kernel.tool_registry import build_tool_schemas
 
 def test_build_tool_schemas_names():
     schemas = build_tool_schemas()
-    assert len(schemas) == 4
+    assert len(schemas) == 6
     names = {s["name"] for s in schemas}
-    assert names == {"query_project", "edit_project", "run_script", "trigger_render"}
+    assert names == {
+        "query_project",
+        "edit_project",
+        "run_script",
+        "trigger_render",
+        "get_render_job",
+        "cancel_render_job",
+    }
 
 
 def test_schema_additional_properties_and_required():

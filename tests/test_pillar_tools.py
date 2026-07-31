@@ -38,9 +38,9 @@ def test_tool_by_name_has_pillar_names():
     assert "run_python" not in TOOL_BY_NAME
 
 
-def test_tool_schemas_has_4():
+def test_tool_schemas_has_6():
     from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
-    assert len(TOOL_SCHEMAS) == 4
+    assert len(TOOL_SCHEMAS) == 6
 
 
 def test_run_script_importable():

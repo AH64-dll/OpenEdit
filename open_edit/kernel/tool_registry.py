@@ -1,7 +1,8 @@
-"""Pydantic-backed registry of Open Edit pillar tool argument schemas.
+"""Pydantic-backed registry of Open Edit tool argument schemas.
 
-Single source of truth for the 4 pillar tools' argument shapes, JSON
-schema generation, and LLM tool-call validation.
+Single source of truth for the 4 pillar tools' plus the 2 render-job
+helper tools' argument shapes, JSON schema generation, and LLM
+tool-call validation.
 """
 from __future__ import annotations
 
@@ -60,6 +61,15 @@ _TRIGGER_RENDER_DESC = (
     "Returns job_id when wait=false, or the output path when wait=true."
 )
 
+_GET_RENDER_JOB_DESC = (
+    "Poll a durable render job by job_id. Use after trigger_render "
+    "when you need status without blocking, or to inspect a prior job."
+)
+
+_CANCEL_RENDER_JOB_DESC = (
+    "Cancel a queued or running render job by job_id."
+)
+
 
 class QueryProjectArgs(BaseModel):
     model_config = ConfigDict(
@@ -106,11 +116,27 @@ class TriggerRenderArgs(BaseModel):
     wait: bool = False
 
 
+class GetRenderJobArgs(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", title="get_render_job", description=_GET_RENDER_JOB_DESC
+    )
+    job_id: str
+
+
+class CancelRenderJobArgs(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", title="cancel_render_job", description=_CANCEL_RENDER_JOB_DESC
+    )
+    job_id: str
+
+
 TOOL_REGISTRY: dict[str, type[BaseModel]] = {
     "query_project": QueryProjectArgs,
     "edit_project": EditProjectArgs,
     "run_script": RunScriptArgs,
     "trigger_render": TriggerRenderArgs,
+    "get_render_job": GetRenderJobArgs,
+    "cancel_render_job": CancelRenderJobArgs,
 }
 
 TOOL_DESCRIPTIONS: dict[str, str] = {
