@@ -12,6 +12,8 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from open_edit.ir.ids import new_id, now_iso8601
+
 from .. import projects as projects_mod
 from ..errors import ErrorCodes, make_error
 from ..upload import UploadTooLargeError, _copy_upload_limited, _max_upload_bytes
@@ -168,8 +170,6 @@ async def post_project_note(project_id: str, req: CreateNoteRequest) -> JSONResp
     if t_end < t_start:
         t_end = t_start
 
-    from datetime import datetime, timezone
-
     from open_edit.storage.notes import (
         NoteSource,
         NotesStore,
@@ -189,13 +189,13 @@ async def post_project_note(project_id: str, req: CreateNoteRequest) -> JSONResp
         except Exception:
             pass
     note = ReviewNote(
-        note_id=uuid.uuid4().hex,
+        note_id=new_id(),
         project_id=note_project_id,
         anchor=TimestampAnchor(t_start=t_start, t_end=t_end),
         text=text,
         source=NoteSource.typed if req.source == "typed" else NoteSource.typed,
         status=NoteStatus.pending,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=now_iso8601(),
     )
     store.append(note)
     return JSONResponse({

@@ -61,9 +61,8 @@ gives you validation and undo for free.
 ## Validation gap — read this before using free-form
 
 `RawMltXmlOp` and `FreeFormCodeOp` skip the reference check that
-structured ops go through (see
-`open_edit/agent/sandbox_bridge.py:838,872` — "no reference check
-(free-form)"). Consequences:
+structured ops go through (see `open_edit/ir/validate.py:452` — the
+"no reference check (free-form)" branch). Consequences:
 
 - A malformed MLT filter only fails at **render** time, far from the
   edit loop.
@@ -80,12 +79,13 @@ Recommended workflow for any free-form op:
 
 ## Relevant source (read these in the real codebase)
 
-- `open_edit/ir/types.py:272` — `class RawMltXmlOp`
-- `open_edit/ir/types.py:278` — `class FreeFormCodeOp`
-- `open_edit/agent/sandbox_bridge.py:208` — `run_free_form` (execution backend)
-- `open_edit/agent/sandbox_bridge.py:838` & `:872` — free-form ops
+- `open_edit/ir/types.py:287` — `class RawMltXmlOp`
+- `open_edit/ir/types.py:293` — `class FreeFormCodeOp`
+- `open_edit/agent/sandbox/bridge.py` — `run_free_form` (free-form
+  execution facade; backends live in `open_edit/agent/sandbox/backends.py`)
+- `open_edit/ir/validate.py:452` — `RawMltXmlOp` / `FreeFormCodeOp`
   bypass the reference check
 - `open_edit/ir/catalog/effects/` — the structured effect catalog
-- `open_edit/ir/api.py:347` — `normalize_audio` (first-class op)
-- `open_edit/ir/api.py:55/120/164/215` — `add_clip` /
+- `open_edit/ir/api.py:348` — `normalize_audio` (first-class op)
+- `open_edit/ir/api.py:56/121/165/216` — `add_clip` /
   `add_transition` / `add_effect` / `set_keyframe`

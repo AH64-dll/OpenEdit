@@ -86,9 +86,9 @@ def _sandbox_backend() -> str:
 def _sandbox_available() -> bool:
     """Best-effort check for the sandbox binary. Never launches a sandbox."""
     try:
-        from open_edit.agent import sandbox_bridge
+        from open_edit.agent.sandbox import backends
 
-        sandbox_bridge._resolve_sandbox_bin()
+        backends._resolve_sandbox_bin()
         return True
     except Exception:
         return False

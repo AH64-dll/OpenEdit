@@ -3,7 +3,8 @@
 Each Open Edit "project" is a folder on disk that contains a ``.open_edit/``
 subdirectory with at least:
 
-- ``edit_graph.db``  — SQLite database holding the edit graph (per ``schema.sql``)
+- ``edit_graph.db``  — SQLite database holding the edit graph (per
+  ``open_edit/storage/migrations/``)
 - ``assets/``        — content-addressed media (CAS via ``<prefix>/<hash>``)
                        with sidecar ``<hash>.meta.json`` per asset
 - ``notes.db``       — SQLite database for review notes (per ``storage.notes``)
