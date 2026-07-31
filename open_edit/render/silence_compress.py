@@ -6,59 +6,18 @@ instead of extracting hundreds of temp segment files.
 """
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 import time
 from pathlib import Path
+
+from open_edit.render.ffmpeg_probe import detect_silence_spans, probe_duration
 
 DEFAULT_THRESHOLD_DB = -35.0
 DEFAULT_MAX_SILENCE_S = 0.2
 DEFAULT_DETECT_MIN_S = 0.2
 DEFAULT_WORKERS = 8
 MIN_SEGMENT_S = 0.05
-
-
-def probe_duration(path: Path) -> float:
-    out = subprocess.check_output(
-        [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", str(path),
-        ],
-        text=True,
-    ).strip()
-    return float(out)
-
-
-def detect_silences(
-    path: Path,
-    *,
-    threshold_db: float = DEFAULT_THRESHOLD_DB,
-    detect_min_s: float = DEFAULT_DETECT_MIN_S,
-) -> list[tuple[float, float]]:
-    proc = subprocess.run(
-        [
-            "ffmpeg", "-hide_banner", "-i", str(path), "-vn",
-            "-af", f"silencedetect=noise={threshold_db}dB:d={detect_min_s}",
-            "-f", "null", "-",
-        ],
-        capture_output=True, text=True, check=False,
-    )
-    starts: list[float] = []
-    spans: list[tuple[float, float]] = []
-    for line in proc.stderr.splitlines():
-        ms = re.search(r"silence_start:\s*(-?\d+(?:\.\d+)?)", line)
-        me = re.search(
-            r"silence_end:\s*(-?\d+(?:\.\d+)?)\s*\|\s*silence_duration:\s*(-?\d+(?:\.\d+)?)",
-            line,
-        )
-        if ms:
-            starts.append(float(ms.group(1)))
-        if me:
-            end = float(me.group(1))
-            if starts:
-                spans.append((starts.pop(0), end))
-    return spans
 
 
 def build_keep_ranges(
@@ -181,8 +140,8 @@ def compress_silence(
     output_path = Path(output_path)
 
     duration = probe_duration(input_path)
-    silences = detect_silences(
-        input_path, threshold_db=threshold_db, detect_min_s=detect_min_s,
+    silences = detect_silence_spans(
+        input_path, threshold_db=threshold_db, min_s=detect_min_s,
     )
     keep = build_keep_ranges(duration, silences, max_silence_s)
     new_duration = sum(e - s for s, e in keep)
