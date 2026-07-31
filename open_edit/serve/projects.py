@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -468,6 +469,15 @@ async def get_project_state(project_id: str) -> ProjectState:
 # Render snapshots (used by GET /api/projects/{id}/renders)
 # ---------------------------------------------------------------------------
 
+_SNAPSHOT_DB_NAME = "render_snapshots.db"
+
+_SNAPSHOT_STATUS_TO_JOB_STATUS = {
+    "ready": "succeeded",
+    "rendering": "running",
+    "failed": "failed",
+}
+
+
 async def list_renders(project_id: str) -> list[dict[str, Any]]:
     """List past renders for a project.
 
@@ -510,16 +520,32 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
         _LOG.warning("failed to list durable render jobs for %s", project_id, exc_info=True)
         raise
 
-    try:
-        from open_edit.storage.render_snapshots import RenderSnapshots
-        snaps = RenderSnapshots(path)
-        for attr in ("list_renders", "list", "all"):
-            if hasattr(snaps, attr):
-                items = getattr(snaps, attr)()
-                out.extend(_render_row_to_dict(r) for r in items)
-                break
-    except Exception:
-        pass
+    snapshots: list[dict[str, Any]] = []
+    snapshots_db = path / ".open_edit" / _SNAPSHOT_DB_NAME
+    if snapshots_db.exists():
+        try:
+            from open_edit.storage.render_snapshots import RenderSnapshotStore
+
+            for snap in RenderSnapshotStore(snapshots_db).list_for_project(project_id):
+                size_bytes = 0
+                try:
+                    size_bytes = snap.render_path.stat().st_size
+                except OSError:
+                    size_bytes = 0
+                snapshots.append({
+                    "id": snap.version_id,
+                    "path": str(snap.render_path),
+                    "mode": "snapshot",
+                    "status": _SNAPSHOT_STATUS_TO_JOB_STATUS.get(snap.status.value, snap.status.value),
+                    "size_bytes": size_bytes,
+                    "timestamp": snap.created_at,
+                    "graph_revision": None,
+                    "edit_graph_hash": snap.edit_graph_hash,
+                    "error": None,
+                })
+        except (ImportError, sqlite3.Error, OSError):
+            _LOG.warning("failed to list render snapshots for %s", project_id, exc_info=True)
+    out.extend(snapshots)
 
     if out:
         # Also surface on-disk proxy/final files produced by CLI renders so the
@@ -571,17 +597,6 @@ def _is_complete_render_mp4(path: Path) -> bool:
         return path.is_file() and path.stat().st_size >= 10_000
     except OSError:
         return False
-
-
-def _render_row_to_dict(row: Any) -> dict[str, Any]:
-    """Best-effort conversion of a RenderSnapshots row to a plain dict."""
-    if isinstance(row, dict):
-        return row
-    if hasattr(row, "model_dump"):
-        return row.model_dump()
-    if hasattr(row, "__dict__"):
-        return {k: v for k, v in vars(row).items() if not k.startswith("_")}
-    return {"value": str(row)}
 
 
 # ---------------------------------------------------------------------------

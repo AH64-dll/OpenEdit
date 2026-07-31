@@ -293,6 +293,46 @@ async def test_get_project_state_fresh_init_no_errors(projects_root_tmp):
     assert state.timeline.tail is None
 
 
+def test_list_renders_snapshot_branch_no_crash(projects_root_tmp):
+    """GET /api/projects/{id}/renders must surface RenderSnapshotStore rows.
+
+    Regression for the dead ``RenderSnapshots`` fallback (wrong class name
+    swallowed by ``except Exception: pass``): seed a real snapshot through
+    the store and verify it appears in the API response.
+    """
+    import argparse
+
+    from fastapi.testclient import TestClient
+
+    from open_edit.cli import cmd_init
+    from open_edit.serve import app as app_mod
+    from open_edit.storage.render_snapshots import (
+        RenderSnapshot,
+        RenderSnapshotStore,
+        RenderStatus,
+    )
+
+    proj = projects_root_tmp / "snap-proj"
+    proj.mkdir()
+    cmd_init(argparse.Namespace(folder=str(proj)))
+    project_id = projects_mod._project_id_from_path(proj.resolve())
+
+    store = RenderSnapshotStore(proj / ".open_edit" / "render_snapshots.db")
+    store.append(RenderSnapshot(
+        project_id=project_id,
+        edit_graph_hash="deadbeef" * 8,
+        render_path=proj / ".open_edit" / "renders" / "project_deadbeef.mp4",
+        status=RenderStatus.ready,
+        label="v1",
+    ))
+
+    client = TestClient(app_mod.app)
+    resp = client.get(f"/api/projects/{project_id}/renders")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert any(row.get("id") == store.list_for_project(project_id)[0].version_id for row in rows)
+
+
 @pytest.mark.asyncio
 async def test_get_project_state_404_message_includes_path_hint(projects_root_tmp):
     """Project-not-found errors carry a readable message mentioning the
