@@ -114,6 +114,13 @@ class TriggerRenderArgs(BaseModel):
     mode: Literal["proxy", "final", "overlay"] = "proxy"
     encoder: Literal["gpu", "cpu"] | None = None
     wait: bool = False
+    quality: str | None = None
+    profile: str | None = None
+    crf: int | None = None
+    vb: str | None = None
+    preset: str | None = None
+    scale: str | None = None
+    codec: str | None = None
 
 
 class GetRenderJobArgs(BaseModel):

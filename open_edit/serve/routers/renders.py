@@ -22,6 +22,13 @@ class RenderRequest(BaseModel):
     mode: str = "proxy"  # "proxy" | "final" | "overlay"
     expected_revision: int | None = None
     encoder: str | None = None  # "gpu" (default) | "cpu"
+    profile: str | None = None
+    quality: str | None = None
+    crf: int | None = None
+    vb: str | None = None
+    preset: str | None = None
+    scale: str | None = None
+    codec: str | None = None
 
 
 class RenderJobResponse(BaseModel):
@@ -53,6 +60,16 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     encoder = (req.encoder or "").strip().lower() or None
     if encoder not in (None, "gpu", "cpu"):
         raise HTTPException(status_code=400, detail="encoder must be 'gpu' or 'cpu'")
+    quality = (req.quality or "").strip().lower() or None
+    if quality is not None and quality not in ("fast", "standard", "high", "archival"):
+        raise HTTPException(status_code=400, detail="quality must be fast|standard|high|archival")
+    codec = (req.codec or "").strip().lower() or None
+    if codec is not None and codec not in ("h264", "hevc", "av1"):
+        raise HTTPException(status_code=400, detail="codec must be h264|hevc|av1")
+    params = {k: v for k, v in (
+        ("profile", req.profile), ("quality", quality), ("crf", req.crf),
+        ("vb", req.vb), ("preset", req.preset), ("scale", req.scale), ("codec", codec),
+    ) if v is not None}
 
     try:
         job = DEFAULT_RENDER_JOB_SERVICE.enqueue(
@@ -61,6 +78,7 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
             req.mode,
             expected_revision=req.expected_revision,
             encoder_backend=encoder,
+            params=params or None,
         )
     except RenderEnqueueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

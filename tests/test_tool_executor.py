@@ -153,3 +153,32 @@ async def test_execute_trigger_render_accepts_injected_project_id(tmp_path: Path
         await execute_trigger_render(
             args={"mode": "proxy", "project_id": "injected"}, project_path=tmp_path,
         )
+
+
+def test_trigger_render_forwards_quality_params(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+
+    from open_edit.kernel import tool_executor
+    from open_edit.kernel.render_jobs import RenderJobService
+
+    captured: dict = {}
+
+    def fake_enqueue(self, project_id, project_path, mode, **kwargs):
+        captured.update(kwargs)
+        import uuid
+
+        from open_edit.kernel.render_jobs import RenderJob
+
+        return RenderJob(uuid.uuid4().hex, project_id, mode, "queued", 0.0, 0.0)
+
+    monkeypatch.setattr(RenderJobService, "enqueue", fake_enqueue)
+    monkeypatch.setattr(tool_executor, "validate_or_error", lambda *a, **k: None)
+    monkeypatch.setattr(tool_executor, "_strip_injected_project_id", lambda t, a: a)
+    result = asyncio.run(tool_executor._run_trigger_render(
+        {"mode": "final", "quality": "high", "crf": 20, "scale": "640x360", "codec": "hevc", "wait": False},
+        tmp_path,
+    ))
+    assert result.get("ok") is True
+    params = captured.get("params", {})
+    assert params["quality"] == "high" and params["crf"] == 20
+    assert params["codec"] == "hevc"

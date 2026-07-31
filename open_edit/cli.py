@@ -167,13 +167,20 @@ def cmd_render(args: argparse.Namespace) -> int:
         return 1
     from open_edit.render.orchestrator import render_project
     from open_edit.qc.gate import run_qc_gate
+    overrides = {k: v for k, v in (
+        ("crf", args.crf), ("vb", args.vb), ("preset", args.preset),
+        ("scale", args.scale), ("codec", args.codec),
+    ) if v is not None}
     result = render_project(
         project_id=project_dir.parent.name,
         project_dir=project_dir.parent,
         workdir=project_dir / "renders",
         mode=args.mode,
         profile_name=args.profile,
+        quality=args.quality,
+        overrides=overrides,
         force=args.force,
+        nice_level=10,
         encoder_backend=getattr(args, "encoder", None),
     )
     if result.ok:
@@ -415,6 +422,14 @@ def main(argv: list[str] | None = None) -> int:
         "--encoder", default=None, choices=["gpu", "cpu"],
         help="video encoder backend (default: gpu, or OPEN_EDIT_RENDER_BACKEND)",
     )
+    p_render.add_argument("--quality", default=None, choices=["fast", "standard", "high", "archival"],
+                          help="encode quality tier (default: fast for proxy, standard for final)")
+    p_render.add_argument("--crf", type=int, default=None, help="quality override 0-51 (nvenc: mapped to cq)")
+    p_render.add_argument("--vb", default=None, help="video bitrate override, e.g. 10M")
+    p_render.add_argument("--preset", default=None, help="encoder preset override")
+    p_render.add_argument("--scale", default=None, help="output scale override, e.g. 1280x720")
+    p_render.add_argument("--codec", default=None, choices=["h264", "hevc", "av1"],
+                          help="codec family override")
     p_render.add_argument("--json", action="store_true", help="emit one structured render result JSON object")
     p_render.add_argument("--force", action="store_true", help="ignore render cache")
     p_render.set_defaults(func=cmd_render)

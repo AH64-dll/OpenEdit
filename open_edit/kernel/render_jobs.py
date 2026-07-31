@@ -39,6 +39,7 @@ class RenderJob:
     qc_report: dict | None = None
     graph_revision: int | None = None
     edit_graph_hash: str | None = None
+    params: dict | None = None
 
 
 class RenderEnqueueError(ValueError):
@@ -59,7 +60,8 @@ CREATE TABLE IF NOT EXISTS render_jobs (
     result_json TEXT,
     qc_report TEXT,
     graph_revision INTEGER,
-    edit_graph_hash TEXT
+    edit_graph_hash TEXT,
+    params_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_render_jobs_project_created
     ON render_jobs(project_id, created_at DESC);
@@ -114,6 +116,8 @@ class RenderJobService:
             con.execute("ALTER TABLE render_jobs ADD COLUMN edit_graph_hash TEXT")
         if "qc_report" not in cols:
             con.execute("ALTER TABLE render_jobs ADD COLUMN qc_report TEXT")
+        if "params_json" not in cols:
+            con.execute("ALTER TABLE render_jobs ADD COLUMN params_json TEXT")
         # Older installs rejected overlay in the CHECK constraint. Rebuild once.
         create_sql = con.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='render_jobs'"
@@ -146,6 +150,7 @@ class RenderJobService:
             qc_report=json.loads(row["qc_report"]) if "qc_report" in keys and row["qc_report"] else None,
             graph_revision=row["graph_revision"] if "graph_revision" in keys else None,
             edit_graph_hash=row["edit_graph_hash"] if "edit_graph_hash" in keys else None,
+            params=json.loads(row["params_json"]) if "params_json" in keys and row["params_json"] else None,
         )
 
     def recover(self, project_path: Path) -> int:
@@ -230,6 +235,7 @@ class RenderJobService:
         expected_revision: int | None = None,
         allow_invalid_timeline: bool = False,
         encoder_backend: str | None = None,
+        params: dict | None = None,
     ) -> RenderJob:
         if mode not in ("proxy", "final", "overlay"):
             raise ValueError("mode must be 'proxy', 'final', or 'overlay'")
@@ -265,13 +271,15 @@ class RenderJobService:
                 job = RenderJob(
                     uuid.uuid4().hex, project_id, mode, "queued", now, now,
                     graph_revision=revision, edit_graph_hash=graph_hash,
+                    params=params,
                 )
                 con.execute(
                     "INSERT INTO render_jobs (job_id, project_id, mode, status, created_at, updated_at, "
-                    "graph_revision, edit_graph_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "graph_revision, edit_graph_hash, params_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         job.job_id, job.project_id, job.mode, job.status, job.created_at,
                         job.updated_at, job.graph_revision, job.edit_graph_hash,
+                        json.dumps(params, sort_keys=True) if params is not None else None,
                     ),
                 )
                 existing = job
@@ -408,6 +416,14 @@ class RenderJobService:
             return out
 
         command = [sys.executable, "-m", "open_edit.cli", "render", "--mode", mode, "--json"]
+        job = self.get(project_path, job_id)
+        params = (job.params if job is not None else None) or {}
+        for key, flag in (("profile", "--profile"), ("quality", "--quality"),
+                          ("crf", "--crf"), ("vb", "--vb"), ("preset", "--preset"),
+                          ("scale", "--scale"), ("codec", "--codec")):
+            value = params.get(key)
+            if value is not None:
+                command += [flag, str(value)]
         encoder = self._job_encoder.get(job_id) or os.environ.get("OPEN_EDIT_RENDER_BACKEND", "gpu")
         if encoder in ("gpu", "cpu"):
             command += ["--encoder", encoder]

@@ -316,6 +316,18 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
     if encoder is not None and str(encoder).lower() not in ("gpu", "cpu"):
         encoder = None
 
+    quality = args.get("quality")
+    if quality is not None and str(quality).lower() not in ("fast", "standard", "high", "archival"):
+        return {"ok": False, "error": f"invalid quality {quality!r}", "error_code": "schema_validation_failed"}
+    codec = args.get("codec")
+    if codec is not None and str(codec).lower() not in ("h264", "hevc", "av1"):
+        return {"ok": False, "error": f"invalid codec {codec!r}", "error_code": "schema_validation_failed"}
+    params = {k: v for k, v in (
+        ("profile", args.get("profile")), ("quality", str(quality).lower() if quality else None),
+        ("crf", args.get("crf")), ("vb", args.get("vb")), ("preset", args.get("preset")),
+        ("scale", args.get("scale")), ("codec", str(codec).lower() if codec else None),
+    ) if v is not None}
+
     wait = args.get("wait", False)
     if isinstance(wait, str):
         wait = wait.lower() not in ("false", "0", "no")
@@ -331,7 +343,7 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
     # identical across both entry points — including overlay.
     try:
         job = DEFAULT_RENDER_JOB_SERVICE.enqueue(
-            project_path.name, project_path, mode, encoder_backend=encoder,
+            project_path.name, project_path, mode, encoder_backend=encoder, params=params or None,
         )
     except RenderEnqueueError as exc:
         return {"ok": False, "error": str(exc), "error_code": "render_enqueue_rejected"}
