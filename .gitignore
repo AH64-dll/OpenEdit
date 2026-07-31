@@ -27,3 +27,4 @@ projects/
 .env
 *.log
 .venv/
+.worktrees
