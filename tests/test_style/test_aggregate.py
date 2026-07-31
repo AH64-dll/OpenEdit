@@ -1,6 +1,5 @@
 """Phase 4 Task 3: style memory aggregation (pinned overrides)."""
 import json
-import pytest
 from pathlib import Path
 
 from open_edit.style.aggregate import set_pinned

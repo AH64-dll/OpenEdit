@@ -1,6 +1,4 @@
 """Phase 4 Task 3: prior_state block builder."""
-import pytest
-from pathlib import Path
 
 from open_edit.agent.style_inject import build_prior_state
 from open_edit.style.aggregate import set_pinned

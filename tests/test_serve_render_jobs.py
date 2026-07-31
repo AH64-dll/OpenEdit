@@ -79,32 +79,34 @@ def test_render_route_202_and_persists_job_row(seeded_project):
     async def fake_launch(project_path, job_id, mode):
         return {"ok": True, "output_path": str(fake), "mode": mode}
 
-    with mock.patch(
-        "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch", fake_launch
+    with (
+        mock.patch(
+            "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch", fake_launch
+        ),
+        TestClient(app_mod.app) as client,
     ):
-        with TestClient(app_mod.app) as client:
-            r = client.post(
-                f"/api/projects/{project_id}/render", json={"mode": "proxy"}
-            )
-            assert r.status_code == 202, r.text
-            body = r.json()
-            assert body["job_id"]
-            assert body["project_id"] == project_id
-            assert body["mode"] == "proxy"
-            assert body["status"] == "queued"
-            assert isinstance(body["created_at"], float)
+        r = client.post(
+            f"/api/projects/{project_id}/render", json={"mode": "proxy"}
+        )
+        assert r.status_code == 202, r.text
+        body = r.json()
+        assert body["job_id"]
+        assert body["project_id"] == project_id
+        assert body["mode"] == "proxy"
+        assert body["status"] == "queued"
+        assert isinstance(body["created_at"], float)
 
+        job = DEFAULT_RENDER_JOB_SERVICE.get(proj, body["job_id"])
+        assert job is not None, "route must persist a render_jobs row"
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
             job = DEFAULT_RENDER_JOB_SERVICE.get(proj, body["job_id"])
-            assert job is not None, "route must persist a render_jobs row"
-
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                job = DEFAULT_RENDER_JOB_SERVICE.get(proj, body["job_id"])
-                if job.status in ("succeeded", "failed"):
-                    break
-                time.sleep(0.02)
-            assert job.status == "succeeded", f"expected terminal job, got {job!r}"
-            assert job.output_path == str(fake)
+            if job.status in ("succeeded", "failed"):
+                break
+            time.sleep(0.02)
+        assert job.status == "succeeded", f"expected terminal job, got {job!r}"
+        assert job.output_path == str(fake)
 
 
 def test_render_route_rejects_invalid_mode(seeded_project):

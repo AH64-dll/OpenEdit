@@ -513,7 +513,6 @@ def test_no_change_render_skips_sampling(tmp_path):
     db = tmp_path / ".open_edit" / "edit_graph.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     EditGraphStore(db)
-    h = _project_state_hash(tmp_path, "proxy", last_render_id="render_xyz")
     # Re-hashing the same project produces the same hash → no_change.
     out = _build_no_change_tool_result(tmp_path, "proxy", last_render_id="render_xyz")
     assert out.get("no_change") is True

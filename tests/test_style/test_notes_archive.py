@@ -1,8 +1,13 @@
 """Phase 4 Task 8: notes DB archival on commit_feedback completion."""
-import pytest
-from datetime import datetime, timezone, timedelta
+
+from datetime import datetime, timedelta, timezone
+
 from open_edit.storage.notes import (
-    NotesStore, ReviewNote, TimestampAnchor, NoteSource, NoteStatus,
+    NoteSource,
+    NotesStore,
+    NoteStatus,
+    ReviewNote,
+    TimestampAnchor,
 )
 
 
