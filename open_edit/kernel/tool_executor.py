@@ -71,9 +71,7 @@ def _payload_hash(args: dict[str, Any]) -> str:
 
 
 def _is_error_result(result: Any) -> bool:
-    return isinstance(result, dict) and (
-        result.get("status") == "error" or bool(result.get("error"))
-    )
+    return isinstance(result, dict) and result.get("status") == "error"
 
 
 def _record_done_command(

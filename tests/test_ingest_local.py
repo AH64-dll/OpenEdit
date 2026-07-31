@@ -48,7 +48,7 @@ def test_ingest_local_allows_project_path(project: Path) -> None:
         result = ingest_local(
             {"paths": [str(media)], "transcribe": False}, str(project),
         )
-    assert result["ok"] is True
+    assert result["status"] == "ok"
     assert result["count"] == 1
     assert result["ingested"][0]["hash"] == "abc123"
     store.ingest.assert_called_once_with(str(media.resolve()), transcribe=False)
@@ -72,5 +72,5 @@ def test_ingest_local_allowlist_root(project: Path, tmp_path: Path, monkeypatch:
         store.ingest.return_value = fake_asset
         gas.return_value = store
         result = ingest_local({"paths": [str(media)]}, str(project))
-    assert result["ok"] is True
+    assert result["status"] == "ok"
     assert result["ingested"][0]["words"] == 2

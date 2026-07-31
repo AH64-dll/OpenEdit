@@ -92,12 +92,14 @@ def test_generate_visual_for_segment_asset_not_found(tmp_path: Path):
 def test_get_pending_notes_happy_path(tmp_path: Path):
     args = {"project_id": "proj-1"}
     result = get_pending_notes(args, str(tmp_path))
+    assert result["status"] == "ok"
     assert "notes" in result
 
 
 def test_get_pending_notes_summary_only(tmp_path: Path):
     args = {"project_id": "proj-1", "summary_only": True}
     result = get_pending_notes(args, str(tmp_path))
+    assert result["status"] == "ok"
     assert "notes" in result
 
 
@@ -203,13 +205,13 @@ def test_run_python_happy_path(tmp_path: Path):
 
 def test_search_assets_missing_query(tmp_path: Path):
     result = search_assets({"kind": "video"}, str(tmp_path))
-    assert "error" in result
+    assert result["status"] == "error"
     assert "query" in result["error"]
 
 
 def test_search_assets_invalid_kind(tmp_path: Path):
     result = search_assets({"query": "test", "kind": "invalid"}, str(tmp_path))
-    assert "error" in result
+    assert result["status"] == "error"
     assert "kind" in result["error"]
 
 
@@ -222,6 +224,7 @@ def test_search_assets_happy_path(tmp_path: Path):
         return_value={"videos": []},
     ):
         result = search_assets({"query": "test", "kind": "video"}, str(tmp_path))
+        assert result["status"] == "ok"
         assert "results" in result
 
 

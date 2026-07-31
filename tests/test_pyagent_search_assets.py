@@ -164,7 +164,7 @@ def test_search_assets_returns_error_when_pexels_key_missing(no_keys, tmp_path):
         {"query": "rain", "kind": "video", "limit": 3},
         str(tmp_path),
     )
-    assert "error" in res, res
+    assert res["status"] == "error", res
     assert "OPEN_EDIT_PEXELS_API_KEY" in res["error"]
     assert "results" in res
     assert res["results"] == []
@@ -177,7 +177,7 @@ def test_search_assets_returns_error_when_freesound_key_missing(no_keys, tmp_pat
         {"query": "whoosh", "kind": "audio", "limit": 3},
         str(tmp_path),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "OPEN_EDIT_FREESOUND_API_KEY" in res["error"]
     assert res["results"] == []
 
@@ -190,7 +190,7 @@ def test_search_assets_rejects_unknown_kind(pexels_key, freesound_key, tmp_path)
             str(tmp_path),
         )
     assert m.call_count == 0
-    assert "error" in res
+    assert res["status"] == "error"
     assert "kind" in res["error"]
     assert "storyboard" in res["error"] or "video|photo|audio" in res["error"]
 
@@ -212,6 +212,7 @@ def test_search_assets_pexels_video_normalises_response(pexels_key, tmp_path):
         )
 
     assert "error" not in res, res
+    assert res["status"] == "ok"
     assert res["source"] == "pexels"
     results = res["results"]
     assert len(results) == 2
@@ -266,6 +267,7 @@ def test_search_assets_pexels_photo_normalises_response(pexels_key, tmp_path):
         )
 
     assert "error" not in res, res
+    assert res["status"] == "ok"
     assert res["source"] == "pexels"
     r0 = res["results"][0]
     assert r0["id"] == "pexels-photo-99001"
@@ -297,6 +299,7 @@ def test_search_assets_freesound_audio_normalises_response(freesound_key, tmp_pa
         )
 
     assert "error" not in res, res
+    assert res["status"] == "ok"
     assert res["source"] == "freesound"
     results = res["results"]
     assert len(results) == 2
@@ -355,6 +358,7 @@ def test_search_assets_caches_results(pexels_key, tmp_path):
         )
     assert m.call_count == 1, f"expected 1 HTTP call, got {m.call_count}"
     assert first == second
+    assert first["status"] == "ok"
 
 
 def test_search_assets_cache_key_distinguishes_kind(pexels_key, tmp_path):

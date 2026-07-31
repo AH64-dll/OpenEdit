@@ -22,7 +22,8 @@ def test_execute_tool_dispatches_to_module(tmp_path: Path):
         project_path=tmp_path,
     )
     assert isinstance(result, dict)
-    assert "assets" in result or "items" in result or "ok" in result
+    assert result["status"] == "ok"
+    assert "assets" in result
 
 
 def test_registry_tools_accept_injected_project_id(tmp_path: Path):

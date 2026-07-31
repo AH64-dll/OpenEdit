@@ -33,6 +33,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from open_edit.agent.tools._contract import tool_result
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -133,6 +135,7 @@ def _store_result(cache_dir: Path, result: dict[str, Any]) -> None:
 # Public entry point
 # ---------------------------------------------------------------------------
 
+@tool_result
 def import_asset(args: dict, project_path: str) -> dict:
     """Import a third-party media asset into the project's CAS.
 
@@ -144,12 +147,13 @@ def import_asset(args: dict, project_path: str) -> dict:
 
     Returns:
         ``{status, asset_hash, source, license, attribution, ...}`` on
-        success, or ``{error: "..."}`` on failure.
+        success, or ``{status: "error", error: "..."}`` on failure.
     """
     result_id = (args.get("result_id") or "").strip()
     source_url = (args.get("source_url") or "").strip()
     if not result_id and not source_url:
         return {
+            "status": "error",
             "error": (
                 "import_asset: must provide either 'result_id' (from a prior "
                 "search_assets call) or 'source_url' (direct HTTPS link)."
@@ -163,6 +167,7 @@ def import_asset(args: dict, project_path: str) -> dict:
         cached = _lookup_result(_SEARCH_RESULT_CACHE_DIR, result_id)
         if cached is None:
             return {
+                "status": "error",
                 "error": (
                     f"import_asset: result_id {result_id!r} not found in the "
                     f"search cache. The search_assets call that returned it "
@@ -176,6 +181,7 @@ def import_asset(args: dict, project_path: str) -> dict:
         source_url = cached.get("preview_url") or ""
         if not source_url:
             return {
+                "status": "error",
                 "error": (
                     f"import_asset: cached search result {result_id!r} has "
                     f"no preview_url; cannot download."
@@ -184,6 +190,7 @@ def import_asset(args: dict, project_path: str) -> dict:
 
     if not source_url.lower().startswith("https://"):
         return {
+            "status": "error",
             "error": (
                 f"import_asset: source_url must be HTTPS (got {source_url!r}). "
                 f"fix: use the secure URL — http:// is rejected to keep the "
@@ -214,11 +221,13 @@ def import_asset(args: dict, project_path: str) -> dict:
         data = _http_download(source_url)
     except Exception as exc:  # noqa: BLE001 — surface any download error
         return {
+            "status": "error",
             "error": f"import_asset: {exc}",
         }
 
     if not data:
         return {
+            "status": "error",
             "error": "import_asset: download returned 0 bytes — empty file",
         }
 
@@ -248,6 +257,7 @@ def import_asset(args: dict, project_path: str) -> dict:
             )
         except Exception as exc:  # noqa: BLE001
             return {
+                "status": "error",
                 "error": f"import_asset: ingest failed: {exc}",
             }
         asset = assets[0]
@@ -258,7 +268,8 @@ def import_asset(args: dict, project_path: str) -> dict:
             pass
 
     return {
-        "status": "ingested",
+        "status": "ok",
+        "result": "ingested",
         "asset_hash": asset.asset_hash,
         "source": source_name,
         "kind": asset.type,

@@ -121,7 +121,8 @@ def test_import_asset_by_result_id_uses_cached_metadata(tmp_path, monkeypatch):
         )
 
     assert "error" not in res, res
-    assert res["status"] == "ingested"
+    assert res["status"] == "ok"
+    assert res["result"] == "ingested"
     assert res["asset_hash"]  # 64-char sha256
     assert res["source"] == "pexels"
     assert res["license"] == "Pexels License"
@@ -150,7 +151,7 @@ def test_import_asset_unknown_result_id_returns_error(tmp_path, monkeypatch):
         {"result_id": "freesound-bogus", "project_id": "x"},
         str(project),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "not found" in res["error"].lower() or "unknown" in res["error"].lower()
     assert "freesound-bogus" in res["error"]
 
@@ -183,7 +184,8 @@ def test_import_asset_by_source_url_without_license(tmp_path, monkeypatch):
         )
 
     assert "error" not in res, res
-    assert res["status"] == "ingested"
+    assert res["status"] == "ok"
+    assert res["result"] == "ingested"
     # The license is a string — default to a clear "Unknown" when the
     # caller didn't say, so the UI has something to render and the user
     # knows they need to investigate.
@@ -236,7 +238,7 @@ def test_import_asset_rejects_non_https_url(tmp_path, monkeypatch):
         {"source_url": "http://example.com/x.mp4", "project_id": "x"},
         str(project),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "https" in res["error"].lower()
 
 
@@ -250,7 +252,7 @@ def test_import_asset_rejects_both_result_id_and_source_url_missing(tmp_path, mo
     _bootstrap_project(project)
 
     res = import_asset({"project_id": "x"}, str(project))
-    assert "error" in res
+    assert res["status"] == "error"
     assert "result_id" in res["error"] or "source_url" in res["error"]
 
 
@@ -275,7 +277,7 @@ def test_import_asset_download_failure_returns_error(tmp_path, monkeypatch):
             {"source_url": "https://example.com/missing.mp4", "project_id": "x"},
             str(project),
         )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "404" in res["error"] or "not found" in res["error"].lower()
 
 

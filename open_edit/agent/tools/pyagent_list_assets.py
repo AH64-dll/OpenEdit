@@ -49,6 +49,7 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
 
     if not assets_root.exists():
         return {
+            "status": "ok",
             "assets": assets,
             "filtered": True,
             "include_derivatives": include_derivatives,
@@ -84,6 +85,7 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
         assets.append(row)
 
     return {
+        "status": "ok",
         "assets": assets,
         "filtered": not include_derivatives,
         "skipped_derivatives": skipped,

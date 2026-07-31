@@ -21,8 +21,9 @@ and the frontend all see the same fields regardless of the source:
     }
 
 When the relevant API key is missing, the tool returns a structured
-``{"error": "...", "results": []}`` payload rather than crashing — the
-LLM can read the error and the UI can render a helpful message.
+``{"status": "error", "error": "...", "results": []}`` payload rather
+than crashing — the LLM can read the error and the UI can render a
+helpful message.
 
 Caching: a small in-memory dict keyed by ``kind:query:limit`` with a
 5-minute TTL (configurable via ``_CACHE_TTL_S``). The cache lives for
@@ -43,6 +44,8 @@ import time
 import urllib.parse
 import urllib.request
 from typing import Any
+
+from open_edit.agent.tools._contract import tool_result
 
 # ---------------------------------------------------------------------------
 # Config
@@ -333,6 +336,7 @@ def _search_freesound(query: str, limit: int) -> dict[str, Any]:
 _VALID_KINDS = ("video", "photo", "audio")
 
 
+@tool_result
 def search_assets(args: dict, project_path: str) -> dict:
     """Search Pexels / Freesound for stock media matching ``args['query']``.
 
@@ -344,6 +348,7 @@ def search_assets(args: dict, project_path: str) -> dict:
     query = (args.get("query") or "").strip()
     if not query:
         return {
+            "status": "error",
             "error": "search_assets: 'query' is required and must be non-empty",
             "results": [],
         }
@@ -351,6 +356,7 @@ def search_assets(args: dict, project_path: str) -> dict:
     kind = (args.get("kind") or "").strip().lower()
     if kind not in _VALID_KINDS:
         return {
+            "status": "error",
             "error": (
                 f"search_assets: invalid kind={args.get('kind')!r}; "
                 f"expected one of: {', '.join(_VALID_KINDS)}"
@@ -371,6 +377,7 @@ def search_assets(args: dict, project_path: str) -> dict:
     if kind in ("video", "photo"):
         if not _pexels_api_key():
             return {
+                "status": "error",
                 "error": (
                     "OPEN_EDIT_PEXELS_API_KEY not set; "
                     "set it (and OPEN_EDIT_FREESOUND_API_KEY for audio) "
@@ -382,6 +389,7 @@ def search_assets(args: dict, project_path: str) -> dict:
     elif kind == "audio":
         if not _freesound_api_key():
             return {
+                "status": "error",
                 "error": (
                     "OPEN_EDIT_FREESOUND_API_KEY not set; "
                     "set it (and OPEN_EDIT_PEXELS_API_KEY for video/photo) "
@@ -407,7 +415,11 @@ def search_assets(args: dict, project_path: str) -> dict:
         else:  # audio
             payload = _search_freesound(query, limit)
     except Exception as exc:  # noqa: BLE001 — surface any upstream error
-        return {"error": f"search_assets({kind}) failed: {exc}", "results": []}
+        return {
+            "status": "error",
+            "error": f"search_assets({kind}) failed: {exc}",
+            "results": [],
+        }
 
     # Stash query/kind in the payload for cache-key introspection +
     # frontend rendering. The frontend uses these to drive the
@@ -415,6 +427,7 @@ def search_assets(args: dict, project_path: str) -> dict:
     payload.setdefault("query", query)
     payload.setdefault("kind", kind)
     payload.setdefault("limit", limit)
+    payload["status"] = "ok"
     _cache_put(cache_key, payload)
 
     # Also write each result to the import-side cache so a follow-up

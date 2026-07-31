@@ -465,9 +465,7 @@ async def run_agent_turn(
                 # A tool-level error payload (status: error) counts as a
                 # failure for the circuit breaker even though the call
                 # didn't raise.
-                if isinstance(result, dict) and (
-                    result.get("status") == "error" or result.get("error")
-                ):
+                if isinstance(result, dict) and result.get("status") == "error":
                     failure_counts[fail_key] = failure_counts.get(fail_key, 0) + 1
                 yield {"type": "tool_result", "id": tu["id"], "name": tool_name, "result": result}
                 tool_result_messages.append({

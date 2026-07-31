@@ -4,10 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from open_edit.agent.tools._contract import tool_result
 from open_edit.ir.types import AddRemotionCompositionOp, new_id
 from open_edit.storage.edit_graph import EditGraphStore
 
 
+@tool_result
 def generate_remotion_composition(args: dict[str, Any], project_path: str | Path) -> dict[str, Any]:
     composition_id = str(args.get("composition_id") or "").strip()
     entry_point = str(args.get("entry_point") or "src/index.ts").strip()
@@ -16,19 +18,17 @@ def generate_remotion_composition(args: dict[str, Any], project_path: str | Path
         duration_sec = float(args.get("duration_sec", 3.0))
     except (TypeError, ValueError):
         return {
-            "ok": False,
+            "status": "error",
             "error": "position_sec and duration_sec must be numbers",
-            "retry": False,
         }
     if not composition_id:
         return {
-            "ok": False,
+            "status": "error",
             "error": "composition_id is required",
             "expected_keys": ["composition_id", "entry_point", "position_sec", "duration_sec"],
-            "retry": False,
         }
     if duration_sec <= 0:
-        return {"ok": False, "error": "duration_sec must be > 0", "retry": False}
+        return {"status": "error", "error": "duration_sec must be > 0"}
 
     props = args.get("props") if isinstance(args.get("props"), dict) else {}
     track_id = str(args.get("track_id") or "video_graphics")
@@ -41,7 +41,7 @@ def generate_remotion_composition(args: dict[str, Any], project_path: str | Path
 
     db = project / ".open_edit" / "edit_graph.db"
     if not db.exists():
-        return {"ok": False, "error": "edit_graph.db not found", "retry": False}
+        return {"status": "error", "error": "edit_graph.db not found"}
 
     op = AddRemotionCompositionOp(
         edit_id=new_id(),
@@ -55,13 +55,10 @@ def generate_remotion_composition(args: dict[str, Any], project_path: str | Path
         alpha=alpha,
     )
     store = EditGraphStore(db)
-    try:
-        store.append(op)
-    except Exception as exc:
-        return {"ok": False, "error": str(exc), "retry": False}
+    store.append(op)
 
     return {
-        "ok": True,
+        "status": "ok",
         "edit_id": op.edit_id,
         "composition_uid": op.composition_uid,
         "clip_id": op.clip_id,

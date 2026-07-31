@@ -18,6 +18,7 @@ def get_pending_notes(args: dict, project_path: str) -> dict:
     pending = store.list_pending(args["project_id"])
     if args.get("summary_only", False):
         return {
+            "status": "ok",
             "notes": [
                 {
                     "note_id": n.note_id,
@@ -28,6 +29,7 @@ def get_pending_notes(args: dict, project_path: str) -> dict:
             ],
         }
     return {
+        "status": "ok",
         "notes": [n.model_dump(mode="json") for n in pending[:10]],
         "remaining_count": max(0, len(pending) - 10),
     }

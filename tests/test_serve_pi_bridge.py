@@ -135,6 +135,7 @@ def test_bridge_add_marker_round_trip(tmp_path):
         "--project", str(project_path),
         "--args", "{}",
     )
+    assert res_get.get("status") == "ok"
     notes = res_get.get("notes", [])
     assert len(notes) == 1
     n = notes[0]
@@ -209,7 +210,7 @@ def test_bridge_search_assets_missing_key_returns_structured_error(tmp_path):
     assert out.returncode == 0, f"bridge crashed: stderr={out.stderr!r}"
     last = (out.stdout or "").strip().splitlines()[-1] if out.stdout else "{}"
     res = json.loads(last) if last else {}
-    assert "error" in res
+    assert res["status"] == "error"
     assert "OPEN_EDIT_PEXELS_API_KEY" in res["error"]
     assert "results" in res
     assert res["results"] == []
@@ -222,7 +223,7 @@ def test_bridge_search_assets_rejects_invalid_kind(tmp_path):
         "--project", str(tmp_path),
         "--args", json.dumps({"query": "x", "kind": "storyboard", "limit": 1}),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "kind" in res["error"]
 
 
@@ -233,7 +234,7 @@ def test_bridge_search_assets_rejects_missing_query(tmp_path):
         "--project", str(tmp_path),
         "--args", json.dumps({"query": "", "kind": "video", "limit": 3}),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "query" in res["error"]
 
 
@@ -279,6 +280,7 @@ def test_bridge_search_assets_dispatches_with_mocked_http(
     res = pyagent_search_assets.search_assets(
         {"query": "ocean", "kind": "video", "limit": 3}, str(tmp_path),
     )
+    assert res["status"] == "ok"
     assert "error" not in res, res
     assert res["source"] == "pexels"
     assert len(res["results"]) == 1
@@ -294,7 +296,7 @@ def test_bridge_import_asset_rejects_non_https_url(tmp_path):
         "--project", str(tmp_path),
         "--args", json.dumps({"source_url": "http://example.com/x.mp4"}),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "https" in res["error"].lower()
 
 
@@ -305,7 +307,7 @@ def test_bridge_import_asset_requires_result_id_or_source_url(tmp_path):
         "--project", str(tmp_path),
         "--args", json.dumps({}),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "result_id" in res["error"] or "source_url" in res["error"]
 
 
@@ -326,7 +328,7 @@ def test_bridge_import_asset_download_failure_returns_error(tmp_path, monkeypatc
         "--project", str(project_path),
         "--args", json.dumps({"source_url": "https://example.com/missing.mp4"}),
     )
-    assert "error" in res
+    assert res["status"] == "error"
     assert "404" in res["error"] or "not found" in res["error"].lower()
 
 

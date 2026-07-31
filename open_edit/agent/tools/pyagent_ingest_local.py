@@ -56,7 +56,6 @@ def ingest_local(args: dict, project_path: str) -> dict[str, Any]:
     raw_paths = args.get("paths")
     if not isinstance(raw_paths, list) or not raw_paths:
         return {
-            "ok": False,
             "status": "error",
             "error": "paths must be a non-empty list of absolute file paths",
             "expected_keys": ["paths"],
@@ -111,10 +110,8 @@ def ingest_local(args: dict, project_path: str) -> dict[str, Any]:
             "words": len(asset.alignment or []),
         })
 
-    ok = bool(ingested)
     status = "ok" if ingested and not errors else ("partial" if ingested else "error")
     return {
-        "ok": ok,
         "status": status,
         "ingested": ingested,
         "errors": errors,

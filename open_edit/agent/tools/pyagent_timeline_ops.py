@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from open_edit.agent.tools._contract import tool_result
 from open_edit.agent.tools._helpers import load_project, make_ir
 from open_edit.ir.apply import derive_timeline
 from open_edit.ir.types import (
@@ -17,140 +18,128 @@ from open_edit.ir.types import (
 )
 
 
+@tool_result
 def add_clip(args: dict, project_path: str) -> dict[str, Any]:
-    try:
-        if "asset_hash" not in args:
-            return {"ok": False, "error": "asset_hash is required"}
-        if args.get("out_point_sec") is None:
-            return {"ok": False, "error": "out_point_sec is required (clip duration)"}
-        ir = make_ir(project_path, parent_op_id=None)
-        clip_id = new_id()
-        track_kind = args.get("track_kind", "video")
-        if track_kind not in ("video", "audio"):
-            track_kind = "video"
-        op = AddClipOp(
-            edit_id=new_id(),
-            author="ai",
-            parent_id=None,
-            clip_id=clip_id,
-            asset_hash=str(args["asset_hash"]),
-            track_id=str(args.get("track_id", "v1")),
-            track_kind=track_kind,
-            position_sec=float(args.get("position_sec", 0.0)),
-            in_point_sec=float(args.get("in_point_sec", 0.0)),
-            out_point_sec=float(args["out_point_sec"]),
-        )
-        ir._ops.append(op)
-        return {"ok": True, "clip_id": clip_id, "kind": "add_clip"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    if "asset_hash" not in args:
+        return {"status": "error", "error": "asset_hash is required"}
+    if args.get("out_point_sec") is None:
+        return {"status": "error", "error": "out_point_sec is required (clip duration)"}
+    ir = make_ir(project_path, parent_op_id=None)
+    clip_id = new_id()
+    track_kind = args.get("track_kind", "video")
+    if track_kind not in ("video", "audio"):
+        track_kind = "video"
+    op = AddClipOp(
+        edit_id=new_id(),
+        author="ai",
+        parent_id=None,
+        clip_id=clip_id,
+        asset_hash=str(args["asset_hash"]),
+        track_id=str(args.get("track_id", "v1")),
+        track_kind=track_kind,
+        position_sec=float(args.get("position_sec", 0.0)),
+        in_point_sec=float(args.get("in_point_sec", 0.0)),
+        out_point_sec=float(args["out_point_sec"]),
+    )
+    ir._ops.append(op)
+    return {"status": "ok", "clip_id": clip_id, "kind": "add_clip"}
 
 
+@tool_result
 def trim_clip(args: dict, project_path: str) -> dict[str, Any]:
-    try:
-        if "clip_id" not in args:
-            return {"ok": False, "error": "clip_id is required"}
-        out_raw = args.get("out_point_sec", args.get("new_out_point_sec"))
-        if out_raw is None:
-            return {"ok": False, "error": "out_point_sec is required"}
-        in_raw = args.get("in_point_sec", args.get("new_in_point_sec", 0.0))
-        ir = make_ir(project_path, parent_op_id=None)
-        op = TrimClipOp(
-            edit_id=new_id(),
-            author="ai",
-            parent_id=None,
-            clip_id=str(args["clip_id"]),
-            new_in_point_sec=float(in_raw),
-            new_out_point_sec=float(out_raw),
-        )
-        ir._ops.append(op)
-        return {"ok": True, "clip_id": args["clip_id"], "kind": "trim_clip"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    if "clip_id" not in args:
+        return {"status": "error", "error": "clip_id is required"}
+    out_raw = args.get("out_point_sec", args.get("new_out_point_sec"))
+    if out_raw is None:
+        return {"status": "error", "error": "out_point_sec is required"}
+    in_raw = args.get("in_point_sec", args.get("new_in_point_sec", 0.0))
+    ir = make_ir(project_path, parent_op_id=None)
+    op = TrimClipOp(
+        edit_id=new_id(),
+        author="ai",
+        parent_id=None,
+        clip_id=str(args["clip_id"]),
+        new_in_point_sec=float(in_raw),
+        new_out_point_sec=float(out_raw),
+    )
+    ir._ops.append(op)
+    return {"status": "ok", "clip_id": args["clip_id"], "kind": "trim_clip"}
 
 
+@tool_result
 def replace_clip_source(args: dict, project_path: str) -> dict[str, Any]:
-    try:
-        ir = make_ir(project_path, parent_op_id=None)
-        op = ReplaceClipSourceOp(
-            edit_id=new_id(),
-            author="ai",
-            parent_id=None,
-            clip_id=str(args["clip_id"]),
-            new_asset_hash=str(args["new_asset_hash"]),
-        )
-        ir._ops.append(op)
-        return {"ok": True, "clip_id": args["clip_id"], "kind": "replace_clip_source"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    ir = make_ir(project_path, parent_op_id=None)
+    op = ReplaceClipSourceOp(
+        edit_id=new_id(),
+        author="ai",
+        parent_id=None,
+        clip_id=str(args["clip_id"]),
+        new_asset_hash=str(args["new_asset_hash"]),
+    )
+    ir._ops.append(op)
+    return {"status": "ok", "clip_id": args["clip_id"], "kind": "replace_clip_source"}
 
 
+@tool_result
 def change_clip_speed(args: dict, project_path: str) -> dict[str, Any]:
-    try:
-        ir = make_ir(project_path, parent_op_id=None)
-        rate = float(args.get("rate", args.get("new_speed", 1.0)))
-        op = ChangeClipSpeedOp(
-            edit_id=new_id(),
-            author="ai",
-            parent_id=None,
-            clip_id=str(args["clip_id"]),
-            rate=rate,
-        )
-        ir._ops.append(op)
-        return {"ok": True, "clip_id": args["clip_id"], "kind": "change_clip_speed", "rate": rate}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    ir = make_ir(project_path, parent_op_id=None)
+    rate = float(args.get("rate", args.get("new_speed", 1.0)))
+    op = ChangeClipSpeedOp(
+        edit_id=new_id(),
+        author="ai",
+        parent_id=None,
+        clip_id=str(args["clip_id"]),
+        rate=rate,
+    )
+    ir._ops.append(op)
+    return {"status": "ok", "clip_id": args["clip_id"], "kind": "change_clip_speed", "rate": rate}
 
 
+@tool_result
 def remove_clip(args: dict, project_path: str) -> dict[str, Any]:
-    try:
-        if "clip_id" not in args:
-            return {"ok": False, "error": "clip_id is required"}
-        ir = make_ir(project_path, parent_op_id=None)
-        op = RemoveClipOp(
-            edit_id=new_id(),
-            author="ai",
-            parent_id=None,
-            clip_id=str(args["clip_id"]),
-        )
-        ir._ops.append(op)
-        return {"ok": True, "clip_id": args["clip_id"], "kind": "remove_clip"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    if "clip_id" not in args:
+        return {"status": "error", "error": "clip_id is required"}
+    ir = make_ir(project_path, parent_op_id=None)
+    op = RemoveClipOp(
+        edit_id=new_id(),
+        author="ai",
+        parent_id=None,
+        clip_id=str(args["clip_id"]),
+    )
+    ir._ops.append(op)
+    return {"status": "ok", "clip_id": args["clip_id"], "kind": "remove_clip"}
 
 
+@tool_result
 def set_audio_gain(args: dict, project_path: str) -> dict[str, Any]:
     """Set clip gain. Prefer ``gain_db``; ``gain`` is linear (0.0 = mute)."""
-    try:
-        if "clip_id" not in args:
-            return {"ok": False, "error": "clip_id is required"}
-        if args.get("gain_db") is not None:
-            gain_db = float(args["gain_db"])
-        elif args.get("gain") is not None:
-            gain = float(args["gain"])
-            if gain <= 0.0:
-                gain_db = -120.0
-            else:
-                gain_db = 20.0 * math.log10(gain)
+    if "clip_id" not in args:
+        return {"status": "error", "error": "clip_id is required"}
+    if args.get("gain_db") is not None:
+        gain_db = float(args["gain_db"])
+    elif args.get("gain") is not None:
+        gain = float(args["gain"])
+        if gain <= 0.0:
+            gain_db = -120.0
         else:
-            return {"ok": False, "error": "gain or gain_db is required"}
-        ir = make_ir(project_path, parent_op_id=None)
-        op = SetAudioGainOp(
-            edit_id=new_id(),
-            author="ai",
-            parent_id=None,
-            clip_id=str(args["clip_id"]),
-            gain_db=gain_db,
-        )
-        ir._ops.append(op)
-        return {
-            "ok": True,
-            "clip_id": args["clip_id"],
-            "kind": "set_audio_gain",
-            "gain_db": gain_db,
-        }
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+            gain_db = 20.0 * math.log10(gain)
+    else:
+        return {"status": "error", "error": "gain or gain_db is required"}
+    ir = make_ir(project_path, parent_op_id=None)
+    op = SetAudioGainOp(
+        edit_id=new_id(),
+        author="ai",
+        parent_id=None,
+        clip_id=str(args["clip_id"]),
+        gain_db=gain_db,
+    )
+    ir._ops.append(op)
+    return {
+        "status": "ok",
+        "clip_id": args["clip_id"],
+        "kind": "set_audio_gain",
+        "gain_db": gain_db,
+    }
 
 
 def _normalize_gaps(raw_gaps: Any) -> list[tuple[float, float]]:
@@ -190,74 +179,72 @@ def _keep_ranges(
     return [(a, b) for a, b in keeps if b - a > 1e-4]
 
 
+@tool_result
 def apply_silence_gaps(args: dict, project_path: str) -> dict[str, Any]:
     """Replace a clip with keep-segments after removing silence gaps.
 
     Gaps are source-time intervals (same as ``generate=silence_cuts``).
     """
-    try:
-        clip_id = args.get("clip_id")
-        if not clip_id:
-            return {"ok": False, "error": "clip_id is required"}
-        gaps = _normalize_gaps(args.get("gaps"))
-        if not gaps:
-            return {"ok": False, "error": "gaps must be a non-empty list"}
+    clip_id = args.get("clip_id")
+    if not clip_id:
+        return {"status": "error", "error": "clip_id is required"}
+    gaps = _normalize_gaps(args.get("gaps"))
+    if not gaps:
+        return {"status": "error", "error": "gaps must be a non-empty list"}
 
-        project = load_project(project_path)
-        timeline = derive_timeline(project)
-        track = None
-        clip = None
-        for t in timeline.tracks:
-            for c in t.clips:
-                if c.clip_id == clip_id:
-                    track, clip = t, c
-                    break
-            if clip is not None:
+    project = load_project(project_path)
+    timeline = derive_timeline(project)
+    track = None
+    clip = None
+    for t in timeline.tracks:
+        for c in t.clips:
+            if c.clip_id == clip_id:
+                track, clip = t, c
                 break
-        if clip is None or track is None:
-            return {"ok": False, "error": f"clip_id {clip_id!r} not found"}
+        if clip is not None:
+            break
+    if clip is None or track is None:
+        return {"status": "error", "error": f"clip_id {clip_id!r} not found"}
 
-        keeps = _keep_ranges(clip.in_point_sec, clip.out_point_sec, gaps)
-        if not keeps:
-            return {"ok": False, "error": "gaps remove the entire clip; refusing"}
+    keeps = _keep_ranges(clip.in_point_sec, clip.out_point_sec, gaps)
+    if not keeps:
+        return {"status": "error", "error": "gaps remove the entire clip; refusing"}
 
-        ir = make_ir(project_path, parent_op_id=None)
+    ir = make_ir(project_path, parent_op_id=None)
+    ir._ops.append(
+        RemoveClipOp(
+            edit_id=new_id(),
+            author="ai",
+            parent_id=None,
+            clip_id=str(clip_id),
+        )
+    )
+
+    new_ids: list[str] = []
+    pos = float(clip.position_sec)
+    for inn, outt in keeps:
+        nid = new_id()
+        new_ids.append(nid)
         ir._ops.append(
-            RemoveClipOp(
+            AddClipOp(
                 edit_id=new_id(),
                 author="ai",
                 parent_id=None,
-                clip_id=str(clip_id),
+                clip_id=nid,
+                asset_hash=str(clip.asset_hash),
+                track_id=str(track.track_id),
+                track_kind=track.kind,
+                position_sec=pos,
+                in_point_sec=float(inn),
+                out_point_sec=float(outt),
             )
         )
+        pos += float(outt) - float(inn)
 
-        new_ids: list[str] = []
-        pos = float(clip.position_sec)
-        for inn, outt in keeps:
-            nid = new_id()
-            new_ids.append(nid)
-            ir._ops.append(
-                AddClipOp(
-                    edit_id=new_id(),
-                    author="ai",
-                    parent_id=None,
-                    clip_id=nid,
-                    asset_hash=str(clip.asset_hash),
-                    track_id=str(track.track_id),
-                    track_kind=track.kind,
-                    position_sec=pos,
-                    in_point_sec=float(inn),
-                    out_point_sec=float(outt),
-                )
-            )
-            pos += float(outt) - float(inn)
-
-        return {
-            "ok": True,
-            "kind": "apply_silence_gaps",
-            "removed_clip_id": clip_id,
-            "new_clip_ids": new_ids,
-            "keep_count": len(keeps),
-        }
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    return {
+        "status": "ok",
+        "kind": "apply_silence_gaps",
+        "removed_clip_id": clip_id,
+        "new_clip_ids": new_ids,
+        "keep_count": len(keeps),
+    }
