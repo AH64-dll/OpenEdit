@@ -120,3 +120,11 @@ def test_render_cache_instance_ttl_overrides_default(tmp_path: Path) -> None:
     old_time = time.time() - 7200
     os.utime(cached, (old_time, old_time))
     assert cache.is_fresh(cached) is False
+
+
+def test_render_cache_key_composes() -> None:
+    from open_edit.render.cache import render_cache_key
+
+    key = render_cache_key("hash1", "1080p30|q=standard|enc=gpu")
+    assert key == "hash1|1080p30|q=standard|enc=gpu"
+    assert key != render_cache_key("hash1", "720p30|q=fast|enc=gpu")

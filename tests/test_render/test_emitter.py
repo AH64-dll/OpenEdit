@@ -1,4 +1,6 @@
 """Tests for the MLT XML emitter."""
+from pathlib import Path
+
 import pytest
 
 from open_edit.ir.apply import apply_operation
@@ -143,3 +145,20 @@ def test_emitter_includes_producers() -> None:
     assert "<producer" in xml
     assert 'id="producer_abc"' in xml
     assert 'resource="/tmp/abc.mp4"' in xml
+
+
+def test_emit_timeline_hwaccel_properties(tmp_path: Path) -> None:
+    asset = Asset(asset_hash="abc123", type="video", original_path="a.mp4",
+                  stored_path="a.mp4", duration_sec=1.0, width=1920, height=1080,
+                  alignment=[])
+    clip = Clip(clip_id="c1", asset_hash="abc123", track_id="v1", track_kind="video",
+                position_sec=0.0, in_point_sec=0.0, out_point_sec=1.0)
+    timeline = Timeline(
+        duration_sec=1.0, assets=[asset],
+        tracks=[Track(track_id="v1", kind="video", clips=[clip])],
+    )
+    xml_off = emit_timeline(timeline, EmitterConfig())
+    xml_on = emit_timeline(timeline, EmitterConfig(), hwaccel=True)
+    assert "hwaccel" not in xml_off
+    assert 'name="hwaccel">cuda' in xml_on
+    assert 'name="hwaccel_device">0' in xml_on

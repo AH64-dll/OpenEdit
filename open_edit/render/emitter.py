@@ -144,6 +144,8 @@ def emit_timeline(
     timeline: Timeline,
     config: Optional[EmitterConfig] = None,
     asset_paths: Optional[dict[str, str]] = None,
+    *,
+    hwaccel: bool = False,
 ) -> str:
     """Emit a Timeline as MLT XML.
 
@@ -193,10 +195,13 @@ def emit_timeline(
 
     for asset_hash in sorted(used_hashes):
         resource = asset_paths.get(asset_hash, asset_hash)
-        etree.SubElement(root, "producer", attrib={
+        producer = etree.SubElement(root, "producer", attrib={
             "id": f"producer_{asset_hash}",
             "resource": resource,
         })
+        if hwaccel:
+            etree.SubElement(producer, "property", attrib={"name": "hwaccel"}).text = "cuda"
+            etree.SubElement(producer, "property", attrib={"name": "hwaccel_device"}).text = "0"
 
     tractor = etree.SubElement(root, "tractor", attrib={
         "id": "tractor0",
