@@ -141,5 +141,5 @@ def dispatch_generate(kind: str, params: dict[str, Any], project_path: Path) -> 
     fn = TOOL_TABLE[_GENERATE_ROUTING[kind]] if kind in _GENERATE_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown generate kind: {kind!r}"}
-    p = _with_project_id(params, project_path)
+    p = dict(params) if params else {}
     return fn(p, str(project_path))
