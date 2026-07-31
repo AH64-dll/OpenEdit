@@ -48,6 +48,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -66,14 +67,18 @@ _CACHE_TTL_S: float = 300.0
 # Cap on per-call ``limit`` to keep responses tractable for the LLM.
 # Pexels' own per_page max is 80; we cap lower because the LLM rarely
 # needs more than a handful of choices and large responses bloat the
-# context.
-_MAX_LIMIT: int = 40
+# context. Must stay <= the serve result capper's list cap
+# (open_edit/serve/result_capper.py: _MAX_LIST_ITEMS = 20), otherwise
+# items 21..N are fetched, charged, and then discarded as ``[...]``.
+_MAX_LIMIT: int = 20
 _DEFAULT_LIMIT: int = 8
 _OPENVERSE_MAX_FETCH: int = 100
 
 # Network timeout for upstream calls. Short enough that a hung API
 # doesn't block the chat turn for too long.
 _HTTP_TIMEOUT_S: float = 20.0
+_HTTP_RESPONSE_CHUNK_BYTES: int = 64 * 1024
+_MAX_RESPONSE_BYTES: int = 8 * 1024 * 1024
 
 _PEXELS_VIDEO_URL = "https://api.pexels.com/videos/search"
 _PEXELS_PHOTO_URL = "https://api.pexels.com/v1/search"
@@ -101,6 +106,17 @@ def _openverse_api_key() -> str:
 # HTTP
 # ---------------------------------------------------------------------------
 
+def _endpoint_for_error(url: str) -> str:
+    """Keep query parameters (including API tokens) out of error payloads."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        return urllib.parse.urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, "", "")
+        )
+    except (TypeError, ValueError):
+        return "<upstream>"
+
+
 def _http_get_json(url: str, *, headers: dict[str, str] | None = None,
                    params: dict[str, Any] | None = None,
                    timeout: float = _HTTP_TIMEOUT_S) -> dict[str, Any]:
@@ -113,29 +129,46 @@ def _http_get_json(url: str, *, headers: dict[str, str] | None = None,
     if params:
         url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers=headers or {})
+    endpoint = _endpoint_for_error(url)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             status = getattr(resp, "status", None) or resp.getcode()
-            body = resp.read().decode("utf-8", errors="replace")
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = resp.read(_HTTP_RESPONSE_CHUNK_BYTES)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_RESPONSE_BYTES:
+                    raise RuntimeError(
+                        f"upstream response exceeds the {_MAX_RESPONSE_BYTES}-byte cap"
+                    )
+                chunks.append(chunk)
+            body = b"".join(chunks).decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         # Read the body for a more useful error message (e.g. rate-limit text).
         try:
-            detail = exc.read().decode("utf-8", errors="replace")[:200]
+            detail = exc.read(_MAX_RESPONSE_BYTES + 1).decode(
+                "utf-8", errors="replace"
+            )[:200]
         except Exception:
             detail = ""
         raise RuntimeError(
-            f"upstream {exc.code} for {url}: {detail or exc.reason}"
+            f"upstream {exc.code} for {endpoint}: {detail or exc.reason}"
         ) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(
-            f"network error for {url}: {exc.reason}"
+            f"network error for {endpoint}: {exc.reason}"
         ) from exc
     if status != 200:
-        raise RuntimeError(f"upstream HTTP {status} for {url}")
+        raise RuntimeError(f"upstream HTTP {status} for {endpoint}")
     try:
         return json.loads(body)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"upstream returned non-JSON for {url}: {exc}") from exc
+        raise RuntimeError(
+            f"upstream returned non-JSON for {endpoint}: {exc}"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
