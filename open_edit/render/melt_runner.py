@@ -122,6 +122,7 @@ def run_pipe(cmds: PipeCommands, *, timeout_s: float) -> PipeResult:
     # 2) Video pipe: melt -> ffmpeg.
     deadline = _time.monotonic() + timeout_s
     with tempfile.TemporaryFile() as melt_err_f, tempfile.TemporaryFile() as ff_err_f:
+        melt = None
         try:
             melt = subprocess.Popen(
                 cmds.melt_video_cmd, stdout=subprocess.PIPE, stderr=melt_err_f,
@@ -130,6 +131,9 @@ def run_pipe(cmds: PipeCommands, *, timeout_s: float) -> PipeResult:
                 cmds.ffmpeg_cmd, stdin=melt.stdout, stderr=ff_err_f,
             )
         except OSError as exc:
+            if melt is not None:
+                melt.kill()
+                melt.wait()
             raise PipeRunError(f"pipe spawn failed: {exc}") from None
         melt.stdout.close()
         try:

@@ -22,7 +22,8 @@ elif kind == "fail":
     sys.stderr.write("fake melt exploded\\n")
     sys.exit(1)
 else:
-    with open(sys.argv[sys.argv.index("avformat:") + 1][len("avformat:"):], "wb") as f:
+    wav = next(a[len("avformat:"):] for a in sys.argv if a.startswith("avformat:"))
+    with open(wav, "wb") as f:
         f.write(b"RIFF\\x00" * 4)
 """
     p = path / f"melt_{kind}.py"
@@ -47,28 +48,33 @@ sys.stderr.write("fake ffmpeg ok\\n")
     return p
 
 
-def _cmds(tmp_path: Path, *, melt_kind: str = "video") -> PipeCommands:
+def _cmds(tmp_path: Path, *, melt_kind: str = "video", audio_kind: str = "audio") -> PipeCommands:
     melt = _fake_melt(tmp_path, melt_kind)
+    melt_audio = _fake_melt(tmp_path, audio_kind)
     ffmpeg = _fake_ffmpeg(tmp_path, "out.mp4")
     out = tmp_path / "out.mp4"
     audio_wav = tmp_path / "audio.wav"
     return PipeCommands(
         melt_video_cmd=[str(melt), "video"],
-        melt_audio_cmd=[str(melt), "audio", "-consumer", f"avformat:{audio_wav}", "-format", "wav"],
+        melt_audio_cmd=[str(melt_audio), "audio", "-consumer", f"avformat:{audio_wav}", "-format", "wav"],
         ffmpeg_cmd=[str(ffmpeg), "-i", "-", "-i", str(audio_wav), str(out)],
         audio_wav=audio_wav,
     )
 
 
 def test_run_pipe_success(tmp_path: Path):
-    result = run_pipe(_cmds(tmp_path), timeout_s=30)
+    cmds = _cmds(tmp_path)
+    result = run_pipe(cmds, timeout_s=30)
     assert result.returncode == 0
     assert result.melt_rc == 0 and result.ffmpeg_rc == 0
     assert "fake ffmpeg ok" in result.stderr
+    assert cmds.audio_wav.is_file() and cmds.audio_wav.stat().st_size > 0
+    assert (tmp_path / "out.mp4").is_file()
+    assert (tmp_path / "out.mp4").stat().st_size > 0
 
 
 def test_run_pipe_audio_pass_failure(tmp_path: Path):
-    result = run_pipe(_cmds(tmp_path, melt_kind="fail"), timeout_s=30)
+    result = run_pipe(_cmds(tmp_path, audio_kind="fail"), timeout_s=30)
     assert result.returncode != 0
     assert "fake melt exploded" in result.stderr
 
@@ -103,3 +109,11 @@ def test_run_pipe_timeout(tmp_path: Path):
                         [str(slow_ff)], cmds.audio_wav)
     with pytest.raises(PipeRunError, match="timed out"):
         run_pipe(cmds, timeout_s=1)
+
+
+def test_run_pipe_spawn_failure_kills_melt(tmp_path: Path):
+    cmds = _cmds(tmp_path)
+    cmds = PipeCommands(cmds.melt_video_cmd, cmds.melt_audio_cmd,
+                        [str(tmp_path / "no_such_ffmpeg")], cmds.audio_wav)
+    with pytest.raises(PipeRunError, match="pipe spawn failed"):
+        run_pipe(cmds, timeout_s=30)
