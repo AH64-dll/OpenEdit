@@ -1,6 +1,6 @@
 # Render Pipeline Fix — Design (2026-08-01)
 
-Status: approved (brainstormed with user, 2026-08-01)
+Status: implemented (2026-08-01)
 
 ## Problem
 

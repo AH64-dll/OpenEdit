@@ -99,7 +99,7 @@ The edit graph is an **append-only log of ops** stored in
 Status is one of ``applied | reverted | superseded``. To "modify" an op,
 you add a new op that supersedes it (via ``parent_id`` linking).
 
-There are **26 concrete op kinds** in ``open_edit.ir.types``. The
+There are **28 concrete op kinds** in ``open_edit.ir.types``. The
 ``kind`` field is the operation class name in snake_case. The full list:
 
 **Clip ops** (manage clips on tracks):
@@ -142,10 +142,8 @@ There are **26 concrete op kinds** in ``open_edit.ir.types``. The
 
 **Escape hatches**:
 - ``raw_mlt_xml`` — paste raw MLT XML. Payload: ``{xml, scope}``.
-- ``free_form_code`` — embed Python code (the result of ``run_python``). Payload: ``{code, project_id, parent_op_id}``.
-
-**Other ops** (less common, mainly for migrations and power users):
-- ``undo`` — revert a previous op. Payload: ``{op_id}``.
+- ``free_form_code`` — embed Python code (the result of ``run_python``).
+  Payload: ``{code, project_id, parent_op_id}``.
 
 **Common fields** every op carries (inherited from the ``Operation`` base):
 ``edit_id`` (UUID), ``parent_id`` (UUID of the op this one descends from;

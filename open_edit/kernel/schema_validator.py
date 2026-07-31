@@ -38,6 +38,14 @@ def _check_type(value: Any, expected_type: str, path: str) -> None:
             raise SchemaValidationError(
                 f"{path}: expected number, got {type(value).__name__}"
             )
+    elif expected_type == "integer":
+        # JSON Schema: an ``integer`` value may be serialized as an
+        # integral float (e.g. ``30.0``) — accept it, matching the
+        # Pydantic-generated schemas' coercion.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) != int(value):
+            raise SchemaValidationError(
+                f"{path}: expected integer, got {type(value).__name__}"
+            )
     elif not isinstance(value, expected):
         raise SchemaValidationError(
             f"{path}: expected {expected_type}, got {type(value).__name__}"
