@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,26 @@ from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.storage.edit_graph import EditGraphStore
 
 from open_edit.kernel.schema_validator import validate_or_error
+from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
+
+# Tools whose argument schemas come from the registry (TOOL_SCHEMAS).
+# These declare no ``project_id`` field, but the agent loop injects it
+# into every tool call; it must be stripped before schema validation.
+# Derived from TOOL_SCHEMAS so the list can never drift from the registry.
+_REGISTRY_TOOL_NAMES = frozenset(t["name"] for t in TOOL_SCHEMAS)
+
+
+def _strip_injected_project_id(
+    name: str, args: dict[str, Any],
+) -> dict[str, Any]:
+    """Drop the agent-loop-injected ``project_id`` for registry tools.
+
+    Non-registry tools (the ``getattr`` fallback in ``_run_tool``) keep
+    receiving the injected field — their callables may rely on it.
+    """
+    if name in _REGISTRY_TOOL_NAMES:
+        return {k: v for k, v in args.items() if k != "project_id"}
+    return args
 
 
 def _payload_hash(args: dict[str, Any]) -> str:
@@ -128,15 +149,69 @@ def execute_tool(
 
     result = _run_tool(name, args, project_path)
 
-    if command_id is not None:
+    # Awaitable results (e.g. ``cancel_render_job`` from an async caller)
+    # are recorded by whoever awaits them; recording a coroutine object
+    # would pollute the idempotency store.
+    if command_id is not None and not inspect.isawaitable(result):
         _record_done_command(store, project_path, command_id, name, args, result)
     return result
 
 
 def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    args = _strip_injected_project_id(name, args)
+
     err = validate_or_error(name, args)
     if err is not None:
         return err
+
+    # Render-job helpers: same dispatch and envelope shapes as
+    # ``mcp/adapters.py`` (which keeps its own branches for MCP callers;
+    # this is the kernel-side dispatch for the agent loop and pi_bridge).
+    if name == "get_render_job":
+        job_id = args.get("job_id")
+        if not job_id or not isinstance(job_id, str):
+            return {
+                "ok": False,
+                "error": "job_id is required",
+                "expected_keys": ["job_id"],
+            }
+        from open_edit.kernel.render_service import (
+            DEFAULT_RENDER_SERVICE,
+            public_job,
+        )
+
+        job = DEFAULT_RENDER_SERVICE.get(project_path, job_id)
+        if job is None:
+            return {"ok": False, "error": f"render job not found: {job_id}"}
+        return {"ok": True, **public_job(job)}
+
+    if name == "cancel_render_job":
+        job_id = args.get("job_id")
+        if not job_id or not isinstance(job_id, str):
+            return {
+                "ok": False,
+                "error": "job_id is required",
+                "expected_keys": ["job_id"],
+            }
+        from open_edit.kernel.render_service import (
+            DEFAULT_RENDER_SERVICE,
+            public_job,
+        )
+
+        async def _do_cancel() -> dict[str, Any]:
+            job = await DEFAULT_RENDER_SERVICE.cancel(project_path, job_id)
+            if job is None:
+                return {"ok": False, "error": f"render job not found: {job_id}"}
+            return {"ok": True, **public_job(job)}
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # Sync caller (e.g. pi_bridge CLI): no loop to await on.
+            return asyncio.run(_do_cancel())
+        # Async caller (agent loop): hand back the awaitable; the loop
+        # awaits it (see loop.py ``_execute_tool``).
+        return _do_cancel()
 
     # Pillar tool routing (Plan D).
     if name == "query_project":
@@ -195,6 +270,7 @@ async def execute_trigger_render(
 
 
 async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
+    args = _strip_injected_project_id("trigger_render", args)
     err = validate_or_error("trigger_render", args)
     if err is not None:
         return err
