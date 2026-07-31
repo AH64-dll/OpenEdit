@@ -96,3 +96,35 @@ def test_e2e_render_three_clips_with_transition(tmp_path: Path) -> None:
     assert result2.cache_hit is True
     assert Path(result2.output_path).exists()
     assert Path(result2.output_path).read_bytes() == Path(result.output_path).read_bytes()
+
+
+def test_e2e_render_quality_override_scale(tmp_path: Path) -> None:
+    """Render with a scale override; verify the output resolution via ffprobe."""
+    import json
+    import subprocess
+
+    project_dir = tmp_path
+    open_edit_dir = project_dir / ".open_edit"
+    open_edit_dir.mkdir(parents=True, exist_ok=True)
+    asset_store = AssetStore(open_edit_dir / "assets")
+    assets = asset_store.ingest_paths([str(TESTDATA / "clip_a.mp4")])
+    graph = EditGraphStore(open_edit_dir / "edit_graph.db")
+    project = Project(name="scale", assets={a.asset_hash: a for a in assets})
+    op = AddClipOp(author="user", asset_hash=assets[0].asset_hash,
+                   track_id="v1", position_sec=0.0, in_point_sec=0.0, out_point_sec=2.0)
+    graph.append(op)
+    project.edit_graph.append(op)
+
+    result = render_project(
+        project_id="scale", project_dir=project_dir,
+        workdir=project_dir / "renders", mode="proxy",
+        quality="fast", overrides={"scale": "320x180", "crf": 30},
+    )
+    assert result.ok, result.error
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "json", result.output_path],
+        capture_output=True, text=True, check=True,
+    )
+    streams = json.loads(probe.stdout)["streams"]
+    assert (streams[0]["width"], streams[0]["height"]) == (320, 180)

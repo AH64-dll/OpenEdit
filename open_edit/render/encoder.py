@@ -6,7 +6,7 @@ stable API for melt consumers and ffmpeg overlay passes.
 ``select_encoder`` is the single source for per-encoder quality args:
 one policy, rendered in both arg dialects (melt ``key=value`` consumer
 args and ffmpeg flags). ``profiles`` consumes ``EncoderSpec.melt_args``
-and ``graphics_overlay`` consumes ``EncoderSpec.ffmpeg_args``.
+and ``pipe_builder`` consumes ``EncoderSpec.ffmpeg_args``.
 """
 from __future__ import annotations
 
