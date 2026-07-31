@@ -1,9 +1,12 @@
-"""Shared helpers for the 32 repointed wrappers + 5 new tools.
+"""Shared helpers for the agent tool wrappers.
 
-Each wrapper function takes `(args, project_path)` and uses `make_ir()`
-to construct an `IR` instance backed by the project's `EditGraphStore`.
-The store's `append` method takes a sequence_num, so we wrap it in
-`_StoreBuffer` to match the IR's `SupportsAppend` protocol.
+Path resolution (``_project_root``, ``_db_path``, ``_notes_db_path``),
+project loading for read-back operations (``load_project``), and the
+mutating-path IR builder (``make_ir``), which wraps the project's
+``EditGraphStore`` in ``_StoreBuffer`` to match the IR's
+``SupportsAppend`` protocol: the store's ``append`` takes a
+``sequence_num`` kwarg, and ``_StoreBuffer`` drops it so the store
+auto-assigns. ``get_asset_store`` locates the project's asset CAS.
 """
 from __future__ import annotations
 

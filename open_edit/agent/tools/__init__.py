@@ -11,12 +11,16 @@ functions are dispatched by ``open_edit.kernel.pillar_tools`` instead.
 v1.4 P1-1: also re-exports ``search_assets`` and ``import_asset`` so the
 pi extension bridge can dispatch them via ``getattr(tools_mod, name)``.
 
-v1.4 final review: the pi bridge advertises 13 tools in
-``open_edit.kernel.tool_schemas.TOOL_SCHEMAS`` and dispatches every name
-via ``getattr(open_edit.agent.tools, name)`` (the virtual
-``trigger_render`` is handled separately). Re-export every advertised
-tool here so the LLM can actually call it; otherwise the bridge returns
-``tool not found in open_edit.agent.tools: '<name>'``.
+The pi bridge (``serve/pi_bridge.py``) routes the 4 pillar tools from
+``open_edit.kernel.tool_schemas.TOOL_SCHEMAS`` (``query_project``,
+``edit_project``, ``run_script``, ``trigger_render``) through the
+``kernel.pillar_tools`` dispatchers and a separate server-side
+``trigger_render`` path; every other tool name falls back to
+``getattr(open_edit.agent.tools, name)``. 3 of the 4 pillar tools are
+deliberately NOT re-exported here — only ``run_script`` is (backed by
+``pyagent_run_python``). Re-exporting a name here makes it callable by
+the bridge; otherwise it returns ``tool not found in
+open_edit.agent.tools: '<name>'``.
 """
 from open_edit.agent.tools.pyagent_add_marker import add_marker
 from open_edit.agent.tools.pyagent_analyze_narrative import analyze_narrative
