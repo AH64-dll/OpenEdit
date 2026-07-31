@@ -1,0 +1,21 @@
+# Lean Open Edit — index product code only
+.venv/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.git/
+.github/
+.cursor/
+projects/
+docs/archive/
+graphify-out/
+**/__pycache__/
+**/*.pyc
+package-lock.json
+*.mp4
+*.mov
+*.wav
+*.db
+testdata/
+tests/testdata/
