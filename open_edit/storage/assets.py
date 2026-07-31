@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,6 +17,8 @@ from open_edit.storage.transcription import transcribe
 
 
 CHUNK_SIZE = 65536
+
+_LOG = logging.getLogger("open_edit.storage.assets")
 
 
 def _hash_file(path: Path) -> str:
@@ -78,6 +81,30 @@ def _probe_media(path: str) -> dict:
         "has_audio": audio_stream is not None,
         "type": media_type,
     }
+
+
+def list_assets_from_disk(project_path: Path) -> list[Asset]:
+    """Read all asset sidecar JSONs from <project>/assets/."""
+    assets_dir = project_path / ".open_edit" / "assets"
+    if not assets_dir.exists():
+        # Fallback to project root's assets dir (older layout)
+        assets_dir = project_path / "assets"
+    if not assets_dir.exists():
+        return []
+    out: list[Asset] = []
+    for meta_file in assets_dir.glob("*/*.meta.json"):
+        try:
+            out.append(Asset.model_validate_json(meta_file.read_text()))
+        except Exception:
+            # v1.6 P4: a corrupt sidecar used to be silently dropped
+            # (indistinguishable from "no asset here"). Log it so the
+            # operator can see *why* an asset is missing in the UI.
+            _LOG.warning(
+                "failed to parse asset sidecar %s; skipping",
+                meta_file, exc_info=True,
+            )
+            continue
+    return out
 
 
 class AssetStore:

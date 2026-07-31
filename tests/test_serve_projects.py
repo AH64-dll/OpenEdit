@@ -36,6 +36,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from open_edit.serve import projects as projects_mod  # noqa: E402
+from open_edit.storage.assets import list_assets_from_disk  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -420,8 +421,8 @@ async def test_list_assets_logs_warning_on_corrupt_sidecar(projects_root_tmp, ca
     assets_dir = project_path / ".open_edit" / "assets" / "ab"
     assets_dir.mkdir(parents=True, exist_ok=True)
     (assets_dir / "abc.meta.json").write_text("{ this is not valid json")
-    with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
-        assets = projects_mod._list_assets_from_disk(project_path)
+    with caplog.at_level(logging.WARNING, logger="open_edit.storage.assets"):
+        assets = list_assets_from_disk(project_path)
     # The corrupt one is dropped; the function does not crash.
     assert assets == []
     # And we logged it.

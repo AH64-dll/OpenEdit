@@ -110,5 +110,61 @@ class TestAssetStore(unittest.TestCase):
             _probe_media("/nonexistent/file.mp4")
 
 
+def test_list_assets_from_disk_reads_sidecar_layout(tmp_path) -> None:
+    """list_assets_from_disk scans <project>/.open_edit/assets/*/*.meta.json."""
+    from open_edit.ir.types import Asset
+    from open_edit.storage.assets import list_assets_from_disk
+
+    asset = Asset(
+        asset_hash="ab" + "c" * 62,
+        original_path="/orig/x.mp4",
+        stored_path="/store/x.mp4",
+        type="video",
+        duration_sec=2.0,
+    )
+    meta_dir = tmp_path / ".open_edit" / "assets" / asset.asset_hash[:2]
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    (meta_dir / f"{asset.asset_hash}.meta.json").write_text(asset.model_dump_json())
+
+    found = list_assets_from_disk(tmp_path)
+    assert len(found) == 1
+    assert found[0].asset_hash == asset.asset_hash
+
+
+def test_list_assets_from_disk_falls_back_to_root_assets(tmp_path) -> None:
+    """Older layout: <project>/assets/*/*.meta.json is still scanned."""
+    from open_edit.ir.types import Asset
+    from open_edit.storage.assets import list_assets_from_disk
+
+    asset = Asset(
+        asset_hash="ab" + "d" * 62,
+        original_path="/orig/y.mp4",
+        stored_path="/store/y.mp4",
+        type="video",
+    )
+    meta_dir = tmp_path / "assets" / asset.asset_hash[:2]
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    (meta_dir / f"{asset.asset_hash}.meta.json").write_text(asset.model_dump_json())
+
+    found = list_assets_from_disk(tmp_path)
+    assert len(found) == 1
+    assert found[0].asset_hash == asset.asset_hash
+
+
+def test_list_assets_from_disk_skips_corrupt_sidecar(tmp_path, caplog) -> None:
+    """A corrupt sidecar is skipped and logged, not raised (v1.6 P4)."""
+    import logging
+
+    from open_edit.storage.assets import list_assets_from_disk
+
+    meta_dir = tmp_path / ".open_edit" / "assets" / "ab"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    (meta_dir / "ab.meta.json").write_text("{ not json")
+
+    with caplog.at_level(logging.WARNING, logger="open_edit.storage.assets"):
+        assert list_assets_from_disk(tmp_path) == []
+    assert any(r.exc_info is not None for r in caplog.records)
+
+
 if __name__ == "__main__":
     unittest.main()

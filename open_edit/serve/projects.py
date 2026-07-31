@@ -48,6 +48,7 @@ from pydantic import BaseModel, Field
 
 # Real Open Edit storage classes
 from open_edit.ir.types import Asset
+from open_edit.storage.assets import list_assets_from_disk
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.notes import NotesStore
 
@@ -187,30 +188,6 @@ def _is_project_folder(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Real-data access (uses the real Open Edit storage classes)
 # ---------------------------------------------------------------------------
-
-def _list_assets_from_disk(project_path: Path) -> list[Asset]:
-    """Read all asset sidecar JSONs from <project>/assets/."""
-    assets_dir = project_path / ".open_edit" / "assets"
-    if not assets_dir.exists():
-        # Fallback to project root's assets dir (older layout)
-        assets_dir = project_path / "assets"
-    if not assets_dir.exists():
-        return []
-    out: list[Asset] = []
-    for meta_file in assets_dir.glob("*/*.meta.json"):
-        try:
-            out.append(Asset.model_validate_json(meta_file.read_text()))
-        except Exception:
-            # v1.6 P4: a corrupt sidecar used to be silently dropped
-            # (indistinguishable from "no asset here"). Log it so the
-            # operator can see *why* an asset is missing in the UI.
-            _LOG.warning(
-                "failed to parse asset sidecar %s; skipping",
-                meta_file, exc_info=True,
-            )
-            continue
-    return out
-
 
 def _asset_to_info(asset: Asset, project_id: str = "") -> AssetInfo:
     """Convert the real ``Asset`` Pydantic model to the API ``AssetInfo``."""
@@ -359,7 +336,7 @@ async def get_project_state(project_id: str) -> ProjectState:
             )
 
         # Assets: from filesystem via AssetStore
-        asset_models = _list_assets_from_disk(path)
+        asset_models = list_assets_from_disk(path)
         asset_infos = [_asset_to_info(a, project_id) for a in asset_models]
 
         # Edits: from edit_graph.db via EditGraphStore
@@ -620,7 +597,7 @@ def _scan_project(path: Path) -> ProjectInfo:
             pass
 
     # Assets from filesystem
-    asset_models = _list_assets_from_disk(path)
+    asset_models = list_assets_from_disk(path)
     num_assets = len(asset_models)
     try:
         from open_edit.ir.apply import derive_timeline

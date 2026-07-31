@@ -199,9 +199,9 @@ class RenderService:
         try:
             from open_edit.ir.apply import derive_timeline
             from open_edit.ir.types import Project as IRProject
-            from open_edit.serve.projects import _list_assets_from_disk
+            from open_edit.storage.assets import list_assets_from_disk
 
-            assets = {a.asset_hash: a for a in _list_assets_from_disk(project_path)}
+            assets = {a.asset_hash: a for a in list_assets_from_disk(project_path)}
             derive_timeline(IRProject(
                 project_id=store.project_id,
                 name=project_path.name,
