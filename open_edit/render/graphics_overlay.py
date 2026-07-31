@@ -7,28 +7,15 @@ those graphics clips, then overlay here.
 from __future__ import annotations
 
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 
 
 from open_edit.render.encoder import select_encoder
+from open_edit.render.pipe_builder import OverlayClip, overlay_filter_chain
 
 
 class GraphicsOverlayError(RuntimeError):
     """Raised when ffmpeg cannot burn graphics onto the base render."""
-
-
-@dataclass(frozen=True)
-class OverlayClip:
-    position_sec: float
-    duration_sec: float
-    media_path: Path
-    label: str = ""
-    # When True, blur the base talk plate under this overlay window so
-    # sharp Remotion cards read as the in-focus subject.
-    blur_under: bool = False
-    # ProRes/Remotion overlays carry alpha; opaque MP4 screen recordings do not.
-    alpha: bool = True
 
 
 def burn_overlays(
@@ -77,38 +64,15 @@ def burn_overlays(
             f"[toblur]boxblur=20:10[blurred];"
             f"[sharp][blurred]overlay=0:0:enable='{enable}'[base]"
         )
-        last = "[base]"
-    else:
-        last = "[0:v]"
 
-    for i, ov in enumerate(overlays, start=1):
-        end = ov.position_sec + ov.duration_sec
-        out_label = f"[v{i}]" if i < len(overlays) else "[vout]"
-        if ov.alpha:
-            # Alpha Remotion materializes as ProRes 4444 (.mov) with a real
-            # alpha plane. Composite via rgba — chromakey was only a temporary
-            # workaround for opaque VP8 WebM on Windows.
-            filters.append(
-                f"[{i}:v]scale={width}:{height},"
-                f"format=rgba,"
-                f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
-            )
-            filters.append(
-                f"{last}[ov{i}]overlay=0:0:format=auto:eof_action=pass:"
-                f"enable='between(t,{ov.position_sec:.3f},{end:.3f})'"
-                f"{out_label}"
-            )
-        else:
-            filters.append(
-                f"[{i}:v]scale={width}:{height},"
-                f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
-            )
-            filters.append(
-                f"{last}[ov{i}]overlay=0:0:eof_action=pass:"
-                f"enable='between(t,{ov.position_sec:.3f},{end:.3f})'"
-                f"{out_label}"
-            )
-        last = f"[v{i}]"
+    chain = overlay_filter_chain(overlays, width, height, first_overlay_input=1)
+    if blur_windows:
+        # Re-point the chain's base video at the blurred [base] output.
+        for idx, frag in enumerate(chain):
+            if frag.startswith("[0:v]"):
+                chain[idx] = frag.replace("[0:v]", "[base]", 1)
+                break
+    filters += chain
 
     audio_bitrate = "320k" if final else "192k"
     spec = select_encoder(encoder_backend, final=final)
