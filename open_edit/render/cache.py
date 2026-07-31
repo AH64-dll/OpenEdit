@@ -28,6 +28,11 @@ def canonical_json_hash(obj: Any) -> str:
     return compute_edit_graph_hash(obj)
 
 
+def render_cache_key(graph_hash: str, profile_fingerprint: str) -> str:
+    """Cache key = graph hash + profile identity (resolution/quality/overrides/encoder)."""
+    return f"{graph_hash}|{profile_fingerprint}"
+
+
 def cache_ttl_sec() -> int:
     """Freshness window from ``OPEN_EDIT_RENDER_CACHE_TTL_SEC`` (default 24h)."""
     raw = os.environ.get(ENV_TTL)
