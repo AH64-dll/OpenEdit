@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from open_edit.ir.types import AddClipOp, Operation, Timeline
-from open_edit.render.graphics_overlay import OverlayClip
+from open_edit.render.pipe_builder import OverlayClip
 from open_edit.storage.assets import AssetStore
 
 

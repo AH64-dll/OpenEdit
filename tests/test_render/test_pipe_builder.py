@@ -37,7 +37,7 @@ def test_pipe_commands_shape(tmp_path: Path):
     assert cmds.melt_video_cmd[0] == "melt"
     assert "avformat:pipe:" in cmds.melt_video_cmd
     assert "rawvideo" in " ".join(cmds.melt_video_cmd)
-    assert cmds.melt_audio_cmd[-2:] == ["-format", "wav"]
+    assert "format=wav" in cmds.melt_audio_cmd
     assert "video_off=1" in cmds.melt_audio_cmd
     assert "-f" in cmds.ffmpeg_cmd and "rawvideo" in cmds.ffmpeg_cmd
     assert cmds.ffmpeg_cmd[0] == "ffmpeg"

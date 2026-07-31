@@ -52,8 +52,8 @@ def overlay_filter_chain(
     overlays: list[OverlayClip], width: int, height: int,
     *, first_overlay_input: int = 2,
 ) -> list[str]:
-    """Filter-graph fragments for the overlay burn (pure; ported from
-    ``graphics_overlay.burn_overlays``). Returns one filter per overlay
+    """Filter-graph fragments for the overlay burn (pure; formerly the
+    ``burn_overlays`` helper). Returns one filter per overlay
     window; the caller joins with ``;`` and maps the last label ``[vout]``."""
     filters: list[str] = []
     last = "[0:v]"
@@ -100,9 +100,9 @@ def build_pipe_commands(
     melt_video_cmd = [
         melt_bin, str(xml_path),
         "-consumer", "avformat:pipe:",
-        "-format", "rawvideo",
-        "-vcodec", "rawvideo",
-        "-pix_fmt", "yuv420p",
+        "format=rawvideo",
+        "vcodec=rawvideo",
+        "pix_fmt=yuv420p",
         f"s={size}",
         f"frame_rate_num={profile.frame_rate_num}",
         f"frame_rate_den={profile.frame_rate_den}",
@@ -114,7 +114,7 @@ def build_pipe_commands(
         melt_bin, str(xml_path),
         "-consumer", f"avformat:{audio_wav}",
         "video_off=1",
-        "-format", "wav",
+        "format=wav",
     ]
 
     video_inputs = ["-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size, "-r", fps, "-i", "-"]
