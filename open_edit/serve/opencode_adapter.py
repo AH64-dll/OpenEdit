@@ -18,6 +18,11 @@ opencode adapter has ``supports_tools() == False`` in v1.7, so
 the chat frontend never offers tool-triggering actions. If a
 ``toolCall`` event ever does arrive, it is ignored (logged to
 stderr for debugging).
+
+v1.9 (task 5.3): the per-line mapping lives in
+``normalize_opencode_line`` so both ``parse_opencode_events`` (raw
+byte-stream framing, kept for tests) and the ``_OpenCodeAdapter``
+(which feeds the generic CLI driver) share one implementation.
 """
 from __future__ import annotations
 
@@ -70,70 +75,83 @@ def _usage_from_part(part: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def normalize_opencode_line(line: str) -> list[dict[str, Any]]:
+    """Map one raw stdout line to 0..n ``StreamEvent``-shaped dicts.
+
+    Blank / non-JSON lines are skipped.  Returns:
+      - ``[{"type": "text_delta", "text": "..."}]`` for a ``text`` event
+      - ``[{"type": "usage", ...}, {"type": "done", ...}]`` for each
+        ``step_finish`` event
+      - ``[{"type": "error", "message": "..."}]`` for an ``error`` event
+    """
+    line = line.strip()
+    if not line:
+        return []
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(obj, dict):
+        return []
+    et = obj.get("type")
+    if et == "text":
+        part = obj.get("part") or {}
+        text = part.get("text") if isinstance(part, dict) else None
+        if isinstance(text, str) and text:
+            return [{"type": "text_delta", "text": text}]
+    elif et == "step_finish":
+        part = obj.get("part") or {}
+        if isinstance(part, dict):
+            usage = _usage_from_part(part)
+            out: list[dict[str, Any]] = []
+            if usage is not None:
+                out.append(usage)
+            out.append({
+                "type": "done",
+                "stop_reason": _map_stop_reason(part.get("reason")),
+            })
+            return out
+    elif et == "error":
+        err = obj.get("error") or {}
+        msg = "<unknown>"
+        if isinstance(err, dict):
+            data = err.get("data") or {}
+            if isinstance(data, dict) and data.get("message"):
+                msg = str(data["message"])
+            else:
+                msg = str(err.get("name") or msg)
+        return [{"type": "error", "message": msg}]
+    elif et == "step_start":
+        return []
+    elif et == "toolCall":
+        # Opencode has no open_edit tool extension in v1.7; if a
+        # tool call somehow arrives, we drop it (rather than try
+        # to execute) and log so the operator can see it.
+        print(
+            "opencode_adapter: ignoring toolCall event (no extension in v1.7)",
+            file=sys.stderr,
+        )
+    # All other event types are silently dropped — the spike
+    # showed only step_start/text/step_finish/error as real
+    # events, and adding a noisy "unknown event" log here would
+    # just spam operators when opencode adds new event types.
+    return []
+
+
 async def parse_opencode_events(
     stdout: AsyncIterator[bytes],
 ) -> AsyncIterator[dict[str, Any]]:
     """Read raw stdout lines from ``opencode run --format json`` and yield
     ``StreamEvent``-shaped dicts.
 
-    Yields:
-      - ``{"type": "text_delta", "text": "..."}`` for each ``text`` event
-      - ``{"type": "usage", "source": "computed", ...}`` for each
-        ``step_finish`` event
-      - ``{"type": "done", "stop_reason": "..."}`` for each
-        ``step_finish`` event
-      - ``{"type": "error", "message": "..."}`` for each ``error`` event
+    Line framing lives here; per-line mapping delegates to
+    :func:`normalize_opencode_line`.
     """
     async for raw in stdout:
         try:
-            line = raw.decode("utf-8", errors="replace").strip()
+            line = raw.decode("utf-8", errors="replace")
         except Exception:
             continue
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(obj, dict):
-            continue
-        et = obj.get("type")
-        if et == "text":
-            part = obj.get("part") or {}
-            text = part.get("text") if isinstance(part, dict) else None
-            if isinstance(text, str) and text:
-                yield {"type": "text_delta", "text": text}
-        elif et == "step_finish":
-            part = obj.get("part") or {}
-            if isinstance(part, dict):
-                usage = _usage_from_part(part)
-                if usage is not None:
-                    yield usage
-                yield {
-                    "type": "done",
-                    "stop_reason": _map_stop_reason(part.get("reason")),
-                }
-        elif et == "error":
-            err = obj.get("error") or {}
-            msg = "<unknown>"
-            if isinstance(err, dict):
-                data = err.get("data") or {}
-                if isinstance(data, dict) and data.get("message"):
-                    msg = str(data["message"])
-                else:
-                    msg = str(err.get("name") or msg)
-            yield {"type": "error", "message": msg}
-        elif et == "step_start":
-            continue
-        elif et == "toolCall":
-            # Opencode has no open_edit tool extension in v1.7; if a
-            # tool call somehow arrives, we drop it (rather than try
-            # to execute) and log so the operator can see it.
-            print(
-                "opencode_adapter: ignoring toolCall event (no extension in v1.7)",
-                file=sys.stderr,
-            )
-        # All other event types are silently dropped — the spike
-        # showed only step_start/text/step_finish/error as real
-        # events, and adding a noisy "unknown event" log here would
-        # just spam operators when opencode adds new event types.
+        for ev in normalize_opencode_line(line):
+            yield ev
+
