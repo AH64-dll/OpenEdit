@@ -7,12 +7,25 @@ description: What "passing" means after a trigger_render call, and how to interp
 
 A render is "passing" only if every check below succeeds. The render
 path is `trigger_render` → `open_edit render --mode {proxy, final,
-overlay}`. There is no separate `qc_check` tool that auto-runs these
-checks; the agent runs them by inspecting the render output and the
-EditGraph state.
+overlay}`.
 
-If any check fails, the user can decide whether to ship anyway,
-re-render, or revise the EditGraph.
+Since the 7.1 restructure, the deterministic QC gate
+(`open_edit.qc.gate.run_qc_gate`) runs automatically on every
+successful server-side render: `render_service._run` runs the gate on
+the finished MP4 and attaches the report to the job result as
+`qc_report` (also persisted in the `qc_report` column of
+`render_jobs.db`). The CLI (`open_edit render`) prints the same gate
+result. The agent sees a `qc_report` summary in the `trigger_render`
+tool result and should treat a failing gate as a signal to revise the
+EditGraph rather than ship.
+
+There is still no separate `qc_check` tool; the gate is a post-render
+diagnostic. If any check fails, the user can decide whether to ship
+anyway, re-render, or revise the EditGraph.
+
+The gate runs the six documented checks below plus pipeline-internal
+diagnostics (`render_completed`, `proxy_render`, `silence`,
+`thumbnail`); the report `passed` flag is the AND of all checks.
 
 ## Checks (and what to do about a failure)
 
@@ -74,6 +87,11 @@ re-render, or revise the EditGraph.
 - **Pass:** either no HTML overlays were requested, or the overlays
   are visible in the rendered output. (We can't OCR the burned output;
   visual review is the real check.)
+- **Gate behavior:** informational — the gate cannot OCR. In
+  `overlay` mode the check passes with "visual review required"; in
+  other modes it passes with "overlays not requested in this render
+  mode". Treat the LLM visual-verification stage as the real check for
+  overlay visibility.
 - **Fail:** overlays were requested but did not appear. Re-render with
   `trigger_render --mode overlay` (overlays are burned only in overlay
   mode), or re-issue the `HtmlOverlay` op if it was dropped.
@@ -127,11 +145,11 @@ for them explicitly.
 
 ## Re-running after a failure
 
-There is no `qc_check` tool and no `state.json` with `JobState.stage`.
-Re-running is explicit:
+The gate report (including a `qc_report` dict on the render job) tells
+you which check failed and the span details. Re-running is explicit:
 
-1. Read the failure detail (from the render output or the
-   `apply_generated_ops` response).
+1. Read the failure detail (from the `qc_report` on the job, the render
+   output, or the `apply_generated_ops` response).
 2. Decide which op is at fault (a clip, a transition, an effect, an
    overlay, a free-form op).
 3. Re-issue just the offending op via `edit_project` (or `run_script`

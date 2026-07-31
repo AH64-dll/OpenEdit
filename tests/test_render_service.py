@@ -45,6 +45,36 @@ def test_restart_marks_nonterminal_jobs_orphaned(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_successful_render_attaches_qc_report(tmp_path):
+    """After a successful render the QC gate runs and its report attaches
+    to the job result and the qc_report column (missing output file →
+    a failed proxy_render report, not an exception)."""
+    project = tmp_path / "project"
+    (project / ".open_edit").mkdir(parents=True)
+    service = RenderService()
+
+    async def successful_launch(project_path, job_id, mode):
+        return {"ok": True, "output_path": str(project / "out.mp4"), "mode": mode}
+
+    service._launch = successful_launch  # type: ignore[method-assign]
+    queued = service.enqueue("project-id", project, "proxy")
+    completed = await service.wait(project, queued.job_id)
+
+    assert completed.status == "succeeded"
+    qc_report = (completed.result or {}).get("qc_report")
+    assert isinstance(qc_report, dict)
+    assert qc_report["passed"] is False
+    names = {c["name"] for c in qc_report["checks"]}
+    assert "proxy_render" in names
+    assert "streams" in names
+    assert "frozen_frames" in names
+
+    restored = RenderService().get(project, queued.job_id)
+    assert restored is not None
+    assert restored.qc_report == qc_report
+
+
+@pytest.mark.asyncio
 async def test_same_project_jobs_are_serialized(tmp_path):
     project = tmp_path / "project"
     (project / ".open_edit").mkdir(parents=True)

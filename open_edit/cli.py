@@ -190,7 +190,10 @@ def cmd_render(args: argparse.Namespace) -> int:
         print(f"Rendered: {result.output_path}")
         print(f"  duration: {result.duration_sec:.2f}s  elapsed: {result.elapsed_sec:.2f}s  cache_hit: {result.cache_hit}")
         # Run QC gate
-        qc = run_qc_gate(result.output_path, project_dir / "thumbs")
+        qc = run_qc_gate(
+            result.output_path, project_dir / "thumbs",
+            target_duration_s=result.duration_sec, mode=args.mode,
+        )
         print(f"QC: {'PASS' if qc.passed else 'FAIL'}")
         for c in qc.checks:
             mark = "✓" if c.passed else "✗"

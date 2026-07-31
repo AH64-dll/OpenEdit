@@ -197,20 +197,25 @@ _PROXY_DISCLAIMER = (
 )
 
 
-def _verification_prompt(render_id: str, frames: list[dict], mode: str) -> str:
+def _verification_prompt(
+    render_id: str, frames: list[dict], mode: str, qc_evidence: str = "",
+) -> str:
     ts = ", ".join(f"{f.get('t_seconds', 0):.1f}s" for f in frames)
     disclaimer = _PROXY_DISCLAIMER if mode == "proxy" else ""
+    evidence = f"\n{qc_evidence}\n" if qc_evidence else ""
     if not frames:
         return (
             f"[SERVER-AUTOMATED VISUAL VERIFICATION UNAVAILABLE — "
             f"render_id={render_id}, mode={mode}]\n"
             f"No frames are attached. Do not claim to have visually inspected "
             f"the render.\n"
+            f"{evidence}"
             f"{disclaimer}"
         )
     return (
         f"[SERVER-AUTOMATED VISUAL VERIFICATION — render_id={render_id}, mode={mode}]\n"
         f"Frames sampled: {len(frames)} at t={ts}.\n"
+        f"{evidence}"
         f"{disclaimer}\n\n"
         f"Respond with exactly one line containing:\n"
         f"  VERIFICATION: PASS\n"
@@ -220,6 +225,54 @@ def _verification_prompt(render_id: str, frames: list[dict], mode: str) -> str:
         f"If FAIL, call correction tools. If PASS, stop unless the user requested "
         f"more. If UNCERTAIN, explain what cannot be verified."
     )
+
+
+def build_qc_evidence(qc_report: dict | None, duration_s: float) -> str:
+    """Collapse a deterministic QC gate report into a compact evidence block.
+
+    Consumes the ``qc_report`` dict attached to the render job result
+    (produced by ``open_edit.qc.gate.run_qc_gate``): the gate verdict,
+    the probed duration, and the deterministic spans (black frames,
+    silence, frozen frames). The LLM verdict stage uses this as factual
+    ground truth alongside the sampled frames.
+    """
+    if not qc_report or not isinstance(qc_report, dict):
+        return f"Deterministic QC: not run (duration={float(duration_s):.2f}s)."
+    passed = bool(qc_report.get("passed"))
+    duration = qc_report.get("duration_sec")
+    spans = qc_report.get("spans") or {}
+    black = spans.get("black_frames") or []
+    silence = spans.get("silence") or []
+    frozen = spans.get("frozen_frames") or []
+    checks = qc_report.get("checks") or []
+    failed = sorted(
+        {
+            str(c.get("name"))
+            for c in checks
+            if isinstance(c, dict) and not c.get("passed")
+        }
+    )
+
+    def _fmt(span: dict) -> str:
+        return (
+            f"{float(span.get('start_sec', 0)):.2f}-"
+            f"{float(span.get('end_sec', 0)):.2f}s"
+        )
+
+    lines = [
+        "Deterministic QC: " + ("PASS" if passed else "FAIL")
+        + (f" (duration={float(duration):.2f}s)" if duration is not None
+           else f" (duration={float(duration_s):.2f}s)"),
+    ]
+    if failed:
+        lines.append("Failed checks: " + ", ".join(failed))
+    if black:
+        lines.append("Black frames: " + "; ".join(_fmt(b) for b in black[:8]))
+    if frozen:
+        lines.append("Frozen intervals: " + "; ".join(_fmt(f) for f in frozen[:8]))
+    if silence:
+        lines.append("Silent gaps: " + "; ".join(_fmt(s) for s in silence[:8]))
+    return "\n".join(lines)
 
 
 def build_verification_tool_result(
@@ -232,11 +285,15 @@ def build_verification_tool_result(
     render_id = render_output.get("render_id", "render_unknown")
     supports_images = capability.get("supports_images", False)
     out_path = render_output.get("output_path", "")
+    duration_s = render_output.get("duration_s", 0.0)
+    qc_evidence = build_qc_evidence(
+        render_output.get("qc_report"), float(duration_s),
+    )
     return {
         "output_path": out_path,
         "video_path": out_path,
         "mode": mode,
-        "duration_s": render_output.get("duration_s", 0.0),
+        "duration_s": duration_s,
         "render_id": render_id,
         "verification": {
             "verdict_required": supports_images,
@@ -246,7 +303,8 @@ def build_verification_tool_result(
             "render_mode": mode,
             "reason": None if supports_images else "text_only_model",
             "model_id": capability.get("model_id"),
-            "prompt": _verification_prompt(render_id, frames, mode),
+            "qc_evidence": qc_evidence,
+            "prompt": _verification_prompt(render_id, frames, mode, qc_evidence),
         },
     }
 

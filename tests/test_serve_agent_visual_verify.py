@@ -553,3 +553,66 @@ async def test_project_meta_verify_disabled_skips_loop(monkeypatch, tmp_path):
         events.append(ev)
     assert not any(e["type"] == "verification_started" for e in events)
     assert not any(e["type"] == "verification_result" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_qc_report_flows_into_verification_evidence(monkeypatch, tmp_path):
+    """A qc_report on the render result is consumed as deterministic
+    evidence in the verification block the LLM sees (spans, not blind
+    sampling)."""
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
+    render_result = _patched_agent_with_render(monkeypatch, tmp_path)
+    render_result["qc_report"] = {
+        "passed": False,
+        "duration_sec": 10.0,
+        "checks": [{"name": "streams", "passed": False}, {"name": "duration", "passed": True}],
+        "spans": {
+            "black_frames": [],
+            "silence": [{"start_sec": 1.2, "end_sec": 2.4, "duration_sec": 1.2}],
+            "frozen_frames": [],
+        },
+    }
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path, command_id=None: render_result,
+    )
+    seen_messages: list[list[dict]] = []
+
+    async def _spy_stream(messages, **kwargs):
+        seen_messages.append(list(messages))
+        for ev in [
+            {"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}},
+            {"type": "done", "stop_reason": "tool_use"},
+        ]:
+            yield ev
+
+    async def _spy_stream2(messages, **kwargs):
+        seen_messages.append(list(messages))
+        for ev in [
+            {"type": "text_delta", "text": "VERIFICATION: PASS\n"},
+            {"type": "done", "stop_reason": "end_turn"},
+        ]:
+            yield ev
+
+    streams = [_spy_stream, _spy_stream2]
+    idx = {"i": 0}
+
+    async def _dispatch(messages, **kwargs):
+        s = streams[min(idx["i"], len(streams) - 1)]
+        idx["i"] += 1
+        async for ev in s(messages, **kwargs):
+            if ev.get("type") == "tool_use":
+                yield {"type": "tool_result", "name": ev["name"], "result": render_result}
+            yield ev
+
+    monkeypatch.setattr(agent_mod, "stream_chat", _dispatch)
+    events: list[dict] = []
+    async for ev in agent_mod.run_agent_turn("testproject", "Render.", [], conv_id=None):
+        events.append(ev)
+
+    assert any(e["type"] == "verification_result" for e in events)
+    last = seen_messages[-1]
+    blob = json.dumps(last, default=str)
+    assert "Deterministic QC: FAIL" in blob
+    assert "Failed checks: streams" in blob
+    assert "Silent gaps: 1.20-2.40s" in blob

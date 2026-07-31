@@ -273,6 +273,71 @@ def test_text_only_model_returns_text_only_tool_result():
 
 
 # ---------------------------------------------------------------------------
+# build_qc_evidence — deterministic spans feed the LLM verdict stage
+# ---------------------------------------------------------------------------
+
+def test_qc_evidence_absent_report():
+    ev = visual_verify.build_qc_evidence(None, 12.5)
+    assert "not run" in ev
+    assert "12.50s" in ev
+
+
+def test_qc_evidence_pass_report_with_spans():
+    report = {
+        "passed": True,
+        "duration_sec": 30.0,
+        "checks": [{"name": "streams", "passed": True}],
+        "spans": {
+            "black_frames": [],
+            "silence": [{"start_sec": 1.2, "end_sec": 2.4, "duration_sec": 1.2}],
+            "frozen_frames": [],
+        },
+    }
+    ev = visual_verify.build_qc_evidence(report, 30.0)
+    assert "Deterministic QC: PASS" in ev
+    assert "(duration=30.00s)" in ev
+    assert "Silent gaps: 1.20-2.40s" in ev
+    assert "Failed checks" not in ev
+
+
+def test_qc_evidence_fail_report_lists_failed_checks():
+    report = {
+        "passed": False,
+        "duration_sec": 29.0,
+        "checks": [
+            {"name": "duration", "passed": False},
+            {"name": "streams", "passed": True},
+        ],
+        "spans": {
+            "black_frames": [{"start_sec": 0.0, "end_sec": 3.0, "duration_sec": 3.0}],
+            "silence": [],
+            "frozen_frames": [],
+        },
+    }
+    ev = visual_verify.build_qc_evidence(report, 29.0)
+    assert "Deterministic QC: FAIL" in ev
+    assert "Failed checks: duration" in ev
+    assert "Black frames: 0.00-3.00s" in ev
+
+
+def test_verification_block_carries_qc_evidence():
+    render = {
+        "output_path": "/tmp/r.mp4", "mode": "proxy", "duration_s": 10.0,
+        "render_id": "r1",
+        "qc_report": {
+            "passed": True,
+            "duration_sec": 10.0,
+            "checks": [{"name": "streams", "passed": True}],
+            "spans": {"black_frames": [], "silence": [], "frozen_frames": []},
+        },
+    }
+    cap = {"supports_images": True, "input_modalities": ["text", "image"], "max_image_count": 8, "source": "models_store"}
+    out = visual_verify.build_verification_tool_result(render, [], cap, mode="proxy")
+    assert out["verification"]["qc_evidence"].startswith("Deterministic QC: PASS")
+    assert "Deterministic QC: PASS" in out["verification"]["prompt"]
+
+
+# ---------------------------------------------------------------------------
 # parse_verdict
 # ---------------------------------------------------------------------------
 

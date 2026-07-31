@@ -2,7 +2,11 @@
 import pytest
 
 from open_edit.ir.types import Asset, WordAlignment
-from open_edit.agent.skills.silence_cutter import propose_cuts, find_silence_gaps
+from open_edit.agent.skills.silence_cutter import (
+    find_silence_gaps,
+    no_word_split_check,
+    propose_cuts,
+)
 
 
 def _make_asset(alignment, duration_sec=10.0):
@@ -75,7 +79,6 @@ def test_propose_cuts_default_threshold():
 
 def test_no_word_split_qc_check_mid_word_fails():
     """The QC check should reject cuts that split a word."""
-    from open_edit.qc.gate import no_word_split_check
     asset = _make_asset([
         WordAlignment(word="hello", t_start=0.0, t_end=0.5, confidence=1.0),
     ])
@@ -123,10 +126,17 @@ def test_merge_protects_short_speech():
 
 def test_no_word_split_qc_check_inter_word_passes():
     """The QC check should accept cuts at inter-word boundaries."""
-    from open_edit.qc.gate import no_word_split_check
     asset = _make_asset([
         WordAlignment(word="hello", t_start=0.0, t_end=0.5, confidence=1.0),
     ])
     # Cut at 0.5 (inter-word) should pass
     passed, detail = no_word_split_check(asset, t_start=0.5, t_end=1.0)
     assert passed is True
+
+
+def test_no_word_split_reexported_from_gate():
+    """qc.gate keeps a thin re-export for backward compatibility."""
+    from open_edit.agent.skills.silence_cutter import no_word_split_check as canonical
+    from open_edit.qc.gate import no_word_split_check as reexported
+
+    assert reexported is canonical

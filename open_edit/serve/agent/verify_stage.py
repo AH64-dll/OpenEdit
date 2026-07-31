@@ -161,7 +161,12 @@ async def _maybe_verify_render(
             max_renders=max_renders,
         ))
         augmented = visual_verify.build_verification_tool_result(
-            {"render_id": render_id, "output_path": output_path, "duration_s": duration_s},
+            {
+                "render_id": render_id,
+                "output_path": output_path,
+                "duration_s": duration_s,
+                "qc_report": result.get("qc_report"),
+            },
             [], cap, mode,
         )
         return events, augmented, None
@@ -236,6 +241,7 @@ async def _maybe_verify_render(
             "render_id": render_id,
             "output_path": output_path,
             "duration_s": duration_s,
+            "qc_report": result.get("qc_report"),
         }
         augmented = visual_verify.build_verification_tool_result(
             render_output, frames, cap, mode,

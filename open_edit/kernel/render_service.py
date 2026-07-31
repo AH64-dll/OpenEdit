@@ -36,6 +36,7 @@ class RenderJob:
     output_path: str | None = None
     error: str | None = None
     result: dict | None = None
+    qc_report: dict | None = None
     graph_revision: int | None = None
     edit_graph_hash: str | None = None
 
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS render_jobs (
     output_path TEXT,
     error TEXT,
     result_json TEXT,
+    qc_report TEXT,
     graph_revision INTEGER,
     edit_graph_hash TEXT
 );
@@ -110,6 +112,8 @@ class RenderService:
             con.execute("ALTER TABLE render_jobs ADD COLUMN graph_revision INTEGER")
         if "edit_graph_hash" not in cols:
             con.execute("ALTER TABLE render_jobs ADD COLUMN edit_graph_hash TEXT")
+        if "qc_report" not in cols:
+            con.execute("ALTER TABLE render_jobs ADD COLUMN qc_report TEXT")
         # Older installs rejected overlay in the CHECK constraint. Rebuild once.
         create_sql = con.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='render_jobs'"
@@ -120,12 +124,13 @@ class RenderService:
             legacy_cols = {row[1] for row in con.execute("PRAGMA table_info(render_jobs_legacy)")}
             graph_rev = "graph_revision" if "graph_revision" in legacy_cols else "NULL"
             graph_hash = "edit_graph_hash" if "edit_graph_hash" in legacy_cols else "NULL"
+            qc_report = "qc_report" if "qc_report" in legacy_cols else "NULL"
             con.execute(
                 "INSERT INTO render_jobs ("
                 "job_id, project_id, mode, status, created_at, updated_at, "
-                "output_path, error, result_json, graph_revision, edit_graph_hash"
+                "output_path, error, result_json, qc_report, graph_revision, edit_graph_hash"
                 ") SELECT job_id, project_id, mode, status, created_at, updated_at, "
-                f"output_path, error, result_json, {graph_rev}, {graph_hash} "
+                f"output_path, error, result_json, {qc_report}, {graph_rev}, {graph_hash} "
                 "FROM render_jobs_legacy"
             )
             con.execute("DROP TABLE render_jobs_legacy")
@@ -138,6 +143,7 @@ class RenderService:
             status=row["status"], created_at=row["created_at"], updated_at=row["updated_at"],
             output_path=row["output_path"], error=row["error"],
             result=json.loads(row["result_json"]) if row["result_json"] else None,
+            qc_report=json.loads(row["qc_report"]) if "qc_report" in keys and row["qc_report"] else None,
             graph_revision=row["graph_revision"] if "graph_revision" in keys else None,
             edit_graph_hash=row["edit_graph_hash"] if "edit_graph_hash" in keys else None,
         )
@@ -169,13 +175,15 @@ class RenderService:
 
     def _update(self, project_path: Path, job_id: str, status: JobStatus, *,
                 output_path: str | None = None, error: str | None = None,
-                result: dict | None = None) -> None:
+                result: dict | None = None, qc_report: dict | None = None) -> None:
         with self._connect(project_path) as con:
             con.execute(
-                "UPDATE render_jobs SET status=?, updated_at=?, output_path=?, error=?, result_json=? "
-                "WHERE job_id=?",
+                "UPDATE render_jobs SET status=?, updated_at=?, output_path=?, error=?, "
+                "result_json=?, qc_report=? WHERE job_id=?",
                 (status, time.time(), output_path, error,
-                 json.dumps(result, sort_keys=True) if result is not None else None, job_id),
+                 json.dumps(result, sort_keys=True) if result is not None else None,
+                 json.dumps(qc_report, sort_keys=True) if qc_report is not None else None,
+                 job_id),
             )
 
     @staticmethod
@@ -334,7 +342,12 @@ class RenderService:
             async with lock, self._semaphore:
                 self._update(project_path, job_id, "running")
                 result = await self._launch(project_path, job_id, initial.mode)
-                self._update(project_path, job_id, "succeeded", output_path=result["output_path"], result=result)
+                result = await self._attach_qc(result, project_path)
+                self._update(
+                    project_path, job_id, "succeeded",
+                    output_path=result["output_path"], result=result,
+                    qc_report=result.get("qc_report"),
+                )
         except asyncio.CancelledError:
             job = self.get(project_path, job_id)
             if job is not None and job.status not in _TERMINAL:
@@ -346,6 +359,36 @@ class RenderService:
             self._processes.pop(job_id, None)
             self._tasks.pop(job_id, None)
             self._job_encoder.pop(job_id, None)
+
+    async def _attach_qc(self, result: dict, project_path: Path) -> dict:
+        """Run the deterministic QC gate on a finished render and attach the
+        report to the job result. QC findings are diagnostic: they never
+        flip the job status (the render itself succeeded).
+        """
+        output_path = result.get("output_path")
+        if not isinstance(output_path, str) or not output_path:
+            return result
+        from open_edit.qc.gate import run_qc_gate
+
+        out = dict(result)
+        try:
+            target = result.get("duration_sec") or result.get("duration_s")
+            qc = await asyncio.to_thread(
+                run_qc_gate,
+                output_path,
+                project_path / "thumbs",
+                target_duration_s=float(target) if target is not None else None,
+                mode=out.get("mode"),
+            )
+            out["qc_report"] = qc.model_dump(mode="json")
+        except Exception as exc:
+            out["qc_report"] = {
+                "passed": False,
+                "checks": [
+                    {"name": "qc_gate", "passed": False, "detail": f"qc gate failed: {exc}"},
+                ],
+            }
+        return out
 
     async def _launch(self, project_path: Path, job_id: str, mode: str) -> dict:
         """Run the canonical Python CLI (or overlay bridge) and consume JSON."""
