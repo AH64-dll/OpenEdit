@@ -188,12 +188,12 @@ def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, 
                 "error": "job_id is required",
                 "expected_keys": ["job_id"],
             }
-        from open_edit.kernel.render_service import (
-            DEFAULT_RENDER_SERVICE,
+        from open_edit.kernel.render_jobs import (
+            DEFAULT_RENDER_JOB_SERVICE,
             public_job,
         )
 
-        job = DEFAULT_RENDER_SERVICE.get(project_path, job_id)
+        job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, job_id)
         if job is None:
             return {"ok": False, "error": f"render job not found: {job_id}"}
         return {"ok": True, **public_job(job)}
@@ -206,13 +206,13 @@ def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, 
                 "error": "job_id is required",
                 "expected_keys": ["job_id"],
             }
-        from open_edit.kernel.render_service import (
-            DEFAULT_RENDER_SERVICE,
+        from open_edit.kernel.render_jobs import (
+            DEFAULT_RENDER_JOB_SERVICE,
             public_job,
         )
 
         async def _do_cancel() -> dict[str, Any]:
-            job = await DEFAULT_RENDER_SERVICE.cancel(project_path, job_id)
+            job = await DEFAULT_RENDER_JOB_SERVICE.cancel(project_path, job_id)
             if job is None:
                 return {"ok": False, "error": f"render job not found: {job_id}"}
             return {"ok": True, **public_job(job)}
@@ -307,13 +307,13 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
         wait = False
 
 
-    from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE, RenderEnqueueError
+    from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE, RenderEnqueueError
 
     # The agent waits for the same durable job REST clients poll. This keeps
     # queueing, timeout, cancellation, output contracts, and audit history
     # identical across both entry points — including overlay.
     try:
-        job = DEFAULT_RENDER_SERVICE.enqueue(
+        job = DEFAULT_RENDER_JOB_SERVICE.enqueue(
             project_path.name, project_path, mode, encoder_backend=encoder,
         )
     except RenderEnqueueError as exc:
@@ -326,7 +326,7 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
             "mode": mode,
             "message": "Render queued. Poll get_render_job with job_id.",
         }
-    completed = await DEFAULT_RENDER_SERVICE.wait(project_path, job.job_id)
+    completed = await DEFAULT_RENDER_JOB_SERVICE.wait(project_path, job.job_id)
     if completed.status != "succeeded" or completed.result is None:
         raise RuntimeError(completed.error or f"render ended as {completed.status}")
     result = dict(completed.result)

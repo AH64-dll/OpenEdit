@@ -436,7 +436,7 @@ def test_execute_tool_unknown_raises(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_execute_trigger_render_subprocess_fails(tmp_path: Path):
-    """v1.7+: the render runs on the durable RenderService. With
+    """v1.7+: the render runs on the durable RenderJobService. With
     ``wait=True``, a failing renderer surfaces as a RuntimeError carrying
     the renderer's error message (the old subprocess-based path raised
     on non-zero exit; the job-queue path re-raises the job's failure)."""
@@ -444,7 +444,7 @@ async def test_execute_trigger_render_subprocess_fails(tmp_path: Path):
         raise RuntimeError("open_edit render failed: boom")
 
     with mock.patch(
-        "open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE._launch",
+        "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch",
         failing_launch,
     ):
         with pytest.raises(RuntimeError) as exc:
@@ -459,7 +459,7 @@ async def test_execute_trigger_render_missing_args_defaults_to_proxy(tmp_path: P
         return {"ok": True, "output_path": "/tmp/output.mp4", "mode": mode, "duration_sec": 5.0}
 
     with mock.patch(
-        "open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE._launch",
+        "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch",
         fake_launch,
     ):
         result = await execute_trigger_render(args={"wait": True}, project_path=tmp_path)

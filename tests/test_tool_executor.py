@@ -67,11 +67,11 @@ class _FakeRenderJob:
 
 
 def test_get_render_job_dispatches_to_service(tmp_path: Path):
-    """get_render_job routes to DEFAULT_RENDER_SERVICE.get + public_job envelope."""
+    """get_render_job routes to DEFAULT_RENDER_JOB_SERVICE.get + public_job envelope."""
     fake = _FakeRenderJob("j1", "proj", "proxy", "succeeded", 1.0, 2.0)
     mock_svc = mock.MagicMock()
     mock_svc.get.return_value = fake
-    with mock.patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc):
+    with mock.patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc):
         res = execute_tool(
             "get_render_job", {"job_id": "j1", "project_id": "injected"}, tmp_path,
         )
@@ -84,7 +84,7 @@ def test_get_render_job_dispatches_to_service(tmp_path: Path):
 def test_get_render_job_missing_job(tmp_path: Path):
     mock_svc = mock.MagicMock()
     mock_svc.get.return_value = None
-    with mock.patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc):
+    with mock.patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc):
         res = execute_tool("get_render_job", {"job_id": "nope"}, tmp_path)
     assert res["ok"] is False
     assert "not found" in res["error"]
@@ -97,11 +97,11 @@ def test_get_render_job_missing_id(tmp_path: Path):
 
 
 def test_cancel_render_job_dispatches_to_service(tmp_path: Path):
-    """cancel_render_job routes to DEFAULT_RENDER_SERVICE.cancel + public_job envelope."""
+    """cancel_render_job routes to DEFAULT_RENDER_JOB_SERVICE.cancel + public_job envelope."""
     fake = _FakeRenderJob("j1", "proj", "proxy", "cancelled", 1.0, 2.0)
     mock_svc = mock.MagicMock()
     mock_svc.cancel = mock.AsyncMock(return_value=fake)
-    with mock.patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc):
+    with mock.patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc):
         res = execute_tool(
             "cancel_render_job", {"job_id": "j1", "project_id": "injected"}, tmp_path,
         )
@@ -113,7 +113,7 @@ def test_cancel_render_job_dispatches_to_service(tmp_path: Path):
 def test_cancel_render_job_missing_job(tmp_path: Path):
     mock_svc = mock.MagicMock()
     mock_svc.cancel = mock.AsyncMock(return_value=None)
-    with mock.patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc):
+    with mock.patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc):
         res = execute_tool("cancel_render_job", {"job_id": "nope"}, tmp_path)
     assert res["ok"] is False
     assert "not found" in res["error"]
@@ -137,7 +137,7 @@ async def test_execute_trigger_render_missing_args(tmp_path: Path):
     mock_svc = mock.MagicMock()
     mock_svc.enqueue.side_effect = RuntimeError("boom")
     with mock.patch(
-        "open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc,
+        "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc,
     ), pytest.raises(RuntimeError, match="boom"):
         await execute_trigger_render(args={}, project_path=tmp_path)
 
@@ -148,7 +148,7 @@ async def test_execute_trigger_render_accepts_injected_project_id(tmp_path: Path
     mock_svc = mock.MagicMock()
     mock_svc.enqueue.side_effect = RuntimeError("boom")
     with mock.patch(
-        "open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc,
+        "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc,
     ), pytest.raises(RuntimeError, match="boom"):
         await execute_trigger_render(
             args={"mode": "proxy", "project_id": "injected"}, project_path=tmp_path,

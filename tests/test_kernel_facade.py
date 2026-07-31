@@ -5,9 +5,9 @@ from pathlib import Path
 import open_edit.kernel as kernel
 
 RE_EXPORTED = [
-    "DEFAULT_RENDER_SERVICE",
+    "DEFAULT_RENDER_JOB_SERVICE",
     "RenderEnqueueError",
-    "RenderService",
+    "RenderJobService",
     "EditGraphCommandError",
     "apply_command",
     "build_tool_schemas",

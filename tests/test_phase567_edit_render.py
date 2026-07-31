@@ -13,7 +13,7 @@ from open_edit.ir.types import AddClipOp
 from open_edit.serve import projects as projects_mod
 from open_edit.serve.app import app
 from open_edit.kernel.edit_graph_service import apply_command
-from open_edit.kernel.render_service import RenderEnqueueError, RenderService
+from open_edit.kernel.render_jobs import RenderEnqueueError, RenderJobService
 from open_edit.storage.edit_graph import EditGraphStore, GraphRevisionConflict
 
 client = TestClient(app)
@@ -122,7 +122,7 @@ async def test_render_enqueue_stores_graph_revision(tmp_path):
         out_point_sec=1,
     ))
     revision = store.graph_revision()
-    service = RenderService()
+    service = RenderJobService()
 
     async def ok(project_path, job_id, mode):
         return {"ok": True, "output_path": str(project / "out.mp4"), "mode": mode}
@@ -140,16 +140,16 @@ async def test_render_enqueue_rejects_stale_revision(tmp_path):
     project = tmp_path / "proj"
     (project / ".open_edit").mkdir(parents=True)
     EditGraphStore(project / ".open_edit" / "edit_graph.db")
-    service = RenderService()
+    service = RenderJobService()
     with pytest.raises(RenderEnqueueError, match="stale graph revision"):
         service.enqueue("proj", project, "proxy", expected_revision=99)
 
 
 @pytest.mark.asyncio
-async def test_overlay_mode_goes_through_render_service(tmp_path, monkeypatch):
+async def test_overlay_mode_goes_through_render_job_service(tmp_path, monkeypatch):
     project = tmp_path / "proj"
     (project / ".open_edit").mkdir(parents=True)
-    service = RenderService()
+    service = RenderJobService()
 
     async def overlay_launch(project_path, job_id, mode):
         assert mode == "overlay"

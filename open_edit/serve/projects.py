@@ -459,7 +459,7 @@ _SNAPSHOT_STATUS_TO_JOB_STATUS = {
 async def list_renders(project_id: str) -> list[dict[str, Any]]:
     """List past renders for a project.
 
-    Prefers durable ``RenderService`` job records, then falls back to
+    Prefers durable ``RenderJobService`` job records, then falls back to
     scanning ``.open_edit/renders/*.mp4``.
     """
     async with _REGISTRY.lock:
@@ -474,9 +474,9 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     try:
-        from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE
+        from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
 
-        for job in DEFAULT_RENDER_SERVICE.list_jobs(path):
+        for job in DEFAULT_RENDER_JOB_SERVICE.list_jobs(path):
             size_bytes = 0
             if job.output_path:
                 try:

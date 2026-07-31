@@ -4,14 +4,14 @@ import asyncio
 
 import pytest
 
-from open_edit.kernel.render_service import RenderService
+from open_edit.kernel.render_jobs import RenderJobService
 
 
 @pytest.mark.asyncio
 async def test_job_record_survives_a_new_service_instance(tmp_path):
     project = tmp_path / "project with spaces"
     (project / ".open_edit").mkdir(parents=True)
-    service = RenderService()
+    service = RenderJobService()
 
     async def successful_launch(project_path, job_id, mode):
         return {"ok": True, "output_path": str(project / "out.mp4"), "mode": mode}
@@ -21,7 +21,7 @@ async def test_job_record_survives_a_new_service_instance(tmp_path):
     completed = await service.wait(project, queued.job_id)
 
     assert completed.status == "succeeded"
-    restored = RenderService().get(project, queued.job_id)
+    restored = RenderJobService().get(project, queued.job_id)
     assert restored is not None
     assert restored.status == "succeeded"
     assert restored.result == completed.result
@@ -30,14 +30,14 @@ async def test_job_record_survives_a_new_service_instance(tmp_path):
 def test_restart_marks_nonterminal_jobs_orphaned(tmp_path):
     project = tmp_path / "project"
     (project / ".open_edit").mkdir(parents=True)
-    service = RenderService()
+    service = RenderJobService()
     with service._connect(project) as con:
         con.execute(
             "INSERT INTO render_jobs (job_id, project_id, mode, status, created_at, updated_at) "
             "VALUES ('interrupted', 'p', 'final', 'running', 1, 1)"
         )
 
-    assert RenderService().recover(project) == 1
+    assert RenderJobService().recover(project) == 1
     job = service.get(project, "interrupted")
     assert job is not None
     assert job.status == "orphaned"
@@ -51,7 +51,7 @@ async def test_successful_render_attaches_qc_report(tmp_path):
     a failed proxy_render report, not an exception)."""
     project = tmp_path / "project"
     (project / ".open_edit").mkdir(parents=True)
-    service = RenderService()
+    service = RenderJobService()
 
     async def successful_launch(project_path, job_id, mode):
         return {"ok": True, "output_path": str(project / "out.mp4"), "mode": mode}
@@ -69,7 +69,7 @@ async def test_successful_render_attaches_qc_report(tmp_path):
     assert "streams" in names
     assert "frozen_frames" in names
 
-    restored = RenderService().get(project, queued.job_id)
+    restored = RenderJobService().get(project, queued.job_id)
     assert restored is not None
     assert restored.qc_report == qc_report
 
@@ -78,7 +78,7 @@ async def test_successful_render_attaches_qc_report(tmp_path):
 async def test_same_project_jobs_are_serialized(tmp_path):
     project = tmp_path / "project"
     (project / ".open_edit").mkdir(parents=True)
-    service = RenderService(max_concurrency=2)
+    service = RenderJobService(max_concurrency=2)
     running = 0
     maximum = 0
 
@@ -104,7 +104,7 @@ async def test_global_limit_serializes_different_projects(tmp_path):
     second_project = tmp_path / "second"
     (first_project / ".open_edit").mkdir(parents=True)
     (second_project / ".open_edit").mkdir(parents=True)
-    service = RenderService(max_concurrency=1)
+    service = RenderJobService(max_concurrency=1)
     running = 0
     maximum = 0
 

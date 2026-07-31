@@ -50,12 +50,12 @@ async def dispatch_mcp_tool(
                 "error": "job_id is required",
                 "expected_keys": ["job_id"],
             }
-        from open_edit.kernel.render_service import (
-            DEFAULT_RENDER_SERVICE,
+        from open_edit.kernel.render_jobs import (
+            DEFAULT_RENDER_JOB_SERVICE,
             public_job,
         )
 
-        job = DEFAULT_RENDER_SERVICE.get(project_path, job_id)
+        job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, job_id)
         if job is None:
             return {"ok": False, "error": f"render job not found: {job_id}"}
         return {"ok": True, **public_job(job)}
@@ -68,12 +68,12 @@ async def dispatch_mcp_tool(
                 "error": "job_id is required",
                 "expected_keys": ["job_id"],
             }
-        from open_edit.kernel.render_service import (
-            DEFAULT_RENDER_SERVICE,
+        from open_edit.kernel.render_jobs import (
+            DEFAULT_RENDER_JOB_SERVICE,
             public_job,
         )
 
-        job = await DEFAULT_RENDER_SERVICE.cancel(project_path, job_id)
+        job = await DEFAULT_RENDER_JOB_SERVICE.cancel(project_path, job_id)
         if job is None:
             return {"ok": False, "error": f"render job not found: {job_id}"}
         return {"ok": True, **public_job(job)}

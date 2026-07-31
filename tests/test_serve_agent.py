@@ -318,7 +318,7 @@ async def test_execute_trigger_render_in_process_returns_structured_shape(tmp_pa
     modes, matching the pi subprocess path. The verification stage
     reads these fields via ``result.get('render_id', ...)``.
 
-    v1.7+: the render is enqueued on the durable RenderService; the
+    v1.7+: the render is enqueued on the durable RenderJobService; the
     structured result shape is produced on the synchronous path, so the
     call passes ``wait=True`` (the default ``wait=False`` returns a
     job_id-only dict by design)."""
@@ -331,7 +331,7 @@ async def test_execute_trigger_render_in_process_returns_structured_shape(tmp_pa
     async def fake_launch(project_path, job_id, mode):
         return {"ok": True, "output_path": str(fake), "mode": mode, "duration_sec": 10.5}
 
-    with mock.patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE._launch", fake_launch):
+    with mock.patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch", fake_launch):
         out = await agent._execute_trigger_render({"mode": "proxy", "wait": True}, tmp_path)
 
     # Required structured fields (must match pi subprocess shape)
@@ -357,7 +357,7 @@ async def test_execute_trigger_render_in_process_duration_zero_on_missing_file(t
     async def fake_launch(project_path, job_id, mode):
         return {"ok": True, "output_path": str(missing), "mode": mode, "duration_sec": 0.0}
 
-    with mock.patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE._launch", fake_launch):
+    with mock.patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch", fake_launch):
         out = await agent._execute_trigger_render({"mode": "final", "wait": True}, tmp_path)
 
     assert out["mode"] == "final"

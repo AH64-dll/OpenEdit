@@ -29,7 +29,7 @@ from fastapi import FastAPI, HTTPException, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE
+from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
 
 from . import projects as projects_mod
 from .auth import TokenAuthMiddleware, _websocket_auth_error  # noqa: F401 (re-exported for tests)
@@ -49,7 +49,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A process ID cannot be safely recovered after an application restart.
     # Preserve the audit trail and make the interrupted state explicit.
     for project in await projects_mod.list_projects():
-        DEFAULT_RENDER_SERVICE.recover(Path(project.path))
+        DEFAULT_RENDER_JOB_SERVICE.recover(Path(project.path))
     yield
 
 

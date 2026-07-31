@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from .edit_graph_service import EditGraphCommandError, apply_command
 from .pillar_tools import dispatch_edit, dispatch_generate, dispatch_query
-from .render_service import (
-    DEFAULT_RENDER_SERVICE,
+from .render_jobs import (
+    DEFAULT_RENDER_JOB_SERVICE,
     RenderEnqueueError,
-    RenderService,
+    RenderJobService,
 )
 from .schema_validator import validate_or_error
 from .tool_executor import execute_tool, execute_trigger_render
@@ -17,9 +17,9 @@ from .tool_registry import build_tool_schemas
 from .tool_schemas import TOOL_SCHEMAS
 
 __all__ = [
-    "DEFAULT_RENDER_SERVICE",
+    "DEFAULT_RENDER_JOB_SERVICE",
     "RenderEnqueueError",
-    "RenderService",
+    "RenderJobService",
     "EditGraphCommandError",
     "apply_command",
     "build_tool_schemas",

@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from open_edit.kernel.render_service import DEFAULT_RENDER_SERVICE
+from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
 
 from .. import projects as projects_mod
 from ..auth import _check_rate_limit
@@ -28,10 +28,10 @@ class RenderJobResponse(BaseModel):
     job_id: str
     project_id: str
     mode: str
-    status: str  # RenderService JobStatus: "queued" | "running" | "succeeded" | "failed" | ...
+    status: str  # RenderJobService JobStatus: "queued" | "running" | "succeeded" | "failed" | ...
     output_path: str | None = None
     error: str | None = None
-    # Set when the job is persisted by the durable RenderService.
+    # Set when the job is persisted by the durable RenderJobService.
     # Not part of the public API contract — kept on the model so the
     # field survives Pydantic serialization roundtrips in tests.
     created_at: float = Field(default_factory=time.time)
@@ -48,14 +48,14 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
         raise HTTPException(status_code=400, detail="mode must be 'proxy', 'final', or 'overlay'")
 
     project_path = Path(state.path)
-    from open_edit.kernel.render_service import RenderEnqueueError
+    from open_edit.kernel.render_jobs import RenderEnqueueError
 
     encoder = (req.encoder or "").strip().lower() or None
     if encoder not in (None, "gpu", "cpu"):
         raise HTTPException(status_code=400, detail="encoder must be 'gpu' or 'cpu'")
 
     try:
-        job = DEFAULT_RENDER_SERVICE.enqueue(
+        job = DEFAULT_RENDER_JOB_SERVICE.enqueue(
             project_id,
             project_path,
             req.mode,
@@ -83,7 +83,7 @@ async def cancel_render_job(project_id: str, job_id: str) -> dict:
     """Cancel a running render job."""
     await _require_project(project_id)
     state = await _require_project(project_id)
-    job = await DEFAULT_RENDER_SERVICE.cancel(Path(state.path), job_id)
+    job = await DEFAULT_RENDER_JOB_SERVICE.cancel(Path(state.path), job_id)
     if job is None or job.project_id != project_id:
         raise HTTPException(status_code=404, detail=f"render job not found: {job_id}")
     if job.status not in ("queued", "running", "cancelling"):
@@ -96,7 +96,7 @@ async def get_render_job(project_id: str, job_id: str) -> RenderJobResponse:
     """Poll a background render job's status."""
     await _require_project(project_id)
     state = await _require_project(project_id)
-    job = DEFAULT_RENDER_SERVICE.get(Path(state.path), job_id)
+    job = DEFAULT_RENDER_JOB_SERVICE.get(Path(state.path), job_id)
     if job is None or job.project_id != project_id:
         raise HTTPException(status_code=404, detail=f"render job not found: {job_id}")
     return RenderJobResponse(
@@ -128,7 +128,7 @@ def _resolve_render_mp4(project_path: Path, render_id: str) -> Path | None:
         return None
     if ".melt" in render_id.lower():
         return None
-    job = DEFAULT_RENDER_SERVICE.get(project_path, render_id)
+    job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, render_id)
     if job is not None and job.output_path:
         candidate = Path(job.output_path).resolve()
         if (

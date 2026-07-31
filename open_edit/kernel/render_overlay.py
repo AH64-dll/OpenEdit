@@ -3,7 +3,7 @@
 This module hosts the ``trigger_render`` tool implementation that the
 serve layer previously kept in ``serve.pi_bridge``. It was moved here
 so kernel no longer lazily imports ``serve`` (the last kernel→serve
-dependency, see ``kernel/render_service.py``).
+dependency, see ``kernel/render_jobs.py``).
 
 The composited HTML-overlay pipeline (``open_edit.render.html_overlay``)
 is a pure HTML/ffmpeg compositor with no serve state, so it lives in

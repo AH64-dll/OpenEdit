@@ -190,7 +190,7 @@ export OPEN_EDIT_WHISPER_MODEL=small   # recommended for Arabic
 `project_path` is **not** a tool argument. It is fixed when the MCP process
 starts (`--project` / `OPEN_EDIT_PROJECT`).
 
-Renders go through `RenderService`: Remotion **materialize** → melt talk
+Renders go through `RenderJobService`: Remotion **materialize** → melt talk
 timeline → **ffmpeg burn-in** of Remotion graphics (proxy/final).
 
 ## Review UI (recommended with MCP)

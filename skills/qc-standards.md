@@ -11,7 +11,7 @@ overlay}`.
 
 Since the 7.1 restructure, the deterministic QC gate
 (`open_edit.qc.gate.run_qc_gate`) runs automatically on every
-successful server-side render: `render_service._run` runs the gate on
+successful server-side render: `render_jobs._run` runs the gate on
 the finished MP4 and attaches the report to the job result as
 `qc_report` (also persisted in the `qc_report` column of
 `render_jobs.db`). The CLI (`open_edit render`) prints the same gate

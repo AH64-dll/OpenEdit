@@ -66,10 +66,10 @@ CREATE INDEX IF NOT EXISTS idx_render_jobs_project_created
 """
 
 
-class RenderService:
+class RenderJobService:
     """Persist render jobs under each project and execute them centrally.
 
-    A RenderService instance may schedule multiple projects, but only one
+    A RenderJobService instance may schedule multiple projects, but only one
     render is active per project.  The global semaphore bounds the remaining
     cross-project concurrency.  Running processes themselves remain in memory
     because a PID cannot safely survive a server restart; recovery marks those
@@ -443,4 +443,4 @@ def public_job(job: RenderJob) -> dict:
 
 
 # The service is process-wide by design: it owns the global concurrency limit.
-DEFAULT_RENDER_SERVICE = RenderService()
+DEFAULT_RENDER_JOB_SERVICE = RenderJobService()

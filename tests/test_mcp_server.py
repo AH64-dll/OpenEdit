@@ -123,7 +123,7 @@ async def test_get_render_job_wrapper(project: Path) -> None:
     mock_svc = MagicMock()
     mock_svc.get.return_value = fake
 
-    with patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc):
+    with patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc):
         result = await dispatch_mcp_tool(
             "get_render_job", {"job_id": "abc"}, project,
         )
@@ -159,7 +159,7 @@ async def test_cancel_render_job_wrapper(project: Path) -> None:
     mock_svc = MagicMock()
     mock_svc.cancel = AsyncMock(return_value=fake)
 
-    with patch("open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE", mock_svc):
+    with patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE", mock_svc):
         result = await dispatch_mcp_tool(
             "cancel_render_job", {"job_id": "xyz"}, project,
         )
