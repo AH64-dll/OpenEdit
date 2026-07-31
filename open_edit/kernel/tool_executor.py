@@ -37,9 +37,9 @@ from pathlib import Path
 from typing import Any
 
 # NOTE: kernel must not import the serve package (layering invariant).
-from open_edit.agent.tools._helpers import _db_path
 from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.paths import ProjectPaths
 
 from open_edit.kernel.schema_validator import validate_or_error
 from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
@@ -99,7 +99,7 @@ def _record_done_command(
         return
     try:
         if store is None:
-            store = EditGraphStore(_db_path(project_path))
+            store = EditGraphStore(ProjectPaths.for_project(project_path).db_path)
         store.record_command(
             command_id, store.project_id, name,
             status="pending", payload_hash=_payload_hash(args),
@@ -122,7 +122,7 @@ def _cached_done_result(
     """Return ``(store, cached_result, hit)``. ``hit`` is True only for a
     previously SUCCESSFUL (``done``) command with a stored result."""
     try:
-        store = EditGraphStore(_db_path(project_path))
+        store = EditGraphStore(ProjectPaths.for_project(project_path).db_path)
     except Exception:
         return None, None, False
     try:

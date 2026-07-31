@@ -21,6 +21,7 @@ from open_edit.ir.types import (
 )
 from open_edit.ir.validate import OpValidationError, validate_op_references
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.paths import ProjectPaths
 from pydantic import TypeAdapter
 
 
@@ -43,14 +44,15 @@ class _FlushingBuffer(list):
 def _assets_dir_for_workdir(workdir: Path) -> Path:
     """Return the asset-store directory for a sandbox workdir.
 
-    The workdir is whichever directory contains ``edit_graph.db``:
-    - canonical layout: ``<root>/.open_edit/`` → assets at ``<workdir>/assets``
-    - legacy layout: ``<root>/`` → assets at ``<workdir>/.open_edit/assets``
+    The workdir is whichever directory contains ``edit_graph.db``
+    (``<root>/.open_edit`` canonical, ``<root>`` legacy); the project
+    root and its canonical asset CAS are derived via ``ProjectPaths``.
+    A legacy ``<workdir>/assets`` store is honored when present.
     """
     direct = workdir / "assets"
     if direct.is_dir():
         return direct
-    return workdir / ".open_edit" / "assets"
+    return ProjectPaths.for_workdir(workdir).assets_dir
 
 
 def stage_and_collect(

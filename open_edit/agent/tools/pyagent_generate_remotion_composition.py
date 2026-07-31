@@ -33,13 +33,14 @@ def generate_remotion_composition(args: dict[str, Any], project_path: str | Path
     props = args.get("props") if isinstance(args.get("props"), dict) else {}
     track_id = str(args.get("track_id") or "video_graphics")
     alpha = bool(args.get("alpha", False))
-    project = Path(project_path)
 
     from open_edit.render.remotion_scaffold import ensure_remotion_scaffold
+    from open_edit.storage.paths import ProjectPaths
 
-    ensure_remotion_scaffold(project)
+    paths = ProjectPaths.for_project(project_path)
+    ensure_remotion_scaffold(paths.root)
 
-    db = project / ".open_edit" / "edit_graph.db"
+    db = paths.db_path
     if not db.exists():
         return {"status": "error", "error": "edit_graph.db not found"}
 

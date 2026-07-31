@@ -7,20 +7,20 @@ appended to edit_graph.db (same contract as the CLI path).
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from open_edit.agent.exceptions import FreeFormResult
 from open_edit.agent.sandbox import run_free_form
 from open_edit.agent.tools._contract import tool_result
-from open_edit.agent.tools._helpers import _db_path
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.paths import ProjectPaths
 
 
 @tool_result
 def run_python(args: dict, project_path: str) -> dict:
     """Run free-form Python; persist ops; return a slim summary by default."""
-    db_path = _db_path(project_path)
-    workdir = Path(db_path).parent
+    paths = ProjectPaths.for_project(project_path)
+    db_path = paths.db_path
+    workdir = paths.workdir
     parent_op_id = args.get("parent_op_id") or f"pyagent_{uuid.uuid4().hex[:12]}"
     # Pillar-tool fix: the bridge no longer auto-injects project_id
     # for run_script (its schema has additionalProperties: false).

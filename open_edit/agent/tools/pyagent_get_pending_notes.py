@@ -6,14 +6,14 @@ The first 10 are returned in full; the rest are summarized as a count.
 from __future__ import annotations
 
 from open_edit.agent.tools._contract import tool_result
-from open_edit.agent.tools._helpers import _notes_db_path
 from open_edit.storage.notes import NotesStore
+from open_edit.storage.paths import ProjectPaths
 
 
 @tool_result
 def get_pending_notes(args: dict, project_path: str) -> dict:
     """List pending notes. Default: first 10 full + count of rest."""
-    db_path = _notes_db_path(project_path)
+    db_path = ProjectPaths.for_project(project_path).notes_db_path
     store = NotesStore(db_path)
     pending = store.list_pending(args["project_id"])
     if args.get("summary_only", False):

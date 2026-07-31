@@ -21,6 +21,7 @@ from open_edit.agent.libs import (
 from open_edit.agent.sandbox import backends
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.job_lock import JobLock
+from open_edit.storage.paths import ProjectPaths
 
 # H9: hard caps so FreeFormCodeOp.timeout_sec can't hold the JobLock forever.
 MAX_FREEFORM_TIMEOUT_SEC = 300
@@ -34,6 +35,8 @@ def _validate_workdir(workdir: Path) -> Path:
 
     The AI may operate on any directory; we only require that it is a real
     project (contains ``edit_graph.db``) so the store can locate its DB.
+    The workdir must be the directory that directly contains the DB —
+    ``ProjectPaths.for_workdir`` derives the project root from it.
     No root/allow-list restriction is applied.
 
     On any failure, raise ValueError with a clear message. The caller
@@ -43,7 +46,12 @@ def _validate_workdir(workdir: Path) -> Path:
     workdir = Path(workdir).resolve()
     if not workdir.is_dir():
         raise ValueError(f"workdir {workdir} is not a directory")
-    if not (workdir / "edit_graph.db").exists():
+    # A valid workdir is the directory that directly contains the project's
+    # edit_graph.db (canonical ``<root>/.open_edit`` or legacy ``<root>``);
+    # ProjectPaths.for_workdir derives the project root from it, so the
+    # resolved DB must point back at this workdir.
+    paths = ProjectPaths.for_workdir(workdir)
+    if not (paths.db_path == workdir / "edit_graph.db" and paths.db_path.exists()):
         raise ValueError(
             f"workdir {workdir} is not a valid project directory "
             f"(missing edit_graph.db)"

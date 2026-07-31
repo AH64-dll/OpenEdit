@@ -18,6 +18,7 @@ from open_edit.ir.types import (
 )
 from open_edit.ir.validate import OpValidationError
 from open_edit.storage.edit_graph import EditGraphStore, GraphRevisionConflict
+from open_edit.storage.paths import ProjectPaths
 
 CommandName = Literal[
     "add_clip",
@@ -33,12 +34,8 @@ class EditGraphCommandError(ValueError):
     """User-facing command validation failure."""
 
 
-def _db_path(project_path: Path) -> Path:
-    return project_path / ".open_edit" / "edit_graph.db"
-
-
 def open_store(project_path: Path) -> EditGraphStore:
-    db = _db_path(project_path)
+    db = ProjectPaths.for_project(project_path).db_path
     if not db.exists():
         raise EditGraphCommandError("edit graph not found")
     return EditGraphStore(db)

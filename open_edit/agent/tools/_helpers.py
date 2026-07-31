@@ -1,10 +1,12 @@
 """Shared helpers for the agent tool wrappers.
 
-Path resolution (``_project_root``, ``_db_path``, ``_notes_db_path``),
-project loading for read-back operations (``load_project``), and the
-mutating-path IR builder (``make_ir``), which wraps the project's
-``EditGraphStore`` in ``_StoreBuffer`` to match the IR's
-``SupportsAppend`` protocol: the store's ``append`` takes a
+Path resolution (``_project_root``, ``_db_path``, ``_notes_db_path``)
+delegates to ``open_edit.storage.paths.ProjectPaths`` — the single source
+of truth for the on-disk layout (Task 6.4). These thin wrappers exist for
+backward compat with direct importers. Project loading for read-back
+operations (``load_project``), the mutating-path IR builder (``make_ir``),
+which wraps the project's ``EditGraphStore`` in ``_StoreBuffer`` to match
+the IR's ``SupportsAppend`` protocol: the store's ``append`` takes a
 ``sequence_num`` kwarg, and ``_StoreBuffer`` drops it so the store
 auto-assigns. ``get_asset_store`` locates the project's asset CAS.
 """
@@ -17,6 +19,7 @@ from open_edit.ir.api import IR
 from open_edit.ir.types import Project
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.paths import ProjectPaths
 
 
 class _StoreBuffer:
@@ -39,27 +42,17 @@ def _project_root(project_path: str | Path) -> Path:
     ``.open_edit/``). Accepts either the root itself or a file inside it
     (legacy convention where ``project_path`` was a .kdenlive file).
     """
-    p = Path(project_path)
-    return p if p.is_dir() else p.parent
+    return ProjectPaths.for_project(project_path).root
 
 
 def _db_path(project_path: str | Path) -> Path:
     """Return the edit_graph.db path for the given project directory.
 
-    Canonical server layout (``serve/projects.py``) stores the DB at
-    ``<root>/.open_edit/edit_graph.db``. Older tooling wrote it directly
-    at ``<root>/edit_graph.db``; we read the legacy path only when the
-    canonical one is absent, and always prefer the canonical path for
-    creation so new writes land where the server looks for them.
+    Delegates to ``ProjectPaths.db_path`` (canonical
+    ``<root>/.open_edit/edit_graph.db`` + legacy ``<root>/edit_graph.db``
+    fallback for reads).
     """
-    root = _project_root(project_path)
-    canonical = root / ".open_edit" / "edit_graph.db"
-    if canonical.exists() or (root / ".open_edit").is_dir():
-        return canonical
-    legacy = root / "edit_graph.db"
-    if legacy.exists():
-        return legacy
-    return canonical
+    return ProjectPaths.for_project(project_path).db_path
 
 
 def _notes_db_path(project_path: str | Path) -> Path:
@@ -67,7 +60,7 @@ def _notes_db_path(project_path: str | Path) -> Path:
     (``<root>/notes.db``), NOT inside ``.open_edit/`` — see
     ``serve/projects.py`` which reads them from the root.
     """
-    return _project_root(project_path) / "notes.db"
+    return ProjectPaths.for_project(project_path).notes_db_path
 
 
 def load_project(project_path: str | Path) -> Project:
@@ -76,11 +69,12 @@ def load_project(project_path: str | Path) -> Project:
     For read-back operations. Raises FileNotFoundError if the db doesn't exist.
     """
 
-    db_path = _db_path(project_path)
+    paths = ProjectPaths.for_project(project_path)
+    db_path = paths.db_path
     if not db_path.exists():
         raise FileNotFoundError(f"edit_graph.db not found at {db_path}")
     store = EditGraphStore(db_path)
-    workdir = _project_root(project_path)
+    workdir = paths.root
     project = Project(
         project_id=store.project_id,
         name=workdir.name or "untitled",
@@ -97,7 +91,7 @@ def make_ir(project_path: str | Path, parent_op_id: Optional[str] = None) -> IR:
     For mutating operations. The returned IR appends ops directly to
     the project's edit_graph.db file.
     """
-    db_path = _db_path(project_path)
+    db_path = ProjectPaths.for_project(project_path).db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = EditGraphStore(db_path)
     project_id = store.project_id
@@ -108,5 +102,4 @@ def make_ir(project_path: str | Path, parent_op_id: Optional[str] = None) -> IR:
 
 def get_asset_store(project_path: str | Path) -> AssetStore:
     """Return the AssetStore rooted at <project>/.open_edit/assets."""
-    workdir = _project_root(project_path)
-    return AssetStore(workdir / ".open_edit" / "assets")
+    return AssetStore(ProjectPaths.for_project(project_path).assets_dir)

@@ -8,7 +8,7 @@ Per phase4-design-revised.md section 4.3 (W7): the agent picks a beat
 from __future__ import annotations
 
 from open_edit.agent.tools._contract import get_asset_or_error
-from open_edit.agent.tools._helpers import _project_root
+from open_edit.storage.paths import ProjectPaths
 
 
 def generate_visual_for_segment(args: dict, project_path: str) -> dict:
@@ -42,7 +42,7 @@ def generate_visual_for_segment(args: dict, project_path: str) -> dict:
                 "status": "error",
                 "error": f"no narrative segment with beat_type {beat_type!r}",
             }
-        workdir = _project_root(project_path)
+        workdir = ProjectPaths.for_project(project_path).workdir
         op = generate_visual(
             segment=segment,
             template=args["template"],
