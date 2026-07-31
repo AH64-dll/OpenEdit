@@ -50,7 +50,7 @@ def test_cost_badge_present_in_html():
     stable id we can target from the JS."""
     INDEX_HTML = (
         Path(__file__).resolve().parents[1]
-        / "open_edit" / "open_edit" / "serve" / "static" / "index.html"
+        / "open_edit" / "serve" / "static" / "index.html"
     )
     html = INDEX_HTML.read_text()
     # The badge needs an id we can target from app.js.

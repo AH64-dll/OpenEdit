@@ -13,7 +13,10 @@ def test_list_assets_returns_empty_for_empty_project() -> None:
         workdir = Path(td)
         (workdir / ".open_edit" / "assets").mkdir(parents=True)
         result = list_assets({}, str(workdir))
-        assert result == {"assets": []}
+        # The tool returns additive metadata (filtered/include_derivatives/
+        # detail/skipped_derivatives) next to the assets list; assert on the
+        # list itself.
+        assert result["assets"] == []
 
 
 def test_list_assets_returns_ingested_assets() -> None:
@@ -38,7 +41,9 @@ def test_list_assets_returns_ingested_assets() -> None:
         }
         (prefix_dir / f"{hash_hex}.meta.json").write_text(json.dumps(sidecar))
 
-        result = list_assets({}, str(workdir))
+        # Compact rows are the default (hash/filename/duration_s); pass
+        # detail=true for full metadata.
+        result = list_assets({"detail": True}, str(workdir))
         assert len(result["assets"]) == 1
         a = result["assets"][0]
         assert a["hash"] == hash_hex
@@ -57,10 +62,10 @@ def test_list_assets_skips_invalid_sidecars() -> None:
         assets_root.mkdir(parents=True)
         (assets_root / "dead.meta.json").write_text("not-json")
         result = list_assets({}, str(workdir))
-        assert result == {"assets": []}
+        assert result["assets"] == []
 
 
 def test_list_assets_no_assets_dir_is_empty() -> None:
     with tempfile.TemporaryDirectory() as td:
         result = list_assets({}, td)
-        assert result == {"assets": []}
+        assert result["assets"] == []

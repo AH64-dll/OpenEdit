@@ -1,7 +1,19 @@
-"""Verify the strace observation fixtures are present and parseable."""
+"""Verify the strace observation fixtures are present and parseable.
+
+The strace fixture data (``sandbox/observations/*.txt``) was never
+committed to the repo (user-approved decision 2026-07-31), so these
+tests skip on any machine without the fixture directory instead of
+failing. Do NOT generate the fixtures automatically.
+"""
 from pathlib import Path
 
+import pytest
+
 OBS_DIR = Path(__file__).parent.parent / "sandbox" / "observations"
+
+pytestmark = pytest.mark.skipif(
+    not OBS_DIR.is_dir(), reason="strace observation fixtures not present in repo"
+)
 
 
 def test_strace_melt_fixture_exists() -> None:

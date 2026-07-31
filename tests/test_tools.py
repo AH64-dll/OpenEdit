@@ -166,7 +166,10 @@ def test_run_python_read_only_succeeds_with_zero_ops(tmp_path: Path):
     """A read-only script (no ops emitted) should succeed, not error."""
     result = run_python({"code": "pass"}, str(tmp_path))
     assert result["status"] == "ok"
-    assert result["ops"] == []
+    # run_python returns a slim summary by default (ops_summary); full op
+    # dumps require include_full_ops=true.
+    assert result["ops_appended"] == 0
+    assert result["ops_summary"] == []
 
 
 def test_run_python_happy_path(tmp_path: Path):
@@ -286,7 +289,9 @@ def test_import_asset_unknown_result_id(tmp_path: Path):
 
 def test_list_assets_empty_project(tmp_path: Path):
     result = list_assets({}, str(tmp_path))
-    assert result == {"assets": []}
+    # The tool returns additive metadata (filtered/include_derivatives/detail/
+    # skipped_derivatives) next to the assets list; assert on the list itself.
+    assert result["assets"] == []
 
 
 def test_list_assets_with_assets(tmp_path: Path):
@@ -331,22 +336,34 @@ def test_execute_tool_unknown_raises(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_execute_trigger_render_subprocess_fails(tmp_path: Path):
-    proc = mock.AsyncMock()
-    proc.returncode = 1
-    proc.communicate.return_value = (b"", b"boom")
-    with mock.patch("asyncio.create_subprocess_exec", return_value=proc), \
-         pytest.raises((ValueError, KeyError, RuntimeError)) as exc:
-        await execute_trigger_render(args={}, project_path=tmp_path)
+    """v1.7+: the render runs on the durable RenderService. With
+    ``wait=True``, a failing renderer surfaces as a RuntimeError carrying
+    the renderer's error message (the old subprocess-based path raised
+    on non-zero exit; the job-queue path re-raises the job's failure)."""
+    async def failing_launch(project_path, job_id, mode):
+        raise RuntimeError("open_edit render failed: boom")
+
+    with mock.patch(
+        "open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE._launch",
+        failing_launch,
+    ):
+        with pytest.raises(RuntimeError) as exc:
+            await execute_trigger_render(args={"wait": True}, project_path=tmp_path)
     assert "open_edit render" in str(exc.value)
+    assert "boom" in str(exc.value)
 
 
 @pytest.mark.asyncio
 async def test_execute_trigger_render_missing_args_defaults_to_proxy(tmp_path: Path):
-    proc = mock.AsyncMock()
-    proc.returncode = 0
-    proc.communicate.return_value = (b"/tmp/output.mp4\n", b"")
-    with mock.patch("asyncio.create_subprocess_exec", return_value=proc), \
-         mock.patch("open_edit.kernel.tool_executor._probe_duration", return_value=5.0):
-        result = await execute_trigger_render(args={}, project_path=tmp_path)
+    async def fake_launch(project_path, job_id, mode):
+        return {"ok": True, "output_path": "/tmp/output.mp4", "mode": mode, "duration_sec": 5.0}
+
+    with mock.patch(
+        "open_edit.kernel.render_service.DEFAULT_RENDER_SERVICE._launch",
+        fake_launch,
+    ):
+        result = await execute_trigger_render(args={"wait": True}, project_path=tmp_path)
     assert result["mode"] == "proxy"
-    assert result["render_id"].startswith("render_")
+    # The job queue owns id generation (uuid hex); the contract is that a
+    # render_id is always present on the synchronous path.
+    assert result["render_id"]

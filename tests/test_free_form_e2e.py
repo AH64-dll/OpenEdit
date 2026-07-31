@@ -149,6 +149,12 @@ def test_free_form_failure_does_not_corrupt_graph(tmp_project_with_assets):
             assert not (run_dir / "ops.jsonl").exists()
 
 
+@pytest.mark.skipif(
+    os.environ.get("OPEN_EDIT_SANDBOX_BACKEND", "").strip().lower() == "dev",
+    reason="ro-bind mount semantics (/mnt/src0 -> EROFS) require the bwrap "
+    "sandbox backend; OPEN_EDIT_SANDBOX_BACKEND=dev runs without OS isolation "
+    "so /mnt/src0 does not exist (ENOENT)",
+)
 def test_source_ro_blocks_writes(tmp_project_with_assets):
     """L1: ro-bound source raises OSError(EROFS). The script catches the
     error and records the errno via position_sec (AddClipOp has no label)."""

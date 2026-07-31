@@ -62,7 +62,9 @@ def test_no_command_id_is_backward_compatible(project_path: Path) -> None:
     result = execute_tool(
         "query_project", {"query": "list_assets", "params": {}}, project_path,
     )
-    assert result == {"assets": []}
+    # list_assets returns additive metadata next to the assets list; the
+    # backward-compatible contract is that "assets" is present and empty.
+    assert result["assets"] == []
 
 
 def test_raising_tool_records_no_done_command(project_path: Path) -> None:

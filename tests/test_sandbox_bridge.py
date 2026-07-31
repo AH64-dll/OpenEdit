@@ -32,8 +32,15 @@ def _allow_tmp_workdir(tmp_path, monkeypatch):
     under /tmp/.../..., not under the process's cwd. Tests that need a
     NARROWER allowed root override this by calling monkeypatch.setenv
     themselves; pytest gives them the same monkeypatch instance.
+
+    Also forces the bwrap backend: this module unit-tests the bridge <-> Rust
+    binary CLI contract (mocked subprocess.run / _resolve_sandbox_bin). An
+    ambient ``OPEN_EDIT_SANDBOX_BACKEND=dev`` in the operator's shell would
+    reroute these calls into DevSubprocessBackend, which has no CLI contract
+    to assert. Backend-selection itself is covered in test_sandbox_backends.py.
     """
     monkeypatch.setenv("OPEN_EDIT_PROJECTS_ROOT", str(tmp_path))
+    monkeypatch.setenv("OPEN_EDIT_SANDBOX_BACKEND", "bwrap")
 
 
 def test_flushing_buffer_writes_first_then_appends(tmp_path):

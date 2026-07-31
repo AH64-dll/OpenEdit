@@ -37,6 +37,10 @@ _FAKE_REMOTION = textwrap.dedent(
     p.add_argument("--height")
     p.add_argument("--fps")
     p.add_argument("--codec")
+    p.add_argument("--concurrency")
+    p.add_argument("--pixel-format")
+    p.add_argument("--image-format")
+    p.add_argument("--prores-profile")
     args = p.parse_args()
     out = pathlib.Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -64,9 +68,9 @@ def project_with_remotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     fake.write_text(_FAKE_REMOTION)
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("OPEN_EDIT_REMOTION_BIN", str(fake))
+    # A real, ffprobe-parseable mp4 (with audio) is copied as the fake
+    # remotion output so the materialize ingest step can probe it.
     media = Path(__file__).resolve().parents[1] / "testdata" / "video_with_audio.mp4"
-    if not media.is_file():
-        media = Path("/home/ah64/apps/mlt-pipeline/testdata/video_with_audio.mp4")
     monkeypatch.setenv("OPEN_EDIT_REMOTION_FAKE_MEDIA", str(media))
     return project
 

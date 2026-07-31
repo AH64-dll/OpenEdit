@@ -96,7 +96,9 @@ def test_get_transcript_packed_tool(tmp_path: Path):
     res = get_transcript_packed({"asset_hash": asset_hash}, tmp_path)
     assert res["status"] == "ok"
     assert res["asset_hash"] == asset_hash
-    assert res["transcript"] == "[00:00.00 - 00:01.00] [Speaker 1] Testing tool"
+    # The tool returns the single packed field (transcript_packed) to avoid
+    # 3x transcript token burn in MCP responses.
+    assert res["transcript_packed"] == "[00:00.00 - 00:01.00] [Speaker 1] Testing tool"
 
     # Test missing asset_hash
     err_res = get_transcript_packed({}, tmp_path)
@@ -136,4 +138,4 @@ def test_tool_registration_and_dispatch(tmp_path: Path):
     # Dispatch via pillar tool dispatcher
     res = dispatch_query("get_transcript_packed", {"asset_hash": asset_hash}, tmp_path)
     assert res["status"] == "ok"
-    assert res["transcript"] == "[00:00.00 - 00:01.00] [Host] Dispatched"
+    assert res["transcript_packed"] == "[00:00.00 - 00:01.00] [Host] Dispatched"

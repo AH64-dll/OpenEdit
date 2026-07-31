@@ -16,7 +16,7 @@ def get_transcript_packed(args: dict, project_path: str | Path) -> dict[str, Any
         project_path: path to the project directory.
 
     Returns:
-        {"status": "ok", "asset_hash": str, "transcript": str, "transcript_md": str, "transcript_packed": str}
+        {"status": "ok", "asset_hash": str, "transcript_packed": str}
         or {"status": "error", "error": str} on failure.
     """
     try:

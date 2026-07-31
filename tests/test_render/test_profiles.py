@@ -33,13 +33,20 @@ def test_select_profile_unknown_raises() -> None:
 
 def test_profile_to_mlt_args_includes_codecs() -> None:
     p = select_profile("1080p30")
-    args = profile_to_mlt_args(p)
+    # With the default (gpu) backend the vcodec is resolved to a hardware
+    # encoder when available (nvenc/amf/qsv/vaapi), so pin backend="cpu" for
+    # a deterministic libx264 assertion.
+    args = profile_to_mlt_args(p, backend="cpu")
     assert "vcodec=libx264" in args
     assert "acodec=aac" in args
     assert "s=1920x1080" in args
     assert "frame_rate_num=30" in args
     assert "frame_rate_den=1" in args
     assert "progressive=1" in args
+    # The gpu path still emits a vcodec entry (hardware encoder or libx264
+    # fallback) — the codec arg must never be dropped.
+    gpu_args = profile_to_mlt_args(p, backend="gpu")
+    assert any(a.startswith("vcodec=") for a in gpu_args)
 
 
 def test_profile_to_mlt_args_includes_aspect_and_colorspace() -> None:
