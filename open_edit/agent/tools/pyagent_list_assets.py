@@ -1,7 +1,6 @@
 """pyagent_list_assets: list all ingested assets in the project.
 
-Replaces the phantom ``list_assets`` tool referenced in the
-TOOL_USAGE_GUIDE (tool_schemas.py) that was never built.
+Exported as ``list_assets`` from ``open_edit.agent.tools``.
 """
 from __future__ import annotations
 

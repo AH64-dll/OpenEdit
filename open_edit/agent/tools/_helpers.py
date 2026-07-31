@@ -31,13 +31,6 @@ class _StoreBuffer:
         self._store.append(op)
 
 
-class _ReadBackBuffer(list):
-    """No-op buffer for read-back operations: collects ops but never persists."""
-
-    def append(self, op: Any) -> None:
-        super().append(op)
-
-
 def _project_root(project_path: str | Path) -> Path:
     """Return the project ROOT directory (the folder that contains
     ``.open_edit/``). Accepts either the root itself or a file inside it

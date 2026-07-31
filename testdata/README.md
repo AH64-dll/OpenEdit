@@ -69,7 +69,7 @@ python3 -c "
 import json
 from pathlib import Path
 from open_edit.ir.types import Project
-from open_edit.pydantic_compat import TypeAdapter
+from pydantic import TypeAdapter
 from open_edit.ir.apply import derive_timeline
 G = Path('tests/testdata/golden_11clip')
 project = TypeAdapter(Project).validate_python(json.loads((G / 'edit_graph.json').read_text()))

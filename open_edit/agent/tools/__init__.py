@@ -1,12 +1,12 @@
-"""New agent tools for Phase 4 Task 7.
+"""Agent tool registry.
 
-This package is the home for the 5 new tools (run_python, get_style_profile,
-set_pinned_value, get_pending_notes, add_marker). The 32 repointed wrappers
-still live in `phase3_pyagent_core/tools/*.py`; this package is the canonical
-home for the new ones.
+This package is the canonical registry of agent tools. It re-exports 19
+tool functions (``pyagent_*.py`` modules) so agent hosts and the pi
+extension bridge can dispatch them via ``getattr(open_edit.agent.tools,
+name)``.
 
-The runtime's OP_TABLE dispatches by `(module_path, function_name)`, so each
-wrapper is exposed by importing its function from this package.
+``pyagent_timeline_ops`` is NOT re-exported here: its query/edit/generate
+functions are dispatched by ``open_edit.kernel.pillar_tools`` instead.
 
 v1.4 P1-1: also re-exports ``search_assets`` and ``import_asset`` so the
 pi extension bridge can dispatch them via ``getattr(tools_mod, name)``.
