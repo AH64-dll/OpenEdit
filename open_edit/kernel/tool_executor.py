@@ -86,7 +86,22 @@ def _payload_hash(args: dict[str, Any]) -> str:
 
 
 def _is_error_result(result: Any) -> bool:
-    return isinstance(result, dict) and result.get("status") == "error"
+    """True for error-shaped results that must never be cached as done.
+
+    Matches the canonical ``{"status": "error"}`` contract plus the
+    MCP-parity ``{"ok": False, ...}`` and ``{"error": ...}`` envelopes
+    used by the render-job helpers and ``trigger_render`` (an error
+    cached as ``done`` would turn a retried failure into a success hit).
+    """
+    if not isinstance(result, dict):
+        return False
+    if result.get("status") == "error":
+        return True
+    if result.get("ok") is False:
+        return True
+    # ``public_job`` carries ``error: None`` on success, so only a
+    # non-None ``error`` value marks a failure.
+    return "error" in result and result.get("error") is not None
 
 
 def _record_done_command(
@@ -145,7 +160,9 @@ def execute_tool(
     name: str, args: dict[str, Any], project_path: Path,
     command_id: str | None = None,
 ) -> dict[str, Any]:
-    """Run a tool from ``open_edit.agent.tools.<name>``.
+    """Run a tool by name, dispatching through
+    ``open_edit.agent.tools.TOOL_TABLE`` (plus the kernel branches in
+    this module for render-job helpers and pillar routing).
 
     The tool signature is ``fn(args: dict, project_path: str) -> dict``.
     Raises :class:`ToolNotFound` if the tool module/function is missing
@@ -163,8 +180,8 @@ def execute_tool(
     result = _run_tool(name, args, project_path)
 
     # Awaitable results (e.g. ``cancel_render_job`` from an async caller)
-    # are recorded by whoever awaits them; recording a coroutine object
-    # would pollute the idempotency store.
+    # are not recorded here: recording a coroutine object would pollute
+    # the idempotency store, and the awaiting caller owns that result.
     if command_id is not None and not inspect.isawaitable(result):
         _record_done_command(store, project_path, command_id, name, args, result)
     return result

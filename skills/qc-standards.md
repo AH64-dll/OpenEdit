@@ -15,7 +15,9 @@ successful server-side render: `render_jobs._run` runs the gate on
 the finished MP4 and attaches the report to the job result as
 `qc_report` (also persisted in the `qc_report` column of
 `render_jobs.db`). The CLI (`open_edit render`) prints the same gate
-result. The agent sees a `qc_report` summary in the `trigger_render`
+result. `open_edit render` exits 1 when the QC gate fails — diagnostic
+only; the server render path is unaffected. The agent sees a
+`qc_report` summary in the `trigger_render`
 tool result and should treat a failing gate as a signal to revise the
 EditGraph rather than ship.
 

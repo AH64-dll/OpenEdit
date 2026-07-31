@@ -404,7 +404,11 @@ def main(argv: list[str] | None = None) -> int:
     p_undo = sub.add_parser("undo", help="Revert the most recent applied op")
     p_undo.set_defaults(func=cmd_undo)
 
-    p_render = sub.add_parser("render", help="Render the project to MP4 + run QC")
+    p_render = sub.add_parser(
+        "render",
+        help=("Render the project to MP4 + run QC. Exit code 1 when the QC gate "
+              "fails (diagnostic only; server render path unaffected)."),
+    )
     p_render.add_argument("--profile", default=None, help="render profile (default: auto from --mode; 720p30 for proxy, 1080p30 for final)")
     p_render.add_argument("--mode", default="proxy", choices=["proxy", "final"], help="render mode")
     p_render.add_argument(

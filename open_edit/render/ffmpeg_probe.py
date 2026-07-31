@@ -18,6 +18,23 @@ _END_RE = re.compile(
 )
 
 
+class FFprobeError(ValueError):
+    """Raised when an ffmpeg/ffprobe probe exits non-zero (decode failure).
+
+    The message is the last non-empty stderr line (fallback ``"ffmpeg
+    failed"``); the full captured stderr is kept on ``.stderr``.
+    """
+
+    def __init__(self, message: str, *, stderr: str = ""):
+        super().__init__(message)
+        self.stderr = stderr
+
+
+def _last_stderr_line(stderr: str) -> str:
+    lines = (stderr or "").strip().splitlines()
+    return lines[-1] if lines else ""
+
+
 def detect_silence_spans(
     path: Path | str,
     threshold_db: float = DEFAULT_THRESHOLD_DB,
@@ -54,6 +71,12 @@ def detect_silence_spans(
             end = float(me.group(1)) + start_sec
             if starts:
                 spans.append((starts.pop(0), end))
+    if proc.returncode != 0:
+        # Decode failure: never report a partial "0 silence" success.
+        raise FFprobeError(
+            _last_stderr_line(proc.stderr) or "ffmpeg failed",
+            stderr=proc.stderr,
+        )
     return spans
 
 

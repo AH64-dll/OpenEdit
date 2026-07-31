@@ -16,6 +16,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from open_edit.render.ffmpeg_probe import probe_duration
+
 
 DEFAULT_FREEZE_MIN_SEC = 1.0
 DEFAULT_FREEZE_NOISE_DB = -50.0
@@ -78,17 +80,24 @@ def list_frozen_frames(
             ok=False, min_sec=min_sec, noise_db=noise_db, spans=[],
             error=lines[-1] if lines else "ffmpeg failed",
         )
+    try:
+        total_duration = probe_duration(video_path)
+    except Exception:
+        total_duration = None
     return FrozenFramesResult(
         ok=True, min_sec=min_sec, noise_db=noise_db,
-        spans=_parse_freezedetect(proc.stderr or ""),
+        spans=_parse_freezedetect(proc.stderr or "", total_duration=total_duration),
     )
 
 
-def _parse_freezedetect(text: str) -> list[FrozenSpan]:
+def _parse_freezedetect(text: str, total_duration: float | None = None) -> list[FrozenSpan]:
     """Parse freezedetect lines from ffmpeg's stderr.
 
     freezedetect emits a ``freeze_start`` line, then a
-    ``freeze_duration``/``freeze_end`` pair when the freeze ends.
+    ``freeze_duration``/``freeze_end`` pair when the freeze ends. A
+    freeze that runs to EOF emits no ``freeze_end``; ``total_duration``
+    (probed video duration) is used as the span end so the trailing
+    freeze does not collapse to duration 0.
     """
     starts: list[float] = []
     durations: list[float] = []
@@ -110,7 +119,7 @@ def _parse_freezedetect(text: str) -> list[FrozenSpan]:
         if e is None and d is not None:
             e = s + d
         if e is None:
-            e = s
+            e = total_duration if total_duration is not None and total_duration > s else s
         spans.append(FrozenSpan(
             start_sec=s, end_sec=e,
             duration_sec=(d if d is not None else e - s),

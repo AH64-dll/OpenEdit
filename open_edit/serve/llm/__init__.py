@@ -21,7 +21,6 @@ Environment
 ``OPEN_EDIT_PI_BINARY``      — path to the ``pi`` binary (default: from PATH).
 ``OPEN_EDIT_PI_EXTENSION``   — path to the open_edit pi extension .ts file
                                 (default: ``<pkg>/serve/pi_extension/extension.ts``).
-``OPEN_EDIT_PI_PROVIDER``    — provider name passed to pi (default ``opencode-go``).
 ``OPEN_EDIT_PI_SESSION_ID``  — pi session id (set per-WS connection).
 
 Package layout

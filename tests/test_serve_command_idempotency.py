@@ -73,3 +73,24 @@ def test_raising_tool_records_no_done_command(project_path: Path) -> None:
 
     store = EditGraphStore(project_path / ".open_edit" / "edit_graph.db")
     assert store.get_command_status("cmd-bad") != "done"
+
+
+def test_error_envelope_not_recorded_as_done(project_path: Path) -> None:
+    """An MCP-parity ``{"ok": False, ...}`` failure must not be cached as
+    a ``done`` command: a re-delivered call would otherwise get the
+    cached failure as a success hit."""
+    r1 = execute_tool(
+        "get_render_job", {"job_id": "no-such-job"},
+        project_path, command_id="cmd-err",
+    )
+    assert r1["ok"] is False
+    r2 = execute_tool(
+        "get_render_job", {"job_id": "no-such-job"},
+        project_path, command_id="cmd-err",
+    )
+    # Not short-circuited to a cached result; re-executed and still failing.
+    assert r2["ok"] is False
+
+    store = EditGraphStore(project_path / ".open_edit" / "edit_graph.db")
+    assert store.command_exists("cmd-err") is False
+    assert store.get_command_status("cmd-err") != "done"

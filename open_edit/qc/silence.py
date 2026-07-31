@@ -9,7 +9,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from open_edit.render.ffmpeg_probe import detect_silence_spans
+from open_edit.render.ffmpeg_probe import FFprobeError, detect_silence_spans
 
 
 DEFAULT_SILENCE_DB = -35.0
@@ -103,6 +103,13 @@ def list_silence(
         )
     except subprocess.TimeoutExpired:
         return SilenceResult(ok=False, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[], error="ffmpeg timed out after 60s")
+    except FFprobeError as exc:
+        # Decode failure must surface as ok=False (the pre-6.8 shape),
+        # not as a silent "0 silence" success.
+        return SilenceResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db,
+            min_sec=min_sec, spans=[], error=str(exc),
+        )
     return SilenceResult(
         ok=True, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec,
         spans=[SilenceSpan(start_sec=s, end_sec=e, duration_sec=e - s) for s, e in spans],

@@ -47,13 +47,6 @@ if TYPE_CHECKING:
     from .llm.events import StreamEvent
 
 
-# A lightweight copy of the StreamEvent shape. We only import the real
-# StreamEvent TypedDict under TYPE_CHECKING to keep this module free of
-# llm-package imports (the llm package imports the adapters).
-class _StreamEvent(dict):
-    """Marker subclass; consumers treat as dict[str, Any]."""
-
-
 @runtime_checkable
 class CLIAdapter(Protocol):
     """One CLI backend. Stateless; methods only."""

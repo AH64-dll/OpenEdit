@@ -4,7 +4,7 @@ Enforce the hard dependency rules:
 - kernel must never import ``open_edit.serve`` (serve is the outermost layer)
 - ir must stay pure: never import agent / storage / serve / kernel
 - storage must not import below its boundary: ``ir.apply`` / ``ir.api`` / ``ir.factory``
-  (``ir.ids`` and ``ir.hash`` are permitted by the amended plan)
+  (``ir.ids`` / ``ir.hash`` / ``ir.types`` / ``ir.validate`` / ``ir.derive`` are permitted)
 - mcp must never import ``open_edit.serve``
 
 Guards match actual ``import``/``from`` statements only (dotted-path components),
