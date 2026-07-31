@@ -53,9 +53,14 @@ packages = ["open_edit"]
 
 # Ship harness skill markdown with the wheel (not Cursor-only).
 [tool.hatch.build.targets.wheel.force-include]
+"open_edit/harness_skills/README.md" = "open_edit/harness_skills/README.md"
 "open_edit/harness_skills/open-edit-mcp.md" = "open_edit/harness_skills/open-edit-mcp.md"
 "open_edit/harness_skills/open-edit-mcp-reference.md" = "open_edit/harness_skills/open-edit-mcp-reference.md"
-"open_edit/harness_skills/README.md" = "open_edit/harness_skills/README.md"
+"open_edit/harness_skills/tool_surface.md" = "open_edit/harness_skills/tool_surface.md"
+"open_edit/harness_skills/edit-planning.md" = "open_edit/harness_skills/edit-planning.md"
+"open_edit/harness_skills/remotion_motion.md" = "open_edit/harness_skills/remotion_motion.md"
+"open_edit/harness_skills/qc-standards.md" = "open_edit/harness_skills/qc-standards.md"
+"open_edit/harness_skills/freeform_and_effects.md" = "open_edit/harness_skills/freeform_and_effects.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
