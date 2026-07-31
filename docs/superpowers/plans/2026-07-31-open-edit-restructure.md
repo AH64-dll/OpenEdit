@@ -13,7 +13,7 @@
 - Layering rules (enforced by `tests/test_layering.py` from Task 2.5 onward):
   - `grep -rn "open_edit.serve" open_edit/kernel/ open_edit/mcp/ open_edit/ir/` → must be empty.
   - `grep -rn "open_edit.agent\|open_edit.storage\|open_edit.serve" open_edit/ir/` → must be empty.
-  - `grep -rn "ir.apply\|ir.api\|ir.factory" open_edit/storage/` → must be empty (storage may import `ir.types`/`ir.validate`/`ir.ids` only).
+  - `grep -rn "ir.apply\|ir.api\|ir.factory" open_edit/storage/` → must be empty (storage may import `ir.types`/`ir.validate`/`ir.ids`/`ir.hash` only — user-approved amendment 2026-07-31: `ir.hash` is pure and needed by `storage/timeline_cache.py`).
 - Test command everywhere: `python3 -m pytest tests/ -x -q`. After each task the suite must be green (`pytest tests/` full run, no skips of pre-existing tests).
 - No new third-party dependencies. `pyproject.toml` is not modified except `cli.py --version` reading metadata (Task 1.11).
 - Keep all agent-facing tool *names* and *argument keys* stable until Task 4.x completes; external contracts are free to change after this plan (user-approved), but each change must be accompanied by its schema/skill update in the same commit.
@@ -217,6 +217,19 @@ git commit -m "fix(serve): wire render snapshot listing to RenderSnapshotStore"
 
 Run: `python3 -m pytest tests/ -q 2>&1 | tail -30`
 Expected: 0 failures. For any remaining failure, fix it in this task (they are all Phase-0 fallout — broken imports, wrong class names). Do not skip or mark xfail without writing a comment explaining why.
+
+- [ ] **Step 1a: Guard the strace observation tests (user-approved decision 2026-07-31)**
+
+`tests/test_sandbox_observations.py` fails because `tests/testdata/sandbox/observations/` (strace fixtures) was never committed. Add a module-level skipif to that file:
+
+```python
+_OBS_DIR = Path(__file__).parent.parent / "sandbox" / "observations"
+pytestmark = pytest.mark.skipif(
+    not _OBS_DIR.is_dir(), reason="strace observation fixtures not present in repo"
+)
+```
+
+(Adjust to the file's actual `OBS_DIR` definition.) The 4 strace tests then skip on any machine without the fixture data.
 
 - [ ] **Step 2: Commit any remaining fixes**
 
