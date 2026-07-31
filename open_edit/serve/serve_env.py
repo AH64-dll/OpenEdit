@@ -66,15 +66,6 @@ def get_visual_verify_config() -> dict[str, Any]:
     }
 
 
-def get_context_budget_config() -> dict[str, Any]:
-    """Return the typed config for the context budget system."""
-    return {
-        "max_tokens": _env_int("OPEN_EDIT_CONTEXT_MAX_TOKENS", 32000),
-        "reserve_tokens": _env_int("OPEN_EDIT_CONTEXT_RESERVE_TOKENS", 4000),
-        "max_state_chars": _env_int("OPEN_EDIT_CONTEXT_MAX_STATE_CHARS", 10000),
-    }
-
-
 def get_overlay_config() -> dict[str, Any]:
     """Return the typed config for the v1.6 HTML overlay pipeline."""
     overlay_tmpdir_str = _env_str("OPEN_EDIT_OVERLAY_TMPDIR", "") or ""

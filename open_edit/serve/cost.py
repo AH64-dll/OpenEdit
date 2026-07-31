@@ -20,7 +20,6 @@ Three responsibilities:
    sum the ``usage.cost.total`` and ``usage.totalTokens`` across all
    assistant-message entries. Two variants:
 
-   - ``parse_pi_session_usage(path)`` — full-file aggregate.
    - ``parse_pi_session_usage_delta(path, last_size)`` — only the
      bytes appended after ``last_size``. If the file shrank (pi
      truncated the session), the delta resets to 0 and the full
@@ -216,20 +215,6 @@ def _accumulate_session_usage(path: Path) -> dict[str, Any]:
             if isinstance(cost, dict):
                 total_cost += float(cost.get("total", 0) or 0)
     return {"tokens": total_tokens, "cost_usd": total_cost}
-
-
-def parse_pi_session_usage(path: Path) -> dict[str, Any]:
-    """Parse the entire pi session file and return aggregate usage.
-
-    Returns ``{tokens: int, cost_usd: float, file_size: int}``. If
-    the file doesn't exist, returns zeros — the agent loop decides
-    whether to surface that as ``source: "unavailable"``.
-    """
-    if not path.exists():
-        return {"tokens": 0, "cost_usd": 0.0, "file_size": 0}
-    out = _accumulate_session_usage(path)
-    out["file_size"] = path.stat().st_size
-    return out
 
 
 def parse_pi_session_usage_delta(

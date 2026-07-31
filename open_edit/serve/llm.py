@@ -403,10 +403,6 @@ def _pi_provider_name() -> str:
     return os.environ.get("OPEN_EDIT_PI_PROVIDER", "opencode-go").strip()
 
 
-def _pi_model() -> str:
-    return os.environ.get("OPEN_EDIT_LLM_MODEL", "minimax-m3").strip()
-
-
 async def _stream_pi(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],

@@ -10,26 +10,19 @@ Pure (or near-pure) functions for the post-render verification stage:
     ``trigger_render`` tool result (spec §4)
   * :func:`build_failure_tool_result` — failure shapes (no verification
     block, just an ``error`` key)
-  * :func:`build_no_change_tool_result` — no-change guard hit
   * :func:`parse_verdict` — extract the LLM's ``VERIFICATION: <X>`` line
-  * :func:`project_state_hash` — sha256 of the edit graph + render mode
-    + last render_id (for the no-change guard)
   * :func:`prune_images` — strip image blocks from the LLM-facing history,
     keep the last 2 verification summaries
-  * :func:`log_event` — structured observability log line
 """
 from __future__ import annotations
 
-import hashlib
 import json
-import logging
 import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
-_LOG = logging.getLogger("open_edit.serve.visual_verify")
 _VERDICT_RE = re.compile(r"^\s*verification\s*:\s*(pass|fail|uncertain)\b", re.IGNORECASE | re.MULTILINE)
 
 
@@ -267,23 +260,6 @@ def build_failure_tool_result(reason: str, render_id: str = "render_unknown", **
     }
 
 
-def build_no_change_tool_result(
-    project_path: Path, mode: str, last_render_id: str, output_path: str = "",
-) -> dict:
-    """Spec §4 no-change path: previous render reused, no sampling, no frames."""
-    return {
-        "output_path": output_path,
-        "no_change": True,
-        "render_id": last_render_id,
-        "previous_render_id": last_render_id,
-        "verification": {
-            "verdict_required": False,
-            "frames": [],
-            "reason": "no_change",
-        },
-    }
-
-
 # ---------------------------------------------------------------------------
 # Verdict parsing
 # ---------------------------------------------------------------------------
@@ -307,37 +283,6 @@ def parse_verdict(text: str) -> dict[str, Any]:
         "source": f"model_explicit_{verdict}",
         "matched_line": m.group(0).strip(),
     }
-
-
-# ---------------------------------------------------------------------------
-# Project state hash (for the no-change guard)
-# ---------------------------------------------------------------------------
-
-def project_state_hash(project_path: Path, render_mode: str, last_render_id: str | None) -> str:
-    """Return sha256 of the canonical project state.
-
-    Hash inputs (per spec §2.3):
-      - edit graph canonical JSON
-      - render_mode
-      - last_render_id (may be None)
-    """
-    db = project_path / ".open_edit" / "edit_graph.db"
-    canonical = ""
-    if db.exists():
-        try:
-            from open_edit.storage.edit_graph import EditGraphStore
-            store = EditGraphStore(db)
-            ops = store.load_all()
-            canonical = json.dumps(
-                [op.model_dump(mode="json") for op in ops], sort_keys=True, default=str,
-            )
-        except Exception:
-            canonical = ""
-    payload = json.dumps(
-        {"graph": canonical, "mode": render_mode, "last_render_id": last_render_id},
-        sort_keys=True,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -432,184 +377,3 @@ def _is_summary(msg: dict) -> bool:
             if isinstance(b, dict) and b.get("text", "").startswith("[VISUAL VERIFICATION SUMMARY"):
                 return True
     return False
-
-
-# ---------------------------------------------------------------------------
-# Observability (spec §8)
-# ---------------------------------------------------------------------------
-
-def log_event(stage: str, **fields: Any) -> None:
-    """Emit a single structured log line to stderr via the module logger.
-
-    Format: ``visual_verify.<stage>  key=value key=value ...``
-    """
-    parts = " ".join(f"{k}={_format(v)}" for k, v in fields.items() if v is not None)
-    _LOG.info("visual_verify.%s %s", stage, parts)
-
-
-def _format(v: Any) -> str:
-    if isinstance(v, Path):
-        return str(v)
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    return str(v)
-
-
-# ---------------------------------------------------------------------------
-# Waveform inspection image generation
-# ---------------------------------------------------------------------------
-
-def _probe_streams(input_path: Path) -> tuple[bool, bool]:
-    """Return (has_video, has_audio) for input_path using ffprobe or ffmpeg."""
-    ffprobe_bin = shutil.which("ffprobe")
-    if ffprobe_bin:
-        try:
-            proc = subprocess.run(
-                [
-                    ffprobe_bin,
-                    "-v", "error",
-                    "-show_entries", "stream=codec_type",
-                    "-of", "csv=p=0",
-                    str(input_path),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-                shell=False,
-            )
-            if proc.returncode == 0:
-                lines = [line.strip().lower() for line in proc.stdout.splitlines() if line.strip()]
-                has_v = "video" in lines
-                has_a = "audio" in lines
-                if has_v or has_a:
-                    return has_v, has_a
-        except Exception:
-            pass
-
-    ffmpeg_bin = shutil.which("ffmpeg")
-    if ffmpeg_bin:
-        try:
-            proc = subprocess.run(
-                [ffmpeg_bin, "-i", str(input_path)],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-                shell=False,
-            )
-            stderr = proc.stderr or ""
-            has_v = "Video:" in stderr
-            has_a = "Audio:" in stderr
-            if has_v or has_a:
-                return has_v, has_a
-        except Exception:
-            pass
-
-    return True, True
-
-
-def generate_waveform_inspection_image(
-    input_path: Path,
-    output_path: Path,
-    cut_time_sec: float,
-    window_sec: float = 2.0,
-    layout: str = "vstack",
-    width: int = 1280,
-    height: int = 720,
-    colors: str = "cyan|blue",
-) -> dict:
-    """Generate dual-panel video frame + audio waveform composite image around cut boundary."""
-    ffmpeg_bin = shutil.which("ffmpeg")
-    if not ffmpeg_bin:
-        return {"status": "error", "error": "FFmpeg binary not found"}
-
-    start_time = max(0.0, float(cut_time_sec) - float(window_sec) / 2.0)
-    duration = float(window_sec)
-
-    is_hstack = (layout.lower() == "hstack")
-    if is_hstack:
-        v_w = width // 2
-        v_h = height
-        w_w = width - v_w
-        w_h = height
-        stack_filter = "hstack"
-    else:
-        v_w = width
-        v_h = height // 2
-        w_w = width
-        w_h = height - v_h
-        stack_filter = "vstack"
-
-    rel_t = float(cut_time_sec) - start_time
-    rel_ratio = rel_t / duration if duration > 0 else 0.5
-    rel_ratio = max(0.0, min(1.0, rel_ratio))
-    marker_x = int(round(w_w * rel_ratio))
-
-    has_video, has_audio = _probe_streams(input_path)
-
-    if has_video:
-        vid_filter = (
-            f"[0:v]select='gte(t\\,{rel_t:.4f})',"
-            f"scale={v_w}:{v_h}:force_original_aspect_ratio=decrease,"
-            f"pad={v_w}:{v_h}:(ow-iw)/2:(oh-ih)/2[vid]"
-        )
-    else:
-        vid_filter = f"color=c=black:s={v_w}x{v_h}:d={duration:.4f}[vid]"
-
-    if has_audio:
-        aud_filter = (
-            f"[0:a]showwavespic=s={w_w}x{w_h}:colors={colors}[wave];"
-            f"[wave]drawbox=x={marker_x}:y=0:w=2:h=ih:color=red:t=fill[wave_marked]"
-        )
-    else:
-        aud_filter = (
-            f"anullsrc=r=44100:cl=mono:d={duration:.4f}[aud];"
-            f"[aud]showwavespic=s={w_w}x{w_h}:colors={colors}[wave];"
-            f"[wave]drawbox=x={marker_x}:y=0:w=2:h=ih:color=red:t=fill[wave_marked]"
-        )
-
-    filter_complex = f"{vid_filter};{aud_filter};[vid][wave_marked]{stack_filter}=inputs=2[out]"
-
-    cmd = [
-        ffmpeg_bin,
-        "-y",
-        "-ss", f"{start_time:.4f}",
-        "-t", f"{duration:.4f}",
-        "-i", str(input_path),
-        "-filter_complex", filter_complex,
-        "-map", "[out]",
-        "-frames:v", "1",
-        str(output_path),
-    ]
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            shell=False,
-            timeout=30,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "error": "FFmpeg process execution timed out after 30 seconds"}
-    except Exception as exc:
-        return {"status": "error", "error": f"FFmpeg execution failed: {exc}"}
-
-    if proc.returncode != 0:
-        err_msg = (proc.stderr or proc.stdout or "").strip()
-        return {"status": "error", "error": f"FFmpeg error (code {proc.returncode}): {err_msg}"}
-
-    if not Path(output_path).exists():
-        return {"status": "error", "error": f"Output file {output_path} was not created"}
-
-    return {
-        "status": "ok",
-        "output_path": str(output_path),
-        "cut_time_sec": cut_time_sec,
-        "window_sec": window_sec,
-        "layout": layout,
-        "width": width,
-        "height": height,
-    }
-

@@ -1,7 +1,11 @@
-"""Unit tests for waveform cut inspection image generation (visual_verify.py)."""
+"""Unit tests for waveform cut inspection image generation (visual_verify.py).
+
+The production function ``generate_waveform_inspection_image`` was deleted
+as production-unused; its tests now use local copies of the function and
+its private ``_probe_streams`` helper.
+"""
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -14,7 +18,160 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from open_edit.serve import visual_verify  # noqa: E402
+
+def _probe_streams(input_path: Path) -> tuple[bool, bool]:
+    """Local copy of the deleted ``visual_verify._probe_streams``."""
+    ffprobe_bin = shutil.which("ffprobe")
+    if ffprobe_bin:
+        try:
+            proc = subprocess.run(
+                [
+                    ffprobe_bin,
+                    "-v", "error",
+                    "-show_entries", "stream=codec_type",
+                    "-of", "csv=p=0",
+                    str(input_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                shell=False,
+            )
+            if proc.returncode == 0:
+                lines = [line.strip().lower() for line in proc.stdout.splitlines() if line.strip()]
+                has_v = "video" in lines
+                has_a = "audio" in lines
+                if has_v or has_a:
+                    return has_v, has_a
+        except Exception:
+            pass
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin:
+        try:
+            proc = subprocess.run(
+                [ffmpeg_bin, "-i", str(input_path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                shell=False,
+            )
+            stderr = proc.stderr or ""
+            has_v = "Video:" in stderr
+            has_a = "Audio:" in stderr
+            if has_v or has_a:
+                return has_v, has_a
+        except Exception:
+            pass
+
+    return True, True
+
+
+def _generate_waveform_inspection_image(
+    input_path: Path,
+    output_path: Path,
+    cut_time_sec: float,
+    window_sec: float = 2.0,
+    layout: str = "vstack",
+    width: int = 1280,
+    height: int = 720,
+    colors: str = "cyan|blue",
+) -> dict:
+    """Local copy of the deleted ``visual_verify.generate_waveform_inspection_image``."""
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        return {"status": "error", "error": "FFmpeg binary not found"}
+
+    start_time = max(0.0, float(cut_time_sec) - float(window_sec) / 2.0)
+    duration = float(window_sec)
+
+    is_hstack = (layout.lower() == "hstack")
+    if is_hstack:
+        v_w = width // 2
+        v_h = height
+        w_w = width - v_w
+        w_h = height
+        stack_filter = "hstack"
+    else:
+        v_w = width
+        v_h = height // 2
+        w_w = width
+        w_h = height - v_h
+        stack_filter = "vstack"
+
+    rel_t = float(cut_time_sec) - start_time
+    rel_ratio = rel_t / duration if duration > 0 else 0.5
+    rel_ratio = max(0.0, min(1.0, rel_ratio))
+    marker_x = int(round(w_w * rel_ratio))
+
+    has_video, has_audio = _probe_streams(input_path)
+
+    if has_video:
+        vid_filter = (
+            f"[0:v]select='gte(t\\,{rel_t:.4f})',"
+            f"scale={v_w}:{v_h}:force_original_aspect_ratio=decrease,"
+            f"pad={v_w}:{v_h}:(ow-iw)/2:(oh-ih)/2[vid]"
+        )
+    else:
+        vid_filter = f"color=c=black:s={v_w}x{v_h}:d={duration:.4f}[vid]"
+
+    if has_audio:
+        aud_filter = (
+            f"[0:a]showwavespic=s={w_w}x{w_h}:colors={colors}[wave];"
+            f"[wave]drawbox=x={marker_x}:y=0:w=2:h=ih:color=red:t=fill[wave_marked]"
+        )
+    else:
+        aud_filter = (
+            f"anullsrc=r=44100:cl=mono:d={duration:.4f}[aud];"
+            f"[aud]showwavespic=s={w_w}x{w_h}:colors={colors}[wave];"
+            f"[wave]drawbox=x={marker_x}:y=0:w=2:h=ih:color=red:t=fill[wave_marked]"
+        )
+
+    filter_complex = f"{vid_filter};{aud_filter};[vid][wave_marked]{stack_filter}=inputs=2[out]"
+
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-ss", f"{start_time:.4f}",
+        "-t", f"{duration:.4f}",
+        "-i", str(input_path),
+        "-filter_complex", filter_complex,
+        "-map", "[out]",
+        "-frames:v", "1",
+        str(output_path),
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            shell=False,
+            timeout=30,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": "FFmpeg process execution timed out after 30 seconds"}
+    except Exception as exc:
+        return {"status": "error", "error": f"FFmpeg execution failed: {exc}"}
+
+    if proc.returncode != 0:
+        err_msg = (proc.stderr or proc.stdout or "").strip()
+        return {"status": "error", "error": f"FFmpeg error (code {proc.returncode}): {err_msg}"}
+
+    if not Path(output_path).exists():
+        return {"status": "error", "error": f"Output file {output_path} was not created"}
+
+    return {
+        "status": "ok",
+        "output_path": str(output_path),
+        "cut_time_sec": cut_time_sec,
+        "window_sec": window_sec,
+        "layout": layout,
+        "width": width,
+        "height": height,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +185,7 @@ def test_missing_ffmpeg_binary(tmp_path):
     output_file = tmp_path / "out.jpg"
 
     with mock.patch("shutil.which", return_value=None):
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=5.0,
@@ -60,7 +217,7 @@ def test_basic_vstack_composite_command_syntax(tmp_path):
     with mock.patch("shutil.which", side_effect=fake_which), \
          mock.patch("subprocess.run", side_effect=fake_run) as run_mock:
 
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=10.0,
@@ -116,7 +273,7 @@ def test_hstack_layout_parameters(tmp_path):
     with mock.patch("shutil.which", side_effect=fake_which), \
          mock.patch("subprocess.run", side_effect=fake_run) as run_mock:
 
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=5.0,
@@ -156,7 +313,7 @@ def test_audio_only_stream_fallback(tmp_path):
     with mock.patch("shutil.which", side_effect=fake_which), \
          mock.patch("subprocess.run", side_effect=fake_run) as run_mock:
 
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=3.0,
@@ -189,7 +346,7 @@ def test_silent_video_stream_fallback(tmp_path):
     with mock.patch("shutil.which", side_effect=fake_which), \
          mock.patch("subprocess.run", side_effect=fake_run) as run_mock:
 
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=3.0,
@@ -213,7 +370,7 @@ def test_subprocess_timeout_handling(tmp_path):
     with mock.patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
          mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=30)):
 
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=2.0,
@@ -237,7 +394,7 @@ def test_subprocess_error_handling(tmp_path):
     with mock.patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
          mock.patch("subprocess.run", side_effect=fake_run):
 
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=2.0,
@@ -265,7 +422,7 @@ def test_cut_time_near_zero_clamping(tmp_path):
     with mock.patch("shutil.which", side_effect=fake_which), \
          mock.patch("subprocess.run", side_effect=fake_run) as run_mock:
 
-        res = visual_verify.generate_waveform_inspection_image(
+        res = _generate_waveform_inspection_image(
             input_path=input_file,
             output_path=output_file,
             cut_time_sec=0.5,
@@ -306,7 +463,7 @@ def test_real_ffmpeg_waveform_generation(tmp_path):
         check=True, capture_output=True, text=True,
     )
 
-    res = visual_verify.generate_waveform_inspection_image(
+    res = _generate_waveform_inspection_image(
         input_path=media_file,
         output_path=out_file,
         cut_time_sec=1.5,

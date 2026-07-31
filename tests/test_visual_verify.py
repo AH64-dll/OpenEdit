@@ -6,6 +6,7 @@ test sets up its own inputs and asserts the deterministic output).
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
@@ -22,6 +23,44 @@ if str(_REPO_ROOT) not in sys.path:
 
 from open_edit.serve import visual_verify  # noqa: E402
 from open_edit.serve import serve_env  # noqa: E402
+
+
+def _project_state_hash(project_path: Path, render_mode: str, last_render_id: str | None) -> str:
+    """Local copy of the deleted ``visual_verify.project_state_hash``."""
+    db = project_path / ".open_edit" / "edit_graph.db"
+    canonical = ""
+    if db.exists():
+        try:
+            from open_edit.storage.edit_graph import EditGraphStore
+            store = EditGraphStore(db)
+            ops = store.load_all()
+            canonical = json.dumps(
+                [op.model_dump(mode="json") for op in ops], sort_keys=True, default=str,
+            )
+        except Exception:
+            canonical = ""
+    payload = json.dumps(
+        {"graph": canonical, "mode": render_mode, "last_render_id": last_render_id},
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _build_no_change_tool_result(
+    project_path: Path, mode: str, last_render_id: str, output_path: str = "",
+) -> dict:
+    """Local copy of the deleted ``visual_verify.build_no_change_tool_result``."""
+    return {
+        "output_path": output_path,
+        "no_change": True,
+        "render_id": last_render_id,
+        "previous_render_id": last_render_id,
+        "verification": {
+            "verdict_required": False,
+            "frames": [],
+            "reason": "no_change",
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -280,12 +319,12 @@ def test_no_change_render_skips_re_render(tmp_path):
     db.parent.mkdir(parents=True, exist_ok=True)
     from open_edit.storage.edit_graph import EditGraphStore
     EditGraphStore(db)  # initialise empty project
-    h1 = visual_verify.project_state_hash(tmp_path, "proxy", last_render_id="r1")
-    h2 = visual_verify.project_state_hash(tmp_path, "proxy", last_render_id="r1")
+    h1 = _project_state_hash(tmp_path, "proxy", last_render_id="r1")
+    h2 = _project_state_hash(tmp_path, "proxy", last_render_id="r1")
     assert h1 == h2
-    h3 = visual_verify.project_state_hash(tmp_path, "proxy", last_render_id="r2")
+    h3 = _project_state_hash(tmp_path, "proxy", last_render_id="r2")
     assert h1 != h3
-    h4 = visual_verify.project_state_hash(tmp_path, "final", last_render_id="r1")
+    h4 = _project_state_hash(tmp_path, "final", last_render_id="r1")
     assert h1 != h4
 
 
@@ -403,16 +442,15 @@ def test_render_capped_returns_tool_result_error():
 
 
 def test_no_change_render_skips_sampling(tmp_path):
-    """If project_state_hash matches the last successful render, return a
+    """If the project state hash matches the last successful render, return a
     no_change tool result with no verification block (sampling skipped)."""
     from open_edit.storage.edit_graph import EditGraphStore
     db = tmp_path / ".open_edit" / "edit_graph.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     EditGraphStore(db)
-    last = ("render_xyz", "proxy")
-    h = visual_verify.project_state_hash(tmp_path, "proxy", last_render_id="render_xyz")
+    h = _project_state_hash(tmp_path, "proxy", last_render_id="render_xyz")
     # Re-hashing the same project produces the same hash → no_change.
-    out = visual_verify.build_no_change_tool_result(tmp_path, "proxy", last_render_id="render_xyz")
+    out = _build_no_change_tool_result(tmp_path, "proxy", last_render_id="render_xyz")
     assert out.get("no_change") is True
     assert "previous_render_id" in out
     assert "verification" in out  # spec: present, but with empty frames + reason

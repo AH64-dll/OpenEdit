@@ -164,6 +164,19 @@ def _write_session_jsonl(path: Path, lines: list[dict]) -> None:
             fh.write(json.dumps(obj) + "\n")
 
 
+def _parse_full_session(path: Path) -> dict:
+    """Local stand-in for the deleted ``cost_mod.parse_pi_session_usage``.
+
+    Full-file aggregate over the still-live shared accumulation helper
+    that the production delta parser also uses.
+    """
+    if not path.exists():
+        return {"tokens": 0, "cost_usd": 0.0, "file_size": 0}
+    out = cost_mod._accumulate_session_usage(path)
+    out["file_size"] = path.stat().st_size
+    return out
+
+
 def test_parse_pi_session_usage_sums_assistant_messages(tmp_path):
     """A session with 2 assistant messages: the parser sums their
     usage.cost.total into the session total."""
@@ -214,7 +227,7 @@ def test_parse_pi_session_usage_sums_assistant_messages(tmp_path):
             },
         },
     ])
-    result = cost_mod.parse_pi_session_usage(session_file)
+    result = _parse_full_session(session_file)
     # tokens = sum of totalTokens across assistant messages
     assert result["tokens"] == 150 + 280
     # cost = sum of usage.cost.total
@@ -242,14 +255,14 @@ def test_parse_pi_session_usage_ignores_user_and_tool_messages(tmp_path):
             },
         }},
     ])
-    result = cost_mod.parse_pi_session_usage(session_file)
+    result = _parse_full_session(session_file)
     assert result["cost_usd"] == pytest.approx(0.001, abs=1e-9)
 
 
 def test_parse_pi_session_usage_handles_missing_file(tmp_path):
     """Missing session file: the parser returns zeros (caller decides
     whether to surface as ``unavailable``)."""
-    out = cost_mod.parse_pi_session_usage(tmp_path / "nope.jsonl")
+    out = _parse_full_session(tmp_path / "nope.jsonl")
     assert out["tokens"] == 0
     assert out["cost_usd"] == 0.0
     assert out["file_size"] == 0
@@ -348,7 +361,7 @@ def test_parse_pi_session_usage_handles_malformed_lines(tmp_path):
                                    "cacheWrite": 0, "total": 0.002}},
             },
         }) + "\n")
-    out = cost_mod.parse_pi_session_usage(session_file)
+    out = _parse_full_session(session_file)
     assert out["cost_usd"] == pytest.approx(0.003, abs=1e-9)
     assert out["tokens"] == 6
 
