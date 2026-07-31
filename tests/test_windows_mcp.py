@@ -13,7 +13,7 @@ from open_edit.agent.sandbox_bridge import (
 )
 from open_edit.agent.tools.pyagent_ingest_local import _allowlist_roots
 from open_edit.render.encoder import resolve_backend
-from open_edit.render.orchestrator import _build_melt_command
+from open_edit.render.melt_runner import MeltRunner
 from open_edit.render.profiles import RenderProfile
 
 
@@ -85,8 +85,8 @@ def test_build_melt_command_skips_nice_on_windows(tmp_path):
     )
     xml = tmp_path / "t.mlt"
     out = tmp_path / "o.mp4"
-    with patch("open_edit.render.orchestrator.os.name", "nt"):
-        cmd = _build_melt_command("melt", xml, out, profile, nice_level=10)
+    with patch("open_edit.render.melt_runner.os.name", "nt"):
+        cmd = MeltRunner(melt_bin="melt").build_command(xml, out, profile)
     assert cmd[0] == "melt"
     assert "nice" not in cmd
 
@@ -98,8 +98,8 @@ def test_build_melt_command_uses_nice_on_posix(tmp_path):
     )
     xml = tmp_path / "t.mlt"
     out = tmp_path / "o.mp4"
-    with patch("open_edit.render.orchestrator.os.name", "posix"):
-        cmd = _build_melt_command("melt", xml, out, profile, nice_level=10)
+    with patch("open_edit.render.melt_runner.os.name", "posix"):
+        cmd = MeltRunner(melt_bin="melt", nice_level=10).build_command(xml, out, profile)
     assert cmd[:3] == ["nice", "-n", "10"]
 
 

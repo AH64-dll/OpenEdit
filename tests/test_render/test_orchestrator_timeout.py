@@ -44,7 +44,7 @@ def test_timeout_path_records_failed_snapshot(tmp_path: Path) -> None:
     _seed_project_with_one_op(tmp_path)
     workdir = tmp_path / "renders"
 
-    with patch("open_edit.render.orchestrator.subprocess.run") as run_mock:
+    with patch("open_edit.render.melt_runner.subprocess.run") as run_mock:
         run_mock.side_effect = subprocess.TimeoutExpired(cmd=["melt"], timeout=600)
         result = render_project(
             project_id=str(tmp_path),
