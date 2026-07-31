@@ -53,7 +53,8 @@ from open_edit.agent.libs import (
     parse_header, version_supported, lib_version_supported,
 )
 from open_edit.ir.api import IR
-from open_edit.ir.apply import apply_operation, derive_timeline
+from open_edit.ir.apply import apply_operation
+from open_edit.ir.derive import derive_timeline
 from open_edit.ir.validate import OpValidationError, validate_op_references
 from open_edit.ir.types import (
     OperationUnion, Project, Asset, new_id,

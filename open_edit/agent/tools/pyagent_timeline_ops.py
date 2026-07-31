@@ -6,7 +6,7 @@ from typing import Any
 
 from open_edit.agent.tools._contract import tool_result
 from open_edit.agent.tools._helpers import load_project, make_ir
-from open_edit.ir.apply import derive_timeline
+from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddClipOp,
     ChangeClipSpeedOp,

@@ -19,7 +19,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from open_edit.ir.apply import derive_or_load_timeline
+from open_edit.storage.timeline_cache import derive_or_load_timeline
 from open_edit.ir.types import Project
 from open_edit.render.cache import RenderCache, canonical_json_hash
 from open_edit.render.emitter import EmitterConfig, emit_timeline

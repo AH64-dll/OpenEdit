@@ -46,7 +46,7 @@ def test_golden_expected_timeline_matches_derive() -> None:
     checked-in expected_timeline.json golden file."""
     payload = json.loads((GOLDEN_DIR / "edit_graph.json").read_text())
     project = TypeAdapter(Project).validate_python(payload)
-    from open_edit.ir.apply import derive_timeline
+    from open_edit.ir.derive import derive_timeline
     timeline = derive_timeline(project)
     assert len(timeline.tracks) == 1
     assert len(timeline.tracks[0].clips) == 11

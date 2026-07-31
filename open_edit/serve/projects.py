@@ -395,7 +395,7 @@ async def get_project_state(project_id: str) -> ProjectState:
         timeline_error_code: str | None = None
         timeline_full: dict[str, Any] | None = None
         try:
-            from open_edit.ir.apply import derive_timeline
+            from open_edit.ir.derive import derive_timeline
             from open_edit.ir.types import Project as IRProject
             ir_project = IRProject(
                 project_id=project_id_real,
@@ -600,7 +600,7 @@ def _scan_project(path: Path) -> ProjectInfo:
     asset_models = list_assets_from_disk(path)
     num_assets = len(asset_models)
     try:
-        from open_edit.ir.apply import derive_timeline
+        from open_edit.ir.derive import derive_timeline
         from open_edit.ir.types import Project as IRProject
         timeline = derive_timeline(IRProject(
             project_id=_project_id_from_path(path), name=path.name, workdir=path,

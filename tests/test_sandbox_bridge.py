@@ -904,7 +904,7 @@ def _build_minimal_timeline(tmp_path):
     from open_edit.ir.types import (
         AddClipOp, AddEffectOp, Asset, GroupEditsOp, Project, new_id,
     )
-    from open_edit.ir.apply import derive_timeline
+    from open_edit.ir.derive import derive_timeline
     from open_edit.storage.edit_graph import EditGraphStore
 
     workdir = tmp_path / "proj"

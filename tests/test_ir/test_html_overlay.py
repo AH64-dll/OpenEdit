@@ -10,7 +10,8 @@ from open_edit.ir.types import (
     RemoveHtmlOverlayOp,
     Timeline,
 )
-from open_edit.ir.apply import apply_operation, derive_timeline
+from open_edit.ir.apply import apply_operation
+from open_edit.ir.derive import derive_timeline
 
 
 # ---------------------------------------------------------------------------

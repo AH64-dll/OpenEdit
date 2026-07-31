@@ -5,10 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from open_edit.ir.apply import derive_or_load_timeline, derive_timeline
+from open_edit.ir.derive import derive_timeline
 from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.ir.types import AddClipOp, Project
 from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.timeline_cache import derive_or_load_timeline
 
 
 def _op(asset_hash: str, position_sec: float = 0.0) -> AddClipOp:

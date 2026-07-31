@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from open_edit.ir.apply import derive_timeline
+from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddClipOp, AddEffectOp, AddTransitionOp, Project, RemoveClipOp, SetKeyframeOp,
 )
