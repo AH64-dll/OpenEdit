@@ -32,3 +32,34 @@ def test_tool_schemas_json_serializable():
     from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
 
     json.dumps(TOOL_SCHEMAS)
+
+
+def test_every_schema_tool_resolves_in_tool_table():
+    """Every TOOL_SCHEMAS name is a plain TOOL_TABLE entry or kernel-handled.
+
+    Kernel-handled names (pillar dispatchers, render-service branches, the
+    virtual trigger_render) live in ``kernel.tool_executor`` — the set is
+    pinned there as ``_KERNEL_HANDLED_TOOLS`` so the two can never drift.
+    """
+    from open_edit.agent.tools import TOOL_TABLE
+    from open_edit.kernel.tool_executor import _KERNEL_HANDLED_TOOLS
+    from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
+
+    for schema in TOOL_SCHEMAS:
+        name = schema["name"]
+        assert name in TOOL_TABLE or name in _KERNEL_HANDLED_TOOLS, name
+    assert not (set(TOOL_TABLE) & set(_KERNEL_HANDLED_TOOLS))
+
+
+def test_tool_table_entries_all_callable():
+    from open_edit.agent.tools import TOOL_TABLE
+
+    assert len(TOOL_TABLE) == 26
+    for name, fn in TOOL_TABLE.items():
+        assert callable(fn), name
+
+
+def test_tool_table_covers_all_reexports():
+    from open_edit.agent.tools import TOOL_TABLE, __all__
+
+    assert set(__all__) <= set(TOOL_TABLE)

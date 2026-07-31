@@ -50,13 +50,28 @@ from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
 # Derived from TOOL_SCHEMAS so the list can never drift from the registry.
 _REGISTRY_TOOL_NAMES = frozenset(t["name"] for t in TOOL_SCHEMAS)
 
+# Every TOOL_SCHEMAS name that is NOT a plain callable in TOOL_TABLE.
+# These are handled by kernel branches in this module (or by the
+# adjacent ``execute_trigger_render`` virtual-tool path) and must never
+# be added to ``open_edit.agent.tools.TOOL_TABLE`` — the completeness
+# test (tests/test_tool_registry.py) pins this set against the table.
+_KERNEL_HANDLED_TOOLS = frozenset(
+    {
+        "query_project",      # pillar routing: dispatch_query
+        "edit_project",       # pillar routing: dispatch_edit / dispatch_generate
+        "get_render_job",     # kernel render-service branch
+        "cancel_render_job",  # kernel render-service branch
+        "trigger_render",     # virtual tool: execute_trigger_render
+    }
+)
+
 
 def _strip_injected_project_id(
     name: str, args: dict[str, Any],
 ) -> dict[str, Any]:
     """Drop the agent-loop-injected ``project_id`` for registry tools.
 
-    Non-registry tools (the ``getattr`` fallback in ``_run_tool``) keep
+    Non-registry tools (the ``TOOL_TABLE`` lookup in ``_run_tool``) keep
     receiving the injected field — their callables may rely on it.
     """
     if name in _REGISTRY_TOOL_NAMES:
@@ -123,7 +138,7 @@ def _cached_done_result(
 
 class ToolNotFound(LookupError):  # noqa: N818
     """Raised by :func:`execute_tool` when the named tool is not
-    registered in ``open_edit.agent.tools``."""
+    registered in ``open_edit.agent.tools.TOOL_TABLE``."""
 
 
 def execute_tool(
@@ -225,14 +240,13 @@ def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, 
             return dispatch_generate(generate, args.get("generate_params", {}), project_path)
         return dispatch_edit(args.get("operation", ""), args.get("params", {}), project_path)
 
-    import open_edit.agent.tools as tools_mod  # type: ignore
+    from open_edit.agent.tools import TOOL_TABLE
 
-    fn = getattr(tools_mod, name, None)
-    if fn is None or not callable(fn):
+    fn = TOOL_TABLE.get(name)
+    if fn is None:
         raise ToolNotFound(f"tool not found in open_edit.agent.tools: {name!r}")
 
     return fn(args, str(project_path))
-
 
 async def execute_trigger_render(
     args: dict[str, Any], project_path: Path, command_id: str | None = None,

@@ -1,35 +1,64 @@
 """Dispatch functions for the 4 pillar tools.
 
-These functions import and call the existing individual tool implementations
-from ``open_edit.agent.tools``. They serve as the routing layer between
-the new consolidated schemas and the existing backends.
+These functions route through the single canonical table,
+``open_edit.agent.tools.TOOL_TABLE``: each routing dict maps a pillar
+sub-command (query / operation / generate kind) to one of the 26
+table entries, so there is exactly one registry of callable tools.
+Pillar names themselves (``query_project``, ``edit_project``) are NOT
+in the table — they are dispatched by ``kernel.tool_executor``.
+
+``apply_generated_ops`` is a pillar-only composite (commit a list of op
+dicts from generate mode); it is not a callable tool, so it lives here
+rather than in TOOL_TABLE.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
+from open_edit.agent.tools import TOOL_TABLE
+
+# Sub-command → TOOL_TABLE name for the query (read-only) pillar mode.
+_QUERY_ROUTING: dict[str, str] = {
+    "list_assets": "list_assets",
+    "get_pending_notes": "get_pending_notes",
+    "get_style_profile": "get_style_profile",
+    "analyze_narrative": "analyze_narrative",
+    "search_assets": "search_assets",
+    "get_transcript_packed": "get_transcript_packed",
+}
+
+# Sub-command → TOOL_TABLE name for the edit pillar mode. Includes the
+# 4 re-exported edit tools plus the 7 timeline_ops functions.
+_EDIT_ROUTING: dict[str, str] = {
+    "add_marker": "add_marker",
+    "set_pinned_value": "set_pinned_value",
+    "import_asset": "import_asset",
+    "ingest_local": "ingest_local",
+    "add_clip": "add_clip",
+    "trim_clip": "trim_clip",
+    "replace_clip_source": "replace_clip_source",
+    "change_clip_speed": "change_clip_speed",
+    "remove_clip": "remove_clip",
+    "set_audio_gain": "set_audio_gain",
+    "apply_silence_gaps": "apply_silence_gaps",
+}
+
+# Generate kind → TOOL_TABLE name for the generate pillar mode.
+_GENERATE_ROUTING: dict[str, str] = {
+    "sfx": "place_sfx",
+    "music": "select_music",
+    "visual": "generate_visual_for_segment",
+    "silence_cuts": "propose_silence_cuts",
+    "remotion": "generate_remotion_composition",
+    "init_remotion": "init_remotion_project",
+    "write_remotion": "write_remotion_composition",
+}
+
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch a query to one of the 6 read-only tools."""
-    from open_edit.agent.tools import (
-        analyze_narrative,
-        get_pending_notes,
-        get_style_profile,
-        get_transcript_packed,
-        list_assets,
-        search_assets,
-    )
-
-    routing: dict[str, Any] = {
-        "list_assets": list_assets,
-        "get_pending_notes": get_pending_notes,
-        "get_style_profile": get_style_profile,
-        "analyze_narrative": analyze_narrative,
-        "search_assets": search_assets,
-        "get_transcript_packed": get_transcript_packed,
-    }
-    fn = routing.get(query)
+    fn = TOOL_TABLE[_QUERY_ROUTING[query]] if query in _QUERY_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown query: {query!r}"}
     p = dict(params) if params else {}
@@ -38,47 +67,18 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
 
 def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch an edit operation to the corresponding tool."""
-    from open_edit.agent.tools import (
-        add_marker,
-        import_asset,
-        ingest_local,
-        set_pinned_value,
-    )
-    from open_edit.agent.tools.pyagent_timeline_ops import (
-        add_clip,
-        apply_silence_gaps,
-        change_clip_speed,
-        remove_clip,
-        replace_clip_source,
-        set_audio_gain,
-        trim_clip,
-    )
-
-    p = dict(params) if params else {}
-    routing: dict[str, Any] = {
-        "add_marker": lambda: add_marker(p, str(project_path)),
-        "set_pinned_value": lambda: set_pinned_value(p, str(project_path)),
-        "import_asset": lambda: import_asset(p, str(project_path)),
-        "ingest_local": lambda: ingest_local(p, str(project_path)),
-        "apply_generated_ops": lambda: _apply_generated_ops(p, project_path),
-        # Everyday timeline ops — avoid run_script for these.
-        "add_clip": lambda: add_clip(p, str(project_path)),
-        "trim_clip": lambda: trim_clip(p, str(project_path)),
-        "replace_clip_source": lambda: replace_clip_source(p, str(project_path)),
-        "change_clip_speed": lambda: change_clip_speed(p, str(project_path)),
-        "remove_clip": lambda: remove_clip(p, str(project_path)),
-        "set_audio_gain": lambda: set_audio_gain(p, str(project_path)),
-        "apply_silence_gaps": lambda: apply_silence_gaps(p, str(project_path)),
-    }
-    fn = routing.get(operation)
+    if operation == "apply_generated_ops":
+        return _apply_generated_ops(dict(params) if params else {}, project_path)
+    fn = TOOL_TABLE[_EDIT_ROUTING[operation]] if operation in _EDIT_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown operation: {operation!r}"}
-    return fn()
+    p = dict(params) if params else {}
+    return fn(p, str(project_path))
 
 
 def _apply_generated_ops(params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Commit a list of op dicts generated by the generate mode."""
-    from open_edit.agent.tools import add_marker
+    add_marker = TOOL_TABLE["add_marker"]
 
     ops = params.get("ops", [])
     if not isinstance(ops, list):
@@ -98,27 +98,8 @@ def _apply_generated_ops(params: dict[str, Any], project_path: Path) -> dict[str
 
 def dispatch_generate(kind: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Generate creative suggestions (SFX, music, visuals, Remotion, silence cuts)."""
-    from open_edit.agent.tools import (
-        generate_remotion_composition,
-        generate_visual_for_segment,
-        init_remotion_project,
-        place_sfx,
-        propose_silence_cuts,
-        select_music,
-        write_remotion_composition,
-    )
-
-    p = dict(params) if params else {}
-    routing: dict[str, Any] = {
-        "sfx": lambda: place_sfx(p, str(project_path)),
-        "music": lambda: select_music(p, str(project_path)),
-        "visual": lambda: generate_visual_for_segment(p, str(project_path)),
-        "silence_cuts": lambda: propose_silence_cuts(p, str(project_path)),
-        "remotion": lambda: generate_remotion_composition(p, str(project_path)),
-        "init_remotion": lambda: init_remotion_project(p, str(project_path)),
-        "write_remotion": lambda: write_remotion_composition(p, str(project_path)),
-    }
-    fn = routing.get(kind)
+    fn = TOOL_TABLE[_GENERATE_ROUTING[kind]] if kind in _GENERATE_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown generate kind: {kind!r}"}
-    return fn()
+    p = dict(params) if params else {}
+    return fn(p, str(project_path))

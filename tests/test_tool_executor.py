@@ -37,14 +37,14 @@ def test_registry_tools_accept_injected_project_id(tmp_path: Path):
 
 
 def test_non_registry_tools_keep_injected_project_id(tmp_path: Path):
-    """The getattr fallback still receives project_id (its callables may rely on it)."""
+    """The TOOL_TABLE lookup still receives project_id (callables may rely on it)."""
     captured: list[tuple[dict, str]] = []
 
     def fake_tool(args: dict, project_path: str) -> dict:
         captured.append((args, project_path))
         return {"ok": True}
 
-    with mock.patch("open_edit.agent.tools.list_assets", fake_tool):
+    with mock.patch.dict("open_edit.agent.tools.TOOL_TABLE", {"list_assets": fake_tool}):
         execute_tool("list_assets", {"project_id": "injected"}, tmp_path)
     assert captured and captured[0][0].get("project_id") == "injected"
 
