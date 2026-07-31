@@ -26,7 +26,7 @@ from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.graphics_overlay import GraphicsOverlayError, burn_overlays
 from open_edit.render.materialize import RemotionMaterializeError, materialize_remotion_compositions
 from open_edit.render.melt_runner import MeltRunner, MeltTimeoutError
-from open_edit.render.profiles import RenderProfile, select_profile
+from open_edit.render.profiles import RenderProfile
 from open_edit.render.snapshot_recorder import record_snapshot
 from open_edit.render.timeline_plan import build_render_plan
 from open_edit.storage.assets import AssetStore
@@ -52,6 +52,8 @@ def render_project(
     workdir: Path,
     mode: Literal["proxy", "final"] = "proxy",
     profile_name: Optional[str] = None,
+    quality: Optional[str] = None,
+    overrides: Optional[dict] = None,
     force: bool = False,
     nice_level: int = 10,
     encoder_backend: Optional[str] = None,
@@ -68,9 +70,18 @@ def render_project(
     if melt_bin is None:
         return RenderResult(ok=False, error="melt not on PATH")
 
-    if profile_name is None or profile_name == "":
-        profile_name = "1080p30" if mode == "final" else "720p30"
-    profile = select_profile(profile_name)
+    from open_edit.render.profiles import select_profile
+
+    try:
+        from open_edit.render.profiles import profile_with_quality
+    except ImportError:
+
+        def profile_with_quality(profile_name, mode, quality=None, overrides=None):
+            if not profile_name:
+                profile_name = "1080p30" if mode == "final" else "720p30"
+            return select_profile(profile_name)
+
+    profile = profile_with_quality(profile_name, mode, quality, overrides)
 
     project_path = project_dir / ".open_edit" / "edit_graph.db"
     store = EditGraphStore(project_path)

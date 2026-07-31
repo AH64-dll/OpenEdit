@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -125,3 +126,68 @@ async def test_global_limit_serializes_different_projects(tmp_path):
     )
 
     assert maximum == 1
+
+
+@pytest.mark.asyncio
+async def test_enqueue_persists_params(tmp_path: Path) -> None:
+    from open_edit.kernel.render_jobs import RenderJobService
+    from open_edit.storage.edit_graph import EditGraphStore
+    db = tmp_path / ".open_edit"
+    db.mkdir(parents=True)
+    EditGraphStore(db / "edit_graph.db")
+    service = RenderJobService()
+    try:
+        job = service.enqueue(
+            "proj", tmp_path, "final",
+            params={"profile": "1080p30", "quality": "high", "crf": 20},
+        )
+        persisted = service.get(tmp_path, job.job_id)
+        assert persisted is not None
+        assert persisted.params == {"profile": "1080p30", "quality": "high", "crf": 20}
+    finally:
+        for task in service._tasks.values():
+            task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_launch_command_includes_params(tmp_path: Path) -> None:
+    from open_edit.kernel.render_jobs import RenderJobService
+    from open_edit.storage.edit_graph import EditGraphStore
+    db = tmp_path / ".open_edit"
+    db.mkdir(parents=True)
+    EditGraphStore(db / "edit_graph.db")
+    service = RenderJobService()
+    try:
+        job = service.enqueue(
+            "proj", tmp_path, "final",
+            params={"quality": "high", "crf": 20, "scale": "640x360", "codec": "hevc"},
+        )
+        # _launch builds the command before any subprocess runs; we only
+        # assert the command shape via a spy on create_subprocess_exec.
+        captured: dict = {}
+
+        async def fake_exec(*args, **kwargs):
+            captured["cmd"] = list(args)
+            import asyncio as aio
+            proc = aio.subprocess.Process(
+                transport=None, protocol=None, loop=aio.get_running_loop(),
+            )
+            proc.returncode = 0
+            return proc
+
+        original = asyncio.create_subprocess_exec
+        asyncio.create_subprocess_exec = fake_exec
+        try:
+            await service._launch(tmp_path, job.job_id, "final")
+        except Exception:
+            pass
+        finally:
+            asyncio.create_subprocess_exec = original
+        cmd = captured.get("cmd", [])
+        assert "--quality" in cmd and "high" in cmd
+        assert "--crf" in cmd and "20" in cmd
+        assert "--scale" in cmd and "640x360" in cmd
+        assert "--codec" in cmd and "hevc" in cmd
+    finally:
+        for task in service._tasks.values():
+            task.cancel()

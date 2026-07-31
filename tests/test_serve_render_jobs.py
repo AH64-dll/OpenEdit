@@ -218,3 +218,25 @@ async def test_enqueue_coalesces_duplicate_jobs(tmp_path):
             assert final.status == "succeeded"
         finally:
             release.set()
+
+
+def test_render_request_accepts_quality_params() -> None:
+    from open_edit.serve.routers.renders import RenderRequest
+
+    req = RenderRequest(mode="final", quality="high", crf=20, scale="640x360", codec="hevc")
+    assert req.quality == "high" and req.crf == 20 and req.codec == "hevc"
+
+
+def test_render_request_rejects_bad_quality(seeded_project):
+    """Bad quality is rejected with 400 by post_render before enqueue
+    (the model keeps quality as a free-form str; validation is runtime)."""
+    from fastapi.testclient import TestClient
+
+    proj, project_id = seeded_project
+    with TestClient(app_mod.app) as client:
+        r = client.post(
+            f"/api/projects/{project_id}/render",
+            json={"mode": "proxy", "quality": "bogus"},
+        )
+    assert r.status_code == 400
+    assert DEFAULT_RENDER_JOB_SERVICE.list_jobs(proj) == []
