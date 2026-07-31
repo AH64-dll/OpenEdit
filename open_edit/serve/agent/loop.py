@@ -28,7 +28,6 @@ from .. import cli_adapter as cli_adapter_mod
 from .. import projects as projects_mod
 from .. import visual_verify
 from ..llm import _coerce_event
-from ..project_meta import is_verify_disabled
 from ..providers import resolve_provider
 from ..result_capper import cap_tool_result
 from ..serve_env import get_visual_verify_config
@@ -171,7 +170,7 @@ async def run_agent_turn(
     best_source = "unavailable"
 
     cfg = get_visual_verify_config()
-    verify_active = cfg["enabled"] and not is_verify_disabled(project_path)
+    verify_active = cfg["enabled"] and not _agent_pkg.is_verify_disabled(project_path)
     turn_render_count = 0
     pending_verification: dict[str, Any] | None = None
 
