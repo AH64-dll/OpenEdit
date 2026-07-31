@@ -22,10 +22,11 @@ def _op(asset_hash: str, position_sec: float = 0.0) -> AddClipOp:
 
 
 class TestComputeEditGraphHash(unittest.TestCase):
-    def test_order_independent(self) -> None:
+    def test_order_sensitive(self) -> None:
+        """Reordering ops changes the digest (Task 6.5)."""
         a = _op("aaa", 0.0)
         b = _op("bbb", 1.0)
-        self.assertEqual(
+        self.assertNotEqual(
             compute_edit_graph_hash([a, b]),
             compute_edit_graph_hash([b, a]),
         )

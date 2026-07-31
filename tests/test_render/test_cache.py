@@ -31,10 +31,10 @@ def test_canonical_json_hash_matches_ir_hash() -> None:
     assert canonical_json_hash(payload) == compute_edit_graph_hash(payload)
 
 
-def test_ir_hash_is_order_stable_and_content_sensitive() -> None:
+def test_ir_hash_is_order_sensitive_and_content_sensitive() -> None:
     ops = _ops()
     h = compute_edit_graph_hash(ops)
-    assert compute_edit_graph_hash(list(reversed(ops))) == h
+    assert compute_edit_graph_hash(list(reversed(ops))) != h
     changed = _ops()
     changed[0].out_point_sec = 3.0
     assert compute_edit_graph_hash(changed) != h

@@ -181,16 +181,24 @@ class EditGraphStore:
         return sequence_num
 
     def load_all(self) -> list[OperationUnion]:
-        """Load all operations in sequence_num order."""
+        """Load all operations in sequence_num order.
+
+        Each op carries its ``sequence_num`` as an attribute so the
+        edit-graph hash can be order-sensitive (Task 6.5). The attribute is
+        intentionally not a pydantic field: it stays out of ``model_dump``
+        serializations (API payloads, stored op JSON).
+        """
         with self._conn() as conn:
             cur = conn.execute(
-                "SELECT payload, status, parent_id FROM edits ORDER BY sequence_num"
+                "SELECT payload, status, parent_id, sequence_num FROM edits "
+                "ORDER BY sequence_num"
             )
             ops: list[OperationUnion] = []
             for row in cur.fetchall():
                 op = TypeAdapter(OperationUnion).validate_json(row[0])
                 op.status = row[1]
                 op.parent_id = row[2]
+                object.__setattr__(op, "sequence_num", row[3])
                 ops.append(op)
             return ops
 
