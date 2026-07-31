@@ -57,3 +57,61 @@ def test_profile_to_mlt_args_includes_aspect_and_colorspace() -> None:
     assert "display_aspect_num=16" in args
     assert "display_aspect_den=9" in args
     assert "colorspace=709" in args
+
+
+"""Quality fields, resolution, fingerprint."""
+import pytest
+from pydantic import ValidationError
+
+from open_edit.render.profiles import (
+    RenderProfile, profile_fingerprint, profile_with_quality,
+    resolve_encoder_args, select_profile,
+)
+
+
+@pytest.fixture(autouse=True)
+def _probe_all_encoders(monkeypatch):
+    """Make encoder probing deterministic regardless of host hardware."""
+    from open_edit.render import encoder as enc
+
+    monkeypatch.setattr(enc, "_probe_encoder", lambda vcodec, extra: True)
+
+
+def test_profile_with_quality_defaults_by_mode():
+    p = profile_with_quality(None, "final")
+    assert p.name == "1080p30" and p.quality == "standard"
+    p2 = profile_with_quality(None, "proxy")
+    assert p2.name == "720p30" and p2.quality == "fast"
+
+
+def test_profile_with_quality_applies_overrides():
+    p = profile_with_quality(None, "final", quality="high", overrides={"crf": 20})
+    assert p.quality == "high" and p.crf == 20
+
+
+def test_profile_validation_rejects_bad_values():
+    with pytest.raises(ValidationError):
+        RenderProfile(name="x", width=1, height=1, frame_rate_num=30,
+                      frame_rate_den=1, quality="bogus")
+    with pytest.raises(ValidationError):
+        RenderProfile(name="x", width=1, height=1, frame_rate_num=30,
+                      frame_rate_den=1, crf=99)
+    with pytest.raises(ValidationError):
+        RenderProfile(name="x", width=1, height=1, frame_rate_num=30,
+                      frame_rate_den=1, codec="vp9")
+    with pytest.raises(ValidationError):
+        RenderProfile(name="x", width=1, height=1, frame_rate_num=30,
+                      frame_rate_den=1, scale="1080px")
+
+
+def test_resolve_encoder_args_standard_final_matches_legacy():
+    p = profile_with_quality(None, "final")          # standard
+    spec = resolve_encoder_args(p, "gpu")
+    assert spec.vcodec == "h264_nvenc"
+    assert "b=10M" in spec.melt_args
+
+
+def test_fingerprint_differs_when_quality_differs():
+    a = profile_fingerprint(profile_with_quality(None, "final", quality="fast"), "gpu")
+    b = profile_fingerprint(profile_with_quality(None, "final", quality="standard"), "gpu")
+    assert a != b
