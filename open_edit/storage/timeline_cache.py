@@ -14,12 +14,12 @@ from __future__ import annotations
 import contextlib
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.hash import compute_edit_graph_hash
+from open_edit.ir.ids import now_iso8601
 from open_edit.ir.types import Project, Timeline
 
 
@@ -51,10 +51,6 @@ class TimelineSnapshotStore:
         with self._conn() as conn:
             ensure_schema(conn)
 
-    @staticmethod
-    def _now_iso() -> str:
-        return datetime.now(timezone.utc).isoformat()
-
     def save_timeline_snapshot(
         self, edit_graph_hash: str, project_id: str, timeline_json: str,
     ) -> None:
@@ -64,7 +60,7 @@ class TimelineSnapshotStore:
                 "INSERT OR REPLACE INTO timeline_snapshots "
                 "(edit_graph_hash, project_id, timeline_json, created_at) "
                 "VALUES (?, ?, ?, ?)",
-                (edit_graph_hash, project_id, timeline_json, self._now_iso()),
+                (edit_graph_hash, project_id, timeline_json, now_iso8601()),
             )
 
     def load_timeline_snapshot(self, edit_graph_hash: str) -> str | None:

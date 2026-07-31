@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
+
+from open_edit.ir.ids import now_iso8601
 
 
 class CommandStore:
@@ -41,10 +42,6 @@ class CommandStore:
         with self._conn() as conn:
             ensure_schema(conn)
 
-    @staticmethod
-    def _now_iso() -> str:
-        return datetime.now(timezone.utc).isoformat()
-
     def record_command(
         self, command_id: str, project_id: str, tool_name: str,
         status: str = "pending", payload_hash: str | None = None,
@@ -58,7 +55,7 @@ class CommandStore:
                 "VALUES (?, ?, ?, ?, ?, ?, NULL)",
                 (
                     command_id, project_id, tool_name, status,
-                    self._now_iso(), payload_hash,
+                    now_iso8601(), payload_hash,
                 ),
             )
 

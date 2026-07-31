@@ -10,13 +10,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from open_edit.ir.ids import now_iso8601
 from open_edit.storage.edit_graph import EditGraphStore
 
 STALE_LOCK_TIMEOUT_SEC = 3600
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class JobLock:
@@ -34,7 +31,7 @@ class JobLock:
                 conn.execute(
                     "INSERT INTO jobs (job_id, kind, status, started_at) "
                     "VALUES (?, ?, 'running', ?)",
-                    (job_id, kind, _now_iso()),
+                    (job_id, kind, now_iso8601()),
                 )
                 return job_id
             except sqlite3.IntegrityError:
@@ -47,7 +44,7 @@ class JobLock:
             conn.execute(
                 "UPDATE jobs SET status = ?, finished_at = ?, error = ? "
                 "WHERE job_id = ?",
-                (status, _now_iso(), error, job_id),
+                (status, now_iso8601(), error, job_id),
             )
 
     def list_running(self) -> list[dict]:
@@ -83,5 +80,5 @@ def _release_stale_locks(edit_graph: EditGraphStore) -> None:
         conn.execute(
             "UPDATE jobs SET status = 'failed', finished_at = ?, error = 'stale' "
             "WHERE status = 'running' AND started_at < ?",
-            (_now_iso(), cutoff_iso),
+            (now_iso8601(), cutoff_iso),
         )

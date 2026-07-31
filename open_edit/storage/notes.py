@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from open_edit.ir.ids import new_note_id, now_iso8601
 
 
 class NoteSource(str, Enum):
@@ -58,20 +59,14 @@ NoteAnchor = Annotated[
 ]
 
 
-def _new_id() -> str:
-    return f"note_{uuid.uuid4().hex[:12]}"
-
-
 class ReviewNote(BaseModel):
-    note_id: str = Field(default_factory=_new_id)
+    note_id: str = Field(default_factory=new_note_id)
     project_id: str
     anchor: NoteAnchor
     text: str = ""
     source: NoteSource
     status: NoteStatus = NoteStatus.pending
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = Field(default_factory=now_iso8601)
     processed_at: Optional[str] = None
     commit_token: Optional[str] = None
     resulting_op_ids: list[str] = []
@@ -210,7 +205,7 @@ class NotesStore:
                 con.execute(
                     "UPDATE notes SET status = 'processed', processed_at = ?, resulting_op_ids = ? "
                     "WHERE note_id = ?",
-                    (datetime.now(timezone.utc).isoformat(), json.dumps([op_id]), note_id),
+                    (now_iso8601(), json.dumps([op_id]), note_id),
                 )
 
     def mark_dismissed(self, note_ids: list[str]) -> None:

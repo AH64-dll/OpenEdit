@@ -10,13 +10,13 @@ import json
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
 from pydantic import TypeAdapter
 
 from open_edit.ir import validate as _ir_validate
+from open_edit.ir.ids import now_iso8601
 from open_edit.ir.types import OperationUnion, new_id
 from open_edit.storage import ordering as _ordering
 from open_edit.storage.commands import CommandStore
@@ -90,10 +90,6 @@ class EditGraphStore:
         """Return the monotonic revision for applied edit-graph mutations."""
         with self._conn() as conn:
             return self._revision_in(conn)
-
-    @staticmethod
-    def _now_iso() -> str:
-        return datetime.now(timezone.utc).isoformat()
 
     @property
     def project_id(self) -> str:
@@ -190,7 +186,7 @@ class EditGraphStore:
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         new_id(), op.edit_id, None, op.status or "applied",
-                        command_id, "append", op.timestamp or self._now_iso(),
+                        command_id, "append", op.timestamp or now_iso8601(),
                     ),
                 )
         return sequence_num
@@ -232,7 +228,7 @@ class EditGraphStore:
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     new_id(), edit_id, from_status, new_status,
-                    command_id, reason, self._now_iso(),
+                    command_id, reason, now_iso8601(),
                 ),
             )
             return self._check_and_bump_revision(conn, expected_revision)

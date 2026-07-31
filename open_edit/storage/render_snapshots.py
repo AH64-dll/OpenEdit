@@ -5,13 +5,13 @@ Per phase4-design-revised.md §3.4 (T4).
 from __future__ import annotations
 
 import sqlite3
-import uuid
-from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from open_edit.ir.ids import new_version_id, now_iso8601
 
 
 class RenderStatus(str, Enum):
@@ -20,16 +20,12 @@ class RenderStatus(str, Enum):
     failed = "failed"
 
 
-def _new_version_id() -> str:
-    return f"v_{uuid.uuid4().hex[:12]}"
-
-
 class RenderSnapshot(BaseModel):
-    version_id: str = Field(default_factory=_new_version_id)
+    version_id: str = Field(default_factory=new_version_id)
     project_id: str
     edit_graph_hash: str
     render_path: Path
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=now_iso8601)
     status: RenderStatus = RenderStatus.rendering
     label: str = ""
 

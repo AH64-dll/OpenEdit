@@ -5,23 +5,12 @@ discriminated union is on `kind`, validated via Pydantic's Field(discriminator).
 """
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-def new_id() -> str:
-    """Return a fresh UUID4 string."""
-    return str(uuid.uuid4())
-
-
-def now_iso8601() -> str:
-    """Return the current UTC time as an ISO 8601 string."""
-    return datetime.now(timezone.utc).isoformat()
-
+from open_edit.ir.ids import new_id, now_iso8601
 
 # ===== Derived state (Timeline, Track, Clip, Effect) =====
 
