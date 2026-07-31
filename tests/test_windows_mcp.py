@@ -15,7 +15,6 @@ from open_edit.agent.tools.pyagent_ingest_local import _allowlist_roots
 from open_edit.render.encoder import resolve_backend
 from open_edit.render.orchestrator import _build_melt_command
 from open_edit.render.profiles import RenderProfile
-from open_edit.render.validators import _melt_discard_consumer
 
 
 def test_windows_default_sandbox_backend_is_dev(monkeypatch):
@@ -77,16 +76,6 @@ def test_ingest_allowlist_semicolon_not_colon_split_on_drive(monkeypatch, tmp_pa
     roots2 = _allowlist_roots(project)
     # With pathsep=';', the whole string is one root entry (may not exist).
     assert any(str(r).endswith("Videos") or "Videos" in str(r) for r in roots2)
-
-
-def test_melt_discard_consumer_posix():
-    with patch("open_edit.render.validators.os.name", "posix"):
-        assert _melt_discard_consumer() == "xml:/dev/null"
-
-
-def test_melt_discard_consumer_windows():
-    with patch("open_edit.render.validators.os.name", "nt"):
-        assert _melt_discard_consumer() == "xml:NUL"
 
 
 def test_build_melt_command_skips_nice_on_windows(tmp_path):

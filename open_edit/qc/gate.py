@@ -31,8 +31,7 @@ def run_qc_gate(video_path: str, output_thumb_dir: Path) -> QCReport:
     checks: list[QCCheck] = []
 
     # 1. render_completed: honest signal — the orchestrator returned
-    #    ok=True with a non-empty MP4. We do NOT call validate_mlt_loads
-    #    here (this gate is video-only and would need the XML, not the MP4).
+    #    ok=True with a non-empty MP4 (this gate is video-only).
     checks.append(QCCheck(
         name="render_completed", passed=True,
         detail="(proxy MP4 exists; orchestrator returned ok=True)",
