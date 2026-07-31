@@ -9,7 +9,7 @@ import pytest
 from open_edit.agent.tools import get_transcript_packed
 from open_edit.ir.types import Asset, WordAlignment
 from open_edit.kernel.pillar_tools import dispatch_query
-from open_edit.kernel.tool_registry import validate_tool_args
+from open_edit.kernel.schema_validator import validate_or_error
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.transcription import format_timestamp, pack_transcript
 
@@ -110,12 +110,14 @@ def test_get_transcript_packed_tool(tmp_path: Path):
 
 
 def test_tool_registration_and_dispatch(tmp_path: Path):
-    # Test tool args validation via Pydantic registry
-    validated = validate_tool_args(
-        "query_project",
-        {"query": "get_transcript_packed", "params": {"asset_hash": "test_hash"}},
+    # Test tool args validation via live schema validator
+    assert (
+        validate_or_error(
+            "query_project",
+            {"query": "get_transcript_packed", "params": {"asset_hash": "test_hash"}},
+        )
+        is None
     )
-    assert validated["query"] == "get_transcript_packed"
 
     # Set up asset in store
     store = AssetStore(tmp_path / ".open_edit" / "assets")

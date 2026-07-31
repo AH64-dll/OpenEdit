@@ -25,12 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from open_edit.kernel import tool_registry
-from open_edit.kernel.tool_registry import (
-    TOOL_REGISTRY,
-    build_tool_schemas,
-    validate_tool_args,
-)
+from open_edit.kernel.tool_registry import build_tool_schemas
 
 # ---------------------------------------------------------------------------
 # Pillar tool schemas (generated from the Pydantic registry)

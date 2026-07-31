@@ -129,18 +129,3 @@ def build_tool_schemas() -> list[dict]:
         }
         for name, model in TOOL_REGISTRY.items()
     ]
-
-
-def validate_tool_args(name: str, args: dict) -> dict:
-    """Validate LLM tool-call args against the registered model.
-
-    Raises ``ValueError`` for unknown tool names or invalid arguments.
-    """
-    model = TOOL_REGISTRY.get(name)
-    if model is None:
-        raise ValueError(f"Unknown tool: {name!r}")
-    try:
-        parsed = model(**args)
-    except Exception as exc:
-        raise ValueError(f"Invalid arguments for tool {name!r}: {exc}") from exc
-    return parsed.model_dump()

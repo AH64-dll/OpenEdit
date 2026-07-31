@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
-from open_edit.kernel.tool_registry import build_tool_schemas, validate_tool_args
+from open_edit.kernel.tool_registry import build_tool_schemas
 
 
 def test_build_tool_schemas_names():
@@ -21,28 +19,6 @@ def test_schema_additional_properties_and_required():
         assert schema["type"] == "object"
     assert set(by_name["run_script"]["required"]) == {"code"}
     assert set(by_name["query_project"]["required"]) == {"query"}
-
-
-def test_validate_run_script_defaults():
-    assert validate_tool_args("run_script", {"code": "x"}) == {
-        "code": "x",
-        "timeout_sec": 30,
-    }
-
-
-def test_validate_run_script_extra_forbidden():
-    with pytest.raises(ValueError):
-        validate_tool_args("run_script", {"code": "x", "bogus": 1})
-
-
-def test_validate_query_project_bad_enum():
-    with pytest.raises(ValueError):
-        validate_tool_args("query_project", {"query": "bogus"})
-
-
-def test_validate_unknown_tool():
-    with pytest.raises(ValueError):
-        validate_tool_args("unknown", {})
 
 
 def test_tool_schemas_json_serializable():
