@@ -4,11 +4,11 @@ Fails hard on render errors — never silently drops a composition.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Literal
 
 from open_edit.ir.types import Clip, RemotionComposition, Timeline
+from open_edit.render.cache import RenderCache
 from open_edit.render.remotion import (
     RemotionRenderError,
     composition_cache_key,
@@ -25,25 +25,14 @@ class RemotionMaterializeError(RuntimeError):
     """Raised when a Remotion composition cannot be materialized."""
 
 
-def _cache_path(project_path: Path) -> Path:
-    return resolve_remotion_root(project_path) / "out" / "materialize_cache.json"
+def _render_cache(project_path: Path) -> RenderCache:
+    # File-backed composition cache under the remotion out dir, keyed
+    # ``materialize:<composition_id>:<composition hash>``.
+    return RenderCache(resolve_remotion_root(project_path) / "out" / "cache")
 
 
-def _load_cache(project_path: Path) -> dict[str, str]:
-    path = _cache_path(project_path)
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _save_cache(project_path: Path, cache: dict[str, str]) -> None:
-    path = _cache_path(project_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8")
+def _materialize_key(composition_id: str, key: str) -> str:
+    return f"materialize:{composition_id}:{key}"
 
 
 def materialize_remotion_compositions(
@@ -64,7 +53,7 @@ def materialize_remotion_compositions(
 
     project_path = Path(project_path).resolve()
     assets = AssetStore(project_path / ".open_edit" / "assets")
-    cache = _load_cache(project_path)
+    cache = _render_cache(project_path)
     out_dir = resolve_remotion_root(project_path) / "out" / mode
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,13 +77,21 @@ def materialize_remotion_compositions(
             alpha=composition.alpha,
             duration_sec=composition.duration_sec,
         )
-        asset_hash = cache.get(key)
-        if asset_hash and assets.path(asset_hash) is not None:
-            composition.asset_hash = asset_hash
+        # ProRes 4444 with alpha is .mov; opaque Remotion stays .mp4.
+        ext = "mov" if composition.alpha else "mp4"
+        cache_key = _materialize_key(composition.composition_id, key)
+        cached_path = cache.get(cache_key, ext=ext)
+        if cached_path is not None:
+            try:
+                asset = assets.ingest(cached_path, transcribe=False)
+            except Exception as exc:
+                raise RemotionMaterializeError(
+                    f"failed to re-ingest cached remotion output for "
+                    f"{composition.composition_id!r}: {exc}"
+                ) from exc
+            composition.asset_hash = asset.asset_hash
         else:
-            # ProRes 4444 with alpha is .mov; opaque Remotion stays .mp4.
-            ext = ".mov" if composition.alpha else ".mp4"
-            output_path = out_dir / f"{composition.composition_uid}_{key[:12]}{ext}"
+            output_path = out_dir / f"{composition.composition_uid}_{key[:12]}.{ext}"
             try:
                 result = render_composition(
                     project_path,
@@ -119,11 +116,10 @@ def materialize_remotion_compositions(
                     f"{composition.composition_id!r}: {exc}"
                 ) from exc
             composition.asset_hash = asset.asset_hash
-            cache[key] = asset.asset_hash
+            cache.put(cache_key, result.output_path, ext=ext)
 
         _inject_clip(updated, composition)
 
-    _save_cache(project_path, cache)
     # Compositions remain on the timeline for inspection, but clips are now
     # present for emit_timeline.
     return updated

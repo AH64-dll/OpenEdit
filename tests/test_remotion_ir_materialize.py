@@ -150,6 +150,13 @@ def test_materialize_injects_clip_and_caches(project_with_remotion: Path) -> Non
     )
     assert again.remotion_compositions[0].asset_hash == updated.remotion_compositions[0].asset_hash
 
+    # Cache is the RenderCache under the materialize: key prefix.
+    cache_dir = project_with_remotion / ".open_edit" / "remotion" / "out" / "cache"
+    cached = [p.name for p in cache_dir.glob("materialize:*")]
+    assert len(cached) == 1
+    assert cached[0].endswith(".mp4")
+    assert not (project_with_remotion / ".open_edit" / "remotion" / "out" / "materialize_cache.json").exists()
+
 
 def test_materialize_fails_hard_on_bad_entry(project_with_remotion: Path) -> None:
     timeline = Timeline()
