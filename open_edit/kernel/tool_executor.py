@@ -35,13 +35,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+# NOTE: kernel must not import open_edit.serve (layering invariant).
 from open_edit.agent.tools._helpers import _db_path
 from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.storage.edit_graph import EditGraphStore
 
-from open_edit.serve.pi_bridge import _probe_duration
 from open_edit.kernel.schema_validator import validate_or_error
-from open_edit.serve.serve_env import RENDER_TIMEOUT_S
 
 
 def _payload_hash(args: dict[str, Any]) -> str:
