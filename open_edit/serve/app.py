@@ -907,7 +907,7 @@ async def post_timeline_command(
     """Apply a manual timeline command through the shared edit-graph service."""
     state = await _require_project(project_id)
     author = req.author if req.author in ("ai", "user") else "user"
-    from .edit_graph_service import EditGraphCommandError, apply_command
+    from open_edit.kernel.edit_graph_service import EditGraphCommandError, apply_command
     from open_edit.storage.edit_graph import GraphRevisionConflict
 
     try:
