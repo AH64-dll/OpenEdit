@@ -8,12 +8,19 @@ integrity checks (``render_completed``, ``proxy_render``, ``silence``,
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from pydantic import BaseModel
 
 from open_edit.qc.black_frames import list_black_frames
 from open_edit.qc.frozen_frames import list_frozen_frames
+from open_edit.qc.policy import (
+    QCMode,
+    QCPolicy,
+    QC_CHECK_NAMES,
+    skipped_qc_report,
+)
 from open_edit.qc.silence import list_silence
 from open_edit.qc.streams import probe_streams
 from open_edit.qc.thumbnail import get_thumbnail
@@ -45,11 +52,16 @@ class QCCheck(BaseModel):
     name: str
     passed: bool
     detail: str = ""
+    skipped: bool = False
 
 
 class QCReport(BaseModel):
     passed: bool
     checks: list[QCCheck]
+    policy: QCMode = "full"
+    complete: bool = True
+    elapsed_sec: float = 0.0
+    reason: str = ""
     # Deterministic spans consumed by the visual-verify evidence stage:
     # {"black_frames": [...], "silence": [...], "frozen_frames": [...]}
     spans: dict[str, list[dict]] = {}
@@ -61,6 +73,49 @@ class QCReport(BaseModel):
         return cls(passed=all(c.passed for c in checks), checks=checks)
 
 
+def _normalize_policy(policy: QCPolicy | QCMode | None) -> QCPolicy:
+    if policy is None:
+        return QCPolicy("full", None, 900.0)
+    if isinstance(policy, QCPolicy):
+        return policy
+    if policy not in {"skip", "light", "full"}:
+        raise ValueError(f"unknown QC policy: {policy!r}")
+    return QCPolicy(policy, None, 900.0)
+
+
+def _policy_skipped_check(name: str, policy: QCPolicy) -> QCCheck:
+    return QCCheck(
+        name=name,
+        passed=True,
+        skipped=True,
+        detail=(
+            f"skipped by policy={policy.mode}; "
+            "render completed successfully"
+        ),
+    )
+
+
+def _is_timeout(error: str | None) -> bool:
+    return bool(error and "timed out" in error.lower())
+
+
+def _remaining_budget(policy: QCPolicy, started_at: float) -> float | None:
+    if policy.total_budget_sec is None:
+        return None
+    return max(0.001, policy.total_budget_sec - (time.monotonic() - started_at))
+
+
+def _bounded_timeout(
+    preferred: float,
+    policy: QCPolicy,
+    started_at: float,
+) -> float:
+    remaining = _remaining_budget(policy, started_at)
+    if remaining is None:
+        return max(0.001, preferred)
+    return max(0.001, min(preferred, remaining))
+
+
 def run_qc_gate(
     video_path: str,
     output_thumb_dir: Path,
@@ -68,6 +123,7 @@ def run_qc_gate(
     target_duration_s: float | None = None,
     mode: str | None = None,
     source_baseline: dict | None = None,
+    policy: QCPolicy | QCMode | None = None,
 ) -> QCReport:
     """Run all QC checks against a rendered video file.
 
@@ -83,7 +139,20 @@ def run_qc_gate(
     mode:
         Render mode (``proxy``/``final``/``overlay``). ``overlay`` implies
         HTML overlays were requested and burned.
+    policy:
+        QC work policy. ``None`` preserves the historical full gate.
     """
+    resolved_policy = _normalize_policy(policy)
+    qc_t0 = time.monotonic()
+    if resolved_policy.mode == "skip":
+        report = skipped_qc_report(
+            video_path,
+            policy=resolved_policy,
+            reason="policy=skip; render completed successfully",
+        )
+        report.elapsed_sec = time.monotonic() - qc_t0
+        return report
+
     checks: list[QCCheck] = []
     spans: dict[str, list[dict]] = {
         "black_frames": [], "silence": [], "frozen_frames": [],
@@ -114,10 +183,20 @@ def run_qc_gate(
             detail=f"video not found or empty: {video_path}",
         ))
         # If proxy failed, the rest cannot run
-        for name in ("streams", "duration", "audio_sync", "black_frames",
-                     "frozen_frames", "silence", "overlays_burned", "thumbnail"):
-            checks.append(QCCheck(name=name, passed=False, detail="skipped: no video"))
+        for name in QC_CHECK_NAMES[2:]:
+            if resolved_policy.mode == "light":
+                checks.append(_policy_skipped_check(name, resolved_policy))
+            else:
+                checks.append(
+                    QCCheck(name=name, passed=False, detail="skipped: no video")
+                )
         report = QCReport.from_checks(checks)
+        report.policy = resolved_policy.mode
+        report.complete = False
+        report.reason = (
+            f"policy={resolved_policy.mode}" if resolved_policy.mode != "full" else ""
+        )
+        report.elapsed_sec = time.monotonic() - qc_t0
         report.spans = spans
         report.source_known_spans = source_known_spans
         return report
@@ -189,62 +268,99 @@ def run_qc_gate(
             detail=streams.error or "could not read stream durations",
         ))
 
-    # 6. black_frames
-    bf_result = list_black_frames(video_path)
-    black_spans = (
-        [s.model_dump() for s in bf_result.spans]
-        if bf_result.ok else []
-    )
-    new_black_spans = [
-        span for span in black_spans
-        if not _span_overlaps_any(span, source_known_spans["black_frames"])
-    ]
-    checks.append(QCCheck(
-        name="black_frames", passed=bf_result.ok and not new_black_spans,
-        detail=(
-            f"{len(black_spans)} black spans "
-            f"({len(new_black_spans)} new; "
-            f"{len(black_spans) - len(new_black_spans)} source-known)"
-            if bf_result.ok else (bf_result.error or "failed")
-        ),
-    ))
-    if bf_result.ok:
-        spans["black_frames"] = black_spans
+    complete = True
+    if resolved_policy.mode == "light":
+        # A cold proxy still gets the cheap structural checks above. The
+        # decode-heavy detectors and frame extraction are intentionally absent.
+        for name in ("black_frames", "frozen_frames", "silence"):
+            checks.append(_policy_skipped_check(name, resolved_policy))
+        complete = False
+    else:
+        # 6. black_frames
+        black_timeout = _bounded_timeout(
+            resolved_policy.blackdetect_timeout(duration_sec),
+            resolved_policy,
+            qc_t0,
+        )
+        bf_result = list_black_frames(video_path, timeout_s=black_timeout)
+        black_spans = (
+            [s.model_dump() for s in bf_result.spans]
+            if bf_result.ok else []
+        )
+        new_black_spans = [
+            span for span in black_spans
+            if not _span_overlaps_any(span, source_known_spans["black_frames"])
+        ]
+        black_timed_out = _is_timeout(bf_result.error)
+        checks.append(QCCheck(
+            name="black_frames",
+            passed=bf_result.ok and not new_black_spans,
+            skipped=black_timed_out,
+            detail=(
+                f"{len(black_spans)} black spans "
+                f"({len(new_black_spans)} new; "
+                f"{len(black_spans) - len(new_black_spans)} source-known)"
+                if bf_result.ok else (bf_result.error or "failed")
+            ),
+        ))
+        if bf_result.ok:
+            spans["black_frames"] = black_spans
+        if black_timed_out:
+            complete = False
 
-    # 7. frozen_frames: no interval ≥1.0s where the video didn't change
-    ff_result = list_frozen_frames(video_path, min_sec=FROZEN_MIN_SEC)
-    frozen_spans = (
-        [s.model_dump() for s in ff_result.spans]
-        if ff_result.ok else []
-    )
-    new_frozen_spans = [
-        span for span in frozen_spans
-        if not _span_overlaps_any(span, source_known_spans["frozen_frames"])
-    ]
-    checks.append(QCCheck(
-        name="frozen_frames", passed=ff_result.ok and not new_frozen_spans,
-        detail=(
-            f"{len(frozen_spans)} frozen intervals "
-            f"({len(new_frozen_spans)} new; "
-            f"{len(frozen_spans) - len(new_frozen_spans)} source-known; "
-            f"min {FROZEN_MIN_SEC:.1f}s)"
-            if ff_result.ok else (ff_result.error or "failed")
-        ),
-    ))
-    if ff_result.ok:
-        spans["frozen_frames"] = frozen_spans
+        # 7. frozen_frames: no interval ≥1.0s where the video didn't change
+        frozen_timeout = _remaining_budget(resolved_policy, qc_t0)
+        ff_result = list_frozen_frames(
+            video_path,
+            min_sec=FROZEN_MIN_SEC,
+            timeout_s=frozen_timeout,
+        )
+        frozen_spans = (
+            [s.model_dump() for s in ff_result.spans]
+            if ff_result.ok else []
+        )
+        new_frozen_spans = [
+            span for span in frozen_spans
+            if not _span_overlaps_any(
+                span, source_known_spans["frozen_frames"]
+            )
+        ]
+        frozen_timed_out = _is_timeout(ff_result.error)
+        checks.append(QCCheck(
+            name="frozen_frames",
+            passed=ff_result.ok and not new_frozen_spans,
+            skipped=frozen_timed_out,
+            detail=(
+                f"{len(frozen_spans)} frozen intervals "
+                f"({len(new_frozen_spans)} new; "
+                f"{len(frozen_spans) - len(new_frozen_spans)} source-known; "
+                f"min {FROZEN_MIN_SEC:.1f}s)"
+                if ff_result.ok else (ff_result.error or "failed")
+            ),
+        ))
+        if ff_result.ok:
+            spans["frozen_frames"] = frozen_spans
+        if frozen_timed_out:
+            complete = False
 
-    # 8. silence
-    sil_result = list_silence(video_path)
-    checks.append(QCCheck(
-        name="silence", passed=sil_result.ok,
-        detail=(
-            f"{len(sil_result.spans)} silent gaps"
-            if sil_result.ok else (sil_result.error or "failed")
-        ),
-    ))
-    if sil_result.ok:
-        spans["silence"] = [s.model_dump() for s in sil_result.spans]
+        # 8. silence
+        silence_timeout = _remaining_budget(resolved_policy, qc_t0)
+        sil_result = list_silence(video_path, timeout_s=silence_timeout)
+        silence_error = getattr(sil_result, "error", None)
+        silence_timed_out = _is_timeout(silence_error)
+        checks.append(QCCheck(
+            name="silence",
+            passed=sil_result.ok,
+            skipped=silence_timed_out,
+            detail=(
+                f"{len(sil_result.spans)} silent gaps"
+                if sil_result.ok else (silence_error or "failed")
+            ),
+        ))
+        if sil_result.ok:
+            spans["silence"] = [s.model_dump() for s in sil_result.spans]
+        if silence_timed_out:
+            complete = False
 
     # 9. overlays_burned: informational — the gate cannot OCR the burned
     #    output; visual review is the real check (qc-standards.md).
@@ -266,17 +382,27 @@ def run_qc_gate(
         ))
 
     # 10. thumbnail: extract a frame at t=0
-    thumb_path = Path(output_thumb_dir) / f"{Path(video_path).stem}_thumb.jpg"
-    thumb_result = get_thumbnail(video_path, 0.0, str(thumb_path))
-    checks.append(QCCheck(
-        name="thumbnail", passed=thumb_result.ok,
-        detail=(
-            f"{thumb_path} ({thumb_result.width}x{thumb_result.height})"
-            if thumb_result.ok else (thumb_result.error or "failed")
-        ),
-    ))
+    if resolved_policy.mode == "light":
+        checks.append(_policy_skipped_check("thumbnail", resolved_policy))
+    else:
+        thumb_path = Path(output_thumb_dir) / f"{Path(video_path).stem}_thumb.jpg"
+        thumb_result = get_thumbnail(video_path, 0.0, str(thumb_path))
+        checks.append(QCCheck(
+            name="thumbnail", passed=thumb_result.ok,
+            detail=(
+                f"{thumb_path} ({thumb_result.width}x{thumb_result.height})"
+                if thumb_result.ok else (thumb_result.error or "failed")
+            ),
+        ))
 
     report = QCReport.from_checks(checks)
+    report.policy = resolved_policy.mode
+    report.complete = complete
+    report.reason = (
+        f"policy={resolved_policy.mode}"
+        if resolved_policy.mode != "full" else ""
+    )
+    report.elapsed_sec = time.monotonic() - qc_t0
     report.spans = spans
     report.source_known_spans = source_known_spans
     report.duration_sec = duration_sec

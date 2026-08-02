@@ -169,7 +169,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     from open_edit.render.orchestrator import render_project
     from open_edit.render.diagnostics import StageRecorder
     from open_edit.qc.gate import run_qc_gate
-    from open_edit.qc.policy import qc_policy
+    from open_edit.qc.policy import resolve_qc_policy
     overrides = {k: v for k, v in (
         ("crf", args.crf), ("vb", args.vb), ("preset", args.preset),
         ("scale", args.scale), ("codec", args.codec),
@@ -214,57 +214,60 @@ def cmd_render(args: argparse.Namespace) -> int:
                 if isinstance(cache_stage, dict):
                     cache_hit = bool(cache_stage.get("hit"))
 
-        qc_decision = qc_policy(args.mode, cache_hit=cache_hit)
+        qc_policy = resolve_qc_policy(args.mode, cache_hit=cache_hit)
+        diagnostics["qc_policy"] = qc_policy.mode
         qc_t0 = time.monotonic()
         qc_recorder = StageRecorder()
-        if qc_decision == "skip":
-            reason = "deliverable_cache_hit" if cache_hit else "policy_never"
+        # The human-readable path performs the same policy-aware gate as the
+        # durable service. The JSON path above remains render-result-only.
+        try:
+            qc = run_qc_gate(
+                result.output_path, project_dir / "thumbs",
+                target_duration_s=result.duration_sec, mode=args.mode,
+                source_baseline=diagnostics.get("source_baseline"),
+                policy=qc_policy,
+            )
+            if qc_policy.mode == "skip":
+                reason = "deliverable_cache_hit" if cache_hit else "policy_never"
+                qc.reason = reason
+                for check in qc.checks:
+                    check.detail = f"skipped by policy=skip; {reason}"
+            qc_report = qc.model_dump(mode="json")
+            qc_recorder.record(
+                "qc",
+                time.monotonic() - qc_t0,
+                status="skipped" if qc_policy.mode == "skip" else "completed",
+                passed=bool(qc_report.get("passed")),
+                policy=qc_policy.mode,
+                complete=bool(qc_report.get("complete", False)),
+                reason=qc_report.get("reason", ""),
+            )
+        except Exception as exc:
             qc_report = {
-                "passed": True,
-                "skipped": True,
-                "reason": reason,
-                "checks": [],
+                "passed": False,
+                "policy": qc_policy.mode,
+                "complete": False,
+                "reason": f"qc gate failed: {exc}",
+                "checks": [
+                    {"name": "qc_gate", "passed": False, "detail": f"qc gate failed: {exc}"},
+                ],
             }
             qc_recorder.record(
                 "qc",
                 time.monotonic() - qc_t0,
-                status="skipped",
-                reason=reason,
+                status="failed",
+                error=str(exc),
+                policy=qc_policy.mode,
             )
-        else:
-            # Run QC gate
-            try:
-                qc = run_qc_gate(
-                    result.output_path, project_dir / "thumbs",
-                    target_duration_s=result.duration_sec, mode=args.mode,
-                    source_baseline=diagnostics.get("source_baseline"),
-                )
-                qc_report = qc.model_dump(mode="json")
-                qc_recorder.record(
-                    "qc",
-                    time.monotonic() - qc_t0,
-                    passed=bool(qc_report.get("passed")),
-                )
-            except Exception as exc:
-                qc_report = {
-                    "passed": False,
-                    "checks": [
-                        {"name": "qc_gate", "passed": False, "detail": f"qc gate failed: {exc}"},
-                    ],
-                }
-                qc_recorder.record(
-                    "qc",
-                    time.monotonic() - qc_t0,
-                    status="failed",
-                    error=str(exc),
-                )
         diagnostics.setdefault("stages", {}).update(qc_recorder.stages)
         diagnostics["qc_report"] = qc_report
         result.diagnostics = diagnostics
-        if qc_report.get("skipped") and qc_report.get("reason") == "deliverable_cache_hit":
+        if qc_report.get("policy") == "skip" and qc_report.get("reason") == "deliverable_cache_hit":
             print("QC: SKIPPED (deliverable cache hit)")
-        elif qc_report.get("skipped"):
+        elif qc_report.get("policy") == "skip":
             print(f"QC: SKIPPED ({qc_report.get('reason', 'policy')})")
+        elif qc_report.get("policy") == "light":
+            print(f"QC: INCOMPLETE ({qc_report.get('reason', 'policy')})")
         else:
             print(f"QC: {'PASS' if qc_report['passed'] else 'FAIL'}")
         for c in qc_report["checks"]:

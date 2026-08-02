@@ -58,3 +58,23 @@ def test_list_black_frames_uses_pixel_threshold(tmp_path, monkeypatch) -> None:
     vf = seen[0][seen[0].index("-vf") + 1]
     assert "pix_th=0.1" in vf
     assert "pic_th=0.98" in vf
+
+
+def test_list_black_frames_timeout_is_structured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"not decoded")
+    monkeypatch.setattr(black_frames_mod.shutil, "which", lambda _: "ffmpeg")
+    monkeypatch.setattr(
+        black_frames_mod.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(kwargs["timeout"], kwargs["timeout"])
+        ),
+    )
+
+    result = list_black_frames(str(source), timeout_s=7.0)
+
+    assert result.ok is False
+    assert "timed out" in (result.error or "")

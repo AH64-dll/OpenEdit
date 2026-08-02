@@ -49,6 +49,7 @@ def list_frozen_frames(
     scale_height: int = DEFAULT_SCALE_HEIGHT,
     in_sec: float = 0.0,
     out_sec: float = 0.0,
+    timeout_s: float | None = None,
 ) -> FrozenFramesResult:
     """Return frozen-frame spans for a source range.
 
@@ -83,12 +84,15 @@ def list_frozen_frames(
     if out_sec > 0:
         cmd += ["-t", f"{(out_sec - in_sec):.3f}"]
     cmd += ["-vf", vf, "-an", "-f", "null", "-"]
+    timeout = 120.0 if timeout_s is None else max(0.001, float(timeout_s))
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
     except subprocess.TimeoutExpired:
         return FrozenFramesResult(
             ok=False, min_sec=min_sec, noise_db=noise_db, spans=[],
-            error="ffmpeg timed out after 120s",
+            error=f"ffmpeg timed out after {timeout:g}s",
         )
     if proc.returncode != 0:
         lines = (proc.stderr or "").strip().splitlines()

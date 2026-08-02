@@ -9,6 +9,7 @@ from open_edit.qc import gate as gate_mod
 from open_edit.qc.black_frames import BlackFramesResult, BlackSpan
 from open_edit.qc.frozen_frames import FrozenFramesResult
 from open_edit.qc.gate import run_qc_gate, QCReport
+from open_edit.qc.policy import QCPolicy
 
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
@@ -89,6 +90,77 @@ def test_run_qc_gate_duration_without_target_is_informational() -> None:
     assert report.duration_sec == pytest.approx(2.0, abs=0.05)
 
 
+def test_light_policy_skips_expensive_detectors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "out.mp4"
+    output.write_bytes(b"valid")
+    monkeypatch.setattr(
+        gate_mod,
+        "probe_streams",
+        lambda _: SimpleNamespace(
+            ok=True, container_duration_s=2.0, video_streams=1,
+            audio_streams=1, video_duration_s=2.0, audio_duration_s=2.0,
+            codec_types=["video", "audio"], error=None,
+        ),
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("light QC must not run expensive detectors")
+
+    monkeypatch.setattr(gate_mod, "list_black_frames", fail_if_called)
+    monkeypatch.setattr(gate_mod, "list_frozen_frames", fail_if_called)
+    monkeypatch.setattr(gate_mod, "list_silence", fail_if_called)
+    monkeypatch.setattr(gate_mod, "get_thumbnail", fail_if_called)
+
+    report = run_qc_gate(
+        str(output),
+        tmp_path / "thumbs",
+        target_duration_s=2.0,
+        mode="proxy",
+        policy=QCPolicy("light", None, 900.0),
+    )
+
+    assert report.policy == "light"
+    assert report.complete is False
+    assert report.passed is True
+    assert all(
+        check.skipped
+        for check in report.checks
+        if check.name in {
+            "black_frames", "frozen_frames", "silence", "thumbnail",
+        }
+    )
+
+
+def test_skip_policy_emits_stable_skipped_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "cached.mp4"
+    output.write_bytes(b"cached")
+    monkeypatch.setattr(
+        gate_mod,
+        "probe_streams",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("skip QC must not decode or probe the video")
+        ),
+    )
+
+    report = run_qc_gate(
+        str(output),
+        tmp_path / "thumbs",
+        mode="proxy",
+        policy=QCPolicy("skip", None, 900.0),
+    )
+
+    assert [check.name for check in report.checks] == ALL_CHECK_NAMES
+    assert report.passed is True
+    assert report.complete is False
+    assert report.policy == "skip"
+    assert report.reason
+    assert all(check.skipped for check in report.checks)
+
+
 def test_run_qc_gate_streams_missing_audio_fails() -> None:
     """The testdata clips are video-only: the streams + audio_sync checks
     must fail while the file-level checks pass."""
@@ -141,7 +213,7 @@ def test_source_known_black_span_is_not_a_new_render_defect(
     monkeypatch.setattr(
         gate_mod,
         "list_black_frames",
-        lambda _: BlackFramesResult(
+        lambda *args, **kwargs: BlackFramesResult(
             ok=True, in_sec=0.0, out_sec=0.0, threshold=0.1, min_sec=0.5,
             spans=[BlackSpan(start_sec=0.0, end_sec=0.6, duration_sec=0.6)],
         ),
@@ -155,7 +227,7 @@ def test_source_known_black_span_is_not_a_new_render_defect(
     )
     monkeypatch.setattr(
         gate_mod, "list_silence",
-        lambda _: SimpleNamespace(ok=True, spans=[]),
+        lambda *args, **kwargs: SimpleNamespace(ok=True, spans=[]),
     )
     monkeypatch.setattr(
         gate_mod, "get_thumbnail",

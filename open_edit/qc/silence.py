@@ -86,6 +86,7 @@ def get_audio_levels(
 def list_silence(
     video_path: str, in_sec: float = 0.0, out_sec: float = 0.0,
     threshold_db: float = DEFAULT_SILENCE_DB, min_sec: float = DEFAULT_SILENCE_MIN_SEC,
+    timeout_s: float | None = None,
 ) -> SilenceResult:
     """Return silence spans where audio falls below threshold_db for at least min_sec."""
     ffmpeg = _ffmpeg()
@@ -93,16 +94,29 @@ def list_silence(
         return SilenceResult(ok=False, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[], error="ffmpeg not on PATH")
     if not Path(video_path).is_file():
         return SilenceResult(ok=False, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[], error=f"video not found: {video_path}")
-    if not _has_audio_stream(video_path):
+    timeout = 60.0 if timeout_s is None else max(0.001, float(timeout_s))
+    try:
+        has_audio = _has_audio_stream(video_path)
+    except subprocess.TimeoutExpired:
+        return SilenceResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold_db=threshold_db, min_sec=min_sec, spans=[],
+            error=f"ffprobe timed out after {timeout:g}s",
+        )
+    if not has_audio:
         return SilenceResult(ok=True, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[])
 
     try:
         spans = detect_silence_spans(
             video_path, threshold_db=threshold_db, min_s=min_sec,
-            start_sec=in_sec, end_sec=out_sec, timeout=60,
+            start_sec=in_sec, end_sec=out_sec, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return SilenceResult(ok=False, in_sec=in_sec, out_sec=out_sec, threshold_db=threshold_db, min_sec=min_sec, spans=[], error="ffmpeg timed out after 60s")
+        return SilenceResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold_db=threshold_db, min_sec=min_sec, spans=[],
+            error=f"ffmpeg timed out after {timeout:g}s",
+        )
     except FFprobeError as exc:
         # Decode failure must surface as ok=False (the pre-6.8 shape),
         # not as a silent "0 silence" success.

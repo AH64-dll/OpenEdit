@@ -93,25 +93,23 @@ async def test_proxy_cache_hit_persists_skipped_qc_report(
         }
 
     service._launch = cached_launch  # type: ignore[method-assign]
-
-    def fail_if_qc_runs(*args, **kwargs):
-        raise AssertionError("QC must be skipped for a proxy cache hit")
-
-    monkeypatch.setattr("open_edit.qc.gate.run_qc_gate", fail_if_qc_runs)
     queued = service.enqueue("project-id", project, "proxy")
     completed = await service.wait(project, queued.job_id)
 
     report = completed.result["qc_report"]
-    assert report == {
-        "passed": True,
-        "skipped": True,
-        "reason": "deliverable_cache_hit",
-        "checks": [],
-    }
+    assert report["passed"] is True
+    assert report["policy"] == "skip"
+    assert report["complete"] is False
+    assert "deliverable_cache_hit" in report["reason"]
+    assert report["checks"]
+    assert all(check["skipped"] for check in report["checks"])
     assert completed.qc_report == report
+    assert completed.result["qc_policy"] == "skip"
+    assert completed.result["diagnostics"]["qc_policy"] == "skip"
+    assert completed.result["diagnostics"]["qc_report"] == report
     qc_stage = completed.result["diagnostics"]["stages"]["qc"]
     assert qc_stage["status"] == "skipped"
-    assert qc_stage["reason"] == "deliverable_cache_hit"
+    assert qc_stage["policy"] == "skip"
     assert qc_stage["elapsed_sec"] >= 0
 
     restored = RenderJobService().get(project, queued.job_id)
@@ -127,10 +125,12 @@ async def test_final_cache_hit_still_runs_qc(
 
     service = RenderJobService()
     called = False
+    seen_policy = None
 
     def fake_qc(*args, **kwargs):
-        nonlocal called
+        nonlocal called, seen_policy
         called = True
+        seen_policy = kwargs["policy"]
         return QCReport(passed=True, checks=[])
 
     monkeypatch.setattr("open_edit.qc.gate.run_qc_gate", fake_qc)
@@ -146,9 +146,41 @@ async def test_final_cache_hit_still_runs_qc(
     )
 
     assert called is True
+    assert seen_policy.mode == "full"
     assert updated["qc_report"]["passed"] is True
     assert "skipped" not in updated["qc_report"]
+    assert updated["qc_policy"] == "full"
     assert updated["diagnostics"]["stages"]["qc"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_proxy_cold_uses_light_qc_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.qc.gate import QCReport
+
+    service = RenderJobService()
+    seen_policy = None
+
+    def fake_qc(*args, **kwargs):
+        nonlocal seen_policy
+        seen_policy = kwargs["policy"]
+        return QCReport(passed=True, checks=[])
+
+    monkeypatch.setattr("open_edit.qc.gate.run_qc_gate", fake_qc)
+    updated = await service._attach_qc(
+        {
+            "ok": True,
+            "output_path": str(tmp_path / "out.mp4"),
+            "mode": "proxy",
+            "cache_hit": False,
+            "diagnostics": {"stages": {}},
+        },
+        tmp_path,
+    )
+
+    assert seen_policy.mode == "light"
+    assert updated["qc_policy"] == "light"
 
 
 @pytest.mark.asyncio

@@ -43,6 +43,7 @@ def list_black_frames(
     threshold: float = DEFAULT_BLACK_THRESHOLD,
     min_sec: float = DEFAULT_BLACK_MIN_SEC,
     scale_height: int | None = None,
+    timeout_s: float | None = None,
 ) -> BlackFramesResult:
     """Return black-frame spans for the [in_sec, out_sec] range.
 
@@ -88,7 +89,17 @@ def list_black_frames(
         cmd += ["-t", f"{(out_sec - in_sec):.3f}"]
     cmd += ["-vf", ",".join(filters), "-an", "-f", "null", "-"]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    timeout = 60.0 if timeout_s is None else max(0.001, float(timeout_s))
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return BlackFramesResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold=threshold, min_sec=min_sec, spans=[],
+            error=f"ffmpeg timed out after {timeout:g}s",
+        )
     if proc.returncode != 0:
         lines = (proc.stderr or "").strip().splitlines()
         return BlackFramesResult(

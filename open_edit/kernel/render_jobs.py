@@ -393,7 +393,7 @@ class RenderJobService:
             LEGACY_STAGE_ALIASES,
             StageRecorder,
         )
-        from open_edit.qc.policy import qc_policy
+        from open_edit.qc.policy import resolve_qc_policy
 
         out = dict(result)
         raw_diagnostics = out.get("diagnostics")
@@ -433,50 +433,39 @@ class RenderJobService:
                 if isinstance(cache_stage, Mapping):
                     cache_hit = bool(cache_stage.get("hit"))
 
+        policy = resolve_qc_policy(
+            out.get("mode"),
+            cache_hit=cache_hit,
+        )
+        out["qc_policy"] = policy.mode
+        diagnostics["qc_policy"] = policy.mode
         qc_t0 = time.monotonic()
         output_path = result.get("output_path")
         if not isinstance(output_path, str) or not output_path:
             out["qc_report"] = {
                 "passed": False,
+                "policy": policy.mode,
+                "complete": False,
+                "elapsed_sec": 0.0,
+                "reason": "missing_output_path",
                 "checks": [{
                     "name": "qc_gate",
                     "passed": False,
                     "detail": "missing output path",
                 }],
             }
+            diagnostics["qc_report"] = out["qc_report"]
             recorder.record(
                 "qc",
                 time.monotonic() - qc_t0,
                 status="failed",
                 error="missing_output_path",
+                policy=policy.mode,
+                complete=False,
+                reason="missing_output_path",
             )
             diagnostics["stages"] = recorder.stages
             diagnostics["legacy_stage_aliases"] = dict(LEGACY_STAGE_ALIASES)
-            out["diagnostics"] = diagnostics
-            return out
-
-        decision = qc_policy(out.get("mode"), cache_hit=cache_hit)
-        if decision == "skip":
-            reason = "deliverable_cache_hit" if cache_hit else "policy_never"
-            out["qc_report"] = {
-                "passed": True,
-                "skipped": True,
-                "reason": reason,
-                "checks": [],
-            }
-            recorder.record(
-                "qc",
-                time.monotonic() - qc_t0,
-                status="skipped",
-                reason=reason,
-            )
-            diagnostics["stages"] = recorder.stages
-            diagnostics["legacy_stage_aliases"] = dict(LEGACY_STAGE_ALIASES)
-            for alias, canonical in LEGACY_STAGE_ALIASES.items():
-                if canonical in diagnostics["stages"]:
-                    diagnostics["stages"][alias] = dict(
-                        diagnostics["stages"][canonical],
-                    )
             out["diagnostics"] = diagnostics
             return out
 
@@ -491,25 +480,43 @@ class RenderJobService:
                 target_duration_s=float(target) if target is not None else None,
                 mode=out.get("mode"),
                 source_baseline=diagnostics.get("source_baseline"),
+                policy=policy,
             )
+            if policy.mode == "skip":
+                reason = "deliverable_cache_hit" if cache_hit else "policy_never"
+                qc.reason = reason
+                for check in qc.checks:
+                    check.detail = f"skipped by policy=skip; {reason}"
             out["qc_report"] = qc.model_dump(mode="json")
+            diagnostics["qc_report"] = out["qc_report"]
             recorder.record(
                 "qc",
                 time.monotonic() - qc_t0,
+                status="skipped" if policy.mode == "skip" else "completed",
                 passed=bool(out["qc_report"].get("passed")),
+                policy=policy.mode,
+                complete=bool(out["qc_report"].get("complete", False)),
+                reason=out["qc_report"].get("reason", ""),
             )
         except Exception as exc:
             out["qc_report"] = {
                 "passed": False,
+                "policy": policy.mode,
+                "complete": False,
+                "reason": f"qc gate failed: {exc}",
                 "checks": [
                     {"name": "qc_gate", "passed": False, "detail": f"qc gate failed: {exc}"},
                 ],
             }
+            diagnostics["qc_report"] = out["qc_report"]
             recorder.record(
                 "qc",
                 time.monotonic() - qc_t0,
                 status="failed",
                 error=str(exc),
+                policy=policy.mode,
+                complete=False,
+                reason=f"qc gate failed: {exc}",
             )
         diagnostics["stages"] = recorder.stages
         diagnostics["legacy_stage_aliases"] = dict(LEGACY_STAGE_ALIASES)
