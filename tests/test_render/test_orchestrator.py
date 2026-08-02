@@ -149,3 +149,65 @@ def test_render_project_hwaccel_retry(tmp_path: Path, monkeypatch) -> None:
                                          mode="proxy", encoder_backend="gpu")
     assert result.ok is True, result.error
     assert len(attempts) == 2  # first hwaccel attempt failed -> CPU retry
+
+
+def test_render_diagnostics_include_canonical_stages_and_product(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from open_edit.render import orchestrator
+    from open_edit.render.melt_runner import PipeResult
+
+    def fake_run_pipe(cmds, *, timeout_s):
+        output_path = Path(cmds.ffmpeg_cmd[-1])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"MP4")
+        return PipeResult(
+            0,
+            0,
+            0,
+            "",
+            audio_elapsed_sec=0.1,
+            melt_elapsed_sec=0.2,
+            ffmpeg_elapsed_sec=0.3,
+        )
+
+    monkeypatch.setattr(orchestrator, "run_pipe", fake_run_pipe)
+    monkeypatch.setattr(orchestrator, "_gpu_decode_available", lambda: False)
+    monkeypatch.setattr(
+        orchestrator.shutil,
+        "which",
+        lambda name: "/usr/bin/melt" if name == "melt" else None,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "repair_render_output",
+        lambda *args, **kwargs: {"ok": True, "changed": False},
+    )
+
+    project_dir = _make_project(tmp_path, name="canonical-stages")
+    result = orchestrator.render_project(
+        "canonical-stages",
+        project_dir,
+        tmp_path / "work",
+        mode="proxy",
+    )
+
+    assert result.ok is True, result.error
+    assert result.diagnostics["product"]["kind"] == "review_artifact"
+    assert result.diagnostics["product"]["width"] == 640
+    assert set(result.diagnostics["stages"]) >= {
+        "derive_timeline",
+        "render_cache_lookup",
+        "remotion_materialize",
+        "build_render_plan",
+        "emit_mlt",
+        "melt_audio",
+        "melt_video",
+        "ffmpeg_encode",
+        "source_repair",
+        "qc",
+    }
+    assert result.diagnostics["stages"]["melt_audio"]["elapsed_sec"] == 0.1
+    assert result.diagnostics["stages"]["melt_video"]["elapsed_sec"] == 0.2
+    assert result.diagnostics["stages"]["ffmpeg_encode"]["elapsed_sec"] == 0.3
+    assert result.diagnostics["legacy_stage_aliases"]["ffmpeg"] == "ffmpeg_encode"

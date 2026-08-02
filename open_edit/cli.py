@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from importlib import metadata
 from pathlib import Path
 
@@ -166,6 +167,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         print("error: no open_edit project found", file=sys.stderr)
         return 1
     from open_edit.render.orchestrator import render_project
+    from open_edit.render.diagnostics import StageRecorder
     from open_edit.qc.gate import run_qc_gate
     overrides = {k: v for k, v in (
         ("crf", args.crf), ("vb", args.vb), ("preset", args.preset),
@@ -198,16 +200,41 @@ def cmd_render(args: argparse.Namespace) -> int:
         print(f"Rendered: {result.output_path}")
         print(f"  duration: {result.duration_sec:.2f}s  elapsed: {result.elapsed_sec:.2f}s  cache_hit: {result.cache_hit}")
         # Run QC gate
-        qc = run_qc_gate(
-            result.output_path, project_dir / "thumbs",
-            target_duration_s=result.duration_sec, mode=args.mode,
-            source_baseline=(result.diagnostics or {}).get("source_baseline"),
-        )
-        print(f"QC: {'PASS' if qc.passed else 'FAIL'}")
-        for c in qc.checks:
-            mark = "✓" if c.passed else "✗"
-            print(f"  [{mark}] {c.name}: {c.detail}")
-        return 0 if qc.passed else 1
+        qc_t0 = time.monotonic()
+        try:
+            qc = run_qc_gate(
+                result.output_path, project_dir / "thumbs",
+                target_duration_s=result.duration_sec, mode=args.mode,
+                source_baseline=(result.diagnostics or {}).get("source_baseline"),
+            )
+            qc_report = qc.model_dump(mode="json")
+            qc_recorder = StageRecorder()
+            qc_recorder.record(
+                "qc",
+                time.monotonic() - qc_t0,
+                passed=bool(qc_report.get("passed")),
+            )
+        except Exception as exc:
+            qc_report = {
+                "passed": False,
+                "checks": [
+                    {"name": "qc_gate", "passed": False, "detail": f"qc gate failed: {exc}"},
+                ],
+            }
+            qc_recorder = StageRecorder()
+            qc_recorder.record(
+                "qc",
+                time.monotonic() - qc_t0,
+                status="failed",
+                error=str(exc),
+            )
+        result.diagnostics.setdefault("stages", {}).update(qc_recorder.stages)
+        result.diagnostics["qc_report"] = qc_report
+        print(f"QC: {'PASS' if qc_report['passed'] else 'FAIL'}")
+        for c in qc_report["checks"]:
+            mark = "✓" if c["passed"] else "✗"
+            print(f"  [{mark}] {c['name']}: {c['detail']}")
+        return 0 if qc_report["passed"] else 1
     else:
         if args.json:
             print(json.dumps({"ok": False, "error": result.error, "mode": args.mode}))

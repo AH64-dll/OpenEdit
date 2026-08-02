@@ -387,12 +387,44 @@ class RenderJobService:
         report to the job result. QC findings are diagnostic: they never
         flip the job status (the render itself succeeded).
         """
-        output_path = result.get("output_path")
-        if not isinstance(output_path, str) or not output_path:
-            return result
-        from open_edit.qc.gate import run_qc_gate
+        from collections.abc import Mapping
+
+        from open_edit.render.diagnostics import (
+            LEGACY_STAGE_ALIASES,
+            StageRecorder,
+        )
 
         out = dict(result)
+        diagnostics = dict(out.get("diagnostics") or {})
+        recorder = StageRecorder()
+        raw_stages = diagnostics.get("stages", {})
+        if isinstance(raw_stages, Mapping):
+            for name, entry in raw_stages.items():
+                if not isinstance(entry, Mapping) or name == "qc":
+                    continue
+                status = entry.get("status", "completed")
+                fields = {
+                    key: value
+                    for key, value in entry.items()
+                    if key not in {"elapsed_sec", "status"}
+                }
+                recorder.record(
+                    name,
+                    entry.get("elapsed_sec", 0.0),
+                    status=status,
+                    **fields,
+                )
+
+        output_path = result.get("output_path")
+        if not isinstance(output_path, str) or not output_path:
+            recorder.skip("qc", reason="missing_output_path")
+            diagnostics["stages"] = recorder.stages
+            diagnostics["legacy_stage_aliases"] = dict(LEGACY_STAGE_ALIASES)
+            out["diagnostics"] = diagnostics
+            return out
+        from open_edit.qc.gate import run_qc_gate
+
+        qc_t0 = time.monotonic()
         try:
             target = result.get("duration_sec") or result.get("duration_s")
             qc = await asyncio.to_thread(
@@ -406,6 +438,11 @@ class RenderJobService:
                 ),
             )
             out["qc_report"] = qc.model_dump(mode="json")
+            recorder.record(
+                "qc",
+                time.monotonic() - qc_t0,
+                passed=bool(out["qc_report"].get("passed")),
+            )
         except Exception as exc:
             out["qc_report"] = {
                 "passed": False,
@@ -413,6 +450,18 @@ class RenderJobService:
                     {"name": "qc_gate", "passed": False, "detail": f"qc gate failed: {exc}"},
                 ],
             }
+            recorder.record(
+                "qc",
+                time.monotonic() - qc_t0,
+                status="failed",
+                error=str(exc),
+            )
+        diagnostics["stages"] = recorder.stages
+        diagnostics["legacy_stage_aliases"] = dict(LEGACY_STAGE_ALIASES)
+        for alias, canonical in LEGACY_STAGE_ALIASES.items():
+            if canonical in diagnostics["stages"]:
+                diagnostics["stages"][alias] = dict(diagnostics["stages"][canonical])
+        out["diagnostics"] = diagnostics
         return out
 
     async def _launch(self, project_path: Path, job_id: str, mode: str) -> dict:

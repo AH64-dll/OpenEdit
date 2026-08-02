@@ -191,3 +191,31 @@ async def test_launch_command_includes_params(tmp_path: Path) -> None:
     finally:
         for task in service._tasks.values():
             task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_qc_stage_timing_is_attached_to_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.qc.gate import QCReport
+
+    service = RenderJobService()
+
+    def fake_qc(*args, **kwargs):
+        return QCReport(passed=True, checks=[])
+
+    monkeypatch.setattr("open_edit.qc.gate.run_qc_gate", fake_qc)
+    result = {
+        "ok": True,
+        "output_path": str(tmp_path / "out.mp4"),
+        "mode": "proxy",
+        "duration_sec": 1.0,
+        "diagnostics": {"stages": {}},
+    }
+
+    updated = await service._attach_qc(result, tmp_path)
+
+    assert updated["qc_report"]["passed"] is True
+    assert updated["qc_report"]["checks"] == []
+    assert updated["diagnostics"]["stages"]["qc"]["status"] == "completed"
+    assert updated["diagnostics"]["stages"]["qc"]["elapsed_sec"] >= 0

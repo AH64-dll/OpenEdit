@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from open_edit.ir.types import Project
 from open_edit.render.cache import RenderCache, canonical_json_hash, render_cache_key
 from open_edit.render.diagnostics import (
+    CANONICAL_STAGE_NAMES,
     LEGACY_STAGE_ALIASES,
     StageRecorder,
     product_descriptor,
@@ -99,6 +100,10 @@ def _contractualize_diagnostics(
                 **fields,
             )
     stages = recorder.stages
+    for name in CANONICAL_STAGE_NAMES:
+        if name not in stages:
+            recorder.skip(name, reason="not_reached")
+    stages = recorder.stages
     for alias, canonical in LEGACY_STAGE_ALIASES.items():
         if canonical in stages:
             stages[alias] = dict(stages[canonical])
@@ -161,27 +166,63 @@ def render_project(
     If profile_name is None, the profile is auto-selected from mode:
     proxy -> fast_proxy (640x360), final -> 1080p30.
     """
+    profile = profile_with_quality(profile_name, mode, quality, overrides)
+    recorder = StageRecorder()
     melt_bin = shutil.which("melt")
     if melt_bin is None:
-        return RenderResult(ok=False, error="melt not on PATH")
-
-    profile = profile_with_quality(profile_name, mode, quality, overrides)
-    fingerprint = profile_fingerprint(profile, encoder_backend)
+        return RenderResult(
+            ok=False,
+            profile=profile.model_dump(),
+            mode=mode,
+            error="melt not on PATH",
+            diagnostics=_contractualize_diagnostics(
+                mode, profile, {"stages": recorder.stages},
+            ),
+        )
 
     project_path = project_dir / ".open_edit" / "edit_graph.db"
     store = EditGraphStore(project_path)
     ops = store.load_all()
     applied_ops = [op for op in ops if op.status == "applied"]
     if not applied_ops:
+        recorder.skip("derive_timeline", reason="empty_edit_graph")
         return RenderResult(
             ok=False,
             error="empty edit graph; nothing to render",
-            diagnostics=_contractualize_diagnostics(mode, profile),
+            profile=profile.model_dump(),
+            mode=mode,
+            diagnostics=_contractualize_diagnostics(
+                mode, profile, {"stages": recorder.stages},
+            ),
         )
 
     project = Project(name=project_id)
     project.edit_graph = list(applied_ops)
-    timeline = derive_or_load_timeline(project, store, strict=True)
+    derive_t0 = time.monotonic()
+    try:
+        timeline = derive_or_load_timeline(project, store, strict=True)
+    except Exception as exc:
+        recorder.record(
+            "derive_timeline",
+            time.monotonic() - derive_t0,
+            status="failed",
+            error=str(exc),
+        )
+        return _fail(
+            mode=mode,
+            profile=profile,
+            output_path="",
+            duration_sec=0.0,
+            elapsed_sec=time.monotonic() - derive_t0,
+            graph_hash="",
+            error=str(exc),
+            diagnostics={"stages": recorder.stages},
+        )
+    recorder.record(
+        "derive_timeline",
+        time.monotonic() - derive_t0,
+        duration_sec=timeline.duration_sec,
+    )
 
     # Materialize Remotion compositions to CAS clips before emit. Fail hard.
     materialize_t0 = time.monotonic()
@@ -191,31 +232,52 @@ def render_project(
         )
     except RemotionMaterializeError as exc:
         materialize_elapsed = time.monotonic() - materialize_t0
+        recorder.record(
+            "remotion_materialize",
+            materialize_elapsed,
+            status="failed",
+            bytes=0,
+            error=str(exc),
+        )
         return _fail(
             mode=mode, profile=profile, output_path="",
             duration_sec=timeline.duration_sec, elapsed_sec=0.0,
             graph_hash="", error=str(exc),
-            diagnostics=_contractualize_diagnostics(
-                mode,
-                profile,
-                {
-                    "stages": {
-                        "remotion_materialize": {
-                            "elapsed_sec": materialize_elapsed,
-                            "bytes": 0,
-                        },
-                    },
-                },
-            ),
+            diagnostics={"stages": recorder.stages},
         )
     materialize_elapsed = time.monotonic() - materialize_t0
 
-    plan = build_render_plan(
-        timeline,
-        applied_ops,
-        AssetStore(project_dir / ".open_edit" / "assets"),
-        mode,
-    )
+    plan_t0 = time.monotonic()
+    try:
+        plan = build_render_plan(
+            timeline,
+            applied_ops,
+            AssetStore(project_dir / ".open_edit" / "assets"),
+            mode,
+        )
+    except Exception as exc:
+        recorder.record(
+            "remotion_materialize",
+            materialize_elapsed,
+            bytes=0,
+        )
+        recorder.record(
+            "build_render_plan",
+            time.monotonic() - plan_t0,
+            status="failed",
+            error=str(exc),
+        )
+        return _fail(
+            mode=mode,
+            profile=profile,
+            output_path="",
+            duration_sec=timeline.duration_sec,
+            elapsed_sec=time.monotonic() - plan_t0,
+            graph_hash="",
+            error=str(exc),
+            diagnostics={"stages": recorder.stages},
+        )
+    recorder.record("build_render_plan", time.monotonic() - plan_t0)
     source_baseline = collect_source_baseline(
         plan.melt_timeline, plan.asset_paths,
     )
@@ -224,15 +286,13 @@ def render_project(
         for ov in plan.overlay_clips
         if ov.media_path.is_file()
     )
+    recorder.record(
+        "remotion_materialize",
+        materialize_elapsed,
+        bytes=materialized_bytes,
+    )
     diagnostics = {
-        "stages": {
-            "remotion_materialize": {
-                "elapsed_sec": materialize_elapsed,
-                "bytes": materialized_bytes,
-            },
-            "melt": {"elapsed_sec": 0.0, "bytes": 0},
-            "ffmpeg": {"elapsed_sec": 0.0, "bytes": 0},
-        },
+        "stages": recorder.stages,
         "profile": {
             "name": profile.name,
             "width": profile.width,
@@ -242,8 +302,9 @@ def render_project(
         },
         "source_baseline": source_baseline,
     }
-    diagnostics = _contractualize_diagnostics(mode, profile, diagnostics)
 
+    cache_lookup_t0 = time.monotonic()
+    fingerprint = profile_fingerprint(profile, encoder_backend)
     payload = [op.model_dump(mode="json") for op in applied_ops]
     graph_hash = canonical_json_hash(payload)
     alpha_modes = sorted({
@@ -270,9 +331,19 @@ def render_project(
     cache_key = render_cache_key(
         graph_hash, fingerprint, cache_content_fingerprint,
     )
-    if not force:
+    if force:
+        cached = None
+        recorder.skip("render_cache_lookup", reason="force_requested")
+    else:
         cached = cache.get(cache_key)
-        if cached and cache.is_fresh(cached):
+        cache_hit = bool(cached and cache.is_fresh(cached))
+        recorder.record(
+            "render_cache_lookup",
+            time.monotonic() - cache_lookup_t0,
+            hit=cache_hit,
+        )
+        if cache_hit:
+            diagnostics["stages"] = recorder.stages
             return RenderResult(
                 ok=True, output_path=str(cached), mode=mode,
                 profile=profile.model_dump(), duration_sec=timeline.duration_sec,
@@ -286,13 +357,40 @@ def render_project(
 
     config = EmitterConfig(profile=profile.model_dump())
     hwaccel_on = _gpu_decode_available() and resolve_backend(encoder_backend) == "gpu"
-    xml = emit_timeline(
-        plan.melt_timeline, config, asset_paths=plan.asset_paths, hwaccel=hwaccel_on,
-    )
     workdir.mkdir(parents=True, exist_ok=True)
     xml_path = workdir / f"project_{graph_hash[:12]}.mlt"
-    xml_path.write_text(xml)
-    diagnostics["stages"]["melt_video"]["bytes"] = xml_path.stat().st_size
+    emit_t0 = time.monotonic()
+    try:
+        xml = emit_timeline(
+            plan.melt_timeline,
+            config,
+            asset_paths=plan.asset_paths,
+            hwaccel=hwaccel_on,
+        )
+        xml_path.write_text(xml)
+    except Exception as exc:
+        recorder.record(
+            "emit_mlt",
+            time.monotonic() - emit_t0,
+            status="failed",
+            error=str(exc),
+        )
+        diagnostics["stages"] = recorder.stages
+        return _fail(
+            mode=mode,
+            profile=profile,
+            output_path=str(xml_path),
+            duration_sec=timeline.duration_sec,
+            elapsed_sec=time.monotonic() - emit_t0,
+            graph_hash=graph_hash,
+            error=str(exc),
+            diagnostics=diagnostics,
+        )
+    recorder.record(
+        "emit_mlt",
+        time.monotonic() - emit_t0,
+        bytes=xml_path.stat().st_size,
+    )
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
 
     spec = resolve_encoder_args(profile, encoder_backend)
@@ -308,6 +406,17 @@ def render_project(
     try:
         result = run_pipe(cmds, timeout_s=melt_timeout)
     except PipeRunError as exc:
+        recorder.record(
+            "melt_audio",
+            0.0,
+            status="failed",
+            error=str(exc),
+        )
+        recorder.skip("melt_video", reason="pipe_failed")
+        recorder.skip("ffmpeg_encode", reason="pipe_failed")
+        recorder.skip("source_repair", reason="render_pipe_failed")
+        diagnostics["pipe_elapsed_sec"] = time.monotonic() - t0
+        diagnostics["stages"] = recorder.stages
         return _fail(
             mode=mode, profile=profile, output_path=str(output_mp4),
             duration_sec=timeline.duration_sec, elapsed_sec=time.monotonic() - t0,
@@ -324,6 +433,17 @@ def render_project(
         try:
             result = run_pipe(cmds, timeout_s=melt_timeout)
         except PipeRunError as exc:
+            recorder.record(
+                "melt_audio",
+                0.0,
+                status="failed",
+                error=str(exc),
+            )
+            recorder.skip("melt_video", reason="pipe_failed")
+            recorder.skip("ffmpeg_encode", reason="pipe_failed")
+            recorder.skip("source_repair", reason="render_pipe_failed")
+            diagnostics["pipe_elapsed_sec"] = time.monotonic() - t0
+            diagnostics["stages"] = recorder.stages
             return _fail(
                 mode=mode, profile=profile, output_path=str(output_mp4),
                 duration_sec=timeline.duration_sec, elapsed_sec=time.monotonic() - t0,
@@ -335,47 +455,74 @@ def render_project(
     if result.returncode == 0 and output_mp4.is_file() and output_mp4.stat().st_size > 0:
         repair_t0 = time.monotonic()
         repair_path = output_mp4.with_name(f"{output_mp4.stem}.repaired.mp4")
-        repair = repair_render_output(
-            output_mp4,
-            repair_path,
-            source_baseline,
-            protected_spans=[
-                (
-                    overlay.position_sec,
-                    overlay.position_sec + overlay.duration_sec,
-                )
-                for overlay in plan.overlay_clips
-            ],
-            repair_intentional_black=(
-                os.environ.get("OPEN_EDIT_REPAIR_INTENTIONAL_BLACK", "0")
-                .strip().lower() not in {"0", "false", "no"}
-            ),
-        )
+        try:
+            repair = repair_render_output(
+                output_mp4,
+                repair_path,
+                source_baseline,
+                protected_spans=[
+                    (
+                        overlay.position_sec,
+                        overlay.position_sec + overlay.duration_sec,
+                    )
+                    for overlay in plan.overlay_clips
+                ],
+                repair_intentional_black=(
+                    os.environ.get("OPEN_EDIT_REPAIR_INTENTIONAL_BLACK", "0")
+                    .strip().lower() not in {"0", "false", "no"}
+                ),
+            )
+        except Exception as exc:
+            repair = {"ok": False, "changed": False, "error": str(exc)}
         if repair.get("ok") and repair.get("changed"):
             os.replace(repair_path, output_mp4)
+        repair_elapsed = time.monotonic() - repair_t0
         diagnostics["repair"] = {
             key: value
             for key, value in repair.items()
             if key not in {"output_path"}
         }
-        diagnostics["repair"]["elapsed_sec"] = time.monotonic() - repair_t0
+        diagnostics["repair"]["elapsed_sec"] = repair_elapsed
+        recorder.record(
+            "source_repair",
+            repair_elapsed,
+            status="completed" if repair.get("ok") else "failed",
+            changed=bool(repair.get("changed")),
+        )
+    else:
+        recorder.skip("source_repair", reason="render_output_unavailable")
     elapsed = time.monotonic() - t0
-    diagnostics["stages"]["melt_video"]["elapsed_sec"] = getattr(
-        result, "melt_elapsed_sec", 0.0,
+    diagnostics["pipe_elapsed_sec"] = getattr(result, "elapsed_sec", elapsed)
+    audio_bytes = cmds.audio_wav.stat().st_size if cmds.audio_wav.is_file() else 0
+    output_bytes = output_mp4.stat().st_size if output_mp4.is_file() else 0
+    melt_rc = int(getattr(result, "melt_rc", 0))
+    ffmpeg_rc = int(getattr(result, "ffmpeg_rc", 0))
+    recorder.record(
+        "melt_audio",
+        getattr(result, "audio_elapsed_sec", 0.0),
+        status="failed" if ffmpeg_rc == -1 else "completed",
+        bytes=audio_bytes,
+        returncode=(melt_rc if ffmpeg_rc == -1 else 0),
     )
-    diagnostics["stages"]["ffmpeg_encode"]["elapsed_sec"] = getattr(
-        result, "ffmpeg_elapsed_sec", 0.0,
-    )
-    diagnostics["stages"]["audio"] = {
-        "elapsed_sec": getattr(result, "audio_elapsed_sec", 0.0),
-        "bytes": (
-            cmds.audio_wav.stat().st_size
-            if cmds.audio_wav.is_file() else 0
-        ),
-    }
-    diagnostics["stages"]["ffmpeg_encode"]["bytes"] = (
-        output_mp4.stat().st_size if output_mp4.is_file() else 0
-    )
+    if ffmpeg_rc == -1:
+        recorder.skip("melt_video", reason="audio_pass_failed")
+        recorder.skip("ffmpeg_encode", reason="audio_pass_failed")
+    else:
+        recorder.record(
+            "melt_video",
+            getattr(result, "melt_elapsed_sec", 0.0),
+            status="completed" if melt_rc == 0 else "failed",
+            bytes=xml_path.stat().st_size,
+            returncode=melt_rc,
+        )
+        recorder.record(
+            "ffmpeg_encode",
+            getattr(result, "ffmpeg_elapsed_sec", 0.0),
+            status="completed" if ffmpeg_rc == 0 else "failed",
+            bytes=output_bytes,
+            returncode=ffmpeg_rc,
+        )
+    diagnostics["stages"] = recorder.stages
     diagnostics["elapsed_sec"] = elapsed
 
     if result.returncode != 0 or not output_mp4.is_file() or output_mp4.stat().st_size == 0:

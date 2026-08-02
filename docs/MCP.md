@@ -180,8 +180,12 @@ export OPEN_EDIT_WHISPER_MODEL=small   # recommended for Arabic
 `project_path` is **not** a tool argument. It is fixed when the MCP process
 starts (`--project` / `OPEN_EDIT_PROJECT`).
 
-Renders go through `RenderJobService`: Remotion **materialize** → melt talk
-timeline → **ffmpeg burn-in** of Remotion graphics (proxy/final).
+Renders go through `RenderJobService`: Remotion **materialize** → melt the full
+timeline → **ffmpeg burn-in** of Remotion graphics (proxy/final). `mode=proxy`
+is a complete-timeline **review artifact** at 640×360; it is not an
+interactive timeline preview. A **source proxy** is a separate per-asset
+derivative used to reduce source decode cost. **Timeline preview chunks** are a
+separate future/interactive product and are not produced by `mode=proxy`.
 
 ## Review UI (recommended with MCP)
 
@@ -199,7 +203,7 @@ open_edit serve --review-only --port 8000
 
 Open `http://127.0.0.1:8000`, select the same project, then:
 
-1. **Render proxy** (720p, fast) — preview in the center player.
+1. **Render review artifact** (640×360, fast) — review the full cut in the center player.
 2. Scrub the timeline, **Copy time** (`[MM:SS.ms]`) for Cursor chat, or
    **Note here** to write a pending note the agent reads via
    `query_project` → `get_pending_notes`.
@@ -218,7 +222,7 @@ open_edit serve --review-only
 
 | Stage | Mode | Resolution | Purpose |
 |---|---|---|---|
-| Preview | `proxy` | 640x360 fast_proxy | Fast review, iterate with harness |
+| Review artifact | `proxy` | 640x360 fast_proxy | Full-timeline review, iterate with harness |
 | Delivery | `final` | 1080p30 | Full-quality export |
 
 From MCP: `trigger_render` with `"mode": "proxy"` then `"mode": "final"`.

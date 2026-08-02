@@ -392,7 +392,9 @@ function renderRendersList(renders) {
   // Newest first.
   for (const r of [...renders].reverse()) {
     const name = (r.path || '').split('/').pop() || r.id?.slice(0, 8) || 'render';
-    const modeLabel = r.mode === 'final' ? 'Final 1080p' : (r.mode === 'proxy' ? 'Proxy 720p' : r.mode || 'proxy');
+    const modeLabel = r.mode === 'final'
+      ? 'Final export · 1080p'
+      : (r.mode === 'proxy' ? 'Review artifact · 640×360' : r.mode || 'proxy');
     const status = r.status || 'succeeded';
     const statusLabel = status === 'running' ? 'Rendering…'
       : status === 'queued' ? 'Queued'
@@ -591,7 +593,7 @@ function toggleTheme() {
 const COMMANDS = [
   { id: 'new-project', title: 'Create New Project', icon: '➕', action: () => $('#btn-new-project')?.click() },
   { id: 'refresh-projects', title: 'Refresh Projects List', icon: '⟳', action: () => refreshProjects() },
-  { id: 'render-proxy', title: 'Render Proxy Video (540p)', icon: '🎬', action: () => triggerRender('proxy') },
+  { id: 'render-proxy', title: 'Render review artifact (640×360)', icon: '🎬', action: () => triggerRender('proxy') },
   { id: 'render-final', title: 'Render Final Video (1080p)', icon: '🎥', action: () => triggerRender('final') },
   { id: 'open-settings', title: 'Open Settings & API Keys', icon: '⚙️', action: () => openSettingsModal() },
   { id: 'toggle-theme', title: 'Toggle Light / Dark Mode', icon: '🌓', action: () => toggleTheme() },
@@ -1445,7 +1447,7 @@ function maybeLoadSourcePreview(s) {
     empty.style.display = 'none';
   }
   const badge = $('#preview-mode-badge');
-  if (badge) badge.textContent = 'Source';
+  if (badge) badge.textContent = 'Source media';
   player.onloadeddata = () => {
     if (empty) {
       empty.classList.add('hidden');
@@ -1523,7 +1525,9 @@ function loadRenderInPreview(renderId, mode = 'proxy') {
     empty.style.display = 'none';
   }
   if (badge) {
-    badge.textContent = mode === 'final' ? 'Final 1080p' : 'Proxy 720p';
+    badge.textContent = mode === 'final'
+      ? 'Final export · 1080p'
+      : 'Review artifact · 640×360';
   }
   player.onerror = () => {
     showToast('Preview failed to load — click Render Proxy to rebuild.', 'error');

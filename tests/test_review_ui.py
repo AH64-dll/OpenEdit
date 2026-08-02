@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,3 +52,15 @@ def test_llm_config_blocked_in_review_mode(monkeypatch: pytest.MonkeyPatch) -> N
     client = TestClient(app_mod.app)
     resp = client.get("/api/projects/any/llm-config")
     assert resp.status_code == 404
+
+
+def test_review_ui_uses_actual_profile_and_separate_source_copy() -> None:
+    app = Path("open_edit/serve/static/app.js").read_text(encoding="utf-8")
+    html = Path("open_edit/serve/static/index.html").read_text(encoding="utf-8")
+    docs = Path("docs/MCP.md").read_text(encoding="utf-8")
+
+    assert "Review artifact · 640×360" in app
+    assert "Proxy 720p" not in app
+    assert "540p" not in app
+    assert "Source media" in app or "Source media" in html
+    assert "timeline preview chunks" in docs.lower()
