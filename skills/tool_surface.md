@@ -87,10 +87,55 @@ proxy` before committing.
 
 Renders the current EditGraph. Modes:
 
-- `proxy` — fast, low-quality; use for validation.
-- `final` — full quality; use for the deliverable.
+- `preview-chunks` — feature-gated, background range cache with independent
+  video/audio/playback artifacts.
+- `proxy` — fast, complete-timeline **whole-file** review artifact; use for
+  validation and review, not as a chunk stream.
+- `final` — full quality delivery export.
 - `overlay` — burns HTML overlays (subscribe cards, captions) into the
   proxy render.
+
+### `preview-chunks` job contract
+
+Use the existing render tool for chunked timeline preview; do not invent a
+second enqueue tool:
+
+```json
+{
+  "mode": "preview-chunks",
+  "ranges": [{"start_sec": 12.0, "end_sec": 20.0}],
+  "media": "both",
+  "priority": "interactive",
+  "wait": false
+}
+```
+
+`ranges` is optional and uses project seconds. `media` is `video`, `audio`, or
+`both`; the two planes are independent and `playback` is their cheap mux.
+`priority` is `interactive` or `background`. The server normalizes and bounds
+range requests, while chunk geometry/profile remain server policy.
+
+Set `OPEN_EDIT_PREVIEW_CHUNKS=1` to enable generation. With the default
+`wait=false`, save the returned durable `job_id` and poll
+`get_render_job({"job_id": "<job-id>"})`. The job result is manifest-oriented;
+it is not a whole-file MP4. Manifest states are red/yellow/green:
+yellow preserves a playable exact **same-range** artifact while the current
+one bakes, and red means no current or same-range artifact is usable. A
+whole-file proxy may be reported as an explicitly stale fallback.
+
+The project-scoped routes are:
+
+```text
+GET    /api/projects/{project_id}/preview-chunks
+GET    /api/projects/{project_id}/preview-chunks/files/{artifact_id}
+DELETE /api/projects/{project_id}/preview-chunks
+```
+
+The file route resolves only indexed artifact IDs and supports byte ranges;
+the wipe route removes preview cache entries only. M3 consumers use
+sequential self-contained MP4 chunks by default. MSE/fMP4 is optional, and
+free-form `run_script` never renders preview media or writes preview files.
+Live MLT is not an M3 consumer; it remains an M4 decision.
 
 QC after render is the agent's responsibility — see `qc-standards.md`.
 

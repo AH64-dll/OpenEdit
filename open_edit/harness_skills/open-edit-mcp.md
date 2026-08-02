@@ -4,8 +4,8 @@ description: >-
   Drive Open Edit video projects via the MCP pillar tools (query_project,
   edit_project, run_script, trigger_render, get_render_job, cancel_render_job).
   Use when ingesting media, building timelines, cutting silence, Remotion/
-  overlays, rendering proxy/final, or reading review notes. Prefer these tools
-  over exploring Open Edit source code.
+  overlays, rendering proxy/final/preview-chunks, or reading review notes.
+  Prefer these tools over exploring Open Edit source code.
 ---
 
 # Open Edit MCP — agent playbook
@@ -27,7 +27,7 @@ Project path is pinned when the MCP process starts (`--project` /
 | `query_project` | All reads |
 | `edit_project` | Mutations + creative generate |
 | `run_script` | Multi-step IR edits pillar ops cannot express |
-| `trigger_render` | Proxy / final / overlay render |
+| `trigger_render` | Proxy / final / overlay / preview-chunks render |
 | `get_render_job` | Poll a job by `job_id` |
 | `cancel_render_job` | Cancel queued/running job |
 
@@ -89,14 +89,85 @@ server restarts.
 
 ## Render
 
+Open Edit has three distinct preview/delivery products. Keep their names
+separate:
+
 | Mode | Resolution | Use |
 |---|---|---|
-| `proxy` | ~720p | Fast preview; Remotion materialize + burn-in |
-| `final` | ~1080p | Delivery |
+| `preview-chunks` | ~640x360, project FPS | Background, range-limited cache with independent video/audio/playback artifacts |
+| `proxy` | ~720p | Complete-timeline, whole-file review artifact; Remotion materialize + burn-in |
+| `final` | ~1080p | Delivery export |
 | `overlay` | — | HyperFrames HTML only — **not** Remotion |
 
-Typical loop: edit → `trigger_render` `mode=proxy` (non-blocking by default) →
-poll `get_render_job` → user reviews → more edits → `final`.
+`mode=proxy` is one whole-file MP4 review artifact, not a timeline chunk
+stream and not a per-asset source proxy. `mode=final` remains the full-quality
+delivery path and uses canonical sources. A source proxy is a separate
+per-asset optimization; it does not change the meaning of either mode.
+
+### Chunked timeline preview
+
+`trigger_render` accepts a feature-gated `mode=preview-chunks` job for a
+requested timeline window:
+
+```json
+{
+  "mode": "preview-chunks",
+  "ranges": [{"start_sec": 12.0, "end_sec": 20.0}],
+  "media": "both",
+  "priority": "interactive",
+  "wait": false
+}
+```
+
+`ranges` is optional: an empty list asks the worker to process all dirty
+chunks in manifest order. Each range is in project seconds. `media` is
+`video`, `audio`, or `both`; video and audio are independent cache planes,
+with a cheap muxed `playback` artifact for synchronized browser playback.
+`priority` is `interactive` or `background`: interactive jobs prioritize the
+requested window, while background jobs may cover all dirty ranges.
+
+Preview generation is disabled unless the host sets
+`OPEN_EDIT_PREVIEW_CHUNKS=1`. The default remains disabled; this gate does not
+change `proxy` or `final`. `trigger_render` is non-blocking by default
+(`wait=false`) and returns a durable `job_id`. Poll it with
+`get_render_job`:
+
+```json
+{"job_id": "<job-id>"}
+```
+
+The terminal job result is manifest-oriented, not a playable whole-file MP4.
+Read the manifest's red/yellow/green chunk status and independent
+`video.status` / `audio.status` values. `green` means the current artifact is
+ready; `yellow` means the current range is baking or dirty but an exact
+**same-range** prior artifact can play; `red` means neither current nor
+same-range prior media is usable. If no chunk is playable, use the newest
+whole-file proxy as an explicitly stale fallback when one exists—never
+substitute a neighboring time range.
+
+The project-scoped HTTP routes expose the browser-safe artifact surface:
+
+```text
+GET    /api/projects/{project_id}/preview-chunks
+GET    /api/projects/{project_id}/preview-chunks/files/{artifact_id}
+DELETE /api/projects/{project_id}/preview-chunks
+```
+
+The manifest response contains `manifest`, `active_job`, and
+`proxy_fallback`; it projects indexed artifact IDs to URLs and never exposes
+filesystem paths. The file route accepts only an indexed `artifact_id` and
+supports `Accept-Ranges: bytes`. The wipe route removes preview artifacts
+only—it does not remove the Edit Graph or proxy/final renders.
+
+M3 uses self-contained MP4 chunks with sequential HTML5 playback by default.
+MSE/fMP4 is an optional future strategy, not an M3 correctness requirement.
+Free-form `run_script` remains sandboxed IR editing: it never renders preview
+media or writes preview cache files. A live MLT SDL/OpenGL/shared-memory
+consumer is out of scope until a later M4 decision.
+
+Typical whole-file workflow remains: edit → `trigger_render` `mode=proxy`
+(non-blocking by default) → poll `get_render_job` → user reviews → more edits
+→ `final`.
 
 **Token rule:** `trigger_render` defaults to **non-blocking** (`wait=false`).
 Returns `job_id` immediately — poll with `get_render_job`. Pass `wait=true`

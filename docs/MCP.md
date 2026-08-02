@@ -151,7 +151,7 @@ Restart Cursor (or reload MCP servers) after editing the config.
 | `query_project` | Read-only project queries |
 | `edit_project` | Mutations + generate (incl. Remotion, `ingest_local`) |
 | `run_script` | Free-form Python (bwrap sandbox on Linux; `dev` on Windows) |
-| `trigger_render` | Enqueue + wait for proxy/final/overlay |
+| `trigger_render` | Enqueue + wait for proxy/final/overlay/preview-chunks |
 | `get_render_job` | Poll a durable render job by `job_id` |
 | `cancel_render_job` | Cancel a queued/running job |
 
@@ -183,11 +183,12 @@ starts (`--project` / `OPEN_EDIT_PROJECT`).
 Renders go through `RenderJobService`: Remotion **materialize** → melt the full
 timeline → **ffmpeg burn-in** of Remotion graphics (proxy/final). `mode=proxy`
 defaults to the `review-artifact` emission profile and is a complete-timeline
-**review artifact** using the `fast_proxy` 640×360 profile; it is not an
-interactive timeline preview. A **source proxy** is a separate low-resolution
-per-asset CAS sibling used only by the `proxy-edit` and `preview-chunk`
-emission profiles. **Timeline preview chunks** are a separate future/M3
-interactive product and are not produced by `mode=proxy`.
+**whole-file review artifact** using the `fast_proxy` 640×360 profile; it is
+not an interactive timeline preview. A **source proxy** is a separate
+low-resolution per-asset CAS sibling used only by the `proxy-edit` and
+`preview-chunk` emission profiles. `mode=preview-chunks` is the separate
+background range-cache product described below; it does not redefine
+`mode=proxy`.
 
 The emission policy is explicit: `final` and `review-artifact` always read
 canonical original sources, while `proxy-edit` and `preview-chunk` may use a
@@ -195,7 +196,8 @@ ready source proxy with canonical fallback. Therefore `mode=final` always
 uses originals even when `proxy_hash` is ready. The host-side
 `generate-asset-proxy` job reports `proxy_hash`, `proxy_profile`, and
 `proxy_status` through asset/project state; it does not expose a guessed proxy
-filesystem path.
+filesystem path. Free-form `run_script` remains sandboxed IR editing and never
+renders preview media or writes preview cache files.
 
 ## Review UI (recommended with MCP)
 
@@ -245,6 +247,63 @@ From MCP: `trigger_render` with `"mode": "proxy"` then `"mode": "final"`.
 The UI warns before final render if the latest proxy does not match the
 current edit graph hash.
 
+### Range preview chunks (MCP)
+
+Use the existing `trigger_render` tool for the manifest-backed
+`preview-chunks` job. It is a background range cache, not a second whole-file
+render product:
+
+```json
+{
+  "mode": "preview-chunks",
+  "ranges": [{"start_sec": 12.0, "end_sec": 20.0}],
+  "media": "both",
+  "priority": "interactive",
+  "wait": false
+}
+```
+
+`ranges` is optional and uses project seconds. Omitted ranges request all dirty
+chunks in manifest order. `media` is `video`, `audio`, or `both`; video and
+audio are independent cache planes, with a cheap muxed `playback` artifact.
+`priority` is `interactive` or `background`; interactive requests prioritize a
+playhead window, while background requests may cover all dirty ranges. Chunk
+geometry, codecs, and cache policy remain server/profile policy.
+
+The MCP/REST enqueue path is disabled by default. Set
+`OPEN_EDIT_PREVIEW_CHUNKS=1` before issuing preview requests. With
+`wait=false` (the default), save the returned durable `job_id` and poll:
+
+```json
+{"job_id": "<job-id>"}
+```
+
+`get_render_job` returns the terminal manifest-oriented `result` and progress
+counts; it does not turn `manifest.json` into a whole-file MP4. Read the
+manifest's red/yellow/green status and the independent `video` and `audio`
+plane states. A yellow chunk keeps an exact **same-range** prior artifact as a
+playable fallback while the current range bakes. A red chunk has no usable
+current or same-range artifact, so clients may use the newest whole-file proxy
+only as an explicitly stale `proxy_fallback`, never as a neighboring range.
+
+Project-scoped routes expose only indexed artifact IDs and browser-safe URLs:
+
+```text
+GET    /api/projects/{project_id}/preview-chunks
+GET    /api/projects/{project_id}/preview-chunks/files/{artifact_id}
+DELETE /api/projects/{project_id}/preview-chunks
+```
+
+The manifest route returns `manifest`, `active_job`, and `proxy_fallback`.
+The file route validates the artifact index, stays inside the project preview
+cache, and supports `Accept-Ranges: bytes`. The delete route wipes preview
+artifacts only; it does not cancel or remove proxy/final jobs, the Edit Graph,
+or whole-file artifacts.
+
+M3 playback uses sequential self-contained MP4 chunks by default. MSE/fMP4 is
+an optional future strategy, not an M3 correctness requirement. A live MLT
+SDL/OpenGL/shared-memory consumer is out of scope until M4.
+
 ### QC and cache controls
 
 Inspect `qc_report.policy` and `qc_report.complete` in the
@@ -260,6 +319,15 @@ Operator controls are configured through:
 - `OPEN_EDIT_PROXY_WARM_QC_MODE` (`skip` by default) for warm proxy hits.
 - `OPEN_EDIT_PROXY_QC_POLICY` (`always`, `skip_on_hit`, or `never`) as the
   M1 compatibility override for proxy QC.
+- `OPEN_EDIT_AUTO_PROXY=1` keeps the existing auto-proxy behavior; it is
+  independent from `OPEN_EDIT_AUTO_PREVIEW=1`, which permits automatic
+  preview-chunk requests after graph changes.
+- `OPEN_EDIT_PREVIEW_CACHE_MAX_BYTES` (512 MiB by default) caps preview
+  artifacts, and `OPEN_EDIT_PREVIEW_CACHE_MAX_AGE_SEC` (7 days by default)
+  controls preview artifact TTL.
+- `OPEN_EDIT_CACHE_MIN_FREE_BYTES` reserves free space for preview writes.
+- `OPEN_EDIT_PREVIEW_CHUNKS=1` is still required for MCP/REST preview enqueue;
+  `OPEN_EDIT_AUTO_PREVIEW` does not bypass that rollout gate.
 - `OPEN_EDIT_FINAL_QC_BUDGET_SEC` and
   `OPEN_EDIT_QC_BLACKDETECT_MAX_SEC` (900 seconds by default).
 - `OPEN_EDIT_RENDER_CACHE_MAX_BYTES`,

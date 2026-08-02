@@ -118,3 +118,16 @@ def test_require_alignment_pending(tmp_path: Path):
     assert err is not None
     assert err["status"] == "retry"
     assert "alignment" in err["error"]
+
+
+def test_packaged_skill_matches_canonical_preview_section():
+    repo_root = Path(__file__).resolve().parents[1]
+    paths = [
+        repo_root / "skills" / "open-edit-mcp.md",
+        repo_root / "open_edit" / "harness_skills" / "open-edit-mcp.md",
+    ]
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert "`preview-chunks`" in text
+        assert "sequential" in text
+        assert "same-range" in text

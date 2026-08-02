@@ -77,6 +77,48 @@ Companion to `skills/open-edit-mcp.md`.
 {"mode": "proxy"}
 ```
 
+**Chunked timeline preview (feature-gated, non-blocking)**
+```json
+{
+  "mode": "preview-chunks",
+  "ranges": [{"start_sec": 12.0, "end_sec": 20.0}],
+  "media": "both",
+  "priority": "interactive",
+  "wait": false
+}
+```
+
+`preview-chunks` is a background range-cache job, not a replacement for the
+whole-file `proxy` artifact. `ranges` may be omitted to process all dirty
+chunks. Use `media=video`, `audio`, or `both`; video and audio are independent
+planes, and `playback` is their cheap mux. Use `priority=interactive` for the
+requested playhead window or `background` for broader dirty coverage.
+Generation requires `OPEN_EDIT_PREVIEW_CHUNKS=1`; the default-disabled gate
+does not affect `proxy` or `final`.
+
+`trigger_render` returns a durable `job_id` immediately unless `wait=true`.
+Poll with:
+```json
+{"job_id": "<job-id>"}
+```
+`get_render_job` exposes the terminal manifest-oriented `result`, including
+red/yellow/green chunk counts. A yellow chunk may play its exact
+**same-range** prior artifact while a new one bakes; a red chunk has no
+usable current or same-range fallback. If needed, the newest whole-file
+proxy is an explicitly stale fallback, never a neighboring range.
+
+The manifest and indexed artifacts are served through:
+```text
+GET    /api/projects/{project_id}/preview-chunks
+GET    /api/projects/{project_id}/preview-chunks/files/{artifact_id}
+DELETE /api/projects/{project_id}/preview-chunks
+```
+The manifest response includes `manifest`, `active_job`, and `proxy_fallback`;
+the file route accepts only an indexed artifact ID and supports byte ranges.
+Wipe removes preview artifacts only, not the Edit Graph or whole-file renders.
+M3 playback uses sequential self-contained MP4 chunks; MSE/fMP4 is optional.
+Free-form `run_script` never renders preview media or writes preview files.
+
 ## When to use `run_script`
 
 Prefer pillar `edit_project` operations first:
@@ -129,6 +171,11 @@ Notes from the UI → `query_project` / `get_pending_notes`.
 | `OPEN_EDIT_WHISPER_MODEL` | e.g. `small` |
 | `OPEN_EDIT_NODE_BIN` | Node for Remotion |
 | `OPEN_EDIT_AUTO_PROXY` | Auto proxy after graph changes (serve) |
+| `OPEN_EDIT_AUTO_PREVIEW` | Auto preview-chunk requests after graph changes (serve) |
+| `OPEN_EDIT_PREVIEW_CHUNKS` | Enable `preview-chunks` enqueue (default disabled) |
+| `OPEN_EDIT_PREVIEW_CACHE_MAX_BYTES` | Preview cache cap (512 MiB default) |
+| `OPEN_EDIT_PREVIEW_CACHE_MAX_AGE_SEC` | Preview cache TTL (7 days default) |
+| `OPEN_EDIT_CACHE_MIN_FREE_BYTES` | Minimum free space reserve for preview writes |
 | `OPEN_EDIT_SKILLS_DIR` | Override directory for harness skill markdown |
 
 ## Authoritative code (debug Open Edit only)

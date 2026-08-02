@@ -219,6 +219,17 @@ def test_harness_skills_loadable() -> None:
     assert stem_from_uri(resource_uri("open-edit-mcp")) == "open-edit-mcp"
 
 
+def test_mcp_playbook_distinguishes_proxy_and_preview_chunks() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    text = (repo_root / "skills" / "open-edit-mcp.md").read_text(
+        encoding="utf-8",
+    )
+    assert "`preview-chunks`" in text
+    assert "whole-file" in text
+    assert "audio" in text and "independent" in text
+    assert "live MLT" in text and "M4" in text
+
+
 def test_qc_skill_copies_document_render_policy() -> None:
     """Canonical and packaged QC guidance must expose the same policy."""
     repo_root = Path(__file__).resolve().parents[1]
