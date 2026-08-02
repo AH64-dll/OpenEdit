@@ -184,10 +184,11 @@ Renders go through `RenderJobService`: Remotion **materialize** → melt the ful
 timeline → **ffmpeg burn-in** of Remotion graphics (proxy/final). `mode=proxy`
 defaults to the `review-artifact` emission profile and is a complete-timeline
 **whole-file review artifact** using the `fast_proxy` 640×360 profile; it is
-not an interactive timeline preview. A **source proxy** is a separate
+not an interactive timeline preview. The M3 **timeline preview chunks** mode is
+a separate range-cache product described below; a **source proxy** is a separate
 low-resolution per-asset CAS sibling used only by the `proxy-edit` and
-`preview-chunk` emission profiles. `mode=preview-chunks` is the separate
-background range-cache product described below; it does not redefine
+`preview-chunk` emission profiles. `mode=preview-chunks` is that range-cache
+product; it does not redefine
 `mode=proxy`.
 
 The emission policy is explicit: `final` and `review-artifact` always read
