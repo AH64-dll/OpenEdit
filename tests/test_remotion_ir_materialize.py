@@ -76,6 +76,9 @@ def project_with_remotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     fake.write_text(_FAKE_REMOTION)
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("OPEN_EDIT_REMOTION_BIN", str(fake))
+    # Cache-cap tests may run in the same process with an intentionally tiny
+    # cap; materializer assertions below require their cache entries to stay.
+    monkeypatch.delenv("OPEN_EDIT_REMOTION_CACHE_MAX_BYTES", raising=False)
     # A real, ffprobe-parseable mp4 (with audio) is copied as the fake
     # remotion output so the materialize ingest step can probe it.
     media = Path(__file__).resolve().parents[1] / "testdata" / "video_with_audio.mp4"
