@@ -182,6 +182,8 @@ def cmd_render(args: argparse.Namespace) -> int:
         quality=args.quality,
         overrides=overrides,
         force=args.force,
+        force_remotion=getattr(args, "force_remotion", False),
+        remotion_uids=getattr(args, "remotion_uids", ()),
         nice_level=10,
         encoder_backend=getattr(args, "encoder", None),
     )
@@ -461,6 +463,18 @@ def main(argv: list[str] | None = None) -> int:
                           help="codec family override")
     p_render.add_argument("--json", action="store_true", help="emit one structured render result JSON object")
     p_render.add_argument("--force", action="store_true", help="ignore render cache")
+    p_render.add_argument(
+        "--force-remotion",
+        action="store_true",
+        help="bypass Remotion manifest and composition caches",
+    )
+    p_render.add_argument(
+        "--remotion-uid",
+        dest="remotion_uids",
+        action="append",
+        default=[],
+        help="bypass Remotion caches for one composition UID (repeatable)",
+    )
     p_render.set_defaults(func=cmd_render)
 
     p_freeform = sub.add_parser("free-form", help="Run a free-form Python script in the sandbox against a project")

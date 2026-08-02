@@ -160,7 +160,14 @@ async def test_launch_command_includes_params(tmp_path: Path) -> None:
     try:
         job = service.enqueue(
             "proj", tmp_path, "final",
-            params={"quality": "high", "crf": 20, "scale": "640x360", "codec": "hevc"},
+            params={
+                "quality": "high",
+                "crf": 20,
+                "scale": "640x360",
+                "codec": "hevc",
+                "force_remotion": True,
+                "remotion_uids": ["uid-a", "uid-b"],
+            },
         )
         # _launch builds the command before any subprocess runs; we only
         # assert the command shape via a spy on create_subprocess_exec.
@@ -188,6 +195,9 @@ async def test_launch_command_includes_params(tmp_path: Path) -> None:
         assert "--crf" in cmd and "20" in cmd
         assert "--scale" in cmd and "640x360" in cmd
         assert "--codec" in cmd and "hevc" in cmd
+        assert "--force-remotion" in cmd
+        assert cmd.count("--remotion-uid") == 2
+        assert "uid-a" in cmd and "uid-b" in cmd
     finally:
         for task in service._tasks.values():
             task.cancel()

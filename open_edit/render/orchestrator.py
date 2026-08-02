@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import shutil
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -31,7 +31,13 @@ from open_edit.render.diagnostics import (
 )
 from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.encoder import resolve_backend
-from open_edit.render.materialize import RemotionMaterializeError, materialize_remotion_compositions
+from open_edit.render.materialize import (
+    MaterializeReport,
+    RemotionMaterializeError,
+    build_materialization_manifest,
+    materialization_manifest_path,
+    materialize_remotion_compositions,
+)
 from open_edit.render.melt_runner import PipeRunError, run_pipe
 from open_edit.render.pipe_builder import build_pipe_commands
 from open_edit.render.profiles import (
@@ -41,6 +47,7 @@ from open_edit.render.profiles import (
     resolve_encoder_args,
 )
 from open_edit.render.remotion import resolve_alpha_mode
+from open_edit.render.remotion.dirty import write_manifest_atomic
 from open_edit.render.remotion.safety import render_reference_fingerprint
 from open_edit.render.snapshot_recorder import record_snapshot
 from open_edit.render.source_repair import (
@@ -155,6 +162,8 @@ def render_project(
     quality: Optional[str] = None,
     overrides: Optional[dict] = None,
     force: bool = False,
+    force_remotion: bool = False,
+    remotion_uids: Collection[str] = (),
     nice_level: int = 10,
     encoder_backend: Optional[str] = None,
 ) -> RenderResult:
@@ -224,11 +233,88 @@ def render_project(
         duration_sec=timeline.duration_sec,
     )
 
-    # Materialize Remotion compositions to CAS clips before emit. Fail hard.
+    cache_lookup_t0 = time.monotonic()
+    fingerprint = profile_fingerprint(profile, encoder_backend)
+    payload = [op.model_dump(mode="json") for op in applied_ops]
+    graph_hash = canonical_json_hash(payload)
+    alpha_modes = sorted({
+        resolve_alpha_mode() if composition.alpha else "opaque"
+        for composition in timeline.remotion_compositions
+    })
+    content_fingerprint = render_reference_fingerprint(
+        project_dir, timeline.remotion_compositions,
+        alpha_mode=",".join(alpha_modes) or "opaque",
+    )
+    diagnostics = {
+        "stages": recorder.stages,
+        "profile": {
+            "name": profile.name,
+            "width": profile.width,
+            "height": profile.height,
+            "quality": profile.quality or "fast",
+            "audio_bitrate": profile.ab or ("320k" if mode == "final" else "96k"),
+            "fingerprint": fingerprint,
+            "encoder_backend": resolve_backend(encoder_backend),
+        },
+        "content_fingerprint": content_fingerprint,
+        "alpha_mode": ",".join(alpha_modes) or "opaque",
+    }
+
+    cache = RenderCache(workdir / "render_cache")
+    # Source repair runs after overlays are burned. Include its policy version
+    # so a corrected overlay-protection rule cannot serve an older proxy.
+    cache_content_fingerprint = (
+        f"{content_fingerprint}|{SOURCE_REPAIR_POLICY_VERSION}"
+    )
+    cache_key = render_cache_key(
+        graph_hash, fingerprint, cache_content_fingerprint,
+    )
+    remotion_invalidation_requested = force_remotion or bool(remotion_uids)
+    if force or remotion_invalidation_requested:
+        cached = None
+        reason = "force_requested" if force else "force_remotion_requested"
+        recorder.skip("render_cache_lookup", reason=reason)
+    else:
+        cached = cache.get(cache_key)
+        cache_hit = bool(cached and cache.is_fresh(cached))
+        recorder.record(
+            "render_cache_lookup",
+            time.monotonic() - cache_lookup_t0,
+            hit=cache_hit,
+        )
+        if cache_hit:
+            recorder.skip("remotion_materialize", reason="deliverable_cache_hit")
+            diagnostics["stages"] = recorder.stages
+            return RenderResult(
+                ok=True, output_path=str(cached), mode=mode,
+                profile=profile.model_dump(), duration_sec=timeline.duration_sec,
+                elapsed_sec=0.0, cache_hit=True, edit_graph_hash=graph_hash,
+                diagnostics=_contractualize_diagnostics(
+                    mode,
+                    profile,
+                    {**diagnostics, "cache": {"hit": True}},
+                ),
+            )
+
+    diagnostics["cache"] = {"hit": False}
+    unmaterialized_timeline = timeline
+    manifest_path = materialization_manifest_path(
+        project_dir, mode, fingerprint,
+    )
+    materialize_report = MaterializeReport()
+    # Materialize Remotion compositions to CAS clips only after the
+    # whole-file deliverable cache has missed. Fail hard on any miss.
     materialize_t0 = time.monotonic()
     try:
         timeline = materialize_remotion_compositions(
-            timeline, project_dir, mode=mode,
+            timeline,
+            project_dir,
+            mode=mode,
+            manifest_path=manifest_path,
+            force_remotion=force_remotion,
+            force_uids=remotion_uids,
+            report=materialize_report,
+            profile_fingerprint=fingerprint,
         )
     except RemotionMaterializeError as exc:
         materialize_elapsed = time.monotonic() - materialize_t0
@@ -238,12 +324,19 @@ def render_project(
             status="failed",
             bytes=0,
             error=str(exc),
+            worker_count=materialize_report.worker_count,
+            cache_hits=materialize_report.cache_hits,
+            cache_misses=materialize_report.cache_misses,
+            reused_manifest_entries=materialize_report.reused_manifest_entries,
+            rendered_uids=materialize_report.rendered_uids,
+            dirty_uids=materialize_report.dirty_uids,
         )
+        diagnostics["stages"] = recorder.stages
         return _fail(
             mode=mode, profile=profile, output_path="",
             duration_sec=timeline.duration_sec, elapsed_sec=0.0,
-            graph_hash="", error=str(exc),
-            diagnostics={"stages": recorder.stages},
+            graph_hash=graph_hash, error=str(exc),
+            diagnostics=diagnostics,
         )
     materialize_elapsed = time.monotonic() - materialize_t0
 
@@ -260,6 +353,12 @@ def render_project(
             "remotion_materialize",
             materialize_elapsed,
             bytes=0,
+            worker_count=materialize_report.worker_count,
+            cache_hits=materialize_report.cache_hits,
+            cache_misses=materialize_report.cache_misses,
+            reused_manifest_entries=materialize_report.reused_manifest_entries,
+            rendered_uids=materialize_report.rendered_uids,
+            dirty_uids=materialize_report.dirty_uids,
         )
         recorder.record(
             "build_render_plan",
@@ -267,15 +366,16 @@ def render_project(
             status="failed",
             error=str(exc),
         )
+        diagnostics["stages"] = recorder.stages
         return _fail(
             mode=mode,
             profile=profile,
             output_path="",
             duration_sec=timeline.duration_sec,
             elapsed_sec=time.monotonic() - plan_t0,
-            graph_hash="",
+            graph_hash=graph_hash,
             error=str(exc),
-            diagnostics={"stages": recorder.stages},
+            diagnostics=diagnostics,
         )
     recorder.record("build_render_plan", time.monotonic() - plan_t0)
     source_baseline = collect_source_baseline(
@@ -290,70 +390,14 @@ def render_project(
         "remotion_materialize",
         materialize_elapsed,
         bytes=materialized_bytes,
+        worker_count=materialize_report.worker_count,
+        cache_hits=materialize_report.cache_hits,
+        cache_misses=materialize_report.cache_misses,
+        reused_manifest_entries=materialize_report.reused_manifest_entries,
+        rendered_uids=materialize_report.rendered_uids,
+        dirty_uids=materialize_report.dirty_uids,
     )
-    diagnostics = {
-        "stages": recorder.stages,
-        "profile": {
-            "name": profile.name,
-            "width": profile.width,
-            "height": profile.height,
-            "quality": profile.quality or "fast",
-            "audio_bitrate": profile.ab or ("320k" if mode == "final" else "96k"),
-        },
-        "source_baseline": source_baseline,
-    }
-
-    cache_lookup_t0 = time.monotonic()
-    fingerprint = profile_fingerprint(profile, encoder_backend)
-    payload = [op.model_dump(mode="json") for op in applied_ops]
-    graph_hash = canonical_json_hash(payload)
-    alpha_modes = sorted({
-        resolve_alpha_mode() if composition.alpha else "opaque"
-        for composition in timeline.remotion_compositions
-    })
-    content_fingerprint = render_reference_fingerprint(
-        project_dir, timeline.remotion_compositions,
-        alpha_mode=",".join(alpha_modes) or "opaque",
-    )
-    diagnostics["content_fingerprint"] = content_fingerprint
-    diagnostics["alpha_mode"] = ",".join(alpha_modes) or "opaque"
-    diagnostics["profile"].update({
-        "fingerprint": fingerprint,
-        "encoder_backend": resolve_backend(encoder_backend),
-    })
-
-    cache = RenderCache(workdir / "render_cache")
-    # Source repair runs after overlays are burned. Include its policy version
-    # so a corrected overlay-protection rule cannot serve an older proxy.
-    cache_content_fingerprint = (
-        f"{content_fingerprint}|{SOURCE_REPAIR_POLICY_VERSION}"
-    )
-    cache_key = render_cache_key(
-        graph_hash, fingerprint, cache_content_fingerprint,
-    )
-    if force:
-        cached = None
-        recorder.skip("render_cache_lookup", reason="force_requested")
-    else:
-        cached = cache.get(cache_key)
-        cache_hit = bool(cached and cache.is_fresh(cached))
-        recorder.record(
-            "render_cache_lookup",
-            time.monotonic() - cache_lookup_t0,
-            hit=cache_hit,
-        )
-        if cache_hit:
-            diagnostics["stages"] = recorder.stages
-            return RenderResult(
-                ok=True, output_path=str(cached), mode=mode,
-                profile=profile.model_dump(), duration_sec=timeline.duration_sec,
-                elapsed_sec=0.0, cache_hit=True, edit_graph_hash=graph_hash,
-                diagnostics=_contractualize_diagnostics(
-                    mode,
-                    profile,
-                    {**diagnostics, "cache": {"hit": True}},
-                ),
-            )
+    diagnostics["source_baseline"] = source_baseline
 
     config = EmitterConfig(profile=profile.model_dump())
     hwaccel_on = _gpu_decode_available() and resolve_backend(encoder_backend) == "gpu"
@@ -536,6 +580,20 @@ def render_project(
         )
 
     cache.put(cache_key, output_mp4)
+    try:
+        successful_manifest = build_materialization_manifest(
+            unmaterialized_timeline,
+            materialize_report,
+            mode=mode,
+            profile_fingerprint=fingerprint,
+            graph_hash=graph_hash,
+        )
+        write_manifest_atomic(manifest_path, successful_manifest)
+        diagnostics["materialization_manifest"] = str(manifest_path)
+    except Exception as exc:
+        # The deliverable is already safely cached; a manifest write failure
+        # only disables the next run's direct composition reuse.
+        diagnostics["materialization_manifest_error"] = str(exc)[:500]
     record_snapshot(project_dir, project_id, graph_hash, output_mp4, success=True)
     return RenderResult(
         ok=True, output_path=str(output_mp4), mode=mode,

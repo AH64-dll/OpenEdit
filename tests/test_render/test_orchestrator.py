@@ -1,5 +1,7 @@
 """Tests for the render orchestrator (melt + cache + QC)."""
 import shutil
+import stat
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -149,6 +151,110 @@ def test_render_project_hwaccel_retry(tmp_path: Path, monkeypatch) -> None:
                                          mode="proxy", encoder_backend="gpu")
     assert result.ok is True, result.error
     assert len(attempts) == 2  # first hwaccel attempt failed -> CPU retry
+
+
+def test_deliverable_cache_hit_skips_remotion_materialize(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.ir.types import AddRemotionCompositionOp
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    fake = tmp_path / "fake_remotion.py"
+    fake.write_text(textwrap.dedent(
+        """\
+        #!/usr/bin/env python3
+        import argparse, os, pathlib, shutil
+        p = argparse.ArgumentParser()
+        p.add_argument("--output")
+        p.add_argument("--width")
+        p.add_argument("--height")
+        p.add_argument("--fps")
+        p.add_argument("--project-root")
+        p.add_argument("--entry-point")
+        p.add_argument("--composition-id")
+        p.add_argument("--props-file")
+        p.add_argument("--codec")
+        p.add_argument("--concurrency")
+        p.add_argument("--pixel-format")
+        p.add_argument("--image-format")
+        p.add_argument("--prores-profile")
+        args = p.parse_args()
+        out = pathlib.Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(os.environ["OPEN_EDIT_REMOTION_FAKE_MEDIA"], out)
+        """
+    ))
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("OPEN_EDIT_REMOTION_BIN", str(fake))
+    monkeypatch.setenv(
+        "OPEN_EDIT_REMOTION_FAKE_MEDIA",
+        str(Path(__file__).resolve().parents[2] / "testdata" / "video_with_audio.mp4"),
+    )
+
+    project_dir = _make_project(tmp_path, name="remotion-cache-order")
+    remotion_root = project_dir / ".open_edit" / "remotion"
+    (remotion_root / "src").mkdir(parents=True)
+    (remotion_root / "src" / "index.ts").write_text("export {};\n")
+    store = EditGraphStore(project_dir / ".open_edit" / "edit_graph.db")
+    store.append(AddRemotionCompositionOp(
+        author="ai",
+        entry_point="src/index.ts",
+        composition_id="TitleCard",
+        props={"titleText": "cache"},
+        position_sec=0.0,
+        duration_sec=1.0,
+    ))
+
+    from open_edit.render import orchestrator
+    from open_edit.render.melt_runner import PipeResult
+
+    monkeypatch.setattr(
+        orchestrator.shutil,
+        "which",
+        lambda name: "/usr/bin/melt" if name == "melt" else None,
+    )
+    monkeypatch.setattr(orchestrator, "_gpu_decode_available", lambda: False)
+    monkeypatch.setattr(
+        orchestrator,
+        "repair_render_output",
+        lambda *args, **kwargs: {"ok": True, "changed": False},
+    )
+
+    def fake_run_pipe(cmds, *, timeout_s):
+        output = Path(cmds.ffmpeg_cmd[-1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"MP4")
+        return PipeResult(0, 0, 0, "")
+
+    monkeypatch.setattr(orchestrator, "run_pipe", fake_run_pipe)
+    first = orchestrator.render_project(
+        "remotion-cache-order",
+        project_dir,
+        tmp_path / "renders",
+        mode="proxy",
+    )
+    assert first.ok is True, first.error
+    assert first.cache_hit is False
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Remotion materialize must not run on MP4 hit")
+
+    monkeypatch.setattr(orchestrator, "materialize_remotion_compositions", fail_if_called)
+    second = orchestrator.render_project(
+        "remotion-cache-order",
+        project_dir,
+        tmp_path / "renders",
+        mode="proxy",
+    )
+
+    assert second.ok is True, second.error
+    assert second.cache_hit is True
+    assert second.diagnostics["cache"]["hit"] is True
+    assert second.diagnostics["stages"]["remotion_materialize"]["status"] == "skipped"
+    assert second.diagnostics["stages"]["remotion_materialize"]["reason"] == (
+        "deliverable_cache_hit"
+    )
 
 
 def test_render_diagnostics_include_canonical_stages_and_product(

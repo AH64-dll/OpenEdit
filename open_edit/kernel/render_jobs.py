@@ -490,6 +490,13 @@ class RenderJobService:
             value = params.get(key)
             if value is not None:
                 command += [flag, str(value)]
+        if params.get("force_remotion"):
+            command.append("--force-remotion")
+        remotion_uids = params.get("remotion_uids") or ()
+        if isinstance(remotion_uids, str):
+            remotion_uids = (remotion_uids,)
+        for composition_uid in remotion_uids:
+            command += ["--remotion-uid", str(composition_uid)]
         encoder = self._job_encoder.get(job_id) or os.environ.get("OPEN_EDIT_RENDER_BACKEND", "gpu")
         if encoder in ("gpu", "cpu"):
             command += ["--encoder", encoder]
