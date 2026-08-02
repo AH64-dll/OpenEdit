@@ -36,7 +36,7 @@ from .auth import TokenAuthMiddleware, _websocket_auth_error  # noqa: F401 (re-e
 from .diagnostics import collect_diagnostics
 from .diagnostics import get_health as _collect_health
 from .logging_setup import CorrelationIdMiddleware, setup_logging
-from .routers import assets, config, ops, projects, renders
+from .routers import assets, config, ops, preview_chunks, projects, renders
 from .ws import chat as chat_mod
 
 
@@ -126,6 +126,7 @@ async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse
 
 app.include_router(projects.router)
 app.include_router(renders.router)
+app.include_router(preview_chunks.router)
 app.include_router(ops.router)
 app.include_router(config.router)
 app.include_router(assets.router)

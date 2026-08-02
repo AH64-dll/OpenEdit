@@ -14,3 +14,15 @@ def auto_proxy_enabled() -> bool:
     """When set, the review UI may enqueue a proxy render after graph changes."""
     raw = (os.environ.get("OPEN_EDIT_AUTO_PROXY") or "").strip().lower()
     return raw in ("1", "true", "yes", "on")
+
+
+def auto_preview_enabled() -> bool:
+    """When set, the review UI may enqueue preview chunks automatically."""
+    raw = (os.environ.get("OPEN_EDIT_AUTO_PREVIEW") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def preview_chunks_enabled() -> bool:
+    """Return whether preview-chunk generation is enabled for this server."""
+    raw = (os.environ.get("OPEN_EDIT_PREVIEW_CHUNKS") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")

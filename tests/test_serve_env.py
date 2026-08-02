@@ -30,7 +30,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from open_edit.serve import serve_env  # noqa: E402
-
+from open_edit.serve.review_mode import (  # noqa: E402
+    auto_preview_enabled,
+    preview_chunks_enabled,
+)
 
 # ---------------------------------------------------------------------------
 # get_overlay_config
@@ -132,3 +135,39 @@ def test_build_render_spec_uses_env_value_when_set(tmp_path, monkeypatch):
     monkeypatch.setenv("OPEN_EDIT_HYPERFRAMES_BIN", "/env/hf")
     spec = render_overlay._build_render_spec(project, "proxy", 120)
     assert spec["hyperframes_bin"] == "/env/hf"
+
+
+def test_preview_rollout_flags_default_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPEN_EDIT_AUTO_PREVIEW", raising=False)
+    monkeypatch.delenv("OPEN_EDIT_PREVIEW_CHUNKS", raising=False)
+
+    assert auto_preview_enabled() is False
+    assert preview_chunks_enabled() is False
+
+
+def test_preview_rollout_flags_parse_boolean_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPEN_EDIT_AUTO_PREVIEW", "true")
+    monkeypatch.setenv("OPEN_EDIT_PREVIEW_CHUNKS", "1")
+
+    assert auto_preview_enabled() is True
+    assert preview_chunks_enabled() is True
+
+
+def test_ui_config_exposes_preview_rollout_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from open_edit.serve import app as app_mod
+
+    monkeypatch.delenv("OPEN_EDIT_AUTO_PREVIEW", raising=False)
+    monkeypatch.delenv("OPEN_EDIT_PREVIEW_CHUNKS", raising=False)
+    with TestClient(app_mod.app) as client:
+        response = client.get("/api/ui-config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["auto_preview"] is False
+    assert body["preview_chunks"] is False

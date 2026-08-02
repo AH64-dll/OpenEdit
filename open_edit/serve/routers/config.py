@@ -11,7 +11,12 @@ from pydantic import BaseModel, Field
 
 from .. import llm_config as llm_config_mod
 from ..auth import _check_rate_limit
-from ..review_mode import auto_proxy_enabled, is_review_only
+from ..review_mode import (
+    auto_preview_enabled,
+    auto_proxy_enabled,
+    is_review_only,
+    preview_chunks_enabled,
+)
 from .projects import _require_project
 
 router = APIRouter()
@@ -47,6 +52,8 @@ async def get_ui_config() -> dict[str, Any]:
         "mode": "review" if is_review_only() else "full",
         "review_only": is_review_only(),
         "auto_proxy": auto_proxy_enabled(),
+        "auto_preview": auto_preview_enabled(),
+        "preview_chunks": preview_chunks_enabled(),
     }
 
 
