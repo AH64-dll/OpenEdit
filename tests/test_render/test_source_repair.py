@@ -87,14 +87,14 @@ def test_render_repair_preserves_overlay_windows(
     rendered.write_bytes(b"rendered")
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        mod,
-        "list_black_frames",
-        lambda *args, **kwargs: BlackFramesResult(
+    def fake_black(path, *args, **kwargs):
+        captured["black_kwargs"] = kwargs
+        return BlackFramesResult(
             ok=True, in_sec=0.0, out_sec=4.0, threshold=0.1, min_sec=0.5,
             spans=[BlackSpan(start_sec=0.0, end_sec=4.0, duration_sec=4.0)],
-        ),
-    )
+        )
+
+    monkeypatch.setattr(mod, "list_black_frames", fake_black)
     monkeypatch.setattr(
         mod,
         "list_frozen_frames",
@@ -119,9 +119,11 @@ def test_render_repair_preserves_overlay_windows(
             }],
         },
         protected_spans=[(1.0, 2.0)],
+        detector_timeout_s=30.0,
     )
 
     assert result["ok"] is True, result
+    assert captured["black_kwargs"]["timeout_s"] == 30.0
     assert result["repaired_black_spans"] == [
         {"start_sec": 0.0, "end_sec": 1.0, "duration_sec": 1.0},
         {"start_sec": 2.0, "end_sec": 4.0, "duration_sec": 2.0},
@@ -242,6 +244,94 @@ def test_render_repair_short_circuits_without_source_baseline_spans(
     assert result["changed"] is False
     assert result["reason"] == "no_source_baseline_spans"
     assert result["output_path"] == str(rendered)
+
+
+def test_repair_checks_only_expanded_source_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rendered = tmp_path / "rendered.mp4"
+    rendered.write_bytes(b"rendered")
+    captured: dict[str, object] = {}
+
+    def fake_black(path, *args, **kwargs):
+        captured["black_kwargs"] = kwargs
+        return BlackFramesResult(
+            ok=True, in_sec=kwargs["in_sec"], out_sec=kwargs["out_sec"],
+            threshold=0.1, min_sec=0.5,
+            spans=[BlackSpan(start_sec=2.0, end_sec=3.0, duration_sec=1.0)],
+        )
+
+    monkeypatch.setattr(mod, "list_black_frames", fake_black)
+    monkeypatch.setattr(
+        mod,
+        "list_frozen_frames",
+        lambda *args, **kwargs: FrozenFramesResult(
+            ok=True, min_sec=1.0, noise_db=-50.0, spans=[],
+        ),
+    )
+    monkeypatch.setattr(mod, "_video_layout", lambda path: (2, 2, 10.0))
+    monkeypatch.setattr(
+        mod,
+        "_repair_stream",
+        lambda input_path, output_path, **kwargs: Path(output_path).write_bytes(
+            b"repaired"
+        ),
+    )
+
+    result = mod.repair_render_output(
+        rendered,
+        tmp_path / "repaired.mp4",
+        source_baseline={
+            "black_frames": [{"start_sec": 2.0, "end_sec": 3.0}],
+            "frozen_frames": [],
+            "errors": [],
+        },
+        detector_timeout_s=30.0,
+    )
+
+    assert result["ok"] is True, result
+    assert captured["black_kwargs"]["in_sec"] == 1.0
+    assert captured["black_kwargs"]["out_sec"] == 4.0
+    assert captured["black_kwargs"]["timeout_s"] == 30.0
+
+
+def test_repair_does_not_skip_an_incomplete_source_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rendered = tmp_path / "rendered.mp4"
+    rendered.write_bytes(b"rendered")
+    calls: list[str] = []
+
+    def fake_black(*args, **kwargs):
+        calls.append("black")
+        return BlackFramesResult(
+            ok=True, in_sec=0.0, out_sec=0.0, threshold=0.1, min_sec=0.5,
+            spans=[],
+        )
+
+    def fake_frozen(*args, **kwargs):
+        calls.append("frozen")
+        return FrozenFramesResult(
+            ok=True, min_sec=1.0, noise_db=-50.0, spans=[],
+        )
+
+    monkeypatch.setattr(mod, "list_black_frames", fake_black)
+    monkeypatch.setattr(mod, "list_frozen_frames", fake_frozen)
+
+    result = mod.repair_render_output(
+        rendered,
+        tmp_path / "repaired.mp4",
+        source_baseline={
+            "black_frames": [],
+            "frozen_frames": [],
+            "errors": [{"asset_hash": "asset-1", "error": "probe failed"}],
+        },
+        detector_timeout_s=7.0,
+    )
+
+    assert result["ok"] is True, result
+    assert result["changed"] is False
+    assert calls == ["black", "frozen"]
 
 
 def test_source_repair_helpers_never_mutate_source_bytes(tmp_path: Path) -> None:

@@ -197,6 +197,120 @@ def test_proxy_edit_emission_is_diagnosed_and_cache_scoped(
     assert cache_keys and "source_proxy_360_v1:" in cache_keys[0]
 
 
+def test_final_render_passes_repair_budget_and_records_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.render import orchestrator
+    from open_edit.render.melt_runner import PipeResult
+
+    captured: dict[str, object] = {}
+
+    def fake_run_pipe(cmds, *, timeout_s):
+        output = Path(cmds.ffmpeg_cmd[-1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"MP4")
+        return PipeResult(0, 0, 0, "")
+
+    def fake_repair(input_path, output_path, baseline, **kwargs):
+        captured["kwargs"] = kwargs
+        return {
+            "ok": True,
+            "changed": False,
+            "output_path": str(input_path),
+            "protected_spans": [],
+            "source_hashes": {},
+        }
+
+    monkeypatch.setattr(orchestrator, "run_pipe", fake_run_pipe)
+    monkeypatch.setattr(orchestrator, "repair_render_output", fake_repair)
+    monkeypatch.setattr(
+        orchestrator, "collect_source_baseline",
+        lambda timeline, asset_paths: {
+            "black_frames": [], "frozen_frames": [], "errors": [],
+        },
+    )
+    monkeypatch.setattr(orchestrator, "_gpu_decode_available", lambda: False)
+    monkeypatch.setattr(
+        orchestrator.shutil,
+        "which",
+        lambda name: "/usr/bin/melt" if name == "melt" else None,
+    )
+
+    project_dir = _make_project(tmp_path, name="final-repair-policy")
+    result = orchestrator.render_project(
+        "final-repair-policy",
+        project_dir,
+        tmp_path / "final-repair-work",
+        mode="final",
+    )
+
+    assert result.ok is True, result.error
+    kwargs = captured["kwargs"]
+    assert kwargs["detector_timeout_s"] is not None
+    assert result.diagnostics["repair_policy"]["emission_profile"] == "final"
+    assert result.diagnostics["repair"]["changed"] is False
+    assert result.diagnostics["repair"]["protected_spans"] == []
+
+
+def test_preview_chunk_skips_whole_file_source_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.kernel import asset_proxy_jobs
+    from open_edit.render import orchestrator
+    from open_edit.render.cache import RenderCache
+    from open_edit.render.melt_runner import PipeResult
+
+    monkeypatch.setattr(
+        asset_proxy_jobs.DEFAULT_ASSET_PROXY_JOB_SERVICE,
+        "enqueue",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(RenderCache, "get", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        RenderCache, "put", lambda self, key, source_path: Path(source_path),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "collect_source_baseline",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("preview chunks do not collect source repair baselines")
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "repair_render_output",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("preview chunks do not run whole-file repair")
+        ),
+    )
+    monkeypatch.setattr(orchestrator, "_gpu_decode_available", lambda: False)
+    monkeypatch.setattr(
+        orchestrator.shutil,
+        "which",
+        lambda name: "/usr/bin/melt" if name == "melt" else None,
+    )
+
+    def fake_run_pipe(cmds, *, timeout_s):
+        output = Path(cmds.ffmpeg_cmd[-1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"MP4")
+        return PipeResult(0, 0, 0, "")
+
+    monkeypatch.setattr(orchestrator, "run_pipe", fake_run_pipe)
+    project_dir = _make_project(tmp_path, name="preview-chunk")
+    result = orchestrator.render_project(
+        "preview-chunk",
+        project_dir,
+        tmp_path / "preview-chunk-work",
+        mode="proxy",
+        emission_profile="preview-chunk",
+    )
+
+    assert result.ok is True, result.error
+    assert result.diagnostics["repair_policy"]["enabled"] is False
+    assert result.diagnostics["stages"]["source_repair"]["status"] == "skipped"
+
+
 def test_render_project_hwaccel_retry(tmp_path: Path, monkeypatch) -> None:
     from open_edit.render import orchestrator
     from open_edit.render.melt_runner import PipeResult

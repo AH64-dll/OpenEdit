@@ -24,12 +24,14 @@ from open_edit.qc.black_frames import (
     list_black_frames,
 )
 from open_edit.qc.frozen_frames import list_frozen_frames
+from open_edit.render.ffmpeg_probe import probe_duration
 
 
 # Bump this when render-only repair semantics change. The orchestrator folds
 # it into the render-cache key so a corrected repair policy cannot reuse an
 # older proxy that was produced with different frame protection rules.
-SOURCE_REPAIR_POLICY_VERSION = "source-repair-v4-black-only-default"
+SOURCE_REPAIR_POLICY_VERSION = "source-repair-v5-eo-overlay"
+SOURCE_REPAIR_WINDOW_PADDING_SEC = 1.0
 
 
 def _hash_file(path: Path) -> str:
@@ -507,6 +509,127 @@ def _merge_repair_spans(
     return merged
 
 
+def _probe_render_duration(video_path: Path) -> float | None:
+    """Return the output duration when it can be probed safely."""
+    try:
+        duration = float(probe_duration(video_path))
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+        return None
+    if not math.isfinite(duration) or duration <= 0.0:
+        return None
+    return duration
+
+
+def _repair_windows(
+    spans: Iterable[dict[str, Any]],
+    *,
+    duration_sec: float | None,
+) -> list[tuple[float, float]]:
+    """Expand, clamp, and merge source spans for bounded output detection."""
+    intervals: list[tuple[float, float]] = []
+    for span in spans:
+        try:
+            start = float(span["start_sec"])
+            end = float(span["end_sec"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+            continue
+        start = max(0.0, start - SOURCE_REPAIR_WINDOW_PADDING_SEC)
+        end += SOURCE_REPAIR_WINDOW_PADDING_SEC
+        if duration_sec is not None:
+            end = min(end, duration_sec)
+        if end > start:
+            intervals.append((start, end))
+
+    intervals.sort()
+    merged: list[tuple[float, float]] = []
+    for start, end in intervals:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _detector_result(
+    result: Any,
+    *,
+    window_start: float,
+    window_end: float,
+) -> tuple[bool, list[dict[str, Any]], str | None]:
+    """Normalize a detector result without coupling repair to Pydantic."""
+    if isinstance(result, dict):
+        ok = bool(result.get("ok"))
+        raw_spans = result.get("spans") or []
+        error = result.get("error")
+    else:
+        ok = bool(getattr(result, "ok", False))
+        raw_spans = getattr(result, "spans", []) or []
+        error = getattr(result, "error", None)
+
+    spans: list[dict[str, Any]] = []
+    window_length = max(0.0, window_end - window_start)
+    for raw_span in raw_spans:
+        if isinstance(raw_span, dict):
+            span = dict(raw_span)
+        elif hasattr(raw_span, "model_dump"):
+            span = dict(raw_span.model_dump())
+        else:
+            continue
+        try:
+            start = float(span["start_sec"])
+            end = float(span["end_sec"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # Older frozen-frame detectors returned timestamps relative to a
+        # window even though their public contract described source-relative
+        # timestamps. Normalize only spans that cannot be in the requested
+        # absolute window; blackdetect already returns absolute timestamps.
+        if (
+            window_start > 0.0
+            and start < window_start
+            and end <= window_length + 1e-6
+        ):
+            start += window_start
+            end += window_start
+        if end <= start:
+            continue
+        span["start_sec"] = start
+        span["end_sec"] = end
+        span["duration_sec"] = end - start
+        spans.append(span)
+    return ok, spans, str(error) if error else None
+
+
+def _call_detector(
+    detector: Any,
+    video_path: Path,
+    *,
+    in_sec: float,
+    out_sec: float,
+    timeout_s: float | None,
+) -> Any:
+    """Call old and new detector APIs while always preferring a timeout."""
+    kwargs = {
+        "in_sec": in_sec,
+        "out_sec": out_sec,
+        "timeout_s": timeout_s,
+    }
+    if detector is list_black_frames:
+        kwargs["scale_height"] = DEFAULT_SCALE_HEIGHT
+    try:
+        return detector(str(video_path), **kwargs)
+    except TypeError as exc:
+        # M2 Task 4 adds timeout_s to both detectors. Keep this module
+        # importable during the parallel wave and never hide unrelated type
+        # errors from a detector implementation.
+        if "timeout_s" not in str(exc):
+            raise
+        kwargs.pop("timeout_s")
+        return detector(str(video_path), **kwargs)
+
+
 def repair_render_output(
     video_path: str | Path,
     output_path: str | Path,
@@ -516,6 +639,8 @@ def repair_render_output(
     repair_source_frozen: bool = False,
     repair_intentional_black: bool = False,
     protected_spans: Iterable[dict[str, Any] | tuple[float, float]] = (),
+    detector_timeout_s: float | None = None,
+    skip_if_no_source_defects: bool = True,
 ) -> dict[str, Any]:
     """Repair source-known defects in a rendered output.
 
@@ -530,82 +655,128 @@ def repair_render_output(
     desired_path = Path(output_path)
     baseline = source_baseline or {}
     protected = _protected_intervals(protected_spans)
-    if (
-        not repair_intentional_black
-        and not (baseline.get("black_frames") or baseline.get("frozen_frames"))
-    ):
-        return {
+    protected_output = [
+        {"start_sec": start, "end_sec": end}
+        for start, end in protected
+    ]
+    black_source = list(baseline.get("black_frames") or [])
+    frozen_source = list(baseline.get("frozen_frames") or [])
+    source_errors = list(baseline.get("errors") or [])
+    duration_sec = _probe_render_duration(input_path)
+    detector_windows: list[tuple[float, float]] = []
+    detector_errors: list[dict[str, Any]] = []
+
+    def no_change(reason: str | None = None) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "ok": True,
             "changed": False,
             "output_path": str(input_path),
             "repaired_black_spans": [],
             "repaired_frozen_spans": [],
-            "protected_spans": [
-                {"start_sec": start, "end_sec": end}
-                for start, end in protected
-            ],
+            "protected_spans": protected_output,
             "source_hashes": baseline.get("source_hashes") or {},
-            "reason": "no_source_baseline_spans",
+            "policy_version": SOURCE_REPAIR_POLICY_VERSION,
+            "detector_timeout_s": detector_timeout_s,
+            "detector_windows": [
+                {"start_sec": start, "end_sec": end}
+                for start, end in detector_windows
+            ],
+            "detector_errors": list(detector_errors),
         }
-    black = list(baseline.get("black_frames") or []) if repair_source_black else []
+        if reason:
+            result["reason"] = reason
+        return result
+
+    if (
+        skip_if_no_source_defects
+        and not black_source
+        and not frozen_source
+        and not source_errors
+        and not repair_intentional_black
+    ):
+        return no_change("no_source_baseline_spans")
+
+    source_spans = black_source + frozen_source
+    if source_spans:
+        detector_windows = _repair_windows(
+            source_spans, duration_sec=duration_sec,
+        )
+    else:
+        # A failed baseline or an explicit intentional-black request has no
+        # source window to narrow to. The detector API uses out_sec=0 for the
+        # complete output, preserving the old opt-in behavior.
+        detector_windows = [
+            (0.0, duration_sec) if duration_sec is not None else (0.0, 0.0)
+        ]
+
+    detected_black_spans: list[dict[str, Any]] = []
+    detected_frozen_spans: list[dict[str, Any]] = []
+    for window_start, window_end in detector_windows:
+        for detector_name, detector in (
+            ("black", list_black_frames),
+            ("frozen", list_frozen_frames),
+        ):
+            try:
+                detector_result = _call_detector(
+                    detector,
+                    input_path,
+                    in_sec=window_start,
+                    out_sec=window_end,
+                    timeout_s=detector_timeout_s,
+                )
+                ok, spans, error = _detector_result(
+                    detector_result,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                ok, spans, error = False, [], str(exc)
+            if error:
+                detector_errors.append({
+                    "detector": detector_name,
+                    "start_sec": window_start,
+                    "end_sec": window_end,
+                    "error": error,
+                })
+            if not ok:
+                continue
+            if detector_name == "black":
+                detected_black_spans.extend(spans)
+            else:
+                detected_frozen_spans.extend(spans)
+
+    black = list(black_source) if repair_source_black else []
     frozen = (
-        list(baseline.get("frozen_frames") or [])
+        list(frozen_source)
         if repair_source_frozen else []
     )
-    detected_black = list_black_frames(str(input_path))
-    detected_frozen = list_frozen_frames(str(input_path))
-    detected_black_spans = (
-        [span.model_dump() for span in detected_black.spans]
-        if detected_black.ok else []
-    )
-    detected_frozen_spans = (
-        [span.model_dump() for span in detected_frozen.spans]
-        if detected_frozen.ok else []
-    )
     if repair_intentional_black:
-        if detected_black.ok:
-            black.extend(detected_black_spans)
-        if repair_source_frozen and detected_frozen.ok:
+        black.extend(detected_black_spans)
+        if repair_source_frozen:
             frozen.extend(detected_frozen_spans)
     else:
         # A source defect only needs repair when it survived the render. This
         # avoids a full RGB decode/encode pass for a source span that the
         # proxy already rendered cleanly.
-        if detected_black.ok:
-            black = [
-                span for span in black
-                if _overlaps_any(
-                    span,
-                    detected_black_spans + (
-                        detected_frozen_spans if detected_frozen.ok else []
-                    ),
-                )
-            ]
-        if repair_source_frozen and detected_frozen.ok:
+        detected_output_spans = detected_black_spans + detected_frozen_spans
+        black = [
+            span for span in black
+            if _overlaps_any(span, detected_output_spans)
+        ]
+        if repair_source_frozen:
             frozen = [
                 span for span in frozen
-                if _overlaps_any(
-                    span,
-                    detected_frozen_spans + (
-                        detected_black_spans if detected_black.ok else []
-                    ),
-                )
+                if _overlaps_any(span, detected_frozen_spans + detected_black_spans)
             ]
+
+    # Protected overlays are deliberately the final transformation before
+    # frame-range merging. This keeps interpolation from erasing a Remotion
+    # or video-overlay interval.
     black = _subtract_protected_spans(black, protected)
     frozen = _subtract_protected_spans(frozen, protected)
     if not black and not frozen:
-        return {
-            "ok": True,
-            "changed": False,
-            "output_path": str(input_path),
-            "repaired_black_spans": [],
-            "repaired_frozen_spans": [],
-            "protected_spans": [
-                {"start_sec": start, "end_sec": end}
-                for start, end in protected
-            ],
-            "source_hashes": baseline.get("source_hashes") or {},
-        }
+        return no_change("no_confirmed_source_defects")
+    temp_path: Path | None = None
     try:
         width, height, fps = _video_layout(input_path)
         desired_path.parent.mkdir(parents=True, exist_ok=True)
@@ -628,25 +799,34 @@ def repair_render_output(
             "output_path": str(desired_path),
             "repaired_black_spans": black,
             "repaired_frozen_spans": frozen,
-            "protected_spans": [
-                {"start_sec": start, "end_sec": end}
-                for start, end in protected
-            ],
+            "protected_spans": protected_output,
             "source_hashes": baseline.get("source_hashes") or {},
+            "policy_version": SOURCE_REPAIR_POLICY_VERSION,
+            "detector_timeout_s": detector_timeout_s,
+            "detector_windows": [
+                {"start_sec": start, "end_sec": end}
+                for start, end in detector_windows
+            ],
+            "detector_errors": list(detector_errors),
         }
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         try:
-            temp_path.unlink(missing_ok=True)
-        except (NameError, OSError):
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+        except OSError:
             pass
         return {
             "ok": False,
             "changed": False,
             "output_path": str(input_path),
             "error": str(exc),
-            "protected_spans": [
-                {"start_sec": start, "end_sec": end}
-                for start, end in protected
-            ],
+            "protected_spans": protected_output,
             "source_hashes": baseline.get("source_hashes") or {},
+            "policy_version": SOURCE_REPAIR_POLICY_VERSION,
+            "detector_timeout_s": detector_timeout_s,
+            "detector_windows": [
+                {"start_sec": start, "end_sec": end}
+                for start, end in detector_windows
+            ],
+            "detector_errors": list(detector_errors),
         }

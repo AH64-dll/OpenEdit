@@ -12,6 +12,7 @@ structured RenderResult.
 """
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import time
@@ -138,6 +139,74 @@ def _env_truthy(name: str) -> bool:
 
 def _bounded_error(value: object, limit: int = 512) -> str:
     return str(value).replace("\x00", " ").replace("\r", " ").replace("\n", " ")[:limit]
+
+
+def _repair_budget(mode: str, duration_sec: float | None) -> dict[str, object]:
+    """Resolve the detector budget without coupling M1 to Task 4 imports."""
+    def env_float(name: str, fallback: float | None) -> float | None:
+        raw = os.environ.get(name)
+        if raw is None:
+            return fallback
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return fallback
+        if not math.isfinite(value) or value <= 0.0:
+            return fallback
+        return value
+
+    blackdetect_max = env_float(
+        "OPEN_EDIT_QC_BLACKDETECT_MAX_SEC", 900.0,
+    )
+    total_budget = (
+        env_float("OPEN_EDIT_FINAL_QC_BUDGET_SEC", 900.0)
+        if mode == "final" else None
+    )
+    qc_mode = "full" if mode == "final" else "light"
+    timeout: float
+
+    # Task 4 supplies the canonical policy resolver. The fallback keeps this
+    # lane usable while Task 4 is developed in parallel and mirrors its
+    # duration-aware blackdetect calculation.
+    try:
+        from open_edit.qc.policy import resolve_qc_policy
+    except (ImportError, AttributeError):
+        resolve_qc_policy = None
+    if resolve_qc_policy is not None:
+        try:
+            policy = resolve_qc_policy(mode, cache_hit=False)
+            qc_mode = str(getattr(policy, "mode", qc_mode))
+            policy_max = getattr(policy, "blackdetect_max_sec", blackdetect_max)
+            if policy_max is not None:
+                blackdetect_max = float(policy_max)
+            policy_total = getattr(policy, "total_budget_sec", total_budget)
+            total_budget = (
+                float(policy_total) if policy_total is not None else None
+            )
+            timeout = float(policy.blackdetect_timeout(duration_sec))
+        except (AttributeError, TypeError, ValueError, RuntimeError):
+            timeout = 0.0
+    else:
+        timeout = 0.0
+
+    if timeout <= 0.0 or not math.isfinite(timeout):
+        if duration_sec is None or duration_sec <= 0.0:
+            timeout = min(60.0, blackdetect_max or 60.0)
+        else:
+            timeout = max(
+                60.0,
+                min(blackdetect_max or 60.0, duration_sec * 0.75),
+            )
+    if total_budget is not None:
+        timeout = min(timeout, total_budget)
+    timeout = max(0.001, timeout)
+    return {
+        "qc_policy": qc_mode,
+        "total_budget_sec": total_budget,
+        "blackdetect_max_sec": blackdetect_max,
+        "remaining_budget_sec": timeout,
+        "detector_timeout_s": timeout,
+    }
 
 
 def frame_pull_gate(
@@ -368,6 +437,37 @@ def render_project(
         "source_proxy_hits": {},
         "source_proxy_fallbacks": {},
     }
+    whole_file_repair = requested_emission_profile in {
+        "final", "review-artifact",
+    }
+    repair_intentional_black = _env_truthy(
+        "OPEN_EDIT_REPAIR_INTENTIONAL_BLACK",
+    )
+    repair_budget = (
+        _repair_budget(mode, timeline.duration_sec)
+        if whole_file_repair else {}
+    )
+    diagnostics["repair_policy"] = {
+        "version": SOURCE_REPAIR_POLICY_VERSION,
+        "emission_profile": requested_emission_profile,
+        "source_media_policy": source_media_policy,
+        "enabled": whole_file_repair,
+        "executed": False,
+        "repair_source_black": True,
+        "repair_source_frozen": False,
+        "repair_intentional_black": repair_intentional_black,
+        "skip_if_no_source_defects": True,
+        "reason": (
+            "whole_file_emission"
+            if whole_file_repair else "emission_profile_not_whole_file"
+        ),
+        **repair_budget,
+    }
+    if mode == "final":
+        # Final QC is attached by the host job/CLI after this whole-file
+        # render; keep its required policy explicit in render diagnostics.
+        diagnostics["qc_policy"] = "full"
+        diagnostics["final_qc_required"] = True
 
     cache = RenderCache(workdir / "render_cache")
     # Source repair runs after overlays are burned. Include its policy version
@@ -402,6 +502,7 @@ def render_project(
             frame_pull["enabled"] = False
             if frame_pull.get("requested"):
                 frame_pull["fallback"] = "deliverable_cache_hit"
+            diagnostics["repair_policy"]["reason"] = "deliverable_cache_hit"
             diagnostics["stages"] = recorder.stages
             return RenderResult(
                 ok=True, output_path=str(cached), mode=mode,
@@ -509,9 +610,19 @@ def render_project(
     diagnostics["source_media_policy"] = plan.source_media_policy
     diagnostics["source_proxy_hits"] = dict(plan.source_proxy_hits)
     diagnostics["source_proxy_fallbacks"] = dict(plan.source_proxy_fallbacks)
-    source_baseline = collect_source_baseline(
-        plan.melt_timeline, plan.asset_paths,
-    )
+    if whole_file_repair:
+        source_baseline = collect_source_baseline(
+            plan.melt_timeline, plan.asset_paths,
+        )
+    else:
+        source_baseline = {
+            "version": 1,
+            "source_hashes": {},
+            "black_frames": [],
+            "frozen_frames": [],
+            "errors": [],
+            "reason": "emission_profile_not_whole_file",
+        }
     materialized_bytes = sum(
         getattr(ov, "media_path").stat().st_size
         for ov in plan.overlay_clips
@@ -626,10 +737,20 @@ def render_project(
             frame_profile=profile,
             emission_profile=requested_emission_profile,
         )
-        source_baseline = collect_source_baseline(
-            plan.melt_timeline,
-            plan.asset_paths,
-        )
+        if whole_file_repair:
+            source_baseline = collect_source_baseline(
+                plan.melt_timeline,
+                plan.asset_paths,
+            )
+        else:
+            source_baseline = {
+                "version": 1,
+                "source_hashes": {},
+                "black_frames": [],
+                "frozen_frames": [],
+                "errors": [],
+                "reason": "emission_profile_not_whole_file",
+            }
         cmds = build_pipe_commands(
             melt_bin,
             xml_path,
@@ -802,43 +923,85 @@ def render_project(
         _record_frame_pull_result(result=result)
     elapsed = time.monotonic() - t0
     if result.returncode == 0 and output_mp4.is_file() and output_mp4.stat().st_size > 0:
+        protected_spans = [
+            (
+                overlay.position_sec,
+                overlay.position_sec + overlay.duration_sec,
+            )
+            for overlay in plan.overlay_clips
+        ]
         repair_t0 = time.monotonic()
         repair_path = output_mp4.with_name(f"{output_mp4.stem}.repaired.mp4")
-        try:
-            repair = repair_render_output(
-                output_mp4,
-                repair_path,
-                source_baseline,
-                protected_spans=[
-                    (
-                        overlay.position_sec,
-                        overlay.position_sec + overlay.duration_sec,
-                    )
-                    for overlay in plan.overlay_clips
-                ],
-                repair_intentional_black=(
-                    os.environ.get("OPEN_EDIT_REPAIR_INTENTIONAL_BLACK", "0")
-                    .strip().lower() not in {"0", "false", "no"}
-                ),
-            )
-        except Exception as exc:
-            repair = {"ok": False, "changed": False, "error": str(exc)}
+        if whole_file_repair:
+            diagnostics["repair_policy"]["executed"] = True
+            try:
+                repair = repair_render_output(
+                    output_mp4,
+                    repair_path,
+                    source_baseline,
+                    protected_spans=protected_spans,
+                    repair_intentional_black=repair_intentional_black,
+                    detector_timeout_s=repair_budget.get("detector_timeout_s"),
+                    skip_if_no_source_defects=True,
+                )
+            except Exception as exc:
+                repair = {"ok": False, "changed": False, "error": str(exc)}
+        else:
+            repair = {
+                "ok": True,
+                "changed": False,
+                "output_path": str(output_mp4),
+                "reason": "emission_profile_not_whole_file",
+                "protected_spans": [],
+                "policy_version": SOURCE_REPAIR_POLICY_VERSION,
+            }
         if repair.get("ok") and repair.get("changed"):
             os.replace(repair_path, output_mp4)
         repair_elapsed = time.monotonic() - repair_t0
-        diagnostics["repair"] = {
+        repair_diagnostics = {
             key: value
             for key, value in repair.items()
             if key not in {"output_path"}
         }
-        diagnostics["repair"]["elapsed_sec"] = repair_elapsed
-        recorder.record(
-            "source_repair",
-            repair_elapsed,
-            status="completed" if repair.get("ok") else "failed",
-            changed=bool(repair.get("changed")),
+        repair_diagnostics.setdefault(
+            "detector_timeout_s", repair_budget.get("detector_timeout_s"),
         )
+        repair_diagnostics.setdefault("detector_windows", [])
+        repair_diagnostics.setdefault("detector_errors", [])
+        repair_diagnostics["elapsed_sec"] = repair_elapsed
+        diagnostics["repair"] = repair_diagnostics
+        diagnostics["repair_policy"].update({
+            "changed": bool(repair.get("changed")),
+            "protected_spans": repair.get("protected_spans", protected_spans),
+            "timeout": {
+                "detector_timeout_s": repair_diagnostics.get(
+                    "detector_timeout_s",
+                ),
+                "remaining_budget_sec": repair_budget.get(
+                    "remaining_budget_sec",
+                ),
+                "detector_windows": repair_diagnostics.get(
+                    "detector_windows", [],
+                ),
+                "detector_errors": repair_diagnostics.get(
+                    "detector_errors", [],
+                ),
+            },
+        })
+        if whole_file_repair:
+            recorder.record(
+                "source_repair",
+                repair_elapsed,
+                status="completed" if repair.get("ok") else "failed",
+                changed=bool(repair.get("changed")),
+            )
+        else:
+            recorder.skip(
+                "source_repair",
+                reason="emission_profile_not_whole_file",
+            )
     else:
+        diagnostics["repair_policy"]["reason"] = "render_output_unavailable"
         recorder.skip("source_repair", reason="render_output_unavailable")
     elapsed = time.monotonic() - t0
     diagnostics["pipe_elapsed_sec"] = getattr(result, "elapsed_sec", elapsed)
