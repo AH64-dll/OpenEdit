@@ -6,12 +6,49 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from open_edit.kernel.asset_proxy_jobs import (
+    DEFAULT_ASSET_PROXY_JOB_SERVICE,
+    AssetProxyJob,
+)
+from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
 
 from .projects import _require_project
 
 router = APIRouter()
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+class AssetProxyRequest(BaseModel):
+    profile: str = DEFAULT_SOURCE_PROXY_PROFILE.name
+
+
+class AssetProxyJobResponse(BaseModel):
+    job_id: str
+    project_id: str
+    asset_hash: str
+    profile: str
+    status: str
+    created_at: float
+    updated_at: float
+    proxy_hash: str | None = None
+    error: str | None = None
+
+
+def _asset_proxy_job_response(job: AssetProxyJob) -> AssetProxyJobResponse:
+    return AssetProxyJobResponse(
+        job_id=job.job_id,
+        project_id=job.project_id,
+        asset_hash=job.asset_hash,
+        profile=job.profile,
+        status=job.status,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        proxy_hash=job.proxy_hash,
+        error=job.error,
+    )
 
 
 @router.get("/api/projects/{project_id}/assets/{asset_hash}/file")
@@ -66,6 +103,52 @@ async def get_asset_file(project_id: str, asset_hash: str) -> FileResponse:
         # up front.
         headers={"Accept-Ranges": "bytes"},
     )
+
+
+@router.post(
+    "/api/projects/{project_id}/assets/{asset_hash}/proxy",
+    status_code=202,
+)
+async def post_asset_proxy(
+    project_id: str,
+    asset_hash: str,
+    request: AssetProxyRequest,
+) -> AssetProxyJobResponse:
+    """Queue host-side source-proxy generation and return its job id."""
+    if not _HASH_RE.fullmatch(asset_hash):
+        raise HTTPException(status_code=400, detail="invalid asset hash")
+    profile = request.profile.strip()
+    if profile != DEFAULT_SOURCE_PROXY_PROFILE.name:
+        raise HTTPException(status_code=400, detail=f"unknown source proxy profile: {profile}")
+
+    state = await _require_project(project_id)
+    try:
+        job = DEFAULT_ASSET_PROXY_JOB_SERVICE.enqueue(
+            project_id,
+            Path(state.path),
+            asset_hash,
+            profile=DEFAULT_SOURCE_PROXY_PROFILE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _asset_proxy_job_response(job)
+
+
+@router.get(
+    "/api/projects/{project_id}/asset_proxy_jobs/{job_id}",
+)
+async def get_asset_proxy_job(
+    project_id: str,
+    job_id: str,
+) -> AssetProxyJobResponse:
+    """Return durable source-proxy job state."""
+    state = await _require_project(project_id)
+    job = DEFAULT_ASSET_PROXY_JOB_SERVICE.get(Path(state.path), job_id)
+    if job is None or job.project_id != project_id:
+        raise HTTPException(status_code=404, detail=f"asset proxy job not found: {job_id}")
+    return _asset_proxy_job_response(job)
 
 
 def _guess_mime_type(asset: Asset) -> str:  # noqa: F821

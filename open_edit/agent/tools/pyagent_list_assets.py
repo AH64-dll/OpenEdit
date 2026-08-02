@@ -81,6 +81,9 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
                 "fps": obj.get("fps"),
                 "codec": codec,
                 "has_audio": obj.get("has_audio", False),
+                "proxy_hash": obj.get("proxy_hash"),
+                "proxy_profile": obj.get("proxy_profile"),
+                "proxy_status": obj.get("proxy_status", "none"),
             })
         assets.append(row)
 

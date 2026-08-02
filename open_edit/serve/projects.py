@@ -82,6 +82,9 @@ class AssetInfo(BaseModel):
     codec: str = ""
     has_audio: bool = False
     type: str = "video"  # "video" | "audio" | "image"
+    proxy_hash: str | None = None
+    proxy_profile: str | None = None
+    proxy_status: str = "none"
     # Server-relative URL the frontend can use as ``<video src>`` /
     # ``<img src>``. Set by ``_asset_to_info`` (asset list) and by the
     # upload endpoint (ingest response). See
@@ -202,6 +205,9 @@ def _asset_to_info(asset: Asset, project_id: str = "") -> AssetInfo:
         codec=asset.codec or "",
         has_audio=asset.has_audio,
         type=asset.type,
+        proxy_hash=asset.proxy_hash,
+        proxy_profile=asset.proxy_profile,
+        proxy_status=asset.proxy_status,
         url=asset_stream_url(project_id, asset.asset_hash) if project_id else "",
     )
 
