@@ -3,18 +3,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from open_edit.ir.types import AddClipOp, Operation, Timeline
-from open_edit.render.pipe_builder import OverlayClip
+from open_edit.render.pipe_builder import OverlayClip, OverlayInput
+from open_edit.render.profiles import RenderProfile
+from open_edit.render.remotion.frame_feeder import FrameOverlaySpec
+from open_edit.render.remotion.renderer import remotion_profile_for_mode
 from open_edit.storage.assets import AssetStore
 
 
 class RenderPlan(BaseModel):
     """Everything a render needs beyond the edit graph itself."""
     melt_timeline: Timeline
-    overlay_clips: list[OverlayClip]
+    overlay_clips: list[OverlayInput]
     asset_paths: dict[str, str]
+    frame_overlays: list[FrameOverlaySpec] = Field(default_factory=list)
 
 
 def build_render_plan(
@@ -22,6 +26,9 @@ def build_render_plan(
     ops: list[Operation],
     store: AssetStore,
     mode: str,
+    *,
+    frame_engine: str = "materialize",
+    frame_profile: RenderProfile | None = None,
 ) -> RenderPlan:
     """Build the render plan: resolved assets, ffmpeg overlay clips, melt timeline.
 
@@ -29,15 +36,26 @@ def build_render_plan(
     current plan shape is mode-independent.
     """
     asset_paths = resolve_asset_paths(ops, timeline, store)
-    remotion_overlays = _remotion_overlay_clips(timeline, asset_paths)
+    remotion_overlays = (
+        []
+        if frame_engine == "pull"
+        else _remotion_overlay_clips(timeline, asset_paths)
+    )
+    frame_overlays = (
+        _frame_overlay_specs(timeline, mode, frame_profile)
+        if frame_engine == "pull"
+        else []
+    )
     video_overlays = _video_track_overlay_clips(timeline, asset_paths)
     overlay_clips = sorted(
-        remotion_overlays + video_overlays, key=lambda o: o.position_sec,
+        remotion_overlays + frame_overlays + video_overlays,
+        key=lambda o: o.position_sec,
     )
     return RenderPlan(
         melt_timeline=timeline_for_melt(timeline),
         overlay_clips=overlay_clips,
         asset_paths=asset_paths,
+        frame_overlays=frame_overlays,
     )
 
 
@@ -87,6 +105,37 @@ def _remotion_overlay_clips(
             label=composition.composition_id,
             blur_under=bool((composition.props or {}).get("blur_under", False)),
         ))
+    overlays.sort(key=lambda o: o.position_sec)
+    return overlays
+
+
+def _frame_overlay_specs(
+    timeline: Timeline,
+    mode: str,
+    frame_profile: RenderProfile | None = None,
+) -> list[FrameOverlaySpec]:
+    """Convert pending Remotion compositions into pull-stream metadata."""
+    overlays: list[FrameOverlaySpec] = []
+    for composition in timeline.remotion_compositions:
+        profile = frame_profile or remotion_profile_for_mode(
+            mode,
+            alpha=composition.alpha,
+        )
+        overlays.append(
+            FrameOverlaySpec(
+                composition_uid=composition.composition_uid,
+                composition_id=composition.composition_id,
+                entry_point=composition.entry_point,
+                props=dict(composition.props),
+                position_sec=composition.position_sec,
+                duration_sec=composition.duration_sec,
+                width=profile.width,
+                height=profile.height,
+                fps=profile.frame_rate_num / profile.frame_rate_den,
+                alpha=composition.alpha,
+                blur_under=bool(composition.props.get("blur_under", False)),
+            )
+        )
     overlays.sort(key=lambda o: o.position_sec)
     return overlays
 

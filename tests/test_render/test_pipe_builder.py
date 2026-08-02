@@ -13,6 +13,7 @@ from open_edit.render.pipe_builder import (
     overlay_filter_chain,
 )
 from open_edit.render.profiles import select_profile
+from open_edit.render.remotion.frame_feeder import FrameOverlaySpec
 
 
 def _fixture():
@@ -173,6 +174,41 @@ def test_pipe_commands_shape(tmp_path: Path):
     assert str(tmp_path / "out.mp4") in cmds.ffmpeg_cmd
     assert str(cmds.audio_wav) in " ".join(cmds.melt_audio_cmd)
     assert " ".join(cmds.ffmpeg_cmd).count("-i") >= 2  # pipe + audio (+ overlays)
+
+
+def test_pull_overlay_adds_nonseekable_image_pipe_without_changing_melt_pipe(
+    tmp_path: Path,
+):
+    profile = select_profile("fast_proxy")
+    spec = select_encoder("cpu", final=False)
+    overlay = FrameOverlaySpec(
+        composition_uid="uid-1",
+        composition_id="TitleCard",
+        entry_point="src/index.ts",
+        props={"titleText": "Hi"},
+        position_sec=2.0,
+        duration_sec=1.0,
+        width=profile.width,
+        height=profile.height,
+        fps=30.0,
+        alpha=False,
+    )
+    commands = build_pipe_commands(
+        "melt",
+        tmp_path / "timeline.mlt",
+        tmp_path / "out.mp4",
+        profile,
+        spec,
+        [overlay],
+        frame_engine="pull",
+        workdir=tmp_path,
+    )
+
+    assert "f=rawvideo" in commands.melt_video_cmd
+    assert "pipe:3" in commands.ffmpeg_cmd
+    assert "-f" in commands.ffmpeg_cmd
+    assert "image2pipe" in commands.ffmpeg_cmd
+    assert ".open_edit/remotion/out/cache" not in " ".join(commands.ffmpeg_cmd)
 
 
 def test_pipe_commands_no_overlays(tmp_path: Path):

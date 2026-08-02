@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import io
 import sys
 import textwrap
 import time
@@ -16,6 +17,11 @@ from open_edit.render.remotion.frame_engine import (
     frame_engine_status,
     select_frame_engine,
 )
+from open_edit.render.remotion.frame_feeder import (
+    FrameFeeder,
+    FrameOverlaySpec,
+)
+from open_edit.render.orchestrator import frame_pull_gate
 
 
 def _write_fake_frame_server(
@@ -63,6 +69,25 @@ def _request(
         entry_point=entry_point,
         props=props or {"titleText": "Hi"},
         frame=frame,
+        width=640,
+        height=360,
+        fps=30.0,
+        alpha=False,
+    )
+
+
+def _frame_overlay(
+    *,
+    position_sec: float = 2.0,
+    duration_sec: float = 1.0,
+) -> FrameOverlaySpec:
+    return FrameOverlaySpec(
+        composition_uid="uid-1",
+        composition_id="TitleCard",
+        entry_point="src/index.ts",
+        props={"titleText": "Hi"},
+        position_sec=position_sec,
+        duration_sec=duration_sec,
         width=640,
         height=360,
         fps=30.0,
@@ -181,3 +206,37 @@ def test_frame_engine_defaults_to_materialize_and_rejects_unsupported_pull(
         "error_code": "remotion_frame_pull_unavailable",
         "error": "remotion_frame_pull_unavailable: same-pass frame feeding is not enabled",
     }
+
+
+def test_frame_feeder_requests_monotonic_source_frames():
+    requests = []
+
+    class FakeClient:
+        def request_frame(self, request):
+            requests.append(request)
+            return type("Frame", (), {"bytes": b"\x89PNGfake"})()
+
+    feeder = FrameFeeder(FakeClient(), _frame_overlay())
+    feeder.write_frames(output=io.BytesIO(), output_fps=30.0)
+
+    assert [request.frame for request in requests] == list(range(30))
+    assert all(request.frame >= 0 for request in requests)
+
+
+def test_frame_pull_gate_keeps_final_materialize_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("OPEN_EDIT_REMOTION_FRAME_ENGINE", "pull")
+    monkeypatch.delenv("OPEN_EDIT_ALLOW_EXPERIMENTAL_FRAME_PULL", raising=False)
+    monkeypatch.setattr(
+        "open_edit.render.orchestrator.probe_frame_pull_host",
+        lambda _project: (True, None),
+    )
+
+    final = frame_pull_gate("final", tmp_path, has_compositions=True)
+    proxy = frame_pull_gate("proxy", tmp_path, has_compositions=True)
+
+    assert final["enabled"] is False
+    assert final["fallback"] == "materialize"
+    assert proxy["enabled"] is True

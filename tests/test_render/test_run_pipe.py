@@ -1,11 +1,18 @@
 """run_pipe: concurrent melt->ffmpeg execution with fake binaries."""
+import shutil
+import subprocess
 import sys
+from types import SimpleNamespace
+import wave
 from pathlib import Path
 
 import pytest
 
 from open_edit.render.melt_runner import PipeRunError, run_pipe
-from open_edit.render.pipe_builder import PipeCommands
+from open_edit.render.encoder import select_encoder
+from open_edit.render.pipe_builder import PipeCommands, build_pipe_commands
+from open_edit.render.profiles import select_profile
+from open_edit.render.remotion.frame_feeder import FrameOverlaySpec
 
 
 def _fake_melt(path: Path, kind: str) -> Path:
@@ -117,3 +124,176 @@ def test_run_pipe_spawn_failure_kills_melt(tmp_path: Path):
                         [str(tmp_path / "no_such_ffmpeg")], cmds.audio_wav)
     with pytest.raises(PipeRunError, match="pipe spawn failed"):
         run_pipe(cmds, timeout_s=30)
+
+
+def _frame_pipe_cmds(tmp_path: Path) -> tuple[PipeCommands, FrameOverlaySpec]:
+    video = tmp_path / "tiny_melt_video.py"
+    video.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "sys.stdout.buffer.write(b'base')\n"
+    )
+    video.chmod(0o755)
+    audio = tmp_path / "tiny_melt_audio.py"
+    audio.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "path = next(a[len('avformat:'):] for a in sys.argv if a.startswith('avformat:'))\n"
+        "open(path, 'wb').write(b'RIFF')\n"
+    )
+    audio.chmod(0o755)
+    ffmpeg = tmp_path / "tiny_ffmpeg.py"
+    ffmpeg.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, sys\n"
+        "overlay = os.read(3, 1024 * 1024)\n"
+        "sys.stdin.buffer.read()\n"
+        "out = next(a for a in sys.argv if a.endswith('.mp4'))\n"
+        "open(out, 'wb').write(overlay)\n"
+    )
+    ffmpeg.chmod(0o755)
+    overlay = FrameOverlaySpec(
+        composition_uid="uid-1",
+        composition_id="TitleCard",
+        entry_point="src/index.ts",
+        props={"titleText": "Hi"},
+        position_sec=0.0,
+        duration_sec=1.0,
+        width=64,
+        height=64,
+        fps=30.0,
+        alpha=False,
+        pipe_fd=3,
+    )
+    return (
+        PipeCommands(
+            [str(video)],
+            [str(audio), "-consumer", f"avformat:{tmp_path / 'audio.wav'}"],
+            [str(ffmpeg), str(tmp_path / "out.mp4")],
+            tmp_path / "audio.wav",
+            frame_overlays=[overlay],
+            frame_pipe_fds=(3,),
+        ),
+        overlay,
+    )
+
+
+def test_run_pipe_feeds_frames_after_ffmpeg_starts_and_closes_client(
+    tmp_path: Path,
+):
+    cmds, _overlay = _frame_pipe_cmds(tmp_path)
+    requests = []
+
+    class FakeClient:
+        closed = False
+
+        def request_frame(self, request):
+            requests.append(request)
+            return SimpleNamespace(bytes=b"\x89PNG" + bytes([request.frame % 256]))
+
+        def close(self):
+            self.closed = True
+
+    client = FakeClient()
+    result = run_pipe(cmds, timeout_s=30, frame_clients=[client])
+
+    assert result.returncode == 0
+    assert result.frames_requested == 30
+    assert [request.frame for request in requests] == list(range(30))
+    assert client.closed is True
+    assert (tmp_path / "out.mp4").read_bytes().startswith(b"\x89PNG")
+
+
+def test_run_pipe_surfaces_frame_server_failure_and_closes_client(tmp_path: Path):
+    cmds, _overlay = _frame_pipe_cmds(tmp_path)
+
+    class ErrorClient:
+        closed = False
+
+        def request_frame(self, _request):
+            raise RuntimeError("frame server exploded")
+
+        def close(self):
+            self.closed = True
+
+    client = ErrorClient()
+    with pytest.raises(PipeRunError, match="frame feeder failed"):
+        run_pipe(cmds, timeout_s=30, frame_clients=[client])
+    assert client.closed is True
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required")
+def test_run_pipe_frame_overlay_reaches_real_ffmpeg(tmp_path: Path):
+    ffmpeg = shutil.which("ffmpeg")
+    assert ffmpeg is not None
+    profile = select_profile("fast_proxy").model_copy(
+        update={"width": 64, "height": 64},
+    )
+    overlay_png = tmp_path / "overlay.png"
+    subprocess.run(
+        [
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=red@0.5:s=64x64:d=0.1",
+            "-frames:v", "1", "-vf", "format=rgba", str(overlay_png),
+        ],
+        check=True,
+        timeout=30,
+    )
+    overlay = FrameOverlaySpec(
+        composition_uid="uid-real",
+        composition_id="TitleCard",
+        entry_point="src/index.ts",
+        props={},
+        position_sec=0.0,
+        duration_sec=0.1,
+        width=64,
+        height=64,
+        fps=30.0,
+        alpha=True,
+    )
+    built = build_pipe_commands(
+        "melt",
+        tmp_path / "timeline.mlt",
+        tmp_path / "real.mp4",
+        profile,
+        select_encoder("cpu", final=False),
+        [overlay],
+        frame_engine="pull",
+        workdir=tmp_path,
+    )
+    video = tmp_path / "tiny_video.py"
+    video.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "frame = b'\\x80' * (64 * 64 * 3 // 2)\n"
+        "sys.stdout.buffer.write(frame * 3)\n"
+    )
+    video.chmod(0o755)
+    audio = tmp_path / "tiny_audio.py"
+    audio.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, wave\n"
+        "path = next(a[len('avformat:'):] for a in sys.argv if a.startswith('avformat:'))\n"
+        "with wave.open(path, 'wb') as f:\n"
+        "    f.setnchannels(1); f.setsampwidth(2); f.setframerate(48000)\n"
+        "    f.writeframes(b'\\0\\0' * 4800)\n"
+    )
+    audio.chmod(0o755)
+    cmds = PipeCommands(
+        [str(video)],
+        [str(audio), "-consumer", f"avformat:{built.audio_wav}"],
+        built.ffmpeg_cmd,
+        built.audio_wav,
+        frame_overlays=built.frame_overlays,
+        frame_pipe_fds=built.frame_pipe_fds,
+    )
+
+    class FakeClient:
+        def request_frame(self, _request):
+            return SimpleNamespace(bytes=overlay_png.read_bytes())
+
+    result = run_pipe(cmds, timeout_s=30, frame_clients=[FakeClient()])
+
+    assert result.returncode == 0, result.stderr
+    assert result.frames_requested == 3
+    assert (tmp_path / "real.mp4").is_file()

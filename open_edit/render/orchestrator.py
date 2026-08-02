@@ -48,6 +48,10 @@ from open_edit.render.profiles import (
 )
 from open_edit.render.remotion import resolve_alpha_mode
 from open_edit.render.remotion.dirty import write_manifest_atomic
+from open_edit.render.remotion.frame_feeder import (
+    build_frame_pull_clients,
+    probe_frame_pull_host,
+)
 from open_edit.render.remotion.safety import render_reference_fingerprint
 from open_edit.render.snapshot_recorder import record_snapshot
 from open_edit.render.source_repair import (
@@ -121,6 +125,76 @@ def _contractualize_diagnostics(
 
 
 _gpu_decode_ok: bool | None = None
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _bounded_error(value: object, limit: int = 512) -> str:
+    return str(value).replace("\x00", " ").replace("\r", " ").replace("\n", " ")[:limit]
+
+
+def frame_pull_gate(
+    mode: str,
+    project_path: Path,
+    *,
+    has_compositions: bool,
+) -> dict[str, object]:
+    """Resolve the experimental frame-pull gate without changing defaults."""
+    requested_engine = os.environ.get(
+        "OPEN_EDIT_REMOTION_FRAME_ENGINE",
+        "materialize",
+    ).strip().lower()
+    diagnostics: dict[str, object] = {
+        "requested": requested_engine == "pull",
+        "requested_engine": requested_engine,
+        "enabled": False,
+        "frames_requested": 0,
+        "elapsed_sec": 0.0,
+        "fallback": None,
+    }
+    if requested_engine == "materialize" or not has_compositions:
+        return diagnostics
+    if requested_engine != "pull":
+        diagnostics.update({
+            "error_code": "remotion_frame_pull_invalid_engine",
+            "error": _bounded_error(
+                "OPEN_EDIT_REMOTION_FRAME_ENGINE must be materialize or pull"
+            ),
+        })
+        return diagnostics
+    if mode != "proxy" and not _env_truthy(
+        "OPEN_EDIT_ALLOW_EXPERIMENTAL_FRAME_PULL"
+    ):
+        diagnostics.update({
+            "fallback": "materialize",
+            "error_code": "remotion_frame_pull_mode_blocked",
+            "error": "final export requires OPEN_EDIT_ALLOW_EXPERIMENTAL_FRAME_PULL=1",
+        })
+        return diagnostics
+    try:
+        host_ok, host_error = probe_frame_pull_host(project_path)
+    except Exception as exc:
+        host_ok, host_error = False, _bounded_error(exc)
+    if not host_ok:
+        diagnostics.update({
+            "fallback": "materialize",
+            "error_code": "remotion_frame_pull_unavailable",
+            "error": _bounded_error(host_error or "frame pull host probe failed"),
+        })
+        return diagnostics
+    diagnostics["enabled"] = True
+    return diagnostics
+
+
+def _frame_pull_fallback_requested() -> bool:
+    return (
+        os.environ.get("OPEN_EDIT_FRAME_PULL_FALLBACK", "")
+        .strip()
+        .lower()
+        == "materialize"
+    )
 
 
 def _gpu_decode_available() -> bool:
@@ -232,6 +306,11 @@ def render_project(
         time.monotonic() - derive_t0,
         duration_sec=timeline.duration_sec,
     )
+    frame_pull = frame_pull_gate(
+        mode,
+        project_dir,
+        has_compositions=bool(timeline.remotion_compositions),
+    )
 
     cache_lookup_t0 = time.monotonic()
     fingerprint = profile_fingerprint(profile, encoder_backend)
@@ -258,6 +337,7 @@ def render_project(
         },
         "content_fingerprint": content_fingerprint,
         "alpha_mode": ",".join(alpha_modes) or "opaque",
+        "remotion_frame_pull": frame_pull,
     }
 
     cache = RenderCache(workdir / "render_cache")
@@ -284,6 +364,9 @@ def render_project(
         )
         if cache_hit:
             recorder.skip("remotion_materialize", reason="deliverable_cache_hit")
+            frame_pull["enabled"] = False
+            if frame_pull.get("requested"):
+                frame_pull["fallback"] = "deliverable_cache_hit"
             diagnostics["stages"] = recorder.stages
             return RenderResult(
                 ok=True, output_path=str(cached), mode=mode,
@@ -302,43 +385,48 @@ def render_project(
         project_dir, mode, fingerprint,
     )
     materialize_report = MaterializeReport()
-    # Materialize Remotion compositions to CAS clips only after the
-    # whole-file deliverable cache has missed. Fail hard on any miss.
-    materialize_t0 = time.monotonic()
-    try:
-        timeline = materialize_remotion_compositions(
-            timeline,
-            project_dir,
-            mode=mode,
-            manifest_path=manifest_path,
-            force_remotion=force_remotion,
-            force_uids=remotion_uids,
-            report=materialize_report,
-            profile_fingerprint=fingerprint,
-        )
-    except RemotionMaterializeError as exc:
+    frame_pull_enabled = bool(frame_pull.get("enabled"))
+    if frame_pull_enabled:
+        materialize_elapsed = 0.0
+        recorder.skip("remotion_materialize", reason="frame_pull_enabled")
+    else:
+        # Materialize Remotion compositions to CAS clips only after the
+        # whole-file deliverable cache has missed. Fail hard on any miss.
+        materialize_t0 = time.monotonic()
+        try:
+            timeline = materialize_remotion_compositions(
+                timeline,
+                project_dir,
+                mode=mode,
+                manifest_path=manifest_path,
+                force_remotion=force_remotion,
+                force_uids=remotion_uids,
+                report=materialize_report,
+                profile_fingerprint=fingerprint,
+            )
+        except RemotionMaterializeError as exc:
+            materialize_elapsed = time.monotonic() - materialize_t0
+            recorder.record(
+                "remotion_materialize",
+                materialize_elapsed,
+                status="failed",
+                bytes=0,
+                error=str(exc),
+                worker_count=materialize_report.worker_count,
+                cache_hits=materialize_report.cache_hits,
+                cache_misses=materialize_report.cache_misses,
+                reused_manifest_entries=materialize_report.reused_manifest_entries,
+                rendered_uids=materialize_report.rendered_uids,
+                dirty_uids=materialize_report.dirty_uids,
+            )
+            diagnostics["stages"] = recorder.stages
+            return _fail(
+                mode=mode, profile=profile, output_path="",
+                duration_sec=timeline.duration_sec, elapsed_sec=0.0,
+                graph_hash=graph_hash, error=str(exc),
+                diagnostics=diagnostics,
+            )
         materialize_elapsed = time.monotonic() - materialize_t0
-        recorder.record(
-            "remotion_materialize",
-            materialize_elapsed,
-            status="failed",
-            bytes=0,
-            error=str(exc),
-            worker_count=materialize_report.worker_count,
-            cache_hits=materialize_report.cache_hits,
-            cache_misses=materialize_report.cache_misses,
-            reused_manifest_entries=materialize_report.reused_manifest_entries,
-            rendered_uids=materialize_report.rendered_uids,
-            dirty_uids=materialize_report.dirty_uids,
-        )
-        diagnostics["stages"] = recorder.stages
-        return _fail(
-            mode=mode, profile=profile, output_path="",
-            duration_sec=timeline.duration_sec, elapsed_sec=0.0,
-            graph_hash=graph_hash, error=str(exc),
-            diagnostics=diagnostics,
-        )
-    materialize_elapsed = time.monotonic() - materialize_t0
 
     plan_t0 = time.monotonic()
     try:
@@ -347,19 +435,22 @@ def render_project(
             applied_ops,
             AssetStore(project_dir / ".open_edit" / "assets"),
             mode,
+            frame_engine="pull" if frame_pull_enabled else "materialize",
+            frame_profile=profile,
         )
     except Exception as exc:
-        recorder.record(
-            "remotion_materialize",
-            materialize_elapsed,
-            bytes=0,
-            worker_count=materialize_report.worker_count,
-            cache_hits=materialize_report.cache_hits,
-            cache_misses=materialize_report.cache_misses,
-            reused_manifest_entries=materialize_report.reused_manifest_entries,
-            rendered_uids=materialize_report.rendered_uids,
-            dirty_uids=materialize_report.dirty_uids,
-        )
+        if not frame_pull_enabled:
+            recorder.record(
+                "remotion_materialize",
+                materialize_elapsed,
+                bytes=0,
+                worker_count=materialize_report.worker_count,
+                cache_hits=materialize_report.cache_hits,
+                cache_misses=materialize_report.cache_misses,
+                reused_manifest_entries=materialize_report.reused_manifest_entries,
+                rendered_uids=materialize_report.rendered_uids,
+                dirty_uids=materialize_report.dirty_uids,
+            )
         recorder.record(
             "build_render_plan",
             time.monotonic() - plan_t0,
@@ -382,21 +473,23 @@ def render_project(
         plan.melt_timeline, plan.asset_paths,
     )
     materialized_bytes = sum(
-        ov.media_path.stat().st_size
+        getattr(ov, "media_path").stat().st_size
         for ov in plan.overlay_clips
-        if ov.media_path.is_file()
+        if getattr(ov, "media_path", None) is not None
+        and getattr(ov, "media_path").is_file()
     )
-    recorder.record(
-        "remotion_materialize",
-        materialize_elapsed,
-        bytes=materialized_bytes,
-        worker_count=materialize_report.worker_count,
-        cache_hits=materialize_report.cache_hits,
-        cache_misses=materialize_report.cache_misses,
-        reused_manifest_entries=materialize_report.reused_manifest_entries,
-        rendered_uids=materialize_report.rendered_uids,
-        dirty_uids=materialize_report.dirty_uids,
-    )
+    if not frame_pull_enabled:
+        recorder.record(
+            "remotion_materialize",
+            materialize_elapsed,
+            bytes=materialized_bytes,
+            worker_count=materialize_report.worker_count,
+            cache_hits=materialize_report.cache_hits,
+            cache_misses=materialize_report.cache_misses,
+            reused_manifest_entries=materialize_report.reused_manifest_entries,
+            rendered_uids=materialize_report.rendered_uids,
+            dirty_uids=materialize_report.dirty_uids,
+        )
     diagnostics["source_baseline"] = source_baseline
 
     config = EmitterConfig(profile=profile.model_dump())
@@ -442,32 +535,201 @@ def render_project(
     cmds = build_pipe_commands(
         melt_bin, xml_path, output_mp4, profile, spec, plan.overlay_clips,
         audio_bitrate=audio_bitrate, workdir=workdir,
+        frame_engine="pull" if frame_pull_enabled else "materialize",
     )
     # Proxy used to hard-cap at 600s, which killed long encodes before moov
     # was written (unreadable MP4). Scale with timeline length; keep a floor.
     melt_timeout = 7200 if mode == "final" else max(600, int(timeline.duration_sec * 3) + 120)
+
+    def _switch_to_materialize() -> None:
+        nonlocal cmds, frame_pull_enabled, materialize_elapsed
+        nonlocal plan, source_baseline, timeline
+        if not frame_pull_enabled:
+            return
+        frame_pull_enabled = False
+        frame_pull["enabled"] = False
+        frame_pull["fallback"] = "materialize"
+        fallback_t0 = time.monotonic()
+        materialize_t0 = fallback_t0
+        try:
+            timeline = materialize_remotion_compositions(
+                unmaterialized_timeline,
+                project_dir,
+                mode=mode,
+                manifest_path=manifest_path,
+                force_remotion=force_remotion,
+                force_uids=remotion_uids,
+                report=materialize_report,
+                profile_fingerprint=fingerprint,
+            )
+        except Exception as exc:
+            frame_pull["fallback_error"] = _bounded_error(exc)
+            raise
+        materialize_elapsed = time.monotonic() - materialize_t0
+        recorder.record(
+            "remotion_materialize",
+            materialize_elapsed,
+            bytes=0,
+            worker_count=materialize_report.worker_count,
+            cache_hits=materialize_report.cache_hits,
+            cache_misses=materialize_report.cache_misses,
+            reused_manifest_entries=materialize_report.reused_manifest_entries,
+            rendered_uids=materialize_report.rendered_uids,
+            dirty_uids=materialize_report.dirty_uids,
+        )
+        plan = build_render_plan(
+            timeline,
+            applied_ops,
+            AssetStore(project_dir / ".open_edit" / "assets"),
+            mode,
+            frame_engine="materialize",
+            frame_profile=profile,
+        )
+        source_baseline = collect_source_baseline(
+            plan.melt_timeline,
+            plan.asset_paths,
+        )
+        cmds = build_pipe_commands(
+            melt_bin,
+            xml_path,
+            output_mp4,
+            profile,
+            spec,
+            plan.overlay_clips,
+            audio_bitrate=audio_bitrate,
+            workdir=workdir,
+            frame_engine="materialize",
+        )
+        frame_pull["fallback_elapsed_sec"] = time.monotonic() - fallback_t0
+
+    def _run_render_pipe():
+        if not frame_pull_enabled:
+            return run_pipe(cmds, timeout_s=melt_timeout)
+        clients = build_frame_pull_clients(
+            project_dir,
+            plan.frame_overlays,
+            timeout_s=min(30.0, float(melt_timeout)),
+        )
+        return run_pipe(
+            cmds,
+            timeout_s=melt_timeout,
+            frame_clients=clients,
+        )
+
+    def _record_frame_pull_result(
+        result: object | None = None,
+        error: object | None = None,
+    ) -> None:
+        if not frame_pull_enabled:
+            return
+        if result is not None:
+            frame_pull["frames_requested"] = int(
+                getattr(result, "frames_requested", 0)
+            )
+            frame_pull["elapsed_sec"] = float(
+                getattr(result, "frame_elapsed_sec", 0.0)
+            )
+        if error is not None:
+            frame_pull["error_code"] = "remotion_frame_pull_failed"
+            frame_pull["error"] = _bounded_error(error)
+
     t0 = time.monotonic()
     try:
-        result = run_pipe(cmds, timeout_s=melt_timeout)
+        result = _run_render_pipe()
     except PipeRunError as exc:
-        recorder.record(
-            "melt_audio",
-            0.0,
-            status="failed",
-            error=str(exc),
-        )
-        recorder.skip("melt_video", reason="pipe_failed")
-        recorder.skip("ffmpeg_encode", reason="pipe_failed")
-        recorder.skip("source_repair", reason="render_pipe_failed")
-        diagnostics["pipe_elapsed_sec"] = time.monotonic() - t0
-        diagnostics["stages"] = recorder.stages
-        return _fail(
-            mode=mode, profile=profile, output_path=str(output_mp4),
-            duration_sec=timeline.duration_sec, elapsed_sec=time.monotonic() - t0,
-            graph_hash=graph_hash, error=str(exc),
-            project_dir=project_dir, project_id=project_id, record_failed_snapshot=True,
-            diagnostics=diagnostics,
-        )
+        _record_frame_pull_result(error=exc)
+        if frame_pull_enabled and _frame_pull_fallback_requested():
+            try:
+                _switch_to_materialize()
+                result = _run_render_pipe()
+                _record_frame_pull_result(result=result)
+            except Exception as fallback_exc:
+                _record_frame_pull_result(error=fallback_exc)
+                recorder.record(
+                    "melt_audio",
+                    0.0,
+                    status="failed",
+                    error=str(fallback_exc),
+                )
+                recorder.skip("melt_video", reason="pipe_failed")
+                recorder.skip("ffmpeg_encode", reason="pipe_failed")
+                recorder.skip("source_repair", reason="render_pipe_failed")
+                diagnostics["pipe_elapsed_sec"] = time.monotonic() - t0
+                diagnostics["stages"] = recorder.stages
+                return _fail(
+                    mode=mode,
+                    profile=profile,
+                    output_path=str(output_mp4),
+                    duration_sec=timeline.duration_sec,
+                    elapsed_sec=time.monotonic() - t0,
+                    graph_hash=graph_hash,
+                    error=str(fallback_exc),
+                    project_dir=project_dir,
+                    project_id=project_id,
+                    record_failed_snapshot=True,
+                    diagnostics=diagnostics,
+                )
+        else:
+            recorder.record(
+                "melt_audio",
+                0.0,
+                status="failed",
+                error=str(exc),
+            )
+            recorder.skip("melt_video", reason="pipe_failed")
+            recorder.skip("ffmpeg_encode", reason="pipe_failed")
+            recorder.skip("source_repair", reason="render_pipe_failed")
+            diagnostics["pipe_elapsed_sec"] = time.monotonic() - t0
+            diagnostics["stages"] = recorder.stages
+            return _fail(
+                mode=mode,
+                profile=profile,
+                output_path=str(output_mp4),
+                duration_sec=timeline.duration_sec,
+                elapsed_sec=time.monotonic() - t0,
+                graph_hash=graph_hash,
+                error=str(exc),
+                project_dir=project_dir,
+                project_id=project_id,
+                record_failed_snapshot=True,
+                diagnostics=diagnostics,
+            )
+    _record_frame_pull_result(result=result)
+    if (
+        frame_pull_enabled
+        and result.returncode != 0
+        and _frame_pull_fallback_requested()
+    ):
+        try:
+            _switch_to_materialize()
+            result = _run_render_pipe()
+            _record_frame_pull_result(result=result)
+        except Exception as exc:
+            _record_frame_pull_result(error=exc)
+            recorder.record(
+                "melt_audio",
+                0.0,
+                status="failed",
+                error=str(exc),
+            )
+            recorder.skip("melt_video", reason="pipe_failed")
+            recorder.skip("ffmpeg_encode", reason="pipe_failed")
+            recorder.skip("source_repair", reason="render_pipe_failed")
+            diagnostics["pipe_elapsed_sec"] = time.monotonic() - t0
+            diagnostics["stages"] = recorder.stages
+            return _fail(
+                mode=mode,
+                profile=profile,
+                output_path=str(output_mp4),
+                duration_sec=timeline.duration_sec,
+                elapsed_sec=time.monotonic() - t0,
+                graph_hash=graph_hash,
+                error=str(exc),
+                project_dir=project_dir,
+                project_id=project_id,
+                record_failed_snapshot=True,
+                diagnostics=diagnostics,
+            )
     # hwaccel retry: melt failed with hwaccel XML -> re-emit without + retry once
     if result.returncode != 0 and hwaccel_on and result.melt_rc != 0:
         xml_cpu = emit_timeline(
@@ -475,8 +737,9 @@ def render_project(
         )
         xml_path.write_text(xml_cpu)
         try:
-            result = run_pipe(cmds, timeout_s=melt_timeout)
+            result = _run_render_pipe()
         except PipeRunError as exc:
+            _record_frame_pull_result(error=exc)
             recorder.record(
                 "melt_audio",
                 0.0,
@@ -495,6 +758,7 @@ def render_project(
                 project_dir=project_dir, project_id=project_id, record_failed_snapshot=True,
                 diagnostics=diagnostics,
             )
+        _record_frame_pull_result(result=result)
     elapsed = time.monotonic() - t0
     if result.returncode == 0 and output_mp4.is_file() and output_mp4.stat().st_size > 0:
         repair_t0 = time.monotonic()
@@ -580,20 +844,21 @@ def render_project(
         )
 
     cache.put(cache_key, output_mp4)
-    try:
-        successful_manifest = build_materialization_manifest(
-            unmaterialized_timeline,
-            materialize_report,
-            mode=mode,
-            profile_fingerprint=fingerprint,
-            graph_hash=graph_hash,
-        )
-        write_manifest_atomic(manifest_path, successful_manifest)
-        diagnostics["materialization_manifest"] = str(manifest_path)
-    except Exception as exc:
-        # The deliverable is already safely cached; a manifest write failure
-        # only disables the next run's direct composition reuse.
-        diagnostics["materialization_manifest_error"] = str(exc)[:500]
+    if not frame_pull_enabled:
+        try:
+            successful_manifest = build_materialization_manifest(
+                unmaterialized_timeline,
+                materialize_report,
+                mode=mode,
+                profile_fingerprint=fingerprint,
+                graph_hash=graph_hash,
+            )
+            write_manifest_atomic(manifest_path, successful_manifest)
+            diagnostics["materialization_manifest"] = str(manifest_path)
+        except Exception as exc:
+            # The deliverable is already safely cached; a manifest write failure
+            # only disables the next run's direct composition reuse.
+            diagnostics["materialization_manifest_error"] = str(exc)[:500]
     record_snapshot(project_dir, project_id, graph_hash, output_mp4, success=True)
     return RenderResult(
         ok=True, output_path=str(output_mp4), mode=mode,

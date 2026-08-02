@@ -6,11 +6,13 @@ separate cheap melt pass (``video_off=1``) muxed by ffmpeg.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TypeAlias
 
 from open_edit.render.encoder import EncoderSpec
 from open_edit.render.profiles import RenderProfile
+from open_edit.render.remotion.frame_feeder import FrameOverlaySpec
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,9 @@ class OverlayClip:
     alpha: bool = True
 
 
+OverlayInput: TypeAlias = OverlayClip | FrameOverlaySpec
+
+
 @dataclass(frozen=True)
 class PipeCommands:
     """The three subprocess commands of one frame-server render."""
@@ -33,6 +38,8 @@ class PipeCommands:
     melt_audio_cmd: list[str]
     ffmpeg_cmd: list[str]
     audio_wav: Path
+    frame_overlays: list[FrameOverlaySpec] = field(default_factory=list)
+    frame_pipe_fds: tuple[int, ...] = ()
 
 
 def _fps_string(profile: RenderProfile) -> str:
@@ -49,7 +56,7 @@ def _size(profile: RenderProfile) -> str:
 
 
 def overlay_filter_chain(
-    overlays: list[OverlayClip], width: int, height: int,
+    overlays: list[OverlayInput], width: int, height: int,
     *, first_overlay_input: int = 2,
 ) -> list[str]:
     """Filter-graph fragments for the overlay burn (pure; formerly the
@@ -59,7 +66,7 @@ def overlay_filter_chain(
     blur_windows = [
         (ov.position_sec, ov.position_sec + ov.duration_sec)
         for ov in overlays
-        if ov.blur_under
+        if getattr(ov, "blur_under", False)
     ]
     if blur_windows:
         # Blur base only during focus windows; sharp elsewhere.
@@ -102,15 +109,44 @@ def build_pipe_commands(
     output_mp4: Path,
     profile: RenderProfile,
     spec: EncoderSpec,
-    overlays: list[OverlayClip],
+    overlays: list[OverlayInput],
     *,
     audio_bitrate: str = "192k",
     workdir: Path | None = None,
+    frame_engine: str = "materialize",
+    frame_overlays: list[FrameOverlaySpec] | None = None,
 ) -> PipeCommands:
     """Build melt-video, melt-audio, and ffmpeg commands for one render."""
+    if frame_engine not in {"materialize", "pull"}:
+        raise ValueError("frame_engine must be materialize or pull")
     size = _size(profile)
     fps = _fps_string(profile)
     audio_wav = (workdir or output_mp4.parent) / f"{output_mp4.stem}.audio.wav"
+    requested_overlays: list[OverlayInput] = list(overlays)
+    if frame_overlays:
+        requested_overlays.extend(frame_overlays)
+    ordered_overlays = [
+        overlay
+        for _index, overlay in sorted(
+            enumerate(requested_overlays),
+            key=lambda item: (item[1].position_sec, item[0]),
+        )
+    ]
+    normalized_overlays: list[OverlayInput] = []
+    normalized_frame_overlays: list[FrameOverlaySpec] = []
+    frame_pipe_fds: list[int] = []
+    next_frame_fd = 3
+    for overlay in ordered_overlays:
+        if isinstance(overlay, FrameOverlaySpec):
+            if frame_engine != "pull":
+                raise ValueError("frame overlays require frame_engine='pull'")
+            normalized = replace(overlay, pipe_fd=next_frame_fd)
+            next_frame_fd += 1
+            normalized_frame_overlays.append(normalized)
+            frame_pipe_fds.append(normalized.pipe_fd)
+            normalized_overlays.append(normalized)
+        else:
+            normalized_overlays.append(overlay)
 
     # IMPORTANT: use ``f=rawvideo`` (muxer), not ``format=rawvideo``.
     # ``format=`` leaves avformat on the default MPEG-PS muxer while still
@@ -139,11 +175,23 @@ def build_pipe_commands(
     video_inputs = ["-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size, "-r", fps, "-i", "-"]
     audio_inputs = ["-i", str(audio_wav)]
     overlay_inputs: list[str] = []
-    for ov in overlays:
-        overlay_inputs += ["-i", str(ov.media_path)]
+    for ov in normalized_overlays:
+        if isinstance(ov, FrameOverlaySpec):
+            overlay_inputs += [
+                "-thread_queue_size", "8",
+                "-f", "image2pipe",
+                "-vcodec", "png",
+                "-framerate", str(float(ov.fps)),
+                "-i", f"pipe:{ov.pipe_fd}",
+            ]
+        else:
+            overlay_inputs += ["-i", str(ov.media_path)]
 
-    if overlays:
-        filters = overlay_filter_chain(overlays, *map(int, size.split("x")))
+    if normalized_overlays:
+        filters = overlay_filter_chain(
+            normalized_overlays,
+            *map(int, size.split("x")),
+        )
         ffmpeg_cmd = [
             "ffmpeg", "-y",
             *video_inputs, *audio_inputs, *overlay_inputs,
@@ -168,4 +216,6 @@ def build_pipe_commands(
         melt_audio_cmd=melt_audio_cmd,
         ffmpeg_cmd=ffmpeg_cmd,
         audio_wav=audio_wav,
+        frame_overlays=normalized_frame_overlays,
+        frame_pipe_fds=tuple(frame_pipe_fds),
     )
