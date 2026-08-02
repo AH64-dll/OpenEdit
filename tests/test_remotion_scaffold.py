@@ -1,6 +1,7 @@
 """Tests for Remotion scaffold + import safety."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,14 @@ def test_ensure_scaffold_idempotent(tmp_path: Path) -> None:
     (root / "src" / "index.ts").write_text("custom\n")
     ensure_remotion_scaffold(tmp_path)
     assert (root / "src" / "index.ts").read_text() == "custom\n"
+
+
+def test_scaffold_pins_programmatic_renderer_packages(tmp_path: Path) -> None:
+    root = ensure_remotion_scaffold(tmp_path)
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+
+    assert package["dependencies"]["@remotion/bundler"] == "4.0.278"
+    assert package["dependencies"]["@remotion/renderer"] == "4.0.278"
 
 
 def test_validate_rejects_fs_import() -> None:

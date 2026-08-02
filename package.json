@@ -4,6 +4,7 @@
   "private": true,
   "description": "Open Edit monorepo root — pins HyperFrames and Remotion for overlay / motion-graphics rendering.",
   "dependencies": {
+    "@remotion/bundler": "4.0.278",
     "@remotion/cli": "4.0.278",
     "@remotion/renderer": "4.0.278",
     "react": "18.3.1",

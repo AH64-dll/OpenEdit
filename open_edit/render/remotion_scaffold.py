@@ -10,7 +10,9 @@ STARTER_FILES: dict[str, str] = {
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@remotion/bundler": "4.0.278",
     "@remotion/cli": "4.0.278",
+    "@remotion/renderer": "4.0.278",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "remotion": "4.0.278"
