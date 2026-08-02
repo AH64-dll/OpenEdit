@@ -182,10 +182,20 @@ starts (`--project` / `OPEN_EDIT_PROJECT`).
 
 Renders go through `RenderJobService`: Remotion **materialize** → melt the full
 timeline → **ffmpeg burn-in** of Remotion graphics (proxy/final). `mode=proxy`
-is a complete-timeline **review artifact** at 640×360; it is not an
-interactive timeline preview. A **source proxy** is a separate per-asset
-derivative used to reduce source decode cost. **Timeline preview chunks** are a
-separate future/interactive product and are not produced by `mode=proxy`.
+defaults to the `review-artifact` emission profile and is a complete-timeline
+**review artifact** using the `fast_proxy` 640×360 profile; it is not an
+interactive timeline preview. A **source proxy** is a separate low-resolution
+per-asset CAS sibling used only by the `proxy-edit` and `preview-chunk`
+emission profiles. **Timeline preview chunks** are a separate future/M3
+interactive product and are not produced by `mode=proxy`.
+
+The emission policy is explicit: `final` and `review-artifact` always read
+canonical original sources, while `proxy-edit` and `preview-chunk` may use a
+ready source proxy with canonical fallback. Therefore `mode=final` always
+uses originals even when `proxy_hash` is ready. The host-side
+`generate-asset-proxy` job reports `proxy_hash`, `proxy_profile`, and
+`proxy_status` through asset/project state; it does not expose a guessed proxy
+filesystem path.
 
 ## Review UI (recommended with MCP)
 
@@ -225,10 +235,42 @@ open_edit serve --review-only
 | Review artifact | `proxy` | 640x360 fast_proxy | Full-timeline review, iterate with harness |
 | Delivery | `final` | 1080p30 | Full-quality export |
 
+`mode=proxy` is one complete MP4 review artifact, not interactive scrub and
+not a per-asset source proxy. A future preview-chunk worker may use ready
+source proxies for dirty-range chunks; that product is separate from the
+review artifact.
+
 From MCP: `trigger_render` with `"mode": "proxy"` then `"mode": "final"`.
 
 The UI warns before final render if the latest proxy does not match the
 current edit graph hash.
+
+### QC and cache controls
+
+Inspect `qc_report.policy` and `qc_report.complete` in the
+`trigger_render`/`get_render_job` result. A warm proxy deliverable-cache hit
+may use `policy=skip` or `policy=light`; `passed=true` does not make skipped
+checks complete evidence. Final and overlay QC remain `full`. A duration-aware
+blackdetect timeout is incomplete diagnostic evidence, not permission to ship
+the final export blindly.
+
+Operator controls are configured through:
+
+- `OPEN_EDIT_PROXY_QC_MODE` (`light` by default) for cold proxy artifacts.
+- `OPEN_EDIT_PROXY_WARM_QC_MODE` (`skip` by default) for warm proxy hits.
+- `OPEN_EDIT_PROXY_QC_POLICY` (`always`, `skip_on_hit`, or `never`) as the
+  M1 compatibility override for proxy QC.
+- `OPEN_EDIT_FINAL_QC_BUDGET_SEC` and
+  `OPEN_EDIT_QC_BLACKDETECT_MAX_SEC` (900 seconds by default).
+- `OPEN_EDIT_RENDER_CACHE_MAX_BYTES`,
+  `OPEN_EDIT_REMOTION_CACHE_MAX_BYTES`, and
+  `OPEN_EDIT_SOURCE_PROXY_MAX_BYTES` for derived-media byte budgets.
+- `OPEN_EDIT_CACHE_MAX_AGE_SEC` and `OPEN_EDIT_CACHE_MIN_FREE_BYTES` for
+  age and disk-pressure cleanup.
+
+Cache eviction protects canonical source CAS and sidecars, active jobs, and
+newest deliverables. It may remove regenerable source proxies, Remotion
+materialize outputs, render-cache entries, and orphaned temporary files.
 
 ### Remotion / Node
 

@@ -68,7 +68,13 @@ def _make_real_project(project_path: Path) -> None:
     EditGraphStore(db_path)
 
 
-def _make_real_asset(project_path: Path, name: str, hash_val: str, duration: float = 10.0) -> Path:
+def _make_real_asset(
+    project_path: Path,
+    name: str,
+    hash_val: str,
+    duration: float = 10.0,
+    proxy_status: str = "none",
+) -> Path:
     """Create a fake asset with a sidecar JSON in the project."""
     from open_edit.ir.types import Asset
     assets_dir = project_path / ".open_edit" / "assets" / hash_val[:2]
@@ -88,6 +94,7 @@ def _make_real_asset(project_path: Path, name: str, hash_val: str, duration: flo
         height=1080,
         codec="h264",
         has_audio=False,
+        proxy_status=proxy_status,
     )
     sidecar = assets_dir / f"{hash_val}.meta.json"
     sidecar.write_text(asset.model_dump_json(indent=2))
@@ -229,6 +236,32 @@ async def test_get_project_state_seeded(projects_root_tmp):
     # Only the graph-referenced 10-second clip contributes, not unused assets.
     assert state.timeline.total_duration_s == pytest.approx(10.0)
     assert state.timeline.num_markers == 1
+
+
+@pytest.mark.asyncio
+async def test_get_project_state_exposes_proxy_status_without_proxy_path(
+    projects_root_tmp,
+):
+    """Queued proxies expose status, never a guessed filesystem path."""
+    info = await projects_mod.create_project("queued-proxy")
+    project_path = Path(info.path)
+    if not (project_path / ".open_edit" / "edit_graph.db").is_file():
+        _make_real_project(project_path)
+
+    _make_real_asset(
+        project_path,
+        "source.mp4",
+        "c" * 64,
+        proxy_status="queued",
+    )
+
+    state = await projects_mod.get_project_state(info.id)
+    asset = state.model_dump(mode="json")["assets"][0]
+
+    assert asset["proxy_status"] == "queued"
+    assert asset["proxy_hash"] is None
+    assert "proxy_path" not in asset
+    assert "stored_path" not in asset
 
 
 @pytest.mark.asyncio

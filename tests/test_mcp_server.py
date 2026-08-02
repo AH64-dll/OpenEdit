@@ -219,6 +219,30 @@ def test_harness_skills_loadable() -> None:
     assert stem_from_uri(resource_uri("open-edit-mcp")) == "open-edit-mcp"
 
 
+def test_qc_skill_copies_document_render_policy() -> None:
+    """Canonical and packaged QC guidance must expose the same policy."""
+    repo_root = Path(__file__).resolve().parents[1]
+    canonical_skill = (repo_root / "skills" / "qc-standards.md").read_text(
+        encoding="utf-8",
+    )
+    harness_skill = (
+        repo_root / "open_edit" / "harness_skills" / "qc-standards.md"
+    ).read_text(encoding="utf-8")
+
+    required_terms = (
+        "mode=proxy",
+        "source proxy",
+        "preview chunks",
+        "qc_report",
+        "complete",
+        "final export",
+    )
+    for term in required_terms:
+        assert term in canonical_skill
+        assert term in harness_skill
+    assert canonical_skill == harness_skill
+
+
 def test_packaged_harness_skills_match_repo() -> None:
     """Wheel-bundled copies must stay in sync with repo skills/."""
     from pathlib import Path

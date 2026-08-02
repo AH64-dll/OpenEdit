@@ -29,6 +29,91 @@ The gate runs the six documented checks below plus pipeline-internal
 diagnostics (`render_completed`, `proxy_render`, `silence`,
 `thumbnail`); the report `passed` flag is the AND of all checks.
 
+## Render products and emission policy
+
+Open Edit has three distinct preview/delivery products. Do not use
+"proxy" as shorthand for all of them:
+
+- `mode=proxy` is a complete-timeline **review artifact**. It uses the
+  `fast_proxy` profile at 640x360, produces one review MP4, and is not an
+  interactive scrub or timeline-chunk stream.
+- A **source proxy** is a low-resolution CAS sibling for one source asset.
+  The host-side `generate-asset-proxy` job creates it and `AssetInfo` reports
+  `proxy_hash`, `proxy_profile`, and `proxy_status`; operators must not guess
+  a proxy filesystem path. Source proxies are selected only by the
+  `proxy-edit` and `preview-chunk` emission profiles.
+- **preview chunks** are a separate future/M3 interactive product. They are
+  not produced by `mode=proxy` and must not be described as a review MP4.
+
+The explicit source-media mapping is:
+
+- `final` and `review-artifact` use canonical original CAS sources.
+- `proxy-edit` and `preview-chunk` may use a ready source proxy, with a
+  canonical-source fallback while the proxy is `queued`, `running`, missing,
+  or failed.
+
+`mode=proxy` defaults to the `review-artifact` profile, so a source proxy
+being ready does not change the meaning of the review render. `mode=final`
+is the final export path and always uses canonical originals, even when a
+source proxy is available. Materialized Remotion/render derivatives are
+separate regenerable cache entries.
+
+## QC policy, completeness, and budgets
+
+A successful render and a complete QC pass are separate states. The MCP
+result and durable render job expose a `qc_report` with:
+
+- `policy`: `full`, `light`, or `skip`;
+- `complete`: whether the checks provide complete QC evidence;
+- `passed`: the result of the checks that were run.
+
+Proxy warm-cache hits may report `policy=skip` or `policy=light` depending
+on operator configuration. Inspect `qc_report.complete` before treating a
+proxy as fully QC'd; `passed=true` for deliberately skipped checks is not
+evidence that those checks decoded the file. Final QC remains available and
+is always `full` for `final` and `overlay`.
+
+The QC controls are:
+
+- `OPEN_EDIT_PROXY_QC_MODE` controls cold `mode=proxy` renders (default
+  `light`).
+- `OPEN_EDIT_PROXY_WARM_QC_MODE` controls a warm proxy deliverable-cache hit
+  (default `skip`; `light` is available when a partial recheck is preferred).
+- `OPEN_EDIT_PROXY_QC_POLICY` is the M1 compatibility override. When set,
+  use `always`, `skip_on_hit`, or `never`; it takes precedence for proxy
+  policy (`skip_on_hit` means full QC on a cold render and skip on a hit).
+- `OPEN_EDIT_FINAL_QC_BUDGET_SEC` sets the total final/overlay QC budget
+  (default 900 seconds).
+- `OPEN_EDIT_QC_BLACKDETECT_MAX_SEC` caps duration-aware black-frame
+  detection (default 900 seconds).
+
+A detector timeout is incomplete diagnostic evidence: it must leave
+`qc_report.complete=false` (and can leave `passed=false`), not become
+permission to ship the final export blindly. QC is diagnostic and does not
+retroactively turn an otherwise successful render job into a failed job.
+
+## Cache policy and operator budgets
+
+Cache eviction is content-aware and best effort:
+
+- Canonical source CAS objects and their sidecars are protected.
+- Active jobs and the newest final deliverables/review artifacts are
+  protected.
+- Regenerable source proxies, Remotion materialize outputs, render-cache
+  entries, and orphaned temporary files may be removed when their budgets or
+  disk-pressure thresholds require it.
+- When a source proxy is evicted, its source metadata is cleared; the next
+  proxy-backed emission can regenerate it.
+
+The cache controls are byte/second budgets. Invalid or non-positive values
+fall back to the defaults:
+
+- `OPEN_EDIT_RENDER_CACHE_MAX_BYTES=1073741824`
+- `OPEN_EDIT_REMOTION_CACHE_MAX_BYTES=536870912`
+- `OPEN_EDIT_SOURCE_PROXY_MAX_BYTES=1073741824`
+- `OPEN_EDIT_CACHE_MAX_AGE_SEC=86400`
+- `OPEN_EDIT_CACHE_MIN_FREE_BYTES=536870912`
+
 ## Checks (and what to do about a failure)
 
 ### `streams`
