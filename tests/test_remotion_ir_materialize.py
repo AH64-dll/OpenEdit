@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import stat
+import threading
 import textwrap
+import time
 import uuid
 from pathlib import Path
 
@@ -13,14 +15,19 @@ from open_edit.ir.apply import apply_operation
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddRemotionCompositionOp,
+    RemotionComposition,
     Project,
     RemoveRemotionCompositionOp,
     Timeline,
 )
+from open_edit.render import materialize as materialize_module
 from open_edit.render.materialize import (
+    MaterializeReport,
     RemotionMaterializeError,
     materialize_remotion_compositions,
 )
+from open_edit.render.remotion.dirty import write_manifest_atomic
+from open_edit.render.remotion import RemotionRenderResult
 from open_edit.storage.edit_graph import EditGraphStore
 
 
@@ -251,3 +258,186 @@ def test_append_rejects_path_escape(project_with_remotion: Path) -> None:
             position_sec=0,
             duration_sec=1,
         ))
+
+
+def test_materialize_report_entries_enable_direct_manifest_reuse(
+    project_with_remotion: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    store = EditGraphStore(project_with_remotion / ".open_edit" / "edit_graph.db")
+    op = AddRemotionCompositionOp(
+        author="ai",
+        entry_point="src/index.ts",
+        composition_id="TitleCard",
+        props={"titleText": "Manifest"},
+        position_sec=0.0,
+        duration_sec=1.0,
+    )
+    store.append(op)
+    timeline = derive_timeline(Project(
+        name="proj",
+        workdir=project_with_remotion,
+        edit_graph=store.load_all(),
+    ))
+    manifest_path = tmp_path / "materialize_manifest.proxy.json"
+    first_report = MaterializeReport()
+
+    first = materialize_remotion_compositions(
+        timeline,
+        project_with_remotion,
+        mode="proxy",
+        manifest_path=manifest_path,
+        report=first_report,
+    )
+
+    assert first_report.cache_misses == 1
+    assert first_report.rendered_uids == [op.composition_uid]
+    assert first_report.manifest_entries[0]["asset_hash"] == (
+        first.remotion_compositions[0].asset_hash
+    )
+    write_manifest_atomic(
+        manifest_path,
+        {
+            "schema": 1,
+            "mode": "proxy",
+            "profile_fingerprint": first_report.manifest_entries[0][
+                "profile_fingerprint"
+            ],
+            "graph_hash": "graph",
+            "clips": [],
+            "compositions": first_report.manifest_entries,
+        },
+    )
+
+    def fail_if_rendered(*args, **kwargs):
+        raise AssertionError("unchanged Remotion UID should reuse its manifest CAS")
+
+    monkeypatch.setattr(materialize_module, "render_composition", fail_if_rendered)
+    second_report = MaterializeReport()
+    second = materialize_remotion_compositions(
+        timeline,
+        project_with_remotion,
+        mode="proxy",
+        manifest_path=manifest_path,
+        report=second_report,
+    )
+
+    assert second.remotion_compositions[0].asset_hash == (
+        first.remotion_compositions[0].asset_hash
+    )
+    assert second_report.reused_manifest_entries == 1
+    assert second_report.rendered_uids == []
+
+
+def test_materialize_limits_inter_composition_workers(
+    project_with_remotion: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compositions = [
+        RemotionComposition(
+            composition_uid=f"uid-{index}",
+            entry_point="src/index.ts",
+            composition_id=f"Comp{index}",
+            position_sec=float(index),
+            duration_sec=1.0,
+        )
+        for index in range(5)
+    ]
+    timeline = Timeline(
+        remotion_compositions=compositions,
+        duration_sec=5.0,
+    )
+    active = 0
+    maximum = 0
+    lock = threading.Lock()
+    calls: list[str] = []
+
+    def fake_render(*args, **kwargs):
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+            calls.append(kwargs["composition_id"])
+        time.sleep(0.03)
+        Path(kwargs["output_path"]).write_bytes(
+            (
+                Path(__file__).resolve().parents[1]
+                / "testdata"
+                / "video_with_audio.mp4"
+            ).read_bytes()
+        )
+        with lock:
+            active -= 1
+        return RemotionRenderResult(
+            ok=True,
+            output_path=str(kwargs["output_path"]),
+            width=640,
+            height=360,
+            fps=30.0,
+            content_hash="content",
+        )
+
+    monkeypatch.setenv("OPEN_EDIT_REMOTION_WORKERS", "2")
+    monkeypatch.setattr(materialize_module, "render_composition", fake_render)
+    report = MaterializeReport()
+    updated = materialize_remotion_compositions(
+        timeline,
+        project_with_remotion,
+        report=report,
+    )
+
+    assert maximum == 2
+    assert report.worker_count == 2
+    assert [c.composition_id for c in updated.remotion_compositions] == [
+        "Comp0", "Comp1", "Comp2", "Comp3", "Comp4",
+    ]
+    assert report.rendered_uids == [f"uid-{index}" for index in range(5)]
+    assert len(calls) == 5
+
+
+def test_render_failure_reports_uid_and_cancels_pending_workers(
+    project_with_remotion: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timeline = Timeline(remotion_compositions=[
+        RemotionComposition(
+            composition_uid="uid-broken",
+            entry_point="src/index.ts",
+            composition_id="broken",
+            position_sec=0.0,
+            duration_sec=1.0,
+        ),
+        RemotionComposition(
+            composition_uid="uid-slow",
+            entry_point="src/index.ts",
+            composition_id="slow",
+            position_sec=1.0,
+            duration_sec=1.0,
+        ),
+    ])
+
+    def fake_render(*args, **kwargs):
+        if kwargs["composition_id"] == "broken":
+            raise RuntimeError("boom")
+        time.sleep(0.1)
+        output_path = Path(kwargs["output_path"])
+        output_path.write_bytes(
+            (
+                Path(__file__).resolve().parents[1]
+                / "testdata"
+                / "video_with_audio.mp4"
+            ).read_bytes()
+        )
+        return RemotionRenderResult(
+            ok=True,
+            output_path=str(output_path),
+            width=640,
+            height=360,
+            fps=30.0,
+            content_hash="content",
+        )
+
+    monkeypatch.setattr(materialize_module, "render_composition", fake_render)
+    with pytest.raises(RemotionMaterializeError, match="uid-broken"):
+        materialize_remotion_compositions(timeline, project_with_remotion)

@@ -13,6 +13,7 @@ from open_edit.render.remotion.renderer import (
     probe_alpha_capability,
     render_composition,
     remotion_profile_for_mode,
+    remotion_worker_count,
     resolve_alpha_mode,
 )
 from open_edit.render.remotion.safety import (
@@ -40,6 +41,7 @@ __all__ = [
     "probe_alpha_capability",
     "render_composition",
     "remotion_profile_for_mode",
+    "remotion_worker_count",
     "resolve_alpha_mode",
     "resolve_remotion_root",
     "stage_referenced_assets",

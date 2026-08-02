@@ -15,6 +15,7 @@ from open_edit.render.remotion import (
     composition_cache_key,
     render_composition,
     remotion_profile_for_mode,
+    remotion_worker_count,
     validate_entry_point,
 )
 
@@ -237,3 +238,19 @@ def test_cache_key_changes_when_referenced_local_file_changes(
     asset.write_bytes(b"<svg>two</svg>")
     second_public = composition_cache_key(**kwargs)
     assert first_public != second_public
+
+
+@pytest.mark.parametrize("value", ["not-a-number", "0", "-1"])
+def test_remotion_worker_count_falls_back_for_invalid_values(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    monkeypatch.setenv("OPEN_EDIT_REMOTION_WORKERS", value)
+    assert remotion_worker_count() == 2
+
+
+def test_remotion_worker_count_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPEN_EDIT_REMOTION_WORKERS", "99")
+    assert remotion_worker_count() == 4
+    monkeypatch.setenv("OPEN_EDIT_REMOTION_WORKERS", "1")
+    assert remotion_worker_count() == 1

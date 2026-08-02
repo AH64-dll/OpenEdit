@@ -27,6 +27,24 @@ from open_edit.render.remotion.safety import (
 BRIDGE_PATH = Path(__file__).resolve().parent.parent / "remotion_bridge.mjs"
 
 
+def remotion_worker_count() -> int:
+    """Return the bounded number of concurrent Remotion subprocesses."""
+    raw = os.environ.get("OPEN_EDIT_REMOTION_WORKERS", "2").strip()
+    try:
+        requested = int(raw)
+    except ValueError:
+        return 2
+    if requested <= 0:
+        return 2
+    return min(4, requested)
+
+
+def _default_remotion_concurrency() -> str:
+    """Share the host CPU budget across the bounded worker pool."""
+    workers = remotion_worker_count()
+    return str(max(1, (os.cpu_count() or 4) // workers))
+
+
 @dataclass(frozen=True)
 class RemotionRenderResult:
     ok: bool
@@ -166,13 +184,15 @@ class RemotionRunner:
         timeout_s: float = 600.0,
         alpha: bool = False,
         cancel_event: Any | None = None,
+        stage_assets: bool = True,
     ) -> RemotionRenderResult:
         """Render one Remotion composition to ``output_path``."""
         project_path = Path(project_path).resolve()
         remotion_root = resolve_remotion_root(project_path)
         validate_entry_point(project_path, entry_point)
         composition_source = composition_source_bundle(project_path, composition_id)
-        stage_referenced_assets(project_path, composition_source, props)
+        if stage_assets:
+            stage_referenced_assets(project_path, composition_source, props)
         content_hash = composition_cache_key(
             composition_source=composition_source,
             composition_id=composition_id,
@@ -217,8 +237,7 @@ class RemotionRunner:
 
         concurrency = os.environ.get("OPEN_EDIT_REMOTION_CONCURRENCY", "").strip()
         if not concurrency:
-            # Middle ground: use most cores but leave 1 free for melt/ffmpeg.
-            concurrency = str(max(2, (os.cpu_count() or 4) - 1))
+            concurrency = _default_remotion_concurrency()
 
         cmd = self._build_command(
             remotion_root=remotion_root,
@@ -367,6 +386,7 @@ def render_composition(
     timeout_s: float = 600.0,
     alpha: bool = False,
     cancel_event: Any | None = None,
+    stage_assets: bool = True,
 ) -> RemotionRenderResult:
     """Render one Remotion composition to ``output_path`` (see ``RemotionRunner``)."""
     return RemotionRunner().render(
@@ -379,4 +399,5 @@ def render_composition(
         timeout_s=timeout_s,
         alpha=alpha,
         cancel_event=cancel_event,
+        stage_assets=stage_assets,
     )
