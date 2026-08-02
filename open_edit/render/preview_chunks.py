@@ -1003,12 +1003,17 @@ def render_preview_chunks(
             project,
             timeline,
         )
+        fingerprint_operations = (
+            operations
+            if previous is None or previous.edit_graph_hash != graph_hash
+            else []
+        )
         fingerprints = compute_chunk_fingerprints(
             old_timeline=old_timeline,
             new_timeline=timeline,
             old_graph_hash=previous.edit_graph_hash if previous else None,
             new_graph_hash=graph_hash,
-            operations=operations,
+            operations=fingerprint_operations,
             windows=windows,
             profile_fingerprint=profile_info["fingerprint"],
             content_fingerprint=content_fingerprint,
@@ -1110,6 +1115,16 @@ def render_preview_chunks(
         graph_changed = True
     except Exception as exc:
         final_manifest = cache.read_manifest()
+        if (
+            captured_graph_revision is not None
+            and captured_graph_hash is not None
+        ):
+            _clear_job_id(
+                cache,
+                graph_revision=captured_graph_revision,
+                graph_hash=captured_graph_hash,
+            )
+            final_manifest = cache.read_manifest() or final_manifest
         return _result(
             cache=cache,
             manifest=final_manifest,
