@@ -220,6 +220,30 @@ def test_render_repair_skips_clean_source_spans(
     assert result["output_path"] == str(rendered)
 
 
+def test_render_repair_short_circuits_without_source_baseline_spans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rendered = tmp_path / "rendered.mp4"
+    rendered.write_bytes(b"rendered")
+
+    def fail_if_detected(*args, **kwargs):
+        raise AssertionError("detectors should not run without source spans")
+
+    monkeypatch.setattr(mod, "list_black_frames", fail_if_detected)
+    monkeypatch.setattr(mod, "list_frozen_frames", fail_if_detected)
+
+    result = mod.repair_render_output(
+        rendered,
+        tmp_path / "repaired.mp4",
+        source_baseline={"source_hashes": {"asset-1": "hash"}},
+    )
+
+    assert result["ok"] is True
+    assert result["changed"] is False
+    assert result["reason"] == "no_source_baseline_spans"
+    assert result["output_path"] == str(rendered)
+
+
 def test_source_repair_helpers_never_mutate_source_bytes(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     source.write_bytes(b"immutable source bytes")

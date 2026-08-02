@@ -530,6 +530,23 @@ def repair_render_output(
     desired_path = Path(output_path)
     baseline = source_baseline or {}
     protected = _protected_intervals(protected_spans)
+    if (
+        not repair_intentional_black
+        and not (baseline.get("black_frames") or baseline.get("frozen_frames"))
+    ):
+        return {
+            "ok": True,
+            "changed": False,
+            "output_path": str(input_path),
+            "repaired_black_spans": [],
+            "repaired_frozen_spans": [],
+            "protected_spans": [
+                {"start_sec": start, "end_sec": end}
+                for start, end in protected
+            ],
+            "source_hashes": baseline.get("source_hashes") or {},
+            "reason": "no_source_baseline_spans",
+        }
     black = list(baseline.get("black_frames") or []) if repair_source_black else []
     frozen = (
         list(baseline.get("frozen_frames") or [])

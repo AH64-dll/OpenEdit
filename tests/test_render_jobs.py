@@ -76,6 +76,82 @@ async def test_successful_render_attaches_qc_report(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_proxy_cache_hit_persists_skipped_qc_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    (project / ".open_edit").mkdir(parents=True)
+    service = RenderJobService()
+
+    async def cached_launch(project_path, job_id, mode):
+        return {
+            "ok": True,
+            "output_path": str(project / "cached.mp4"),
+            "mode": mode,
+            "cache_hit": True,
+            "diagnostics": {"cache": {"hit": True}, "stages": {}},
+        }
+
+    service._launch = cached_launch  # type: ignore[method-assign]
+
+    def fail_if_qc_runs(*args, **kwargs):
+        raise AssertionError("QC must be skipped for a proxy cache hit")
+
+    monkeypatch.setattr("open_edit.qc.gate.run_qc_gate", fail_if_qc_runs)
+    queued = service.enqueue("project-id", project, "proxy")
+    completed = await service.wait(project, queued.job_id)
+
+    report = completed.result["qc_report"]
+    assert report == {
+        "passed": True,
+        "skipped": True,
+        "reason": "deliverable_cache_hit",
+        "checks": [],
+    }
+    assert completed.qc_report == report
+    qc_stage = completed.result["diagnostics"]["stages"]["qc"]
+    assert qc_stage["status"] == "skipped"
+    assert qc_stage["reason"] == "deliverable_cache_hit"
+    assert qc_stage["elapsed_sec"] >= 0
+
+    restored = RenderJobService().get(project, queued.job_id)
+    assert restored is not None
+    assert restored.qc_report == report
+
+
+@pytest.mark.asyncio
+async def test_final_cache_hit_still_runs_qc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.qc.gate import QCReport
+
+    service = RenderJobService()
+    called = False
+
+    def fake_qc(*args, **kwargs):
+        nonlocal called
+        called = True
+        return QCReport(passed=True, checks=[])
+
+    monkeypatch.setattr("open_edit.qc.gate.run_qc_gate", fake_qc)
+    updated = await service._attach_qc(
+        {
+            "ok": True,
+            "output_path": str(tmp_path / "cached.mp4"),
+            "mode": "final",
+            "cache_hit": True,
+            "diagnostics": {"cache": {"hit": True}, "stages": {}},
+        },
+        tmp_path,
+    )
+
+    assert called is True
+    assert updated["qc_report"]["passed"] is True
+    assert "skipped" not in updated["qc_report"]
+    assert updated["diagnostics"]["stages"]["qc"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_same_project_jobs_are_serialized(tmp_path):
     project = tmp_path / "project"
     (project / ".open_edit").mkdir(parents=True)
