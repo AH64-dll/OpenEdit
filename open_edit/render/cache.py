@@ -220,7 +220,15 @@ class RenderCache:
         # immediately upgrades them to content-verified entries.
         return path
 
-    def put(self, key: str, source_path: str | Path, ext: str = "mp4") -> Path:
+    def put(
+        self,
+        key: str,
+        source_path: str | Path,
+        ext: str = "mp4",
+        *,
+        cache_class: str | None = None,
+        mode: str | None = None,
+    ) -> Path:
         """Atomically store a content-verified cache entry."""
         dest = self._cache_path(key, ext)
         source = Path(source_path)
@@ -251,6 +259,10 @@ class RenderCache:
                     existing["size_bytes"] = dest.stat().st_size
                     existing.setdefault("updated_at", now)
                     existing["last_accessed_at"] = now
+                    if cache_class is not None:
+                        existing["cache_class"] = cache_class
+                    if mode is not None:
+                        existing["mode"] = mode
                     self._write_metadata(metadata_path, existing)
                     os.utime(dest, (now, now))
                     self.evict()
@@ -273,6 +285,10 @@ class RenderCache:
                 "updated_at": now,
                 "last_accessed_at": now,
             }
+            if cache_class is not None:
+                metadata["cache_class"] = cache_class
+            if mode is not None:
+                metadata["mode"] = mode
             self._write_metadata(metadata_path, metadata)
         finally:
             if "temp_dest" in locals() and temp_dest is not None:
@@ -339,10 +355,14 @@ class RenderCache:
             removed = True
         except FileNotFoundError:
             pass
+        except OSError:
+            return False
         metadata_path = self._metadata_path(key, ext)
         try:
             metadata_path.unlink()
         except FileNotFoundError:
+            pass
+        except OSError:
             pass
         return removed
 
