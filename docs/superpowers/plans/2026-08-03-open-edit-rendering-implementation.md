@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Do not start `open_edit/` code until AH64 approves this index **and** the relevant track plan. Execute with `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`, one track at a time per the order below.
 >
-> **Status:** **M0/M1 COMPLETE** on `feat/render-m0-m1-remotion-engine` (AH64 2026-08-03). Acceptance: [2026-08-03-m0-m1-acceptance.md](../specs/2026-08-03-m0-m1-acceptance.md). M2/M3 still gated.
+> **Status:** **M2 COMPLETE** — [acceptance](../specs/2026-08-03-m2-acceptance.md). **EXECUTING M3** chunked preview (AH64 continue-without-ask 2026-08-03). M0/M1: [acceptance](../specs/2026-08-03-m0-m1-acceptance.md).
 > **Date:** 2026-08-03
 > **Orchestra:** Grok (orchestrator) + GPT Luna 5.6 planning tracks
 > **Architecture:** [2026-08-02-open-edit-rendering-architecture.md](../specs/2026-08-02-open-edit-rendering-architecture.md)
@@ -49,6 +49,17 @@ Implications for this wave:
 ## Execution mode (AH64 2026-08-03)
 
 **Parallel wave execution** (not serial one-task-at-a-time). Grok merges/reviews each wave before the next. Subagents = GPT Luna 5.6. Exclusive file ownership per lane — no two agents edit the same file in one wave.
+
+### M2 waves
+
+| Wave | Parallel lanes | Owns (exclusive) |
+|---|---|---|
+| **M2-A** | Task 1 alone | `source_proxy.py`, `Asset`/`AssetStore` proxy_hash metadata + CAS generate |
+| **M2-B** | Task 2 ‖ Task 3 ‖ Task 5-core | **T2:** `asset_proxy_jobs` + asset status/API · **T3:** emission profiles + final-original guard · **T5-core:** `storage/cache_policy.py` (+ tests) without orchestrator |
+| **M2-C** | Task 4 ‖ Task 6 | **T4:** duration-budgeted QC extending M1 `qc/policy.py` · **T6:** repair/final polish |
+| **M2-D** | Task 7 → Task 8 | MCP/docs + integration gate / M3 handoff |
+
+---
 
 ### M0/M1 waves
 
