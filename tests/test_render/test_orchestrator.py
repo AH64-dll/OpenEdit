@@ -44,6 +44,17 @@ def test_render_result_has_required_fields() -> None:
     assert r.elapsed_sec == 0.5
 
 
+def test_final_render_rejects_non_final_emission_profile(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="final emission"):
+        render_project(
+            "project",
+            tmp_path,
+            tmp_path / "renders",
+            mode="final",
+            emission_profile="preview-chunk",
+        )
+
+
 def _make_project(tmp_path: Path, *, name: str = "proj"):
     """Ingest one fixture clip and apply one AddClipOp (mirrors test_e2e_render)."""
     from pathlib import Path
@@ -123,6 +134,67 @@ def test_render_project_uses_profile_scoped_cache_key(tmp_path: Path, monkeypatc
     assert result.diagnostics["stages"]["melt"] == result.diagnostics["stages"]["melt_video"]
     assert result.diagnostics["stages"]["ffmpeg"] == result.diagnostics["stages"]["ffmpeg_encode"]
     assert result.diagnostics["stages"]["audio"] == result.diagnostics["stages"]["melt_audio"]
+
+
+def test_proxy_edit_emission_is_diagnosed_and_cache_scoped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.kernel import asset_proxy_jobs
+    from open_edit.render import orchestrator
+    from open_edit.render.cache import RenderCache
+    from open_edit.render.melt_runner import PipeResult
+
+    cache_keys: list[str] = []
+
+    monkeypatch.setattr(
+        RenderCache,
+        "get",
+        lambda self, key, ext="mp4": cache_keys.append(key) or None,
+    )
+    monkeypatch.setattr(
+        RenderCache,
+        "put",
+        lambda self, key, source_path: Path(source_path),
+    )
+    monkeypatch.setattr(
+        asset_proxy_jobs.DEFAULT_ASSET_PROXY_JOB_SERVICE,
+        "enqueue",
+        lambda *args, **kwargs: object(),
+    )
+
+    def fake_run_pipe(cmds, *, timeout_s):
+        output = Path(cmds.ffmpeg_cmd[-1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"MP4")
+        return PipeResult(0, 0, 0, "")
+
+    monkeypatch.setattr(orchestrator, "run_pipe", fake_run_pipe)
+    monkeypatch.setattr(
+        orchestrator.shutil,
+        "which",
+        lambda name: "/usr/bin/melt" if name == "melt" else None,
+    )
+    monkeypatch.setattr(orchestrator, "_gpu_decode_available", lambda: False)
+
+    project_dir = _make_project(tmp_path, name="proxy-edit")
+    result = orchestrator.render_project(
+        "proxy-edit",
+        project_dir,
+        tmp_path / "work-proxy-edit",
+        mode="proxy",
+        emission_profile="proxy-edit",
+    )
+
+    assert result.ok is True, result.error
+    diagnostics = result.diagnostics
+    assert diagnostics["emission_profile"] == "proxy-edit"
+    assert diagnostics["source_media_policy"] == "proxy"
+    assert diagnostics["source_proxy_profile_fingerprint"].startswith(
+        "source_proxy_360_v1:"
+    )
+    assert "source_proxy_360_v1:" in diagnostics["cache_content_fingerprint"]
+    assert cache_keys and "source_proxy_360_v1:" in cache_keys[0]
 
 
 def test_render_project_hwaccel_retry(tmp_path: Path, monkeypatch) -> None:

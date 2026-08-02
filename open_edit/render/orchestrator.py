@@ -54,12 +54,17 @@ from open_edit.render.remotion.frame_feeder import (
 )
 from open_edit.render.remotion.safety import render_reference_fingerprint
 from open_edit.render.snapshot_recorder import record_snapshot
+from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
 from open_edit.render.source_repair import (
     SOURCE_REPAIR_POLICY_VERSION,
     collect_source_baseline,
     repair_render_output,
 )
-from open_edit.render.timeline_plan import build_render_plan
+from open_edit.render.timeline_plan import (
+    EmissionProfile,
+    build_render_plan,
+    source_media_policy_for,
+)
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.timeline_cache import derive_or_load_timeline
@@ -240,6 +245,7 @@ def render_project(
     remotion_uids: Collection[str] = (),
     nice_level: int = 10,
     encoder_backend: Optional[str] = None,
+    emission_profile: EmissionProfile | None = None,
 ) -> RenderResult:
     """Render a project to an MP4.
 
@@ -249,6 +255,16 @@ def render_project(
     If profile_name is None, the profile is auto-selected from mode:
     proxy -> fast_proxy (640x360), final -> 1080p30.
     """
+    requested_emission_profile: EmissionProfile = (
+        emission_profile
+        or ("final" if mode == "final" else "review-artifact")
+    )
+    source_media_policy = source_media_policy_for(requested_emission_profile)
+    if mode == "final" and source_media_policy != "original":
+        raise ValueError(
+            "final emission requires the original source-media policy"
+        )
+
     profile = profile_with_quality(profile_name, mode, quality, overrides)
     recorder = StageRecorder()
     melt_bin = shutil.which("melt")
@@ -314,6 +330,11 @@ def render_project(
 
     cache_lookup_t0 = time.monotonic()
     fingerprint = profile_fingerprint(profile, encoder_backend)
+    source_proxy_profile_fingerprint = (
+        DEFAULT_SOURCE_PROXY_PROFILE.fingerprint()
+        if source_media_policy == "proxy"
+        else ""
+    )
     payload = [op.model_dump(mode="json") for op in applied_ops]
     graph_hash = canonical_json_hash(payload)
     alpha_modes = sorted({
@@ -338,6 +359,14 @@ def render_project(
         "content_fingerprint": content_fingerprint,
         "alpha_mode": ",".join(alpha_modes) or "opaque",
         "remotion_frame_pull": frame_pull,
+        "emission_profile": requested_emission_profile,
+        "source_media_policy": source_media_policy,
+        "emission_profile_fingerprint": (
+            source_proxy_profile_fingerprint or requested_emission_profile
+        ),
+        "source_proxy_profile_fingerprint": source_proxy_profile_fingerprint or None,
+        "source_proxy_hits": {},
+        "source_proxy_fallbacks": {},
     }
 
     cache = RenderCache(workdir / "render_cache")
@@ -346,6 +375,12 @@ def render_project(
     cache_content_fingerprint = (
         f"{content_fingerprint}|{SOURCE_REPAIR_POLICY_VERSION}"
     )
+    if source_proxy_profile_fingerprint:
+        cache_content_fingerprint = (
+            f"{cache_content_fingerprint}|emission={requested_emission_profile}"
+            f"|source_proxy={source_proxy_profile_fingerprint}"
+        )
+    diagnostics["cache_content_fingerprint"] = cache_content_fingerprint
     cache_key = render_cache_key(
         graph_hash, fingerprint, cache_content_fingerprint,
     )
@@ -437,6 +472,7 @@ def render_project(
             mode,
             frame_engine="pull" if frame_pull_enabled else "materialize",
             frame_profile=profile,
+            emission_profile=requested_emission_profile,
         )
     except Exception as exc:
         if not frame_pull_enabled:
@@ -469,6 +505,10 @@ def render_project(
             diagnostics=diagnostics,
         )
     recorder.record("build_render_plan", time.monotonic() - plan_t0)
+    diagnostics["emission_profile"] = plan.emission_profile
+    diagnostics["source_media_policy"] = plan.source_media_policy
+    diagnostics["source_proxy_hits"] = dict(plan.source_proxy_hits)
+    diagnostics["source_proxy_fallbacks"] = dict(plan.source_proxy_fallbacks)
     source_baseline = collect_source_baseline(
         plan.melt_timeline, plan.asset_paths,
     )
@@ -584,6 +624,7 @@ def render_project(
             mode,
             frame_engine="materialize",
             frame_profile=profile,
+            emission_profile=requested_emission_profile,
         )
         source_baseline = collect_source_baseline(
             plan.melt_timeline,

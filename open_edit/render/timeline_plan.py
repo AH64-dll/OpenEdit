@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,31 @@ from open_edit.render.pipe_builder import OverlayClip, OverlayInput
 from open_edit.render.profiles import RenderProfile
 from open_edit.render.remotion.frame_feeder import FrameOverlaySpec
 from open_edit.render.remotion.renderer import remotion_profile_for_mode
+from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
 from open_edit.storage.assets import AssetStore
+
+
+EmissionProfile = Literal[
+    "final", "review-artifact", "proxy-edit", "preview-chunk",
+]
+SourceMediaPolicy = Literal["original", "proxy"]
+
+_EMISSION_POLICY: dict[str, SourceMediaPolicy] = {
+    "final": "original",
+    "review-artifact": "original",
+    "proxy-edit": "proxy",
+    "preview-chunk": "proxy",
+}
+
+
+def source_media_policy_for(
+    emission_profile: EmissionProfile,
+) -> SourceMediaPolicy:
+    """Map an explicit emission profile to source or derived media."""
+    try:
+        return _EMISSION_POLICY[emission_profile]
+    except KeyError as exc:
+        raise ValueError(f"unknown emission profile: {emission_profile!r}") from exc
 
 
 class RenderPlan(BaseModel):
@@ -18,6 +43,10 @@ class RenderPlan(BaseModel):
     melt_timeline: Timeline
     overlay_clips: list[OverlayInput]
     asset_paths: dict[str, str]
+    emission_profile: EmissionProfile
+    source_media_policy: SourceMediaPolicy
+    source_proxy_hits: dict[str, str] = Field(default_factory=dict)
+    source_proxy_fallbacks: dict[str, str] = Field(default_factory=dict)
     frame_overlays: list[FrameOverlaySpec] = Field(default_factory=list)
 
 
@@ -29,13 +58,26 @@ def build_render_plan(
     *,
     frame_engine: str = "materialize",
     frame_profile: RenderProfile | None = None,
+    emission_profile: EmissionProfile | None = None,
+    enqueue_missing_proxies: bool = True,
 ) -> RenderPlan:
-    """Build the render plan: resolved assets, ffmpeg overlay clips, melt timeline.
+    """Build a render plan with explicit source-media semantics."""
+    requested_profile = emission_profile or _default_emission_profile(mode)
+    source_media_policy = source_media_policy_for(requested_profile)
+    if mode == "final" and source_media_policy != "original":
+        raise ValueError(
+            "final emission requires the original source-media policy"
+        )
 
-    ``mode`` is reserved for future plan-time decisions (proxy vs final); the
-    current plan shape is mode-independent.
-    """
-    asset_paths = resolve_asset_paths(ops, timeline, store)
+    asset_paths, source_proxy_hits, source_proxy_fallbacks = (
+        _resolve_asset_paths_with_diagnostics(
+            ops,
+            timeline,
+            store,
+            source_media_policy=source_media_policy,
+            enqueue_missing_proxies=enqueue_missing_proxies,
+        )
+    )
     remotion_overlays = (
         []
         if frame_engine == "pull"
@@ -55,20 +97,55 @@ def build_render_plan(
         melt_timeline=timeline_for_melt(timeline),
         overlay_clips=overlay_clips,
         asset_paths=asset_paths,
+        emission_profile=requested_profile,
+        source_media_policy=source_media_policy,
+        source_proxy_hits=source_proxy_hits,
+        source_proxy_fallbacks=source_proxy_fallbacks,
         frame_overlays=frame_overlays,
     )
+
+
+def _default_emission_profile(mode: str) -> EmissionProfile:
+    if mode == "final":
+        return "final"
+    if mode == "proxy":
+        return "review-artifact"
+    raise ValueError(f"unsupported render mode: {mode!r}")
 
 
 def resolve_asset_paths(
     ops: list[Operation],
     timeline: Timeline,
     store: AssetStore,
+    *,
+    source_media_policy: SourceMediaPolicy = "original",
+    enqueue_missing_proxies: bool = True,
 ) -> dict[str, str]:
     """Resolve asset hashes → filesystem paths.
 
     Collects hashes from applied ops, Remotion compositions, and timeline
-    clips (deduplicated), then resolves each once via the AssetStore.
+    clips (deduplicated), then resolves each once via the AssetStore. The
+    public helper keeps the logical asset hash as its key while allowing
+    callers to opt into explicit source-proxy semantics.
     """
+    asset_paths, _, _ = _resolve_asset_paths_with_diagnostics(
+        ops,
+        timeline,
+        store,
+        source_media_policy=source_media_policy,
+        enqueue_missing_proxies=enqueue_missing_proxies,
+    )
+    return asset_paths
+
+
+def _resolve_asset_paths_with_diagnostics(
+    ops: list[Operation],
+    timeline: Timeline,
+    store: AssetStore,
+    *,
+    source_media_policy: SourceMediaPolicy,
+    enqueue_missing_proxies: bool,
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     hashes: list[str] = []
     for op in ops:
         if isinstance(op, AddClipOp) and op.asset_hash not in hashes:
@@ -81,11 +158,98 @@ def resolve_asset_paths(
             if clip.asset_hash and clip.asset_hash not in hashes:
                 hashes.append(clip.asset_hash)
     asset_paths: dict[str, str] = {}
+    source_proxy_hits: dict[str, str] = {}
+    source_proxy_fallbacks: dict[str, str] = {}
+    materialized_hashes = {
+        composition.asset_hash
+        for composition in timeline.remotion_compositions
+        if composition.asset_hash
+    }
     for asset_hash in hashes:
         path = store.path(asset_hash)
-        if path is not None:
+        if path is None:
+            continue
+        if source_media_policy == "original" or asset_hash in materialized_hashes:
             asset_paths[asset_hash] = str(path)
-    return asset_paths
+            continue
+
+        asset = store.get(asset_hash)
+        proxy_hash = _ready_source_proxy_hash(asset, store)
+        if proxy_hash is not None:
+            proxy_path = store.path(proxy_hash)
+            if proxy_path is not None:
+                asset_paths[asset_hash] = str(proxy_path)
+                source_proxy_hits[asset_hash] = proxy_hash
+                continue
+
+        reason = _source_proxy_fallback_reason(asset, store)
+        if enqueue_missing_proxies and _enqueue_missing_source_proxy(
+            store,
+            asset_hash,
+        ):
+            source_proxy_fallbacks[asset_hash] = "queued"
+        else:
+            source_proxy_fallbacks[asset_hash] = reason
+        asset_paths[asset_hash] = str(path)
+    return asset_paths, source_proxy_hits, source_proxy_fallbacks
+
+
+def _ready_source_proxy_hash(asset: object, store: AssetStore) -> str | None:
+    if asset is None:
+        return None
+    if (
+        getattr(asset, "proxy_status", None) != "ready"
+        or getattr(asset, "proxy_profile", None)
+        != DEFAULT_SOURCE_PROXY_PROFILE.name
+    ):
+        return None
+    proxy_hash = getattr(asset, "proxy_hash", None)
+    if not proxy_hash or store.path(proxy_hash) is None:
+        return None
+    return str(proxy_hash)
+
+
+def _source_proxy_fallback_reason(asset: object, store: AssetStore) -> str:
+    if asset is None:
+        return "asset_metadata_missing"
+    if getattr(asset, "proxy_status", None) != "ready":
+        return f"status_{getattr(asset, 'proxy_status', 'unknown')}"
+    if getattr(asset, "proxy_profile", None) != DEFAULT_SOURCE_PROXY_PROFILE.name:
+        return "profile_mismatch"
+    proxy_hash = getattr(asset, "proxy_hash", None)
+    if not proxy_hash:
+        return "proxy_hash_missing"
+    if store.path(proxy_hash) is None:
+        return "proxy_bytes_missing"
+    return "proxy_unavailable"
+
+
+def _enqueue_missing_source_proxy(store: AssetStore, asset_hash: str) -> bool:
+    """Queue one host-side proxy job when the Task 2 service is available."""
+    try:
+        from open_edit.kernel.asset_proxy_jobs import (
+            DEFAULT_ASSET_PROXY_JOB_SERVICE,
+        )
+    except ImportError:
+        # Task 3 remains importable while the optional host-job surface is
+        # being deployed; the current render still uses canonical bytes.
+        return False
+
+    assets_dir = store.assets_dir
+    if assets_dir.parent.name == ".open_edit":
+        project_path = assets_dir.parent.parent
+    else:
+        project_path = assets_dir.parent
+    try:
+        DEFAULT_ASSET_PROXY_JOB_SERVICE.enqueue(
+            project_path.name,
+            project_path,
+            asset_hash,
+            profile=DEFAULT_SOURCE_PROXY_PROFILE,
+        )
+    except Exception:
+        return False
+    return True
 
 
 def _remotion_overlay_clips(
