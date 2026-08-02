@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
+from open_edit.kernel.tool_executor import MAX_PREVIEW_RANGES, preview_chunks_enabled
+from open_edit.render.preview_manifest import PreviewRange
 
 from .. import projects as projects_mod
 from ..auth import _check_rate_limit
@@ -19,9 +21,12 @@ router = APIRouter()
 
 
 class RenderRequest(BaseModel):
-    mode: str = "proxy"  # "proxy" | "final" | "overlay"
+    mode: str = "proxy"  # "proxy" | "final" | "overlay" | "preview-chunks"
     expected_revision: int | None = None
     encoder: str | None = None  # "gpu" (default) | "cpu"
+    ranges: list[PreviewRange] = Field(default_factory=list)
+    media: str = "both"
+    priority: str = "interactive"
     profile: str | None = None
     quality: str | None = None
     crf: int | None = None
@@ -44,6 +49,7 @@ class RenderJobResponse(BaseModel):
     created_at: float = Field(default_factory=time.time)
     graph_revision: int | None = None
     edit_graph_hash: str | None = None
+    result: dict[str, Any] | None = None
 
 
 @router.post("/api/projects/{project_id}/render", status_code=202)
@@ -51,8 +57,11 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     """Trigger a render in the background. Returns the job immediately."""
     _check_rate_limit(f"render:{project_id}", max_requests=5, window_sec=300)
     state = await _require_project(project_id)
-    if req.mode not in ("proxy", "final", "overlay"):
-        raise HTTPException(status_code=400, detail="mode must be 'proxy', 'final', or 'overlay'")
+    if req.mode not in ("proxy", "final", "overlay", "preview-chunks"):
+        raise HTTPException(
+            status_code=400,
+            detail="mode must be 'proxy', 'final', 'overlay', or 'preview-chunks'",
+        )
 
     project_path = Path(state.path)
     from open_edit.kernel.render_jobs import RenderEnqueueError
@@ -66,10 +75,43 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     codec = (req.codec or "").strip().lower() or None
     if codec is not None and codec not in ("h264", "hevc", "av1"):
         raise HTTPException(status_code=400, detail="codec must be h264|hevc|av1")
+    preview_params: dict[str, Any] = {}
+    if req.mode == "preview-chunks":
+        if not preview_chunks_enabled():
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "preview-chunks is disabled; set "
+                    "OPEN_EDIT_PREVIEW_CHUNKS=1 to enable it"
+                ),
+            )
+        media = (req.media or "").strip().lower()
+        if media not in ("video", "audio", "both"):
+            raise HTTPException(status_code=400, detail="media must be video|audio|both")
+        priority = (req.priority or "").strip().lower()
+        if priority not in ("interactive", "background"):
+            raise HTTPException(
+                status_code=400,
+                detail="priority must be interactive|background",
+            )
+        if len(req.ranges) > MAX_PREVIEW_RANGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"preview requests support at most {MAX_PREVIEW_RANGES} ranges",
+            )
+        preview_params = {
+            "ranges": [
+                item.model_dump(mode="json")
+                for item in sorted(req.ranges, key=lambda item: (item.start_sec, item.end_sec))
+            ],
+            "media": media,
+            "priority": priority,
+        }
     params = {k: v for k, v in (
         ("profile", req.profile), ("quality", quality), ("crf", req.crf),
         ("vb", req.vb), ("preset", req.preset), ("scale", req.scale), ("codec", codec),
     ) if v is not None}
+    params.update(preview_params)
 
     try:
         job = DEFAULT_RENDER_JOB_SERVICE.enqueue(
@@ -86,7 +128,7 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
         job_id=job.job_id, project_id=job.project_id, mode=job.mode,
         status=job.status, output_path=job.output_path, error=job.error,
         created_at=job.created_at, graph_revision=job.graph_revision,
-        edit_graph_hash=job.edit_graph_hash,
+        edit_graph_hash=job.edit_graph_hash, result=job.result,
     )
 
 
@@ -121,7 +163,7 @@ async def get_render_job(project_id: str, job_id: str) -> RenderJobResponse:
         job_id=job.job_id, project_id=job.project_id, mode=job.mode,
         status=job.status, output_path=job.output_path, error=job.error,
         created_at=job.created_at, graph_revision=job.graph_revision,
-        edit_graph_hash=job.edit_graph_hash,
+        edit_graph_hash=job.edit_graph_hash, result=job.result,
     )
 
 
@@ -147,6 +189,8 @@ def _resolve_render_mp4(project_path: Path, render_id: str) -> Path | None:
     if ".melt" in render_id.lower():
         return None
     job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, render_id)
+    if job is not None and job.mode == "preview-chunks":
+        return None
     if job is not None and job.output_path:
         candidate = Path(job.output_path).resolve()
         if (

@@ -220,11 +220,101 @@ async def test_enqueue_coalesces_duplicate_jobs(tmp_path):
             release.set()
 
 
+@pytest.mark.asyncio
+async def test_list_renders_excludes_preview_chunk_jobs(projects_root_tmp):
+    project = projects_root_tmp / "p1"
+    project.mkdir()
+    cmd_init(argparse.Namespace(folder=str(project)))
+    project_id = projects_mod._project_id_from_path(project.resolve())
+    service = DEFAULT_RENDER_JOB_SERVICE
+    with service._connect(project) as con:
+        now = time.time()
+        con.execute(
+            "INSERT INTO render_jobs "
+            "(job_id, project_id, mode, status, created_at, updated_at, output_path) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "preview-job", "proj", "preview-chunks", "succeeded",
+                now, now, str(project / "manifest.json"),
+            ),
+        )
+        con.execute(
+            "INSERT INTO render_jobs "
+            "(job_id, project_id, mode, status, created_at, updated_at, output_path) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "proxy-job", "proj", "proxy", "succeeded",
+                now - 1, now - 1, str(project / "proxy.mp4"),
+            ),
+        )
+
+    listed = await projects_mod.list_renders(project_id)
+
+    assert [item["id"] for item in listed] == ["proxy-job"]
+
+
 def test_render_request_accepts_quality_params() -> None:
     from open_edit.serve.routers.renders import RenderRequest
 
     req = RenderRequest(mode="final", quality="high", crf=20, scale="640x360", codec="hevc")
     assert req.quality == "high" and req.crf == 20 and req.codec == "hevc"
+
+
+def test_render_route_accepts_preview_chunks_and_returns_result(
+    seeded_project, monkeypatch,
+):
+    from fastapi.testclient import TestClient
+
+    proj, project_id = seeded_project
+    monkeypatch.setenv("OPEN_EDIT_PREVIEW_CHUNKS", "1")
+    fake = proj / ".open_edit" / "preview_chunks" / "manifest.json"
+
+    async def fake_launch(project_path, job_id, mode):
+        return {
+            "ok": True,
+            "mode": mode,
+            "output_path": str(fake),
+            "manifest_path": str(fake),
+            "ready_chunks": 2,
+        }
+
+    with (
+        mock.patch(
+            "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch", fake_launch
+        ),
+        TestClient(app_mod.app) as client,
+    ):
+        response = client.post(
+            f"/api/projects/{project_id}/render",
+            json={
+                "mode": "preview-chunks",
+                "ranges": [{"start_sec": 2, "end_sec": 4}],
+                "media": "audio",
+                "priority": "interactive",
+            },
+        )
+        assert response.status_code == 202, response.text
+        body = response.json()
+        assert body["mode"] == "preview-chunks"
+        assert body["result"] is None
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            polled = client.get(
+                f"/api/projects/{project_id}/render_jobs/{body['job_id']}"
+            )
+            if polled.json()["status"] in ("succeeded", "failed"):
+                break
+            time.sleep(0.02)
+
+    assert polled.status_code == 200
+    poll_body = polled.json()
+    assert poll_body["status"] == "succeeded"
+    assert poll_body["result"]["mode"] == "preview-chunks"
+    assert poll_body["result"]["ready_chunks"] == 2
+    job = DEFAULT_RENDER_JOB_SERVICE.get(proj, body["job_id"])
+    assert job is not None
+    assert job.params["media"] == "audio"
 
 
 def test_render_request_rejects_bad_quality(seeded_project):

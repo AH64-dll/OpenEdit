@@ -51,7 +51,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS render_jobs (
     job_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
-    mode TEXT NOT NULL CHECK (mode IN ('proxy', 'final', 'overlay')),
+    mode TEXT NOT NULL CHECK (mode IN ('proxy', 'final', 'overlay', 'preview-chunks')),
     status TEXT NOT NULL CHECK (status IN
       ('queued', 'running', 'cancelling', 'cancelled', 'succeeded', 'failed', 'orphaned')),
     created_at REAL NOT NULL,
@@ -119,24 +119,30 @@ class RenderJobService:
             con.execute("ALTER TABLE render_jobs ADD COLUMN qc_report TEXT")
         if "params_json" not in cols:
             con.execute("ALTER TABLE render_jobs ADD COLUMN params_json TEXT")
-        # Older installs rejected overlay in the CHECK constraint. Rebuild once.
+        # Older installs rejected overlay and/or preview-chunks in the CHECK
+        # constraint. Rebuild once while preserving the current row columns.
         create_sql = con.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='render_jobs'"
         ).fetchone()
-        if create_sql and create_sql[0] and "overlay" not in create_sql[0]:
+        create_sql_text = str(create_sql[0]).lower() if create_sql and create_sql[0] else ""
+        if create_sql_text and (
+            "overlay" not in create_sql_text
+            or "preview-chunks" not in create_sql_text
+        ):
+            con.execute("DROP INDEX IF EXISTS idx_render_jobs_project_created")
             con.execute("ALTER TABLE render_jobs RENAME TO render_jobs_legacy")
             con.executescript(_SCHEMA)
             legacy_cols = {row[1] for row in con.execute("PRAGMA table_info(render_jobs_legacy)")}
-            graph_rev = "graph_revision" if "graph_revision" in legacy_cols else "NULL"
-            graph_hash = "edit_graph_hash" if "edit_graph_hash" in legacy_cols else "NULL"
-            qc_report = "qc_report" if "qc_report" in legacy_cols else "NULL"
+            current_cols = [
+                "job_id", "project_id", "mode", "status", "created_at", "updated_at",
+                "output_path", "error", "result_json", "qc_report",
+                "graph_revision", "edit_graph_hash", "params_json",
+            ]
+            copied_cols = [column for column in current_cols if column in legacy_cols]
+            columns_sql = ", ".join(copied_cols)
             con.execute(
-                "INSERT INTO render_jobs ("
-                "job_id, project_id, mode, status, created_at, updated_at, "
-                "output_path, error, result_json, qc_report, graph_revision, edit_graph_hash"
-                ") SELECT job_id, project_id, mode, status, created_at, updated_at, "
-                f"output_path, error, result_json, {qc_report}, {graph_rev}, {graph_hash} "
-                "FROM render_jobs_legacy"
+                f"INSERT INTO render_jobs ({columns_sql}) "
+                f"SELECT {columns_sql} FROM render_jobs_legacy"
             )
             con.execute("DROP TABLE render_jobs_legacy")
 
@@ -238,8 +244,10 @@ class RenderJobService:
         encoder_backend: str | None = None,
         params: dict | None = None,
     ) -> RenderJob:
-        if mode not in ("proxy", "final", "overlay"):
-            raise ValueError("mode must be 'proxy', 'final', or 'overlay'")
+        if mode not in ("proxy", "final", "overlay", "preview-chunks"):
+            raise ValueError(
+                "mode must be 'proxy', 'final', 'overlay', or 'preview-chunks'"
+            )
         revision, graph_hash, timeline_status = self._graph_fingerprint(project_path)
         if timeline_status == "invalid" and not allow_invalid_timeline:
             raise RenderEnqueueError(
@@ -254,18 +262,25 @@ class RenderJobService:
         # If the in-memory worker task was lost (process restart / other process
         # wrote the row), re-attach a runner so the job does not sit forever.
         existing: RenderJob | None = None
+        params_json = json.dumps(params, sort_keys=True) if params is not None else None
         with self._connect(project_path) as con:
-            row = con.execute(
-                "SELECT job_id, status, created_at, updated_at, graph_revision, edit_graph_hash "
+            query = (
+                "SELECT job_id, status, created_at, updated_at, graph_revision, "
+                "edit_graph_hash, params_json "
                 "FROM render_jobs WHERE project_id = ? AND mode = ? "
                 "AND edit_graph_hash = ? AND status IN ('queued', 'running') "
-                "ORDER BY created_at DESC LIMIT 1",
-                (project_id, mode, graph_hash),
-            ).fetchone()
+            )
+            query_params: list[object] = [project_id, mode, graph_hash]
+            if mode == "preview-chunks":
+                query += "AND params_json IS ? "
+                query_params.append(params_json)
+            query += "ORDER BY created_at DESC LIMIT 1"
+            row = con.execute(query, query_params).fetchone()
             if row is not None:
+                existing_params = json.loads(row[6]) if row[6] else None
                 existing = RenderJob(
                     row[0], project_id, mode, row[1], row[2], row[3],
-                    graph_revision=row[4], edit_graph_hash=row[5],
+                    graph_revision=row[4], edit_graph_hash=row[5], params=existing_params,
                 )
             else:
                 existing = None
@@ -364,7 +379,8 @@ class RenderJobService:
             async with lock, self._semaphore:
                 self._update(project_path, job_id, "running")
                 result = await self._launch(project_path, job_id, initial.mode)
-                result = await self._attach_qc(result, project_path)
+                if initial.mode != "preview-chunks":
+                    result = await self._attach_qc(result, project_path)
                 self._update(
                     project_path, job_id, "succeeded",
                     output_path=result["output_path"], result=result,
@@ -543,25 +559,37 @@ class RenderJobService:
             out["mode"] = "overlay"
             return out
 
-        command = [sys.executable, "-m", "open_edit.cli", "render", "--mode", mode, "--json"]
         job = self.get(project_path, job_id)
         params = (job.params if job is not None else None) or {}
-        for key, flag in (("profile", "--profile"), ("quality", "--quality"),
-                          ("crf", "--crf"), ("vb", "--vb"), ("preset", "--preset"),
-                          ("scale", "--scale"), ("codec", "--codec")):
-            value = params.get(key)
-            if value is not None:
-                command += [flag, str(value)]
-        if params.get("force_remotion"):
-            command.append("--force-remotion")
-        remotion_uids = params.get("remotion_uids") or ()
-        if isinstance(remotion_uids, str):
-            remotion_uids = (remotion_uids,)
-        for composition_uid in remotion_uids:
-            command += ["--remotion-uid", str(composition_uid)]
-        encoder = self._job_encoder.get(job_id) or os.environ.get("OPEN_EDIT_RENDER_BACKEND", "gpu")
-        if encoder in ("gpu", "cpu"):
-            command += ["--encoder", encoder]
+        if mode == "preview-chunks":
+            command = [
+                sys.executable, "-m", "open_edit.cli", "preview-chunks",
+                "--job-id", job_id, "--json",
+            ]
+        else:
+            command = [
+                sys.executable, "-m", "open_edit.cli", "render",
+                "--mode", mode, "--json",
+            ]
+        if mode != "preview-chunks":
+            for key, flag in (("profile", "--profile"), ("quality", "--quality"),
+                              ("crf", "--crf"), ("vb", "--vb"), ("preset", "--preset"),
+                              ("scale", "--scale"), ("codec", "--codec")):
+                value = params.get(key)
+                if value is not None:
+                    command += [flag, str(value)]
+            if params.get("force_remotion"):
+                command.append("--force-remotion")
+            remotion_uids = params.get("remotion_uids") or ()
+            if isinstance(remotion_uids, str):
+                remotion_uids = (remotion_uids,)
+            for composition_uid in remotion_uids:
+                command += ["--remotion-uid", str(composition_uid)]
+            encoder = self._job_encoder.get(job_id) or os.environ.get(
+                "OPEN_EDIT_RENDER_BACKEND", "gpu"
+            )
+            if encoder in ("gpu", "cpu"):
+                command += ["--encoder", encoder]
         kwargs: dict = {
             "cwd": str(project_path), "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE, "limit": 16 * 1024 * 1024,

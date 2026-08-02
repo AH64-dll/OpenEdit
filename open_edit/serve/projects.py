@@ -483,6 +483,11 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
         from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
 
         for job in DEFAULT_RENDER_JOB_SERVICE.list_jobs(path):
+            # Chunk jobs publish a manifest and independent artifacts. They
+            # are polled through the preview-manifest API, not shown as
+            # whole-file MP4 history.
+            if job.mode == "preview-chunks":
+                continue
             size_bytes = 0
             if job.output_path:
                 try:
@@ -573,6 +578,8 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
 def _is_complete_render_mp4(path: Path) -> bool:
     """Skip melt intermediates / tiny stubs so the preview never auto-loads junk."""
     name = path.name.lower()
+    if path.suffix.lower() != ".mp4":
+        return False
     # melt writes ``project_<hash>.melt.mp4`` while rendering; that file is not
     # a finished proxy and breaks the <video> element if auto-loaded.
     if name.endswith(".melt.mp4") or ".melt." in name:

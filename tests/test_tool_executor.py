@@ -182,3 +182,44 @@ def test_trigger_render_forwards_quality_params(tmp_path: Path, monkeypatch) -> 
     params = captured.get("params", {})
     assert params["quality"] == "high" and params["crf"] == 20
     assert params["codec"] == "hevc"
+
+
+def test_execute_trigger_render_forwards_preview_params(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    import asyncio
+
+    from open_edit.kernel import tool_executor
+    from open_edit.kernel.render_jobs import RenderJobService
+
+    captured: dict = {}
+
+    def fake_enqueue(self, project_id, project_path, mode, **kwargs):
+        captured.update(kwargs)
+        from open_edit.kernel.render_jobs import RenderJob
+
+        return RenderJob(
+            "preview-job", project_id, mode, "queued", 0.0, 0.0,
+            params=kwargs.get("params"),
+        )
+
+    monkeypatch.setenv("OPEN_EDIT_PREVIEW_CHUNKS", "1")
+    monkeypatch.setattr(RenderJobService, "enqueue", fake_enqueue)
+    monkeypatch.setattr(tool_executor, "validate_or_error", lambda *a, **k: None)
+    monkeypatch.setattr(tool_executor, "_strip_injected_project_id", lambda t, a: a)
+
+    result = asyncio.run(tool_executor._run_trigger_render(
+        {
+            "mode": "preview-chunks",
+            "ranges": [{"start_sec": 2, "end_sec": 4}],
+            "media": "audio",
+            "priority": "interactive",
+        },
+        tmp_path,
+    ))
+
+    assert result["ok"] is True
+    assert result["mode"] == "preview-chunks"
+    assert captured["params"]["media"] == "audio"
+    assert captured["params"]["priority"] == "interactive"
+    assert captured["params"]["ranges"] == [{"start_sec": 2.0, "end_sec": 4.0}]

@@ -34,6 +34,16 @@ def test_tool_schemas_json_serializable():
     json.dumps(TOOL_SCHEMAS)
 
 
+def test_trigger_render_schema_advertises_preview_ranges():
+    schema = next(s for s in build_tool_schemas() if s["name"] == "trigger_render")
+    properties = schema["input_schema"]["properties"]
+
+    assert "preview-chunks" in properties["mode"]["enum"]
+    assert "ranges" in properties
+    assert "media" in properties
+    assert "priority" in properties
+
+
 def test_every_schema_tool_resolves_in_tool_table():
     """Every TOOL_SCHEMAS name is a plain TOOL_TABLE entry or kernel-handled.
 

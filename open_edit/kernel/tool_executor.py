@@ -182,6 +182,53 @@ class ToolNotFound(LookupError):  # noqa: N818
     registered in ``open_edit.agent.tools.TOOL_TABLE``."""
 
 
+MAX_PREVIEW_RANGES = 64
+
+
+def preview_chunks_enabled() -> bool:
+    """Return the explicit rollout flag for manifest-backed preview jobs."""
+    raw = (os.environ.get("OPEN_EDIT_PREVIEW_CHUNKS") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _normalise_preview_params(args: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate and JSON-normalise the range-specific render parameters."""
+    from open_edit.render.preview_manifest import PreviewRange
+
+    media = str(args.get("media", "both")).strip().lower()
+    if media not in ("video", "audio", "both"):
+        return None, f"invalid preview media {media!r}; expected video|audio|both"
+    priority = str(args.get("priority", "interactive")).strip().lower()
+    if priority not in ("interactive", "background"):
+        return None, (
+            f"invalid preview priority {priority!r}; "
+            "expected interactive|background"
+        )
+
+    raw_ranges = args.get("ranges", [])
+    if raw_ranges is None:
+        raw_ranges = []
+    if not isinstance(raw_ranges, list):
+        return None, "preview ranges must be a list"
+    if len(raw_ranges) > MAX_PREVIEW_RANGES:
+        return None, f"preview requests support at most {MAX_PREVIEW_RANGES} ranges"
+
+    ranges: list[dict[str, float]] = []
+    try:
+        for raw_range in raw_ranges:
+            parsed = (
+                raw_range
+                if isinstance(raw_range, PreviewRange)
+                else PreviewRange.model_validate(raw_range)
+            )
+            ranges.append(parsed.model_dump(mode="json"))
+    except (TypeError, ValueError) as exc:
+        return None, f"invalid preview range: {exc}"
+
+    ranges.sort(key=lambda item: (item["start_sec"], item["end_sec"]))
+    return {"ranges": ranges, "media": media, "priority": priority}, None
+
+
 def execute_tool(
     name: str, args: dict[str, Any], project_path: Path,
     command_id: str | None = None,
@@ -332,10 +379,13 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
         return err
 
     mode = (args.get("mode") or "proxy").lower()
-    if mode not in ("proxy", "final", "overlay"):
+    if mode not in ("proxy", "final", "overlay", "preview-chunks"):
         return {
             "ok": False,
-            "error": f"invalid mode {mode!r}; expected proxy|final|overlay",
+            "error": (
+                f"invalid mode {mode!r}; "
+                "expected proxy|final|overlay|preview-chunks"
+            ),
             "error_code": "schema_validation_failed",
         }
 
@@ -354,6 +404,25 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
         ("crf", args.get("crf")), ("vb", args.get("vb")), ("preset", args.get("preset")),
         ("scale", args.get("scale")), ("codec", str(codec).lower() if codec else None),
     ) if v is not None}
+    if mode == "preview-chunks":
+        preview_params, preview_error = _normalise_preview_params(args)
+        if preview_error is not None:
+            return {
+                "ok": False,
+                "error": preview_error,
+                "error_code": "schema_validation_failed",
+            }
+        if not preview_chunks_enabled():
+            return {
+                "ok": False,
+                "error": (
+                    "preview-chunks is disabled; set "
+                    "OPEN_EDIT_PREVIEW_CHUNKS=1 to enable it"
+                ),
+                "error_code": "feature_disabled",
+            }
+        assert preview_params is not None
+        params.update(preview_params)
 
     wait = args.get("wait", False)
     if isinstance(wait, str):

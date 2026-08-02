@@ -10,6 +10,7 @@ from importlib import metadata
 from pathlib import Path
 
 from open_edit.ir.derive import derive_timeline
+from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 
@@ -29,6 +30,19 @@ def _find_existing_project(cwd: Path) -> Path | None:
         if (candidate / "edit_graph.db").exists():
             return candidate
     return None
+
+
+def render_preview_chunks(*, project_id: str, project_dir: Path, job_id: str) -> dict:
+    """Call the optional host preview worker through a stable CLI seam."""
+    try:
+        from open_edit.render.preview_chunks import (
+            render_preview_chunks as worker,
+        )
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("open_edit.render.preview_chunks"):
+            raise RuntimeError("preview-chunks worker is unavailable") from exc
+        raise
+    return worker(project_id=project_id, project_dir=project_dir, job_id=job_id)
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -158,6 +172,58 @@ def cmd_undo(args: argparse.Namespace) -> int:
             return 0
     print("Nothing to undo")
     return 0
+
+
+def cmd_preview_chunks(args: argparse.Namespace) -> int:
+    """Run one durable preview-chunks job and emit its worker result."""
+    project_dir = _find_existing_project(Path.cwd())
+    if project_dir is None:
+        result = {
+            "ok": False,
+            "mode": "preview-chunks",
+            "error": "no open_edit project found",
+        }
+    else:
+        job = DEFAULT_RENDER_JOB_SERVICE.get(project_dir.parent, args.job_id)
+        if job is None:
+            result = {
+                "ok": False,
+                "mode": "preview-chunks",
+                "error": f"render job not found: {args.job_id}",
+            }
+        elif job.mode != "preview-chunks":
+            result = {
+                "ok": False,
+                "mode": "preview-chunks",
+                "error": f"render job {args.job_id} is mode {job.mode!r}",
+            }
+        else:
+            try:
+                result = render_preview_chunks(
+                    project_id=job.project_id,
+                    project_dir=project_dir.parent,
+                    job_id=job.job_id,
+                )
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "mode": "preview-chunks",
+                    "error": str(exc),
+                }
+            if not isinstance(result, dict):
+                result = {
+                    "ok": False,
+                    "mode": "preview-chunks",
+                    "error": "preview worker returned a non-dict result",
+                }
+
+    if args.json:
+        print(json.dumps(result, default=str))
+    elif result.get("ok"):
+        print(f"Preview chunks: {result.get('output_path', '')}")
+    else:
+        print(f"Preview chunks failed: {result.get('error', 'unknown error')}", file=sys.stderr)
+    return 0 if result.get("ok") is True else 1
 
 
 def cmd_render(args: argparse.Namespace) -> int:
@@ -513,6 +579,16 @@ def main(argv: list[str] | None = None) -> int:
         help="bypass Remotion caches for one composition UID (repeatable)",
     )
     p_render.set_defaults(func=cmd_render)
+
+    p_preview_chunks = sub.add_parser(
+        "preview-chunks",
+        help="Run the internal durable preview-chunks worker",
+    )
+    p_preview_chunks.add_argument("--job-id", required=True, help="durable render job id")
+    p_preview_chunks.add_argument(
+        "--json", action="store_true", help="emit one structured worker result JSON object",
+    )
+    p_preview_chunks.set_defaults(func=cmd_preview_chunks)
 
     p_freeform = sub.add_parser("free-form", help="Run a free-form Python script in the sandbox against a project")
     p_freeform.add_argument("code_file", help="path to the Python script to run")

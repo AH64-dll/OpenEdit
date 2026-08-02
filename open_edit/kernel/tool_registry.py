@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from open_edit.render.preview_manifest import PreviewRange
 
 
 _QUERY_PROJECT_DESC = (
@@ -52,13 +54,17 @@ _TRIGGER_RENDER_DESC = (
     "the final cut'. Modes: 'proxy' (fast, low-res preview; also "
     "materializes Remotion compositions and burns them onto the "
     "melt output via ffmpeg), 'final' (full quality; re-bakes "
-    "Remotion at full profile), or 'overlay' (HyperFrames "
-    "HTML overlays only — Remotion does NOT use this mode). "
+    "Remotion at full profile), 'overlay' (HyperFrames "
+    "HTML overlays only — Remotion does NOT use this mode), or "
+    "'preview-chunks' (range-limited, manifest-backed video/audio "
+    "artifacts). "
     "encoder: 'gpu' (default) or 'cpu' for video encoding backend. "
     "wait: defaults to false so agents return immediately with job_id "
     "(poll with get_render_job). Pass wait=true only when a synchronous "
-    "result path is required. "
-    "Returns job_id when wait=false, or the output path when wait=true."
+    "result path is required. For preview-chunks, ranges are project "
+    "seconds, media is video/audio/both, and priority is interactive or "
+    "background. Returns job_id when wait=false, or the manifest-oriented "
+    "result when wait=true."
 )
 
 _GET_RENDER_JOB_DESC = (
@@ -111,9 +117,12 @@ class TriggerRenderArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid", title="trigger_render", description=_TRIGGER_RENDER_DESC
     )
-    mode: Literal["proxy", "final", "overlay"] = "proxy"
+    mode: Literal["proxy", "final", "overlay", "preview-chunks"] = "proxy"
     encoder: Literal["gpu", "cpu"] | None = None
     wait: bool = False
+    ranges: list[PreviewRange] = Field(default_factory=list)
+    media: Literal["video", "audio", "both"] = "both"
+    priority: Literal["interactive", "background"] = "interactive"
     quality: str | None = None
     profile: str | None = None
     crf: int | None = None

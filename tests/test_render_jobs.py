@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -43,6 +45,53 @@ def test_restart_marks_nonterminal_jobs_orphaned(tmp_path):
     assert job is not None
     assert job.status == "orphaned"
     assert "restarted" in (job.error or "")
+
+
+def test_render_job_schema_migrates_old_mode_check_without_losing_params(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".open_edit").mkdir(parents=True)
+    db_path = RenderJobService.db_path(tmp_path)
+    with sqlite3.connect(db_path) as con:
+        con.executescript(
+            """
+            CREATE TABLE render_jobs (
+                job_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK (mode IN ('proxy', 'final', 'overlay')),
+                status TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                output_path TEXT,
+                error TEXT,
+                result_json TEXT,
+                qc_report TEXT,
+                graph_revision INTEGER,
+                edit_graph_hash TEXT,
+                params_json TEXT
+            );
+            INSERT INTO render_jobs (
+                job_id, project_id, mode, status, created_at, updated_at,
+                output_path, result_json, graph_revision, edit_graph_hash, params_json
+            ) VALUES (
+                'legacy', 'proj', 'proxy', 'succeeded', 1, 2,
+                '/tmp/proxy.mp4', '{"ok":true}', 7, 'old-hash',
+                '{"quality":"high","crf":20}'
+            );
+            """
+        )
+
+    service = RenderJobService()
+    migrated = service.get(tmp_path, "legacy")
+    assert migrated is not None
+    assert migrated.params == {"quality": "high", "crf": 20}
+    assert migrated.result == {"ok": True}
+
+    with sqlite3.connect(db_path) as con:
+        create_sql = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='render_jobs'"
+        ).fetchone()[0]
+    assert "preview-chunks" in create_sql
 
 
 @pytest.mark.asyncio
@@ -307,6 +356,131 @@ async def test_launch_command_includes_params(tmp_path: Path) -> None:
         assert cmd.count("--remotion-uid") == 2
         assert "uid-a" in cmd and "uid-b" in cmd
     finally:
+        for task in service._tasks.values():
+            task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_preview_launch_uses_durable_job_id_without_shell_params(
+    tmp_path: Path,
+) -> None:
+    service = RenderJobService()
+    (tmp_path / ".open_edit").mkdir(parents=True)
+    with service._connect(tmp_path) as con:
+        con.execute(
+            "INSERT INTO render_jobs "
+            "(job_id, project_id, mode, status, created_at, updated_at, params_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "preview-job", "proj", "preview-chunks", "queued", 1.0, 1.0,
+                '{"media":"audio","ranges":[{"end_sec":4,"start_sec":2}]}',
+            ),
+        )
+
+    captured: dict = {}
+
+    class FakeProcess:
+        pid = 123
+        returncode = 0
+
+        async def communicate(self):
+            return (
+                b'{"ok": true, "mode": "preview-chunks", '
+                b'"output_path": "/tmp/manifest.json"}',
+                b"",
+            )
+
+    async def fake_exec(*args, **kwargs):
+        captured["cmd"] = list(args)
+        return FakeProcess()
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    try:
+        result = await service._launch(tmp_path, "preview-job", "preview-chunks")
+    finally:
+        monkeypatch.undo()
+
+    assert result["mode"] == "preview-chunks"
+    assert captured["cmd"] == [
+        sys.executable, "-m", "open_edit.cli", "preview-chunks",
+        "--job-id", "preview-job", "--json",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_preview_chunks_job_persists_exact_params_and_skips_qc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RenderJobService()
+    launched = tmp_path / ".open_edit" / "preview_chunks" / "manifest.json"
+    qc_called = False
+
+    async def preview_launch(project_path, job_id, mode):
+        assert mode == "preview-chunks"
+        return {
+            "ok": True,
+            "mode": mode,
+            "output_path": str(launched),
+            "manifest_path": str(launched),
+            "green_chunks": 1,
+        }
+
+    async def fail_if_qc(*args, **kwargs):
+        nonlocal qc_called
+        qc_called = True
+        raise AssertionError("preview chunks must not run whole-file QC")
+
+    monkeypatch.setattr(service, "_launch", preview_launch)
+    monkeypatch.setattr(service, "_attach_qc", fail_if_qc)
+    params = {
+        "ranges": [{"start_sec": 0.0, "end_sec": 1.0}],
+        "media": "both",
+    }
+
+    job = service.enqueue("proj", tmp_path, "preview-chunks", params=params)
+    assert job.mode == "preview-chunks"
+    assert job.params == params
+    completed = await service.wait(tmp_path, job.job_id)
+
+    assert completed.status == "succeeded"
+    assert completed.output_path == str(launched)
+    assert completed.result["mode"] == "preview-chunks"
+    assert completed.result["green_chunks"] == 1
+    assert qc_called is False
+
+
+@pytest.mark.asyncio
+async def test_preview_chunks_coalescing_requires_exact_params(tmp_path: Path) -> None:
+    service = RenderJobService()
+    release = asyncio.Event()
+
+    async def preview_launch(project_path, job_id, mode):
+        await release.wait()
+        return {
+            "ok": True,
+            "mode": mode,
+            "output_path": str(tmp_path / "manifest.json"),
+        }
+
+    service._launch = preview_launch  # type: ignore[method-assign]
+    first_params = {
+        "ranges": [{"start_sec": 0.0, "end_sec": 1.0}],
+        "media": "video",
+    }
+    second_params = {
+        "ranges": [{"start_sec": 1.0, "end_sec": 2.0}],
+        "media": "video",
+    }
+    try:
+        first = service.enqueue("proj", tmp_path, "preview-chunks", params=first_params)
+        same = service.enqueue("proj", tmp_path, "preview-chunks", params=first_params)
+        different = service.enqueue("proj", tmp_path, "preview-chunks", params=second_params)
+
+        assert same.job_id == first.job_id
+        assert different.job_id != first.job_id
+    finally:
+        release.set()
         for task in service._tasks.values():
             task.cancel()
 
