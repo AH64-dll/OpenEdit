@@ -15,6 +15,10 @@ from typing import Any, Literal
 
 from open_edit.ir.types import Clip, RemotionComposition, Timeline
 from open_edit.render.cache import RenderCache
+from open_edit.render.frame_engine import (
+    PreviewVideoRenderer,
+    PreviewVideoRequest,
+)
 from open_edit.render.remotion import (
     RemotionRenderError,
     composition_cache_key,
@@ -32,6 +36,33 @@ from open_edit.storage.assets import AssetStore
 
 class RemotionMaterializeError(RuntimeError):
     """Raised when a Remotion composition cannot be materialized."""
+
+
+class _UnavailablePreviewVideoRenderer:
+    """Explicit feature-gate until the host M1 renderer is registered.
+
+    The chunk worker depends on the ``PreviewVideoRenderer`` protocol rather
+    than reaching into Remotion subprocess details.  M1 deployments replace
+    this factory result with the host frame-engine implementation; keeping the
+    failure here prevents a second, implicit Remotion bake path from being
+    introduced by the chunk worker.
+    """
+
+    def __init__(self, project_path: Path) -> None:
+        self.project_path = project_path
+
+    def render(self, request: PreviewVideoRequest) -> Path:
+        del request
+        raise RemotionMaterializeError(
+            "the M1 PreviewVideoRenderer seam is not available for "
+            f"{self.project_path}"
+        )
+
+
+def get_preview_video_renderer(project_path: Path) -> PreviewVideoRenderer:
+    """Construct the host-side M1 preview renderer seam."""
+
+    return _UnavailablePreviewVideoRenderer(Path(project_path))
 
 
 @dataclass
