@@ -1,4 +1,5 @@
 """Tests for the render cache (keyed on the ir edit-graph hash)."""
+import json
 import os
 import time
 from pathlib import Path
@@ -9,9 +10,12 @@ from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.ir.types import AddClipOp
 from open_edit.render.cache import (
     DEFAULT_TTL_SEC,
+    DEFAULT_RENDER_CACHE_MAX_BYTES,
     RenderCache,
+    cache_max_bytes,
     cache_ttl_sec,
     canonical_json_hash,
+    parse_cache_max_bytes,
 )
 
 
@@ -65,6 +69,137 @@ def test_render_cache_put_and_get(tmp_path: Path) -> None:
     retrieved = cache.get(h)
     assert retrieved is not None
     assert retrieved == cached
+
+
+def test_render_cache_get_rejects_tampered_content(tmp_path: Path) -> None:
+    cache = RenderCache(tmp_path / "cache")
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"original")
+
+    cached = cache.put("tampered", source)
+    cached.write_bytes(b"tampered")
+
+    assert cache.get("tampered") is None
+
+
+def test_render_cache_hit_refreshes_lru_access_metadata(
+    tmp_path: Path,
+) -> None:
+    cache = RenderCache(tmp_path / "cache")
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"content")
+    cached = cache.put("access", source)
+    metadata_path = tmp_path / "cache" / ".meta" / "access.mp4.json"
+    before = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    time.sleep(0.01)
+    assert cache.get("access") == cached
+
+    after = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert after["schema"] == 2
+    assert after["source_hash"] == before["source_hash"]
+    assert after["last_accessed_at"] > before["last_accessed_at"]
+    assert cached.stat().st_mtime >= before["last_accessed_at"]
+
+
+def test_render_cache_eviction_uses_least_recently_used_artifacts(
+    tmp_path: Path,
+) -> None:
+    cache = RenderCache(tmp_path / "cache", max_bytes=8)
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    third = tmp_path / "third.mp4"
+    first.write_bytes(b"1111")
+    second.write_bytes(b"2222")
+    third.write_bytes(b"3333")
+
+    first_cached = cache.put("first", first)
+    time.sleep(0.01)
+    second_cached = cache.put("second", second)
+    time.sleep(0.01)
+    assert cache.get("first") == first_cached
+    time.sleep(0.01)
+    third_cached = cache.put("third", third)
+
+    assert first_cached.exists()
+    assert not second_cached.exists()
+    assert third_cached.exists()
+
+
+def test_render_cache_byte_cap_excludes_metadata_sidecars(
+    tmp_path: Path,
+) -> None:
+    cache = RenderCache(tmp_path / "cache", max_bytes=8)
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    first.write_bytes(b"1234")
+    second.write_bytes(b"5678")
+
+    first_cached = cache.put("first", first)
+    second_cached = cache.put("second", second)
+
+    assert first_cached.exists()
+    assert second_cached.exists()
+    assert sum(
+        path.stat().st_size
+        for path in (first_cached, second_cached)
+    ) == 8
+
+
+def test_render_cache_does_not_retain_entry_larger_than_cap(
+    tmp_path: Path,
+) -> None:
+    cache = RenderCache(tmp_path / "cache", max_bytes=3)
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"1234")
+
+    cached = cache.put("oversized", source)
+
+    assert not cached.exists()
+    assert not (tmp_path / "cache" / ".meta" / "oversized.mp4.json").exists()
+
+
+def test_render_cache_max_bytes_parses_units_and_invalid_values() -> None:
+    assert parse_cache_max_bytes("2KiB", default=1) == 2 * 1024
+    assert parse_cache_max_bytes("3mIb", default=1) == 3 * 1024**2
+    assert parse_cache_max_bytes("4GIB", default=1) == 4 * 1024**3
+    assert parse_cache_max_bytes("not-a-size", default=17) == 17
+
+
+def test_render_cache_max_bytes_uses_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPEN_EDIT_RENDER_CACHE_MAX_BYTES", "2MiB")
+    monkeypatch.delenv("OPEN_EDIT_REMOTION_CACHE_MAX_BYTES", raising=False)
+
+    assert cache_max_bytes(tmp_path / "cache") == 2 * 1024**2
+    assert RenderCache(tmp_path / "cache").max_bytes == 2 * 1024**2
+
+
+def test_render_cache_invalid_max_bytes_uses_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPEN_EDIT_RENDER_CACHE_MAX_BYTES", "invalid")
+    monkeypatch.delenv("OPEN_EDIT_REMOTION_CACHE_MAX_BYTES", raising=False)
+
+    assert cache_max_bytes(tmp_path / "cache") == DEFAULT_RENDER_CACHE_MAX_BYTES
+
+
+def test_render_cache_wipe_removes_artifacts_and_metadata(
+    tmp_path: Path,
+) -> None:
+    cache = RenderCache(tmp_path / "cache")
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"content")
+    cached = cache.put("wipe", source)
+    metadata = tmp_path / "cache" / ".meta" / "wipe.mp4.json"
+
+    cache.wipe()
+
+    assert not cached.exists()
+    assert not metadata.exists()
 
 
 def test_render_cache_replaces_same_key_when_source_content_changes(
