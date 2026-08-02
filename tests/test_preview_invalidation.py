@@ -3,15 +3,22 @@ from __future__ import annotations
 import pytest
 
 from open_edit.ir.types import (
+    AddRemotionCompositionOp,
     Clip,
     Effect,
+    FreeFormCodeOp,
     HtmlOverlay,
     RemotionComposition,
+    SetAudioGainOp,
     Timeline,
     Track,
 )
+from open_edit.render.preview_manifest import PreviewRange
 from open_edit.render.preview_invalidation import (
+    classify_operation_planes,
+    compute_chunk_fingerprints,
     make_chunk_windows,
+    select_dirty_windows,
     slice_timeline,
 )
 
@@ -164,3 +171,194 @@ def test_slice_rebases_overlapping_html_and_remotion_overlays() -> None:
     assert sliced.overlays[0].duration_sec == pytest.approx(1.0)
     assert sliced.remotion_compositions[0].position_sec == pytest.approx(0.0)
     assert sliced.remotion_compositions[0].duration_sec == pytest.approx(1.0)
+
+
+def _three_second_timeline() -> Timeline:
+    return Timeline(
+        duration_sec=3.0,
+        tracks=[
+            Track(
+                track_id="a1",
+                kind="audio",
+                clips=[
+                    _clip(
+                        clip_id="a1",
+                        track_id="a1",
+                        track_kind="audio",
+                        in_point=0.0,
+                        out_point=3.0,
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+def _fingerprints(
+    *,
+    old_timeline: Timeline | None,
+    new_timeline: Timeline,
+    operations: list,
+    old_graph_hash: str | None = "old",
+    new_graph_hash: str = "new",
+):
+    return compute_chunk_fingerprints(
+        old_timeline=old_timeline,
+        new_timeline=new_timeline,
+        old_graph_hash=old_graph_hash,
+        new_graph_hash=new_graph_hash,
+        operations=operations,
+        windows=make_chunk_windows(90, 30, 1),
+        profile_fingerprint="profile",
+        content_fingerprint="content",
+    )
+
+
+def test_gain_edit_keeps_video_key_and_dirties_audio() -> None:
+    timeline = _three_second_timeline()
+    baseline = _fingerprints(
+        old_timeline=timeline,
+        new_timeline=timeline,
+        operations=[],
+        old_graph_hash="same",
+        new_graph_hash="same",
+    )[0]
+    gained = _fingerprints(
+        old_timeline=timeline,
+        new_timeline=timeline,
+        operations=[
+            SetAudioGainOp(
+                clip_id="a1",
+                gain_db=-3,
+                author="user",
+            ),
+        ],
+    )[0]
+
+    assert gained.video_key == baseline.video_key
+    assert gained.video_dirty is False
+    assert gained.audio_key != baseline.audio_key
+    assert gained.audio_dirty is True
+
+
+def test_audio_effect_on_video_clip_is_excluded_from_video_key() -> None:
+    old = Timeline(
+        duration_sec=3.0,
+        tracks=[Track(track_id="v1", kind="video", clips=[_clip(clip_id="v1")])],
+    )
+    changed = old.model_copy(deep=True)
+    changed.tracks[0].clips[0].effects = [
+        Effect(effect_id="gain", effect_type="volume", params={"gain": 0.5}),
+    ]
+    got = _fingerprints(
+        old_timeline=old,
+        new_timeline=changed,
+        operations=[SetAudioGainOp(clip_id="v1", gain_db=-6, author="user")],
+    )[0]
+
+    assert got.video_dirty is False
+    assert got.audio_dirty is True
+
+
+def test_remotion_edit_dirties_only_overlapping_video_windows() -> None:
+    old = Timeline(duration_sec=3.0)
+    new = old.model_copy(
+        update={
+            "remotion_compositions": [
+                RemotionComposition(
+                    id="comp-1",
+                    entry_point="src/index.ts",
+                    composition_id="Title",
+                    position_sec=2.0,
+                    duration_sec=0.5,
+                ),
+            ],
+        },
+    )
+    got = _fingerprints(
+        old_timeline=old,
+        new_timeline=new,
+        operations=[
+            AddRemotionCompositionOp(
+                entry_point="src/index.ts",
+                composition_id="Title",
+                composition_uid="comp-1",
+                position_sec=2.0,
+                duration_sec=0.5,
+                author="user",
+            ),
+        ],
+    )
+
+    assert [item.video_dirty for item in got] == [False, False, True]
+    assert [item.audio_dirty for item in got] == [False, False, False]
+    assert got[2].composition_uids == ("comp-1",)
+
+
+def test_unknown_free_form_edit_invalidates_every_plane() -> None:
+    got = _fingerprints(
+        old_timeline=_three_second_timeline(),
+        new_timeline=_three_second_timeline(),
+        operations=[
+            FreeFormCodeOp(
+                code="mutate timeline",
+                label="unknown",
+                author="user",
+            ),
+        ],
+    )
+
+    assert all(item.video_dirty and item.audio_dirty for item in got)
+
+
+def test_missing_old_snapshot_is_conservative() -> None:
+    got = _fingerprints(
+        old_timeline=None,
+        new_timeline=_three_second_timeline(),
+        operations=[],
+        old_graph_hash=None,
+    )
+
+    assert all(item.video_dirty and item.audio_dirty for item in got)
+
+
+def test_operation_plane_classification_uses_target_track() -> None:
+    timeline = _three_second_timeline()
+
+    assert classify_operation_planes(
+        SetAudioGainOp(clip_id="a1", gain_db=-3, author="user"),
+        timeline,
+    ) == frozenset({"audio"})
+    assert classify_operation_planes(
+        AddRemotionCompositionOp(
+            entry_point="src/index.ts",
+            composition_id="Title",
+            position_sec=0.0,
+            duration_sec=1.0,
+            author="user",
+        ),
+        timeline,
+    ) == frozenset({"video"})
+
+
+def test_select_dirty_windows_prioritizes_requested_range_and_neighbors() -> None:
+    fingerprints = _fingerprints(
+        old_timeline=_three_second_timeline(),
+        new_timeline=_three_second_timeline(),
+        operations=[
+            FreeFormCodeOp(
+                code="mutate timeline",
+                label="unknown",
+                author="user",
+            ),
+        ],
+    )
+
+    selected = select_dirty_windows(
+        fingerprints,
+        [PreviewRange(start_sec=2.0, end_sec=2.1)],
+        background=False,
+    )
+
+    assert selected[0] == 2
+    assert set(selected) == {1, 2}
