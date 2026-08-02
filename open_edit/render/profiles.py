@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -15,6 +16,8 @@ from open_edit.render.encoder import (
 
 _KB = re.compile(r"^\d+[kKM]?$")
 _SCALE = re.compile(r"^\d{2,5}x\d{2,5}$")
+PreviewPlane = Literal["video", "audio", "mux"]
+_PREVIEW_CHUNK_GEOMETRY = (640, 360)
 
 
 class RenderProfile(BaseModel):
@@ -77,12 +80,31 @@ class RenderProfile(BaseModel):
         return v
 
 
+def preview_chunk_profile(
+    fps_num: int = 30,
+    fps_den: int = 1,
+) -> RenderProfile:
+    """Build the bounded browser-safe profile used by preview chunks."""
+    return RenderProfile(
+        name="preview_chunk",
+        width=_PREVIEW_CHUNK_GEOMETRY[0],
+        height=_PREVIEW_CHUNK_GEOMETRY[1],
+        frame_rate_num=fps_num,
+        frame_rate_den=fps_den,
+        vcodec="libx264",
+        acodec="aac",
+        quality="fast",
+        ab="96k",
+    )
+
+
 DEFAULT_PROFILES: list[RenderProfile] = [
     RenderProfile(name="1080p30", width=1920, height=1080, frame_rate_num=30, frame_rate_den=1),
     RenderProfile(name="1080p60", width=1920, height=1080, frame_rate_num=60, frame_rate_den=1),
     RenderProfile(name="720p30", width=1280, height=720, frame_rate_num=30, frame_rate_den=1),
     RenderProfile(name="480p30", width=854, height=480, frame_rate_num=30, frame_rate_den=1),
     RenderProfile(name="fast_proxy", width=640, height=360, frame_rate_num=30, frame_rate_den=1),
+    preview_chunk_profile(),
 ]
 
 _PROFILE_BY_NAME: dict[str, RenderProfile] = {p.name: p for p in DEFAULT_PROFILES}
@@ -107,12 +129,31 @@ def profile_with_quality(
 ) -> RenderProfile:
     """Resolve a profile name + mode into a RenderProfile carrying quality.
 
-    Defaults: profile None -> 1080p30 (final) / fast_proxy (proxy);
-    quality None -> standard (final) / fast (proxy).
+    Defaults: profile None -> 1080p30 (final), preview_chunk
+    (preview-chunks), or fast_proxy (proxy); quality None -> standard
+    (final) / fast (other modes).
     """
     if not profile_name:
-        profile_name = "1080p30" if mode == "final" else "fast_proxy"
+        if mode == "final":
+            profile_name = "1080p30"
+        elif mode in ("preview-chunks", "preview_chunks"):
+            profile_name = "preview_chunk"
+        else:
+            profile_name = "fast_proxy"
     profile = select_profile(profile_name)
+    if profile_name == "preview_chunk" and overrides:
+        geometry_keys = (
+            "width", "height", "frame_rate_num", "frame_rate_den", "scale",
+        )
+        attempted = [
+            key for key in geometry_keys
+            if overrides.get(key) is not None
+        ]
+        if attempted:
+            raise ValueError(
+                "preview_chunk geometry is fixed at 640x360; "
+                f"overrides not allowed: {', '.join(attempted)}"
+            )
     update: dict = {"quality": quality or _mode_default_quality(mode)}
     for key in ("crf", "vb", "preset", "scale", "codec", "ab"):
         if overrides and overrides.get(key) is not None:
@@ -129,7 +170,12 @@ def resolve_encoder_args(profile: RenderProfile, backend: str | None = None) -> 
     return apply_overrides(spec, overrides)
 
 
-def profile_fingerprint(profile: RenderProfile, backend: str | None = None) -> str:
+def profile_fingerprint(
+    profile: RenderProfile,
+    backend: str | None = None,
+    *,
+    plane: PreviewPlane | None = None,
+) -> str:
     """Stable cache-key component: resolution + quality + overrides + backend."""
     parts = [profile.name, f"q={profile.quality or 'fast'}"]
     for key in ("crf", "vb", "preset", "scale", "codec", "ab"):
@@ -137,6 +183,29 @@ def profile_fingerprint(profile: RenderProfile, backend: str | None = None) -> s
         if value is not None:
             parts.append(f"{key}={value}")
     parts.append(f"enc={resolve_backend(backend)}")
+    if plane is not None:
+        if plane not in ("video", "audio", "mux"):
+            raise ValueError(f"unknown preview plane {plane!r}")
+        parts.append(f"plane={plane}")
+    return "|".join(parts)
+
+
+def preview_profile_fingerprint(
+    profile: RenderProfile,
+    plane: PreviewPlane,
+    backend: str | None = None,
+) -> str:
+    """Return a stable, plane-specific preview profile identity."""
+    if plane not in ("video", "audio", "mux"):
+        raise ValueError(f"unknown preview plane {plane!r}")
+    parts = [
+        profile_fingerprint(profile, backend, plane=plane),
+        f"size={profile.width}x{profile.height}",
+        f"fps={profile.frame_rate_num}/{profile.frame_rate_den}",
+        f"vcodec={profile.vcodec}",
+        f"acodec={profile.acodec}",
+        f"ab={profile.ab or '96k'}",
+    ]
     return "|".join(parts)
 
 
