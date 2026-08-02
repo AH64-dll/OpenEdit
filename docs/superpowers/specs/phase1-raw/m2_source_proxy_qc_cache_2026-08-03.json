@@ -1,0 +1,230 @@
+{
+  "date": "2026-08-03",
+  "branch": "feat/render-m0-m1-remotion-engine",
+  "source_media_policy": {
+    "final": "original",
+    "review-artifact": "original",
+    "proxy-edit": "proxy",
+    "preview-chunk": "proxy"
+  },
+  "fixtures": {
+    "A": {
+      "asset_hash": "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958",
+      "source_bytes": 53404870,
+      "source_proxy": {
+        "profile": "source_proxy_360_v1",
+        "proxy_hash": "e8b4f060cdf152d24af1acb927cd0157019e040f07aaab11ffca67f2528de938",
+        "proxy_bytes": 7592554,
+        "status": "ready",
+        "cold_elapsed_sec": 8.148650,
+        "warm_elapsed_sec": 0.000357
+      },
+      "plans": {
+        "final": {
+          "source_media_policy": "original",
+          "source_proxy_hits": {},
+          "source_proxy_fallbacks": {},
+          "uses_canonical_source": true
+        },
+        "review-artifact": {
+          "source_media_policy": "original",
+          "source_proxy_hits": {},
+          "source_proxy_fallbacks": {},
+          "uses_canonical_source": true
+        },
+        "proxy-edit": {
+          "source_media_policy": "proxy",
+          "source_proxy_hits": {
+            "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958": "e8b4f060cdf152d24af1acb927cd0157019e040f07aaab11ffca67f2528de938"
+          },
+          "source_proxy_fallbacks": {},
+          "uses_ready_proxy": true
+        },
+        "preview-chunk": {
+          "source_media_policy": "proxy",
+          "source_proxy_hits": {
+            "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958": "e8b4f060cdf152d24af1acb927cd0157019e040f07aaab11ffca67f2528de938"
+          },
+          "source_proxy_fallbacks": {},
+          "uses_ready_proxy": true
+        }
+      },
+      "review_bench": {
+        "cold_wall_sec": 34.121,
+        "warm_wall_sec": 1.592,
+        "warm_cache_hit": true,
+        "cold_qc_elapsed_sec": 1.644,
+        "warm_qc_elapsed_sec": 1.574
+      },
+      "cache": {
+        "before_project_bytes": 107476960,
+        "after_project_bytes": 107476960,
+        "before_cache_bytes": 42262419,
+        "after_cache_bytes": 42262419,
+        "deleted_bytes": 0,
+        "source_intact": true,
+        "proxy_intact": true
+      }
+    },
+    "B": {
+      "asset_hash": "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958",
+      "source_bytes": 53404870,
+      "source_proxy": {
+        "profile": "source_proxy_360_v1",
+        "proxy_hash": "e8b4f060cdf152d24af1acb927cd0157019e040f07aaab11ffca67f2528de938",
+        "proxy_bytes": 7592554,
+        "status": "ready",
+        "cold_elapsed_sec": 7.435353,
+        "warm_elapsed_sec": 0.000295
+      },
+      "plans": {
+        "final": {
+          "source_media_policy": "original",
+          "source_proxy_hits": {},
+          "source_proxy_fallbacks": {},
+          "uses_canonical_source": true
+        },
+        "review-artifact": {
+          "source_media_policy": "original",
+          "source_proxy_hits": {},
+          "source_proxy_fallbacks": {},
+          "uses_canonical_source": true
+        },
+        "proxy-edit": {
+          "source_media_policy": "proxy",
+          "source_proxy_hits": {
+            "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958": "e8b4f060cdf152d24af1acb927cd0157019e040f07aaab11ffca67f2528de938"
+          },
+          "source_proxy_fallbacks": {},
+          "uses_ready_proxy": true
+        },
+        "preview-chunk": {
+          "source_media_policy": "proxy",
+          "source_proxy_hits": {
+            "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958": "e8b4f060cdf152d24af1acb927cd0157019e040f07aaab11ffca67f2528de938"
+          },
+          "source_proxy_fallbacks": {},
+          "uses_ready_proxy": true
+        }
+      },
+      "review_bench": {
+        "cold_wall_sec": 40.865,
+        "warm_wall_sec": 2.484,
+        "warm_cache_hit": true,
+        "cold_qc_elapsed_sec": 2.196,
+        "warm_qc_elapsed_sec": 2.293
+      },
+      "cache": {
+        "before_project_bytes": 311621109,
+        "after_project_bytes": 311621109,
+        "before_cache_bytes": 84337188,
+        "after_cache_bytes": 84337188,
+        "deleted_bytes": 0,
+        "source_intact": true,
+        "proxy_intact": true
+      }
+    },
+    "C": {
+      "asset_hash": "165de875108a35b9153c4e9525b586a5d8a4e09ccd40227ebccd368812c2ff6d",
+      "source_bytes": 153247249,
+      "source_proxy": {
+        "profile": "source_proxy_360_v1",
+        "proxy_hash": "4f8ea22e7df958550e03e37148bc54d416099572b0e82a4c3d007da2d32176e0",
+        "proxy_bytes": 20831455,
+        "status": "ready",
+        "cold_elapsed_sec": 16.774296,
+        "warm_elapsed_sec": 0.000194
+      },
+      "plans": {
+        "final": {
+          "source_media_policy": "original",
+          "source_proxy_hits": {},
+          "source_proxy_fallbacks": {},
+          "uses_canonical_source": true
+        },
+        "review-artifact": {
+          "source_media_policy": "original",
+          "source_proxy_hits": {},
+          "source_proxy_fallbacks": {},
+          "uses_canonical_source": true
+        },
+        "proxy-edit": {
+          "source_media_policy": "proxy",
+          "source_proxy_hits": {
+            "165de875108a35b9153c4e9525b586a5d8a4e09ccd40227ebccd368812c2ff6d": "4f8ea22e7df958550e03e37148bc54d416099572b0e82a4c3d007da2d32176e0"
+          },
+          "source_proxy_fallbacks": {},
+          "uses_ready_proxy": true
+        },
+        "preview-chunk": {
+          "source_media_policy": "proxy",
+          "source_proxy_hits": {
+            "165de875108a35b9153c4e9525b586a5d8a4e09ccd40227ebccd368812c2ff6d": "4f8ea22e7df958550e03e37148bc54d416099572b0e82a4c3d007da2d32176e0"
+          },
+          "source_proxy_fallbacks": {},
+          "uses_ready_proxy": true
+        }
+      },
+      "review_bench": {
+        "cold_wall_sec": 112.636,
+        "warm_wall_sec": 4.296,
+        "warm_cache_hit": true,
+        "cold_qc_elapsed_sec": 4.264,
+        "warm_qc_elapsed_sec": 4.251
+      },
+      "cache": {
+        "before_project_bytes": 405371823,
+        "after_project_bytes": 405371823,
+        "before_cache_bytes": 105315803,
+        "after_cache_bytes": 105315803,
+        "deleted_bytes": 0,
+        "source_intact": true,
+        "proxy_intact": true
+      }
+    }
+  },
+  "qc_policy_probe": {
+    "proxy_cold": {
+      "policy": "light",
+      "complete": false,
+      "skipped_detectors": [
+        "black_frames",
+        "frozen_frames",
+        "silence",
+        "thumbnail"
+      ],
+      "reason": "policy=light"
+    },
+    "proxy_warm_cache_hit": {
+      "policy": "skip",
+      "complete": false,
+      "skipped_detectors": [
+        "render_completed",
+        "proxy_render",
+        "streams",
+        "duration",
+        "audio_sync",
+        "black_frames",
+        "frozen_frames",
+        "silence",
+        "overlays_burned",
+        "thumbnail"
+      ],
+      "reason": "policy=skip; render completed successfully"
+    },
+    "final_budget_sec": {
+      "duration_180": 135.0,
+      "duration_3600": 900.0,
+      "policy": "full",
+      "total_budget_sec": 900.0,
+      "blackdetect_max_sec": 900.0
+    }
+  },
+  "cache_settings": {
+    "render_cache_max_bytes": 1073741824,
+    "remotion_cache_max_bytes": 536870912,
+    "source_proxy_max_bytes": 1073741824,
+    "max_age_sec": 86400,
+    "min_free_bytes": 536870912
+  }
+}

@@ -151,6 +151,10 @@ def emit_timeline(
 
     Pure function. Returns a complete MLT document string.
 
+    The timeline is emitted in its supplied coordinate system.  A preview
+    range should therefore be passed in after ``slice_timeline`` has rebased
+    it to local frame zero; this function does not restore a project offset.
+
     The optional ``asset_paths`` parameter maps asset_hash -> filesystem
     path. When a clip's asset_hash is in this map, the corresponding
     producer's ``resource`` attribute uses the resolved path; otherwise it

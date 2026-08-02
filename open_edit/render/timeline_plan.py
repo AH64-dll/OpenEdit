@@ -61,7 +61,12 @@ def build_render_plan(
     emission_profile: EmissionProfile | None = None,
     enqueue_missing_proxies: bool = True,
 ) -> RenderPlan:
-    """Build a render plan with explicit source-media semantics."""
+    """Build a render plan with explicit source-media semantics.
+
+    ``timeline`` is consumed exactly as supplied.  Preview callers may pass a
+    frame-sliced, local-coordinate timeline; planning must not re-derive it or
+    restore its original project offset.
+    """
     requested_profile = emission_profile or _default_emission_profile(mode)
     source_media_policy = source_media_policy_for(requested_profile)
     if mode == "final" and source_media_policy != "original":
