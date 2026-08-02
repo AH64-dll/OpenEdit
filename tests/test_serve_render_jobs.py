@@ -35,7 +35,6 @@ from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE  # noqa: E40
 from open_edit.serve import app as app_mod  # noqa: E402
 from open_edit.serve import projects as projects_mod  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -315,6 +314,29 @@ def test_render_route_accepts_preview_chunks_and_returns_result(
     job = DEFAULT_RENDER_JOB_SERVICE.get(proj, body["job_id"])
     assert job is not None
     assert job.params["media"] == "audio"
+
+
+def test_render_route_rejects_preview_chunks_when_gate_is_disabled(
+    seeded_project, monkeypatch,
+):
+    from fastapi.testclient import TestClient
+
+    proj, project_id = seeded_project
+    monkeypatch.delenv("OPEN_EDIT_PREVIEW_CHUNKS", raising=False)
+    with TestClient(app_mod.app) as client:
+        response = client.post(
+            f"/api/projects/{project_id}/render",
+            json={
+                "mode": "preview-chunks",
+                "ranges": [{"start_sec": 0, "end_sec": 1}],
+            },
+        )
+
+    assert response.status_code == 409
+    body = response.json()
+    error_text = body.get("detail", body.get("error", ""))
+    assert "OPEN_EDIT_PREVIEW_CHUNKS=1" in error_text
+    assert DEFAULT_RENDER_JOB_SERVICE.list_jobs(proj) == []
 
 
 def test_render_request_rejects_bad_quality(seeded_project):

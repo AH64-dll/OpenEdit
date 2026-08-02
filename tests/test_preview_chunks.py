@@ -10,7 +10,7 @@ import pytest
 
 from open_edit import cli
 from open_edit.ir.hash import compute_edit_graph_hash
-from open_edit.ir.types import AddClipOp
+from open_edit.ir.types import AddClipOp, AddRemotionCompositionOp, SetAudioGainOp
 from open_edit.kernel.render_jobs import RenderJob, RenderJobService
 from open_edit.render import preview_chunks
 from open_edit.render.preview_cache import PreviewChunkCache
@@ -23,7 +23,11 @@ from open_edit.render.preview_manifest import (
 from open_edit.storage.edit_graph import EditGraphStore
 
 
-def _project(tmp_path: Path) -> tuple[Path, EditGraphStore]:
+def _project(
+    tmp_path: Path,
+    *,
+    duration_sec: float = 2.0,
+) -> tuple[Path, EditGraphStore]:
     project_dir = tmp_path / "project"
     open_edit_dir = project_dir / ".open_edit"
     open_edit_dir.mkdir(parents=True)
@@ -36,7 +40,7 @@ def _project(tmp_path: Path) -> tuple[Path, EditGraphStore]:
             track_kind="video",
             position_sec=0.0,
             in_point_sec=0.0,
-            out_point_sec=2.0,
+            out_point_sec=duration_sec,
         )
     )
     return project_dir, store
@@ -45,6 +49,8 @@ def _project(tmp_path: Path) -> tuple[Path, EditGraphStore]:
 def _seed_manifest(
     project_dir: Path,
     store: EditGraphStore,
+    *,
+    duration_sec: float = 2.0,
 ) -> PreviewChunkCache:
     cache = PreviewChunkCache(
         project_dir / ".open_edit" / "preview_chunks",
@@ -54,7 +60,8 @@ def _seed_manifest(
     )
     graph_hash = compute_edit_graph_hash(store.load_all())
     chunks: list[PreviewChunk] = []
-    for index in range(2):
+    chunk_count = max(1, round(duration_sec))
+    for index in range(chunk_count):
         states: dict[str, PreviewPlaneState] = {}
         for plane, suffix in (("video", "mp4"), ("audio", "m4a"), ("playback", "mp4")):
             key = (
@@ -91,8 +98,8 @@ def _seed_manifest(
             project_id="project",
             graph_revision=store.graph_revision(),
             edit_graph_hash=graph_hash,
-            duration_frames=60,
-            duration_sec=2.0,
+            duration_frames=chunk_count * 30,
+            duration_sec=float(chunk_count),
             fps_num=30,
             fps_den=1,
             chunk_frames=30,
@@ -104,7 +111,19 @@ def _seed_manifest(
     return cache
 
 
-def _patch_params(monkeypatch: pytest.MonkeyPatch, params: dict) -> None:
+def _patch_params(
+    monkeypatch: pytest.MonkeyPatch,
+    params: dict,
+    *,
+    chunk_count: int = 2,
+    video_dirty_indices: set[int] | None = None,
+    audio_dirty_indices: set[int] | None = None,
+    key_prefix: str = "new",
+) -> None:
+    if video_dirty_indices is None:
+        video_dirty_indices = {1}
+    if audio_dirty_indices is None:
+        audio_dirty_indices = set(video_dirty_indices)
     monkeypatch.setattr(
         preview_chunks,
         "_load_job_params",
@@ -115,15 +134,15 @@ def _patch_params(monkeypatch: pytest.MonkeyPatch, params: dict) -> None:
         "compute_chunk_fingerprints",
         lambda **_: [
             ChunkFingerprint(
-                video_key=f"new-video-{index}",
-                audio_key=f"new-audio-{index}",
+                video_key=f"{key_prefix}-video-{index}",
+                audio_key=f"{key_prefix}-audio-{index}",
                 composition_uids=(),
-                video_dirty=index == 1,
-                audio_dirty=index == 1,
+                video_dirty=index in video_dirty_indices,
+                audio_dirty=index in audio_dirty_indices,
                 start_sec=float(index),
                 end_sec=float(index + 1),
             )
-            for index in range(2)
+            for index in range(chunk_count)
         ],
     )
 
@@ -175,6 +194,195 @@ def test_worker_reuses_green_chunk_and_publishes_new_chunk(
     assert manifest is not None
     assert manifest.chunks[0].status == "green"
     assert manifest.chunks[1].status == "green"
+
+
+def test_preview_worker_reports_structured_acceptance_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, store = _project(tmp_path)
+    _seed_manifest(project_dir, store)
+    _patch_params(
+        monkeypatch,
+        {"ranges": [{"start_sec": 1.0, "end_sec": 2.0}], "media": "both"},
+    )
+
+    result = preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-diagnostics",
+        renderer=FakePreviewVideoRenderer(),
+        run_commands=_run_commands,
+    )
+
+    diagnostics = result["diagnostics"]
+    assert diagnostics["counts"]["total_chunks"] == 2
+    assert diagnostics["counts"]["selected_chunks"] == 1
+    assert diagnostics["counts"]["skipped_green"] == 1
+    assert diagnostics["selected_ranges"] == [
+        {"start_sec": 1.0, "end_sec": 2.0},
+    ]
+    assert set(diagnostics["elapsed_sec"]) == {"video", "audio", "mux"}
+    assert diagnostics["bytes_written"]["video"] > 0
+    assert diagnostics["bytes_written"]["audio"] > 0
+    assert diagnostics["bytes_written"]["mux"] > 0
+    assert diagnostics["cache"]["hits"] >= 1
+    assert diagnostics["cache"]["misses"] >= 1
+    assert diagnostics["evictions"]["removed_files"] >= 0
+    assert diagnostics["graph_changed"] is False
+    assert diagnostics["partial"] is False
+
+
+def test_one_remotion_edit_updates_only_its_preview_zone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, store = _project(tmp_path, duration_sec=4.0)
+    _seed_manifest(project_dir, store, duration_sec=4.0)
+    _patch_params(
+        monkeypatch,
+        {"ranges": [{"start_sec": 0.0, "end_sec": 4.0}], "media": "both"},
+        chunk_count=4,
+        video_dirty_indices={0, 1, 2, 3},
+        audio_dirty_indices={0, 1, 2, 3},
+    )
+    preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-remotion-initial",
+        renderer=FakePreviewVideoRenderer(),
+        run_commands=_run_commands,
+    )
+
+    store.append(
+        AddRemotionCompositionOp(
+            author="user",
+            entry_point="src/index.ts",
+            composition_id="Title",
+            position_sec=2.2,
+            duration_sec=0.4,
+        )
+    )
+    _patch_params(
+        monkeypatch,
+        {"ranges": [{"start_sec": 2.0, "end_sec": 3.0}], "media": "both"},
+        chunk_count=4,
+        video_dirty_indices={2},
+        audio_dirty_indices=set(),
+    )
+
+    def fake_slice_and_emit(**kwargs):
+        path = kwargs["temp_dir"] / "remotion-acceptance.mlt"
+        path.write_text("<mlt/>", encoding="utf-8")
+        return kwargs["timeline"], path, []
+
+    monkeypatch.setattr(preview_chunks, "_slice_and_emit", fake_slice_and_emit)
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingRenderer(FakePreviewVideoRenderer):
+        def render(self, request) -> Path:
+            started.set()
+            assert release.wait(timeout=5)
+            return super().render(request)
+
+    result_box: dict[str, dict] = {}
+
+    def run() -> None:
+        result_box["result"] = preview_chunks.render_preview_chunks(
+            project_id="project",
+            project_dir=project_dir,
+            job_id="job-remotion-edit",
+            renderer=BlockingRenderer(),
+            run_commands=_run_commands,
+        )
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    assert started.wait(timeout=5)
+    cache = PreviewChunkCache(
+        project_dir / ".open_edit" / "preview_chunks",
+        min_free_bytes=0,
+    )
+    while True:
+        manifest = cache.read_manifest()
+        assert manifest is not None
+        if manifest.chunks[2].status in {"yellow", "red"}:
+            break
+        time.sleep(0.01)
+    assert manifest.chunks[0].status == "green"
+    assert manifest.chunks[1].status == "green"
+    assert manifest.chunks[3].status == "green"
+    release.set()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert result_box["result"]["ok"] is True
+    assert cache.read_manifest().chunks[2].status == "green"
+
+
+def test_audio_gain_does_not_flush_video(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, store = _project(tmp_path)
+    _seed_manifest(project_dir, store)
+    _patch_params(
+        monkeypatch,
+        {"ranges": [{"start_sec": 0.0, "end_sec": 2.0}], "media": "both"},
+        video_dirty_indices={0, 1},
+        audio_dirty_indices={0, 1},
+    )
+    first = preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-audio-initial",
+        renderer=FakePreviewVideoRenderer(),
+        run_commands=_run_commands,
+    )
+    before = PreviewChunkCache(
+        project_dir / ".open_edit" / "preview_chunks",
+        min_free_bytes=0,
+    ).read_manifest()
+    assert before is not None
+    before_video_ids = [
+        chunk.video.current.artifact_id for chunk in before.chunks
+    ]
+    before_audio_ids = [
+        chunk.audio.current.artifact_id for chunk in before.chunks
+    ]
+    assert first["ok"] is True
+
+    clip_id = store.load_all()[0].clip_id
+    store.append(SetAudioGainOp(author="user", clip_id=clip_id, gain_db=-6.0))
+    _patch_params(
+        monkeypatch,
+        {"ranges": [{"start_sec": 0.0, "end_sec": 1.0}], "media": "audio"},
+        video_dirty_indices=set(),
+        audio_dirty_indices={0},
+        key_prefix="audio-edit",
+    )
+    renderer = FakePreviewVideoRenderer()
+    after = preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-audio-edit",
+        renderer=renderer,
+        run_commands=_run_commands,
+    )
+    manifest = PreviewChunkCache(
+        project_dir / ".open_edit" / "preview_chunks",
+        min_free_bytes=0,
+    ).read_manifest()
+    assert manifest is not None
+    assert renderer.calls == []
+    assert [
+        chunk.video.current.artifact_id for chunk in manifest.chunks
+    ] == before_video_ids
+    assert [
+        chunk.audio.current.artifact_id for chunk in manifest.chunks
+    ] != before_audio_ids
+    assert after["diagnostics"]["bytes_written"]["video"] == 0
 
 
 def test_worker_reuses_all_green_chunks_when_graph_is_unchanged(

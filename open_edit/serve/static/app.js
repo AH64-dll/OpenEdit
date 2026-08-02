@@ -379,6 +379,57 @@ function setRenderButtonsBusy(busy, label) {
   }
 }
 
+/**
+ * Convert worker diagnostics into short, structured UI labels.
+ *
+ * Preview diagnostics intentionally consume only bounded counters, ranges,
+ * timings, and byte totals.  Paths and arbitrary nested worker data are not
+ * copied into the browser-visible labels.
+ */
+export function formatPreviewDiagnostics(raw) {
+  const diagnostics = raw?.diagnostics && typeof raw.diagnostics === 'object'
+    ? raw.diagnostics
+    : (raw && typeof raw === 'object' ? raw : {});
+  const counts = diagnostics.counts && typeof diagnostics.counts === 'object'
+    ? diagnostics.counts
+    : {};
+  const elapsed = diagnostics.elapsed_sec && typeof diagnostics.elapsed_sec === 'object'
+    ? diagnostics.elapsed_sec
+    : {};
+  const bytes = diagnostics.bytes_written && typeof diagnostics.bytes_written === 'object'
+    ? diagnostics.bytes_written
+    : {};
+  const cache = diagnostics.cache && typeof diagnostics.cache === 'object'
+    ? diagnostics.cache
+    : {};
+  const evictions = diagnostics.evictions && typeof diagnostics.evictions === 'object'
+    ? diagnostics.evictions
+    : {};
+  const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+  const seconds = (value) => `${number(value).toFixed(2)}s`;
+  const ranges = Array.isArray(diagnostics.selected_ranges)
+    ? diagnostics.selected_ranges
+      .filter((range) => range && Number.isFinite(Number(range.start_sec))
+        && Number.isFinite(Number(range.end_sec)))
+      .map((range) => `${number(range.start_sec).toFixed(2)}–${number(range.end_sec).toFixed(2)}s`)
+    : [];
+  const stateLabel = diagnostics.graph_changed
+    ? 'Graph changed'
+    : diagnostics.partial
+      ? 'Partial'
+      : 'Ready';
+  return {
+    counts: `Chunks ${number(counts.selected_chunks)}/${number(counts.total_chunks)}`,
+    ranges: `Ranges ${ranges.length ? ranges.join(', ') : 'none'}`,
+    skipped_green: `Skipped green ${number(counts.skipped_green)}`,
+    elapsed: `Video ${seconds(elapsed.video)} · Audio ${seconds(elapsed.audio)} · Mux ${seconds(elapsed.mux)}`,
+    bytes: `Bytes ${fmtBytes(number(bytes.video))} video · ${fmtBytes(number(bytes.audio))} audio · ${fmtBytes(number(bytes.mux))} mux`,
+    cache: `Cache ${number(cache.hits)} hits / ${number(cache.misses)} misses`,
+    evictions: `Evictions ${number(evictions.removed_files)} files · ${fmtBytes(number(evictions.removed_bytes))}`,
+    state: stateLabel,
+  };
+}
+
 function renderRendersList(renders) {
   const list = $('#renders-list');
   if (!list) return;
@@ -1370,6 +1421,7 @@ document.addEventListener('DOMContentLoaded', boot);
 window.OpenEdit = {
   state,
   api,
+  formatPreviewDiagnostics,
   connectWS,
   refreshProjects,
   loadProjectState,

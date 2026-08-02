@@ -424,6 +424,11 @@ async def test_preview_chunks_job_persists_exact_params_and_skips_qc(
             "output_path": str(launched),
             "manifest_path": str(launched),
             "green_chunks": 1,
+            "diagnostics": {
+                "counts": {"selected_chunks": 1},
+                "graph_changed": False,
+                "partial": False,
+            },
         }
 
     async def fail_if_qc(*args, **kwargs):
@@ -447,6 +452,8 @@ async def test_preview_chunks_job_persists_exact_params_and_skips_qc(
     assert completed.output_path == str(launched)
     assert completed.result["mode"] == "preview-chunks"
     assert completed.result["green_chunks"] == 1
+    assert completed.result["diagnostics"]["counts"]["selected_chunks"] == 1
+    assert completed.result["diagnostics"]["graph_changed"] is False
     assert qc_called is False
 
 

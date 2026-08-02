@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -64,6 +65,7 @@ _DEFAULT_FPS_NUM = 30
 _DEFAULT_FPS_DEN = 1
 _MEDIA = frozenset({"video", "audio", "both"})
 _PLANES = ("video", "audio", "playback")
+_PREVIEW_STAGES = ("video", "audio", "mux")
 _KNOWN_OPERATION_KINDS = frozenset(
     {
         "add_clip",
@@ -104,6 +106,93 @@ class PreviewChunkWorkerError(RuntimeError):
 
 class _GraphChangedError(Exception):
     """Internal control flow for a stale worker."""
+
+
+@dataclasses.dataclass
+class _PreviewDiagnostics:
+    """Bounded, browser-safe accounting for one preview worker job."""
+
+    counts: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {
+            "total_chunks": 0,
+            "selected_chunks": 0,
+            "processed_chunks": 0,
+            "skipped_green": 0,
+            "failed_chunks": 0,
+        }
+    )
+    selected_ranges: list[dict[str, float]] = dataclasses.field(default_factory=list)
+    elapsed_sec: dict[str, float] = dataclasses.field(
+        default_factory=lambda: dict.fromkeys(_PREVIEW_STAGES, 0.0)
+    )
+    bytes_written: dict[str, int] = dataclasses.field(
+        default_factory=lambda: dict.fromkeys(_PREVIEW_STAGES, 0)
+    )
+    cache_hits: int = 0
+    cache_misses: int = 0
+    cache_hits_by_plane: dict[str, int] = dataclasses.field(
+        default_factory=lambda: dict.fromkeys(_PLANES, 0)
+    )
+    cache_misses_by_plane: dict[str, int] = dataclasses.field(
+        default_factory=lambda: dict.fromkeys(_PLANES, 0)
+    )
+    evictions: dict[str, int] = dataclasses.field(
+        default_factory=lambda: {
+            "removed_files": 0,
+            "removed_bytes": 0,
+            "cleared_fallbacks": 0,
+        }
+    )
+
+    def cache_hit(self, plane: str) -> None:
+        if plane not in self.cache_hits_by_plane:
+            return
+        self.cache_hits += 1
+        self.cache_hits_by_plane[plane] += 1
+
+    def cache_miss(self, plane: str) -> None:
+        if plane not in self.cache_misses_by_plane:
+            return
+        self.cache_misses += 1
+        self.cache_misses_by_plane[plane] += 1
+
+    def stage(self, name: str, elapsed: float, *, bytes_written: int = 0) -> None:
+        if name not in self.elapsed_sec:
+            return
+        self.elapsed_sec[name] += max(0.0, float(elapsed))
+        self.bytes_written[name] += max(0, int(bytes_written))
+
+    def record_evictions(self, result: Mapping[str, Any] | None) -> None:
+        if not isinstance(result, Mapping):
+            return
+        for key in self.evictions:
+            value = result.get(key)
+            if isinstance(value, int) and value >= 0:
+                self.evictions[key] = value
+
+    def payload(self, *, graph_changed: bool, partial: bool) -> dict[str, Any]:
+        self.counts["failed_chunks"] = max(
+            self.counts.get("failed_chunks", 0),
+            0,
+        )
+        return {
+            "counts": dict(self.counts),
+            "selected_ranges": list(self.selected_ranges),
+            "elapsed_sec": dict(self.elapsed_sec),
+            "bytes_written": dict(self.bytes_written),
+            "cache": {
+                "hits": self.cache_hits,
+                "misses": self.cache_misses,
+                "hits_by_plane": dict(self.cache_hits_by_plane),
+                "misses_by_plane": dict(self.cache_misses_by_plane),
+            },
+            "evictions": dict(self.evictions),
+            "graph_changed": graph_changed,
+            "partial": partial,
+        }
+
+
+logger = logging.getLogger(__name__)
 
 
 def _load_job_params(project_dir: Path, job_id: str) -> dict[str, Any]:
@@ -773,6 +862,7 @@ def _bake_chunk(
     graph_revision: int,
     graph_hash: str,
     failed_chunks: list[str],
+    metrics: _PreviewDiagnostics,
 ) -> bool:
     chunk = active.chunks[chunk_index]
     video_changed = False
@@ -800,6 +890,16 @@ def _bake_chunk(
     )
 
     if need_video:
+        metrics.cache_miss("video")
+    elif _artifact_is_usable(cache, chunk.video.current) is not None:
+        metrics.cache_hit("video")
+    if need_audio:
+        metrics.cache_miss("audio")
+    elif _artifact_is_usable(cache, chunk.audio.current) is not None:
+        metrics.cache_hit("audio")
+
+    if need_video:
+        video_t0 = time.monotonic()
         try:
             _check_graph(store, graph_revision, graph_hash)
             sliced, xml_path, overlays = _slice_and_emit(
@@ -837,13 +937,18 @@ def _bake_chunk(
                 "video",
                 PreviewPlaneState(status="green", current=artifact),
             )
+            metrics.stage("video", time.monotonic() - video_t0, bytes_written=artifact.bytes)
             video_changed = True
         except _GraphChangedError:
             raise
         except Exception as exc:
             fail_plane("video", exc)
+        finally:
+            if not video_changed:
+                metrics.stage("video", time.monotonic() - video_t0)
 
     if need_audio:
+        audio_t0 = time.monotonic()
         try:
             _check_graph(store, graph_revision, graph_hash)
             _sliced, xml_path, audio_overlays = _slice_and_emit(
@@ -886,11 +991,15 @@ def _bake_chunk(
                 "audio",
                 PreviewPlaneState(status="green", current=artifact),
             )
+            metrics.stage("audio", time.monotonic() - audio_t0, bytes_written=artifact.bytes)
             audio_changed = True
         except _GraphChangedError:
             raise
         except Exception as exc:
             fail_plane("audio", exc)
+        finally:
+            if not audio_changed:
+                metrics.stage("audio", time.monotonic() - audio_t0)
 
     if video_changed or audio_changed:
         video_path = _artifact_path(cache, chunk.video)
@@ -903,6 +1012,8 @@ def _bake_chunk(
             and video_artifact is not None
             and audio_artifact is not None
         ):
+            metrics.cache_miss("playback")
+            mux_t0 = time.monotonic()
             try:
                 _check_graph(store, graph_revision, graph_hash)
                 if xml_path is None:
@@ -946,10 +1057,16 @@ def _bake_chunk(
                     "playback",
                     PreviewPlaneState(status="green", current=artifact),
                 )
+                metrics.stage("mux", time.monotonic() - mux_t0, bytes_written=artifact.bytes)
             except _GraphChangedError:
                 raise
             except Exception as exc:
                 fail_plane("playback", exc)
+            finally:
+                if chunk.playback.status != "green":
+                    metrics.stage("mux", time.monotonic() - mux_t0)
+    elif _artifact_is_usable(cache, chunk.playback.current) is not None:
+        metrics.cache_hit("playback")
 
     active.chunks[chunk_index] = chunk.model_copy(
         update={"status": _chunk_status(chunk)}
@@ -1021,9 +1138,16 @@ def _result(
     failed_chunks: list[str],
     graph_changed: bool,
     partial: bool,
+    job_id: str | None = None,
+    metrics: _PreviewDiagnostics | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
+    metrics = metrics or _PreviewDiagnostics()
     chunks = manifest.chunks if manifest is not None else []
+    metrics.counts["total_chunks"] = max(
+        metrics.counts.get("total_chunks", 0),
+        len(chunks),
+    )
     statuses = [effective_status(chunk) for chunk in chunks]
     green = statuses.count("green")
     yellow = statuses.count("yellow")
@@ -1040,9 +1164,35 @@ def _result(
         "failed_chunks": list(dict.fromkeys(failed_chunks)),
         "partial": partial,
         "graph_changed": graph_changed,
+        "diagnostics": metrics.payload(
+            graph_changed=graph_changed,
+            partial=partial,
+        ),
     }
+    result["diagnostics"]["counts"]["failed_chunks"] = len(
+        list(dict.fromkeys(failed_chunks))
+    )
     if error is not None:
         result["error"] = error
+    logger.info(
+        "preview_chunks_result job_id=%s graph_changed=%s partial=%s "
+        "total_chunks=%s selected_chunks=%s skipped_green=%s "
+        "video_elapsed_sec=%.3f audio_elapsed_sec=%.3f mux_elapsed_sec=%.3f "
+        "bytes_written=%s cache_hits=%s cache_misses=%s evictions=%s",
+        job_id or "(unknown)",
+        graph_changed,
+        partial,
+        result["diagnostics"]["counts"]["total_chunks"],
+        result["diagnostics"]["counts"]["selected_chunks"],
+        result["diagnostics"]["counts"]["skipped_green"],
+        result["diagnostics"]["elapsed_sec"]["video"],
+        result["diagnostics"]["elapsed_sec"]["audio"],
+        result["diagnostics"]["elapsed_sec"]["mux"],
+        result["diagnostics"]["bytes_written"],
+        result["diagnostics"]["cache"]["hits"],
+        result["diagnostics"]["cache"]["misses"],
+        result["diagnostics"]["evictions"],
+    )
     return result
 
 
@@ -1061,6 +1211,7 @@ def render_preview_chunks(
     temp_dir = _job_temp_dir(cache, job_id)
     temp_dir.mkdir(parents=True, exist_ok=True)
     failed_chunks: list[str] = []
+    metrics = _PreviewDiagnostics()
     graph_changed = False
     params: dict[str, Any] = {}
     captured_graph_revision: int | None = None
@@ -1086,6 +1237,8 @@ def render_preview_chunks(
                 failed_chunks=[],
                 graph_changed=True,
                 partial=False,
+                job_id=job_id,
+                metrics=metrics,
             )
         old_timeline = _load_snapshot(
             store, previous, timeline, graph_hash,
@@ -1159,6 +1312,8 @@ def render_preview_chunks(
                 failed_chunks=[],
                 graph_changed=True,
                 partial=False,
+                job_id=job_id,
+                metrics=metrics,
             )
 
         selected = select_dirty_windows(
@@ -1166,6 +1321,30 @@ def render_preview_chunks(
             requested_ranges,
             background=background,
         )
+        selected_set = set(selected)
+        metrics.counts["total_chunks"] = len(active.chunks)
+        metrics.counts["selected_chunks"] = len(selected)
+        metrics.counts["skipped_green"] = sum(
+            1
+            for index, chunk in enumerate(active.chunks)
+            if index not in selected_set and effective_status(chunk) == "green"
+        )
+        metrics.selected_ranges = [
+            {
+                "start_sec": windows[index].start_frame * fps_den / fps_num,
+                "end_sec": windows[index].end_frame * fps_den / fps_num,
+            }
+            for index in selected
+        ]
+        for index, chunk in enumerate(active.chunks):
+            if index in selected_set or effective_status(chunk) != "green":
+                continue
+            for plane in _PLANES:
+                if _artifact_is_usable(
+                    cache,
+                    getattr(chunk, plane).current,
+                ) is not None:
+                    metrics.cache_hit(plane)
         active_renderer = renderer or get_preview_video_renderer(project_dir)
         active_runner = run_commands or run_preview_pipe
         encoder = _resolve_encoder(
@@ -1176,6 +1355,7 @@ def render_preview_chunks(
         melt_bin = shutil.which("melt") or "melt"
         for index in selected:
             _check_graph(store, graph_revision, graph_hash)
+            metrics.counts["processed_chunks"] += 1
             _bake_chunk(
                 cache=cache,
                 active=active,
@@ -1196,6 +1376,7 @@ def render_preview_chunks(
                 graph_revision=graph_revision,
                 graph_hash=graph_hash,
                 failed_chunks=failed_chunks,
+                metrics=metrics,
             )
             _check_graph(store, graph_revision, graph_hash)
             active = active.model_copy(update={"job_id": job_id})
@@ -1218,14 +1399,19 @@ def render_preview_chunks(
             )
             final_manifest = cache.read_manifest()
             if final_manifest is not None:
-                cache.prune(final_manifest)
+                metrics.record_evictions(cache.prune(final_manifest))
                 final_manifest = cache.read_manifest() or final_manifest
+            metrics.counts["failed_chunks"] = len(
+                list(dict.fromkeys(failed_chunks))
+            )
             return _result(
                 cache=cache,
                 manifest=final_manifest,
                 failed_chunks=failed_chunks,
                 graph_changed=False,
                 partial=bool(failed_chunks),
+                job_id=job_id,
+                metrics=metrics,
             )
     except _GraphChangedError:
         graph_changed = True
@@ -1248,6 +1434,8 @@ def render_preview_chunks(
             failed_chunks=failed_chunks,
             graph_changed=graph_changed,
             partial=bool(failed_chunks),
+            job_id=job_id,
+            metrics=metrics,
             error=str(exc),
         )
     finally:
@@ -1271,6 +1459,8 @@ def render_preview_chunks(
         failed_chunks=failed_chunks,
         graph_changed=True,
         partial=bool(failed_chunks),
+        job_id=job_id,
+        metrics=metrics,
     )
 
 
