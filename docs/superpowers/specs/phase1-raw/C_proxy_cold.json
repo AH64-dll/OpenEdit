@@ -1,0 +1,341 @@
+{
+  "ok": true,
+  "error": null,
+  "mode": "proxy",
+  "force": true,
+  "cache_hit_render": false,
+  "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/renders/project_a6b2ae62a2b8.mp4",
+  "duration_sec": 180.013167,
+  "edit_graph_hash": "a6b2ae62a2b8f8424a50ef2ce9f84bfafcdf1458b723ec6be82efcdd81873958",
+  "wall_clock_sec": 157.172,
+  "wall_render_only_sec": 155.273,
+  "orchestrator_elapsed_sec": 45.96942485699947,
+  "stage_breakdown_sec": {
+    "timeline_derive": 0.005,
+    "remotion_materialize": 93.72,
+    "remotion_materialize_wrapper": 93.72,
+    "melt": 0.0,
+    "ffmpeg": 42.901,
+    "audio_melt": 1.456,
+    "source_repair": 1.611,
+    "qc": 1.899
+  },
+  "remotion": {
+    "composition_count_events_render": 12,
+    "composition_cache_hits": 0,
+    "render_wall_sum_sec": 93.201,
+    "events": [
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:6006fba2cff787cf73b3574cc0331663e8276ea5aea4465e914bf2a581",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 8.567,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/6fa91d6c-37d8-43c4-90f0-b9f1d67f005c_6006fba2cff7.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:fecef364771bf01c0cd43a8fe486dc0bd206864e8f7b6024a00ee4deeb",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.267,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/b3389b85-4a65-4501-b99a-84c30d07f7bb_fecef364771b.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:41c1a12f8a7a7b0f27adf670fb8056cc75e88588badd4726a64aeaf60f",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.265,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/29a9a33c-5349-448d-aee2-dfe116d6539d_41c1a12f8a7a.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:52d7f9d9e3f55e5c8973ca5be4b7e4ee6dc366dd0397e3bf1e9bcb7000",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 8.571,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/2d0f4c3a-0ac9-4141-a6b9-d899088eeef4_52d7f9d9e3f5.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:f3332e77ccadb8a32ae5d231e36f8dfeeceb0f18332ea2359489bc248f",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.319,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/d600a7e4-cf23-4932-8608-5cb39128d044_f3332e77ccad.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:ca90be94ae81e7819d520dd59531e82fb757228b9eb868bf2ec7f3c2c5",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.266,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/dc2258b8-19af-405c-8f5f-5be62460a67f_ca90be94ae81.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:012af74aa0f0945b4142a8cdd5fa24fb35570cc4623dc0e53d74c43b1c",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 8.769,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/e21732f3-c7fa-49d7-90b0-f32abad7f8bd_012af74aa0f0.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:395ad6dae5e2b73b75e32473a26d5ff7811849642c08f98730f049acf3",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.264,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/906e7eb0-666a-431d-b8d1-d91e4408f768_395ad6dae5e2.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:afc3803c68615f31bbb01b3fe99ce5e8260df9e5142344d278ae8f1bd5",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.264,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/f4e1cb3f-c528-4f44-b09a-6b2e95c76675_afc3803c6861.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:3924f3ee0b4ee854ee5899080a2e89a633fb7b009955d0acdfeace5508",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 8.767,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/a051c9c3-bd84-43fa-ab9a-e94f9b454944_3924f3ee0b4e.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:8e112b1fab7945074db43d614734bbfb7f3e89f06ea5239648d65809a3",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.465,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/0b69c052-72ee-49c6-a6b7-e7e87ebd4c94_8e112b1fab79.mp4"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:TitleCard:ebc0e649684843a5828b18363ce4dff6f6b12acf8f7e370e4bb8ed29bc",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "TitleCard",
+        "elapsed_sec": 7.417,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/remotion/out/proxy/3b6cc717-6589-42d1-9d51-717346978365_ebc0e6496848.mp4"
+      }
+    ]
+  },
+  "repair": {
+    "ok": true,
+    "changed": false,
+    "repaired_black_spans": [],
+    "repaired_frozen_spans": [],
+    "protected_spans": [
+      {
+        "start_sec": 8.0,
+        "end_sec": 11.0
+      },
+      {
+        "start_sec": 21.0,
+        "end_sec": 24.0
+      },
+      {
+        "start_sec": 34.0,
+        "end_sec": 37.0
+      },
+      {
+        "start_sec": 47.0,
+        "end_sec": 50.0
+      },
+      {
+        "start_sec": 60.0,
+        "end_sec": 63.0
+      },
+      {
+        "start_sec": 73.0,
+        "end_sec": 76.0
+      },
+      {
+        "start_sec": 86.0,
+        "end_sec": 89.0
+      },
+      {
+        "start_sec": 99.0,
+        "end_sec": 102.0
+      },
+      {
+        "start_sec": 112.0,
+        "end_sec": 115.0
+      },
+      {
+        "start_sec": 125.0,
+        "end_sec": 128.0
+      },
+      {
+        "start_sec": 138.0,
+        "end_sec": 141.0
+      },
+      {
+        "start_sec": 151.0,
+        "end_sec": 154.0
+      }
+    ],
+    "source_hashes": {
+      "165de875108a35b9153c4e9525b586a5d8a4e09ccd40227ebccd368812c2ff6d": "165de875108a35b9153c4e9525b586a5d8a4e09ccd40227ebccd368812c2ff6d"
+    },
+    "elapsed_sec": 1.6109590689993638
+  },
+  "profile": {
+    "name": "fast_proxy",
+    "width": 640,
+    "height": 360,
+    "quality": "fast",
+    "audio_bitrate": "96k",
+    "fingerprint": "fast_proxy|q=fast|enc=gpu",
+    "encoder_backend": "gpu"
+  },
+  "qc": {
+    "passed": false,
+    "elapsed_sec": 1.899,
+    "checks": [
+      {
+        "name": "render_completed",
+        "passed": true,
+        "detail": "(proxy MP4 exists; orchestrator returned ok=True)"
+      },
+      {
+        "name": "proxy_render",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/renders/project_a6b2ae62a2b8.mp4"
+      },
+      {
+        "name": "streams",
+        "passed": true,
+        "detail": "1 video, 1 audio stream(s) (video, audio)"
+      },
+      {
+        "name": "duration",
+        "passed": true,
+        "detail": "duration=180.00s target=180.01s diff=0.01s (limit 1.0s)"
+      },
+      {
+        "name": "audio_sync",
+        "passed": true,
+        "detail": "video=180.000s audio=180.000s diff=0.000s (limit 0.2s)"
+      },
+      {
+        "name": "black_frames",
+        "passed": true,
+        "detail": "0 black spans (0 new; 0 source-known)"
+      },
+      {
+        "name": "frozen_frames",
+        "passed": false,
+        "detail": "20 frozen intervals (10 new; 10 source-known; min 1.0s)"
+      },
+      {
+        "name": "silence",
+        "passed": true,
+        "detail": "0 silent gaps"
+      },
+      {
+        "name": "overlays_burned",
+        "passed": true,
+        "detail": "overlays not requested in this render mode"
+      },
+      {
+        "name": "thumbnail",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-c/.open_edit/thumbs/project_a6b2ae62a2b8_thumb.jpg (480x270)"
+      }
+    ]
+  },
+  "disk_before": {
+    "total_gb": 120.01,
+    "used_gb": 99.97,
+    "free_gb": 13.9,
+    "used_pct": 83.3
+  },
+  "disk_after": {
+    "total_gb": 120.01,
+    "used_gb": 100.09,
+    "free_gb": 13.78,
+    "used_pct": 83.4
+  },
+  "project_bytes": {
+    "project_total": 622667046,
+    "assets": 155035693,
+    "renders": 88511365,
+    "remotion_out": 3561200,
+    "remotion_node_modules": 221931838
+  },
+  "diagnostics_raw_stages": {
+    "remotion_materialize": {
+      "elapsed_sec": 93.72016413500023,
+      "bytes": 1778866
+    },
+    "melt": {
+      "elapsed_sec": 2.1716999981435947e-05,
+      "bytes": 1769
+    },
+    "ffmpeg": {
+      "elapsed_sec": 42.901229486999,
+      "bytes": 26974574
+    },
+    "audio": {
+      "elapsed_sec": 1.4564329129989346,
+      "bytes": 34560078
+    }
+  },
+  "label": "C_proxy_cold",
+  "fixture": "C",
+  "commands": [
+    "/home/ah64/apps/mlt-pipeline/.venv/bin/python phase1_run_bench.py C --mode proxy --force --out docs/superpowers/specs/phase1-raw/C_proxy_cold.json"
+  ]
+}

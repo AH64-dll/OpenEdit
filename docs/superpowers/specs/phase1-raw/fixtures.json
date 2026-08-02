@@ -1,0 +1,26 @@
+{
+  "root": "/home/ah64/OpenEditProjects/render-bench",
+  "fixtures": {
+    "A": {
+      "path": "/home/ah64/OpenEditProjects/render-bench/fixture-a",
+      "media": "/home/ah64/OpenEditProjects/render-bench/media/clip60.mp4",
+      "remotion": 0,
+      "duration_target_s": 60
+    },
+    "B": {
+      "path": "/home/ah64/OpenEditProjects/render-bench/fixture-b",
+      "media": "/home/ah64/OpenEditProjects/render-bench/media/clip60.mp4",
+      "remotion": 3,
+      "duration_target_s": 60,
+      "alpha": true
+    },
+    "C": {
+      "path": "/home/ah64/OpenEditProjects/render-bench/fixture-c",
+      "media": "/home/ah64/OpenEditProjects/render-bench/media/clip180.mp4",
+      "remotion": 12,
+      "duration_target_s": 180,
+      "alpha": false
+    }
+  },
+  "note": "timeline-test .open_edit was missing; fixtures built from untitled_clean_1.mp4 trims."
+}

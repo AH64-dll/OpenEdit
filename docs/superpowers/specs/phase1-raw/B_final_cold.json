@@ -1,0 +1,197 @@
+{
+  "ok": true,
+  "error": null,
+  "mode": "final",
+  "force": true,
+  "cache_hit_render": false,
+  "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/renders/project_2247da1f28e0.mp4",
+  "duration_sec": 60.026633,
+  "edit_graph_hash": "2247da1f28e025aa5a891c63ceb4a918b7aa7beac890ca764c0925cf709322e8",
+  "wall_clock_sec": 97.655,
+  "wall_render_only_sec": 92.582,
+  "orchestrator_elapsed_sec": 51.07210695699905,
+  "stage_breakdown_sec": {
+    "timeline_derive": 0.0,
+    "remotion_materialize": 36.145,
+    "remotion_materialize_wrapper": 36.145,
+    "melt": 0.0,
+    "ffmpeg": 45.906,
+    "audio_melt": 0.629,
+    "source_repair": 4.536,
+    "qc": 5.073
+  },
+  "remotion": {
+    "composition_count_events_render": 3,
+    "composition_cache_hits": 0,
+    "render_wall_sum_sec": 35.88,
+    "events": [
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:FocusPopup:1a3529b0f5c9933f7a4fe063bddc73a79b66f07e575a64d81f5f19269",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "FocusPopup",
+        "elapsed_sec": 12.411,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/remotion/out/final/3ff97760-bb38-4711-b982-90aa5d9bbabc_1a3529b0f5c9.mov"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:FocusPopup:974ee5ed507563784461c880690ff138c4de0357fbac5b14d9241ac00",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "FocusPopup",
+        "elapsed_sec": 11.132,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/remotion/out/final/7351a5b7-511a-4074-aa2d-510421bdc7c5_974ee5ed5075.mov"
+      },
+      {
+        "event": "cache_miss_lookup",
+        "key": "materialize:FocusPopup:626defd608b447d848fa79ea0f5f2c625239fce11407fee726f0f6a8d",
+        "elapsed_sec": 0.0,
+        "found": false
+      },
+      {
+        "event": "render_miss",
+        "composition_id": "FocusPopup",
+        "elapsed_sec": 12.337,
+        "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/remotion/out/final/f09f6772-90c2-4327-962c-28e998c83ef6_626defd608b4.mov"
+      }
+    ]
+  },
+  "repair": {
+    "ok": true,
+    "changed": false,
+    "repaired_black_spans": [],
+    "repaired_frozen_spans": [],
+    "protected_spans": [
+      {
+        "start_sec": 5.0,
+        "end_sec": 8.0
+      },
+      {
+        "start_sec": 20.0,
+        "end_sec": 23.0
+      },
+      {
+        "start_sec": 40.0,
+        "end_sec": 43.0
+      }
+    ],
+    "source_hashes": {
+      "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958": "4f83eeb1f13bd075f02f71a99f594f61a58776826ad9fb347fda73b472916958"
+    },
+    "elapsed_sec": 4.53615340000033
+  },
+  "profile": {
+    "name": "1080p30",
+    "width": 1920,
+    "height": 1080,
+    "quality": "standard",
+    "audio_bitrate": "320k",
+    "fingerprint": "1080p30|q=standard|enc=gpu",
+    "encoder_backend": "gpu"
+  },
+  "qc": {
+    "passed": true,
+    "elapsed_sec": 5.073,
+    "checks": [
+      {
+        "name": "render_completed",
+        "passed": true,
+        "detail": "(proxy MP4 exists; orchestrator returned ok=True)"
+      },
+      {
+        "name": "proxy_render",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/renders/project_2247da1f28e0.mp4"
+      },
+      {
+        "name": "streams",
+        "passed": true,
+        "detail": "1 video, 1 audio stream(s) (video, audio)"
+      },
+      {
+        "name": "duration",
+        "passed": true,
+        "detail": "duration=60.03s target=60.03s diff=0.01s (limit 1.0s)"
+      },
+      {
+        "name": "audio_sync",
+        "passed": true,
+        "detail": "video=60.033s audio=60.033s diff=0.000s (limit 0.2s)"
+      },
+      {
+        "name": "black_frames",
+        "passed": true,
+        "detail": "0 black spans (0 new; 0 source-known)"
+      },
+      {
+        "name": "frozen_frames",
+        "passed": true,
+        "detail": "2 frozen intervals (0 new; 2 source-known; min 1.0s)"
+      },
+      {
+        "name": "silence",
+        "passed": true,
+        "detail": "0 silent gaps"
+      },
+      {
+        "name": "overlays_burned",
+        "passed": true,
+        "detail": "overlays not requested in this render mode"
+      },
+      {
+        "name": "thumbnail",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/thumbs/project_2247da1f28e0_thumb.jpg (480x270)"
+      }
+    ]
+  },
+  "disk_before": {
+    "total_gb": 120.01,
+    "used_gb": 99.74,
+    "free_gb": 14.12,
+    "used_pct": 83.1
+  },
+  "disk_after": {
+    "total_gb": 120.01,
+    "used_gb": 99.97,
+    "free_gb": 13.9,
+    "used_pct": 83.3
+  },
+  "project_bytes": {
+    "project_total": 659657853,
+    "assets": 107449526,
+    "renders": 168422343,
+    "remotion_out": 108080711,
+    "remotion_node_modules": 221932091
+  },
+  "diagnostics_raw_stages": {
+    "remotion_materialize": {
+      "elapsed_sec": 36.14468273500097,
+      "bytes": 32562955
+    },
+    "melt": {
+      "elapsed_sec": 2.1133000700501725e-05,
+      "bytes": 1773
+    },
+    "ffmpeg": {
+      "elapsed_sec": 45.905634053999165,
+      "bytes": 72815179
+    },
+    "audio": {
+      "elapsed_sec": 0.6293653809989337,
+      "bytes": 11526478
+    }
+  },
+  "label": "B_final_cold",
+  "fixture": "B",
+  "commands": [
+    "/home/ah64/apps/mlt-pipeline/.venv/bin/python phase1_run_bench.py B --mode final --force --out docs/superpowers/specs/phase1-raw/B_final_cold.json"
+  ]
+}

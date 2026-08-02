@@ -1,0 +1,152 @@
+{
+  "ok": true,
+  "error": null,
+  "mode": "proxy",
+  "force": false,
+  "cache_hit_render": true,
+  "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/renders/render_cache/2247da1f28e025aa5a891c63ceb4a918b7aa7beac890ca764c0925cf709322e8_fast_proxy_q=fast_enc=gpu_01bc802f186e5f17342d8953272468307bbbb27eaea8b4b73f31bec47ac9cebf_source-repair-v4-black-only-default.mp4",
+  "duration_sec": 60.026633,
+  "edit_graph_hash": "2247da1f28e025aa5a891c63ceb4a918b7aa7beac890ca764c0925cf709322e8",
+  "wall_clock_sec": 5.732,
+  "wall_render_only_sec": 4.671,
+  "orchestrator_elapsed_sec": 0.0,
+  "stage_breakdown_sec": {
+    "timeline_derive": 0.001,
+    "remotion_materialize": 0.206,
+    "remotion_materialize_wrapper": 0.206,
+    "melt": 0.0,
+    "ffmpeg": 0.0,
+    "audio_melt": 0.0,
+    "source_repair": 0.0,
+    "qc": 1.06
+  },
+  "remotion": {
+    "composition_count_events_render": 0,
+    "composition_cache_hits": 3,
+    "render_wall_sum_sec": 0,
+    "events": [
+      {
+        "event": "cache_hit",
+        "key": "materialize:FocusPopup:a05feca24c419a615ed063449128cd09d0dba03a55b200ae70999b155",
+        "elapsed_sec": 0.0048,
+        "found": true
+      },
+      {
+        "event": "cache_hit",
+        "key": "materialize:FocusPopup:8e2e51806706279e3fa72988767b5882a40f8493d5d95fd1edac4bd34",
+        "elapsed_sec": 0.0042,
+        "found": true
+      },
+      {
+        "event": "cache_hit",
+        "key": "materialize:FocusPopup:ca3162ceefc9f46d3f2d78d8de8a2400c99d156cab9483c301d10594e",
+        "elapsed_sec": 0.0042,
+        "found": true
+      }
+    ]
+  },
+  "repair": null,
+  "profile": {
+    "name": "fast_proxy",
+    "width": 640,
+    "height": 360,
+    "quality": "fast",
+    "audio_bitrate": "96k",
+    "fingerprint": "fast_proxy|q=fast|enc=gpu",
+    "encoder_backend": "gpu"
+  },
+  "qc": {
+    "passed": false,
+    "elapsed_sec": 1.06,
+    "checks": [
+      {
+        "name": "render_completed",
+        "passed": true,
+        "detail": "(proxy MP4 exists; orchestrator returned ok=True)"
+      },
+      {
+        "name": "proxy_render",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/renders/render_cache/2247da1f28e025aa5a891c63ceb4a918b7aa7beac890ca764c0925cf709322e8_fast_proxy_q=fast_enc=gpu_01bc802f186e5f17342d8953272468307bbbb27eaea8b4b73f31bec47ac9cebf_source-repair-v4-black-only-default.mp4"
+      },
+      {
+        "name": "streams",
+        "passed": true,
+        "detail": "1 video, 1 audio stream(s) (video, audio)"
+      },
+      {
+        "name": "duration",
+        "passed": true,
+        "detail": "duration=60.03s target=60.03s diff=0.01s (limit 1.0s)"
+      },
+      {
+        "name": "audio_sync",
+        "passed": true,
+        "detail": "video=60.033s audio=60.033s diff=0.000s (limit 0.2s)"
+      },
+      {
+        "name": "black_frames",
+        "passed": true,
+        "detail": "0 black spans (0 new; 0 source-known)"
+      },
+      {
+        "name": "frozen_frames",
+        "passed": false,
+        "detail": "3 frozen intervals (1 new; 2 source-known; min 1.0s)"
+      },
+      {
+        "name": "silence",
+        "passed": true,
+        "detail": "0 silent gaps"
+      },
+      {
+        "name": "overlays_burned",
+        "passed": true,
+        "detail": "overlays not requested in this render mode"
+      },
+      {
+        "name": "thumbnail",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-b/.open_edit/thumbs/2247da1f28e025aa5a891c63ceb4a918b7aa7beac890ca764c0925cf709322e8_fast_proxy_q=fast_enc=gpu_01bc802f186e5f17342d8953272468307bbbb27eaea8b4b73f31bec47ac9cebf_source-repair-v4-black-only-default_thumb.jpg (480x270)"
+      }
+    ]
+  },
+  "disk_before": {
+    "total_gb": 120.01,
+    "used_gb": 99.74,
+    "free_gb": 14.12,
+    "used_pct": 83.1
+  },
+  "disk_after": {
+    "total_gb": 120.01,
+    "used_gb": 99.74,
+    "free_gb": 14.12,
+    "used_pct": 83.1
+  },
+  "project_bytes": {
+    "project_total": 427597922,
+    "assets": 74884351,
+    "renders": 34054605,
+    "remotion_out": 42953913,
+    "remotion_node_modules": 221932091
+  },
+  "diagnostics_raw_stages": {
+    "remotion_materialize": {
+      "elapsed_sec": 0.20612804600023082,
+      "bytes": 21476469
+    },
+    "melt": {
+      "elapsed_sec": 0.0,
+      "bytes": 0
+    },
+    "ffmpeg": {
+      "elapsed_sec": 0.0,
+      "bytes": 0
+    }
+  },
+  "label": "B_proxy_warm",
+  "fixture": "B",
+  "commands": [
+    "/home/ah64/apps/mlt-pipeline/.venv/bin/python phase1_run_bench.py B --mode proxy --out docs/superpowers/specs/phase1-raw/B_proxy_warm.json"
+  ]
+}

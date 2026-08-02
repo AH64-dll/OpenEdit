@@ -1,0 +1,133 @@
+{
+  "ok": true,
+  "error": null,
+  "mode": "proxy",
+  "force": false,
+  "cache_hit_render": true,
+  "output_path": "/home/ah64/OpenEditProjects/render-bench/fixture-a/.open_edit/renders/render_cache/1ecde01f0eda0091f493fe67cfca9a9e7febad9a86db070173f83bc3276d0d0e_fast_proxy_q=fast_enc=gpu_4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945_source-repair-v4-black-only-default.mp4",
+  "duration_sec": 60.026633,
+  "edit_graph_hash": "1ecde01f0eda0091f493fe67cfca9a9e7febad9a86db070173f83bc3276d0d0e",
+  "wall_clock_sec": 5.006,
+  "wall_render_only_sec": 4.078,
+  "orchestrator_elapsed_sec": 0.0,
+  "stage_breakdown_sec": {
+    "timeline_derive": 0.001,
+    "remotion_materialize": 0.0,
+    "remotion_materialize_wrapper": 0.0,
+    "melt": 0.0,
+    "ffmpeg": 0.0,
+    "audio_melt": 0.0,
+    "source_repair": 0.0,
+    "qc": 0.928
+  },
+  "remotion": {
+    "composition_count_events_render": 0,
+    "composition_cache_hits": 0,
+    "render_wall_sum_sec": 0,
+    "events": []
+  },
+  "repair": null,
+  "profile": {
+    "name": "fast_proxy",
+    "width": 640,
+    "height": 360,
+    "quality": "fast",
+    "audio_bitrate": "96k",
+    "fingerprint": "fast_proxy|q=fast|enc=gpu",
+    "encoder_backend": "gpu"
+  },
+  "qc": {
+    "passed": false,
+    "elapsed_sec": 0.928,
+    "checks": [
+      {
+        "name": "render_completed",
+        "passed": true,
+        "detail": "(proxy MP4 exists; orchestrator returned ok=True)"
+      },
+      {
+        "name": "proxy_render",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-a/.open_edit/renders/render_cache/1ecde01f0eda0091f493fe67cfca9a9e7febad9a86db070173f83bc3276d0d0e_fast_proxy_q=fast_enc=gpu_4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945_source-repair-v4-black-only-default.mp4"
+      },
+      {
+        "name": "streams",
+        "passed": true,
+        "detail": "1 video, 1 audio stream(s) (video, audio)"
+      },
+      {
+        "name": "duration",
+        "passed": true,
+        "detail": "duration=60.03s target=60.03s diff=0.01s (limit 1.0s)"
+      },
+      {
+        "name": "audio_sync",
+        "passed": true,
+        "detail": "video=60.033s audio=60.033s diff=0.000s (limit 0.2s)"
+      },
+      {
+        "name": "black_frames",
+        "passed": true,
+        "detail": "0 black spans (0 new; 0 source-known)"
+      },
+      {
+        "name": "frozen_frames",
+        "passed": false,
+        "detail": "3 frozen intervals (1 new; 2 source-known; min 1.0s)"
+      },
+      {
+        "name": "silence",
+        "passed": true,
+        "detail": "0 silent gaps"
+      },
+      {
+        "name": "overlays_burned",
+        "passed": true,
+        "detail": "overlays not requested in this render mode"
+      },
+      {
+        "name": "thumbnail",
+        "passed": true,
+        "detail": "/home/ah64/OpenEditProjects/render-bench/fixture-a/.open_edit/thumbs/1ecde01f0eda0091f493fe67cfca9a9e7febad9a86db070173f83bc3276d0d0e_fast_proxy_q=fast_enc=gpu_4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945_source-repair-v4-black-only-default_thumb.jpg (480x270)"
+      }
+    ]
+  },
+  "disk_before": {
+    "total_gb": 120.01,
+    "used_gb": 99.14,
+    "free_gb": 14.72,
+    "used_pct": 82.6
+  },
+  "disk_after": {
+    "total_gb": 120.01,
+    "used_gb": 99.14,
+    "free_gb": 14.72,
+    "used_pct": 82.6
+  },
+  "project_bytes": {
+    "project_total": 141722313,
+    "assets": 53405554,
+    "renders": 34640167,
+    "remotion_out": 0,
+    "remotion_node_modules": 0
+  },
+  "diagnostics_raw_stages": {
+    "remotion_materialize": {
+      "elapsed_sec": 1.3671000488102436e-05,
+      "bytes": 0
+    },
+    "melt": {
+      "elapsed_sec": 0.0,
+      "bytes": 0
+    },
+    "ffmpeg": {
+      "elapsed_sec": 0.0,
+      "bytes": 0
+    }
+  },
+  "label": "A_proxy_warm",
+  "fixture": "A",
+  "commands": [
+    "/home/ah64/apps/mlt-pipeline/.venv/bin/python phase1_run_bench.py A --mode proxy --out docs/superpowers/specs/phase1-raw/A_proxy_warm.json"
+  ]
+}
