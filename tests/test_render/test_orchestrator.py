@@ -101,8 +101,26 @@ def test_render_project_uses_profile_scoped_cache_key(tmp_path: Path, monkeypatc
     )
     assert result.ok is True, result.error
     assert cache_keys and all("high" in k and "cpu" in k for k in cache_keys)
+    assert result.diagnostics["product"] == {
+        "kind": "final_export",
+        "mode": "final",
+        "label": "Final export",
+        "width": 1920,
+        "height": 1080,
+        "interactive": False,
+        "source_proxy": False,
+        "timeline_preview_chunk": False,
+    }
+    assert result.diagnostics["legacy_stage_aliases"] == {
+        "melt": "melt_video",
+        "ffmpeg": "ffmpeg_encode",
+        "audio": "melt_audio",
+    }
     assert result.diagnostics["stages"]["remotion_materialize"]["elapsed_sec"] >= 0
     assert result.diagnostics["stages"]["ffmpeg"]["bytes"] == 3
+    assert result.diagnostics["stages"]["melt"] == result.diagnostics["stages"]["melt_video"]
+    assert result.diagnostics["stages"]["ffmpeg"] == result.diagnostics["stages"]["ffmpeg_encode"]
+    assert result.diagnostics["stages"]["audio"] == result.diagnostics["stages"]["melt_audio"]
 
 
 def test_render_project_hwaccel_retry(tmp_path: Path, monkeypatch) -> None:

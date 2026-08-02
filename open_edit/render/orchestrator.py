@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import shutil
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -22,6 +23,11 @@ from pydantic import BaseModel, Field
 
 from open_edit.ir.types import Project
 from open_edit.render.cache import RenderCache, canonical_json_hash, render_cache_key
+from open_edit.render.diagnostics import (
+    LEGACY_STAGE_ALIASES,
+    StageRecorder,
+    product_descriptor,
+)
 from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.encoder import resolve_backend
 from open_edit.render.materialize import RemotionMaterializeError, materialize_remotion_compositions
@@ -59,6 +65,47 @@ class RenderResult(BaseModel):
     edit_graph_hash: str = ""
     diagnostics: dict = Field(default_factory=dict)
     error: Optional[str] = None
+
+
+def _contractualize_diagnostics(
+    mode: str,
+    profile: RenderProfile,
+    diagnostics: Optional[dict] = None,
+) -> dict:
+    """Normalize stage entries while retaining the pre-M0 names."""
+    result = dict(diagnostics or {})
+    recorder = StageRecorder()
+    raw_stages = result.get("stages", {})
+    if isinstance(raw_stages, Mapping):
+        pending: dict[str, Mapping] = {}
+        for name, raw_entry in raw_stages.items():
+            if not isinstance(raw_entry, Mapping):
+                continue
+            canonical_name = LEGACY_STAGE_ALIASES.get(name, name)
+            # Canonical entries win if a caller supplied both forms.
+            if canonical_name not in pending or name == canonical_name:
+                pending[canonical_name] = raw_entry
+        for name, entry in pending.items():
+            status = entry.get("status", "completed")
+            fields = {
+                key: value
+                for key, value in entry.items()
+                if key not in {"elapsed_sec", "status"}
+            }
+            recorder.record(
+                name,
+                entry.get("elapsed_sec", 0.0),
+                status=status,
+                **fields,
+            )
+    stages = recorder.stages
+    for alias, canonical in LEGACY_STAGE_ALIASES.items():
+        if canonical in stages:
+            stages[alias] = dict(stages[canonical])
+    result["stages"] = stages
+    result["legacy_stage_aliases"] = dict(LEGACY_STAGE_ALIASES)
+    result["product"] = product_descriptor(mode, profile)
+    return result
 
 
 _gpu_decode_ok: bool | None = None
@@ -126,7 +173,11 @@ def render_project(
     ops = store.load_all()
     applied_ops = [op for op in ops if op.status == "applied"]
     if not applied_ops:
-        return RenderResult(ok=False, error="empty edit graph; nothing to render")
+        return RenderResult(
+            ok=False,
+            error="empty edit graph; nothing to render",
+            diagnostics=_contractualize_diagnostics(mode, profile),
+        )
 
     project = Project(name=project_id)
     project.edit_graph = list(applied_ops)
@@ -144,14 +195,18 @@ def render_project(
             mode=mode, profile=profile, output_path="",
             duration_sec=timeline.duration_sec, elapsed_sec=0.0,
             graph_hash="", error=str(exc),
-            diagnostics={
-                "stages": {
-                    "remotion_materialize": {
-                        "elapsed_sec": materialize_elapsed,
-                        "bytes": 0,
+            diagnostics=_contractualize_diagnostics(
+                mode,
+                profile,
+                {
+                    "stages": {
+                        "remotion_materialize": {
+                            "elapsed_sec": materialize_elapsed,
+                            "bytes": 0,
+                        },
                     },
                 },
-            },
+            ),
         )
     materialize_elapsed = time.monotonic() - materialize_t0
 
@@ -187,6 +242,7 @@ def render_project(
         },
         "source_baseline": source_baseline,
     }
+    diagnostics = _contractualize_diagnostics(mode, profile, diagnostics)
 
     payload = [op.model_dump(mode="json") for op in applied_ops]
     graph_hash = canonical_json_hash(payload)
@@ -221,7 +277,11 @@ def render_project(
                 ok=True, output_path=str(cached), mode=mode,
                 profile=profile.model_dump(), duration_sec=timeline.duration_sec,
                 elapsed_sec=0.0, cache_hit=True, edit_graph_hash=graph_hash,
-                diagnostics={**diagnostics, "cache": {"hit": True}},
+                diagnostics=_contractualize_diagnostics(
+                    mode,
+                    profile,
+                    {**diagnostics, "cache": {"hit": True}},
+                ),
             )
 
     config = EmitterConfig(profile=profile.model_dump())
@@ -232,7 +292,7 @@ def render_project(
     workdir.mkdir(parents=True, exist_ok=True)
     xml_path = workdir / f"project_{graph_hash[:12]}.mlt"
     xml_path.write_text(xml)
-    diagnostics["stages"]["melt"]["bytes"] = xml_path.stat().st_size
+    diagnostics["stages"]["melt_video"]["bytes"] = xml_path.stat().st_size
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
 
     spec = resolve_encoder_args(profile, encoder_backend)
@@ -300,10 +360,10 @@ def render_project(
         }
         diagnostics["repair"]["elapsed_sec"] = time.monotonic() - repair_t0
     elapsed = time.monotonic() - t0
-    diagnostics["stages"]["melt"]["elapsed_sec"] = getattr(
+    diagnostics["stages"]["melt_video"]["elapsed_sec"] = getattr(
         result, "melt_elapsed_sec", 0.0,
     )
-    diagnostics["stages"]["ffmpeg"]["elapsed_sec"] = getattr(
+    diagnostics["stages"]["ffmpeg_encode"]["elapsed_sec"] = getattr(
         result, "ffmpeg_elapsed_sec", 0.0,
     )
     diagnostics["stages"]["audio"] = {
@@ -313,7 +373,7 @@ def render_project(
             if cmds.audio_wav.is_file() else 0
         ),
     }
-    diagnostics["stages"]["ffmpeg"]["bytes"] = (
+    diagnostics["stages"]["ffmpeg_encode"]["bytes"] = (
         output_mp4.stat().st_size if output_mp4.is_file() else 0
     )
     diagnostics["elapsed_sec"] = elapsed
@@ -334,7 +394,7 @@ def render_project(
         ok=True, output_path=str(output_mp4), mode=mode,
         profile=profile.model_dump(), duration_sec=timeline.duration_sec,
         elapsed_sec=elapsed, cache_hit=False, edit_graph_hash=graph_hash,
-        diagnostics=diagnostics,
+        diagnostics=_contractualize_diagnostics(mode, profile, diagnostics),
     )
 
 
@@ -362,6 +422,7 @@ def _fail(
         record_snapshot(
             project_dir, project_id, graph_hash, Path(output_path), success=False,
         )
+    diagnostics = _contractualize_diagnostics(mode, profile, diagnostics)
     return RenderResult(
         ok=False, output_path=output_path, mode=mode,
         profile=profile.model_dump(), duration_sec=duration_sec,
