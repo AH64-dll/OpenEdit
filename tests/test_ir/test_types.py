@@ -9,6 +9,7 @@ from open_edit.ir.types import (
     AddClipOp,
     AddEffectOp,
     AddTransitionOp,
+    Asset,
     ChangeClipSpeedOp,
     FreeFormCodeOp,
     GroupEditsOp,
@@ -231,4 +232,29 @@ class TestOperationTypes(unittest.TestCase):
         assert p.assets == {}
         assert p.edit_graph == []
         assert p.project_id
+
+    def test_asset_source_proxy_metadata_defaults_and_round_trips(self) -> None:
+        asset = Asset(
+            asset_hash="a" * 64,
+            original_path="/tmp/source.mp4",
+            stored_path="/tmp/source.mp4",
+            type="video",
+            pix_fmt="yuva420p",
+            has_alpha=True,
+            proxy_hash="b" * 64,
+            proxy_profile="source_proxy_360_v1",
+            proxy_status="ready",
+            proxy_error="",
+            proxy_updated_at="2026-08-03T00:00:00+00:00",
+        )
+
+        restored = Asset.model_validate_json(asset.model_dump_json())
+
+        assert restored == asset
+        assert Asset(
+            asset_hash="c" * 64,
+            original_path="",
+            stored_path="",
+            type="video",
+        ).proxy_status == "none"
 

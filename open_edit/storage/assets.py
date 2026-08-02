@@ -7,18 +7,24 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
-from open_edit.ir.types import Asset
+from open_edit.ir.ids import now_iso8601
+from open_edit.ir.types import Asset, SourceProxyStatus
 from open_edit.storage.transcription import transcribe
 
 
 CHUNK_SIZE = 65536
 
 _LOG = logging.getLogger("open_edit.storage.assets")
+_IMAGE_EXTENSIONS = {
+    ".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff", ".webp",
+}
 
 
 def _hash_file(path: Path) -> str:
@@ -62,8 +68,18 @@ def _probe_media(path: str) -> dict:
     width = int(video_stream["width"]) if video_stream and "width" in video_stream else None
     height = int(video_stream["height"]) if video_stream and "height" in video_stream else None
     codec = video_stream.get("codec_name") if video_stream else None
+    pix_fmt = video_stream.get("pix_fmt") if video_stream else None
+    pix_fmt_lower = (pix_fmt or "").lower()
+    has_alpha = any(
+        marker in pix_fmt_lower
+        for marker in (
+            "alpha", "rgba", "bgra", "argb", "abgr", "yuva", "ayuv", "gbrap", "ya",
+        )
+    )
 
-    if audio_stream and not video_stream:
+    if src.suffix.lower() in _IMAGE_EXTENSIONS:
+        media_type = "image"
+    elif audio_stream and not video_stream:
         media_type = "audio"
     elif video_stream:
         media_type = "video"
@@ -78,6 +94,8 @@ def _probe_media(path: str) -> dict:
         "width": width,
         "height": height,
         "codec": codec,
+        "pix_fmt": pix_fmt,
+        "has_alpha": has_alpha,
         "has_audio": audio_stream is not None,
         "type": media_type,
     }
@@ -181,7 +199,7 @@ class AssetStore:
                 shutil.copy2(src, dest)
             media_info = _probe_media(str(src))
             alignment = (
-                transcribe(src) if (do_transcribe and media_info["has_audio"]) else []
+                transcribe(src) if (do_transcribe and media_info.get("has_audio", False)) else []
             )
             asset = Asset(
                 asset_hash=asset_hash,
@@ -193,7 +211,9 @@ class AssetStore:
                 width=media_info["width"],
                 height=media_info["height"],
                 codec=media_info["codec"],
-                has_audio=media_info["has_audio"],
+                has_audio=media_info.get("has_audio", False),
+                pix_fmt=media_info.get("pix_fmt"),
+                has_alpha=media_info.get("has_alpha", False),
                 alignment=alignment,
                 license=license,
                 attribution=attribution,
@@ -225,13 +245,100 @@ class AssetStore:
             width=media_info["width"],
             height=media_info["height"],
             codec=media_info["codec"],
-            has_audio=media_info["has_audio"],
+            has_audio=media_info.get("has_audio", False),
+            pix_fmt=media_info.get("pix_fmt"),
+            has_alpha=media_info.get("has_alpha", False),
             content_hash=asset_hash,
         )
 
     def path(self, asset_hash: str) -> Optional[Path]:
         p = self._cas_path(asset_hash)
-        return p if p.exists() else None
+        return p if p.is_file() else None
+
+    def store_derived(self, source_path: str | Path) -> str:
+        """Store a completed derived file in the CAS without a sidecar."""
+        source = Path(source_path)
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        if source.stat().st_size == 0:
+            raise ValueError(f"derived file is empty: {source}")
+
+        asset_hash = _hash_file(source)
+        destination = self._cas_path(asset_hash)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            if not destination.is_file():
+                raise IsADirectoryError(destination)
+            return asset_hash
+
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+            shutil.copyfile(source, temporary)
+            os.replace(temporary, destination)
+            temporary = None
+            return asset_hash
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def update_proxy_metadata(
+        self,
+        asset_hash: str,
+        *,
+        proxy_hash: str | None,
+        profile: str | None,
+        status: SourceProxyStatus,
+        error: str = "",
+    ) -> Asset:
+        """Atomically update only source-proxy fields on an asset sidecar."""
+        asset = self.get(asset_hash)
+        if asset is None:
+            raise FileNotFoundError(asset_hash)
+        updated = asset.model_copy(
+            update={
+                "proxy_hash": proxy_hash,
+                "proxy_profile": profile,
+                "proxy_status": status,
+                "proxy_error": error,
+                "proxy_updated_at": now_iso8601(),
+            }
+        )
+        sidecar = self._sidecar_path(asset_hash)
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=sidecar.parent,
+                prefix=f".{sidecar.name}.",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(updated.model_dump_json(indent=2))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, sidecar)
+            temporary = None
+            return updated
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def clear_proxy_metadata(self, asset_hash: str) -> Asset:
+        """Clear source-proxy linkage and reset its status to ``none``."""
+        return self.update_proxy_metadata(
+            asset_hash,
+            proxy_hash=None,
+            profile=None,
+            status="none",
+        )
 
     def update_alignment(self, asset_hash: str, alignment: list) -> None:
         """Rewrite an asset's sidecar with new word-level ``alignment``.

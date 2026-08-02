@@ -14,6 +14,12 @@ from open_edit.ir.ids import new_id, now_iso8601
 
 # ===== Derived state (Timeline, Track, Clip, Effect) =====
 
+
+SourceProxyStatus = Literal[
+    "none", "queued", "running", "ready", "failed", "not_needed",
+]
+
+
 class Effect(BaseModel):
     effect_id: str
     effect_type: str
@@ -111,6 +117,13 @@ class Asset(BaseModel):
     height: Optional[int] = None
     codec: Optional[str] = None
     has_audio: bool = False
+    pix_fmt: Optional[str] = None
+    has_alpha: bool = False
+    proxy_hash: Optional[str] = None
+    proxy_profile: Optional[str] = None
+    proxy_status: SourceProxyStatus = "none"
+    proxy_error: str = ""
+    proxy_updated_at: str = ""
     alignment: list[WordAlignment] = Field(default_factory=list)
     # v1.4 P1-1: license + attribution metadata for third-party media
     # (Pexels / Freesound). Both are populated by ``import_asset`` and

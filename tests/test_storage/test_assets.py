@@ -104,10 +104,23 @@ class TestAssetStore(unittest.TestCase):
         self.assertEqual(info["fps"], 30.0)
         self.assertAlmostEqual(info["duration_sec"], 2.0, delta=0.1)
         self.assertFalse(info["has_audio"])
+        self.assertEqual(info["pix_fmt"], "yuv420p")
+        self.assertFalse(info["has_alpha"])
 
     def test_probe_media_handles_missing_file(self) -> None:
         with self.assertRaises(FileNotFoundError):
             _probe_media("/nonexistent/file.mp4")
+
+    def test_store_derived_uses_cas_without_creating_sidecar(self) -> None:
+        store = AssetStore(self.tmp_path / "assets")
+        derived = self.tmp_path / "derived.mp4"
+        derived.write_bytes(b"derived bytes")
+
+        asset_hash = store.store_derived(derived)
+
+        self.assertEqual(len(asset_hash), 64)
+        self.assertEqual(store.path(asset_hash).read_bytes(), b"derived bytes")
+        self.assertFalse(store._sidecar_path(asset_hash).exists())
 
 
 def test_list_assets_from_disk_reads_sidecar_layout(tmp_path) -> None:
