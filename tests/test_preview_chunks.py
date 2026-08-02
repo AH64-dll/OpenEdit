@@ -177,6 +177,34 @@ def test_worker_reuses_green_chunk_and_publishes_new_chunk(
     assert manifest.chunks[1].status == "green"
 
 
+def test_worker_reuses_all_green_chunks_when_graph_is_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, store = _project(tmp_path)
+    _seed_manifest(project_dir, store)
+    monkeypatch.setattr(
+        preview_chunks,
+        "_load_job_params",
+        lambda project_dir, job_id: {
+            "ranges": [{"start_sec": 1.0, "end_sec": 2.0}],
+            "media": "both",
+        },
+    )
+    renderer = FakePreviewVideoRenderer()
+
+    result = preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-unchanged",
+        renderer=renderer,
+        run_commands=_run_commands,
+    )
+
+    assert result["ok"] is True
+    assert renderer.calls == []
+
+
 def test_worker_preserves_old_artifact_as_yellow_fallback_during_bake(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -269,6 +297,57 @@ def test_worker_stops_publishing_when_graph_revision_changes(
     assert result["graph_changed"] is True
     assert manifest is not None
     assert manifest.graph_revision == original_revision
+
+
+def test_worker_clears_own_job_id_after_unexpected_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, store = _project(tmp_path)
+    _seed_manifest(project_dir, store)
+    monkeypatch.setattr(
+        preview_chunks,
+        "_load_job_params",
+        lambda project_dir, job_id: {},
+    )
+    monkeypatch.setattr(
+        preview_chunks,
+        "compute_chunk_fingerprints",
+        lambda **_: [
+            ChunkFingerprint(
+                video_key=f"video-{index}",
+                audio_key=f"audio-{index}",
+                composition_uids=(),
+                video_dirty=True,
+                audio_dirty=True,
+                start_sec=float(index),
+                end_sec=float(index + 1),
+            )
+            for index in range(2)
+        ],
+    )
+
+    def fail_selection(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("selection failed")
+
+    monkeypatch.setattr(preview_chunks, "select_dirty_windows", fail_selection)
+    result = preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-failed",
+        renderer=FakePreviewVideoRenderer(),
+        run_commands=_run_commands,
+    )
+
+    manifest = PreviewChunkCache(
+        project_dir / ".open_edit" / "preview_chunks",
+        min_free_bytes=0,
+    ).read_manifest()
+    assert result["ok"] is False
+    assert manifest is not None
+    assert manifest.job_id is None
+
 
 def test_preview_chunks_cli_emits_one_worker_result_json(
     tmp_path: Path, monkeypatch, capsys,

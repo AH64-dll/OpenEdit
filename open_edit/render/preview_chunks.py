@@ -64,6 +64,38 @@ _DEFAULT_FPS_NUM = 30
 _DEFAULT_FPS_DEN = 1
 _MEDIA = frozenset({"video", "audio", "both"})
 _PLANES = ("video", "audio", "playback")
+_KNOWN_OPERATION_KINDS = frozenset(
+    {
+        "add_clip",
+        "remove_clip",
+        "move_clip",
+        "trim_clip",
+        "add_transition",
+        "remove_transition",
+        "set_transition_property",
+        "add_effect",
+        "remove_effect",
+        "set_effect_param",
+        "set_keyframe",
+        "remove_keyframe",
+        "slip_clip",
+        "ripple_delete_clip",
+        "change_clip_speed",
+        "split_clip",
+        "replace_clip_source",
+        "set_clip_speed_ramp",
+        "set_audio_gain",
+        "normalize_audio",
+        "group_edits",
+        "ungroup_edits",
+        "raw_mlt_xml",
+        "free_form_code",
+        "add_html_overlay",
+        "remove_html_overlay",
+        "add_remotion_composition",
+        "remove_remotion_composition",
+    }
+)
 
 
 class PreviewChunkWorkerError(RuntimeError):
@@ -95,6 +127,18 @@ def _load_job_params(project_dir: Path, job_id: str) -> dict[str, Any]:
 
 def _preview_cache(project_dir: Path) -> PreviewChunkCache:
     return PreviewChunkCache(project_dir / ".open_edit" / "preview_chunks")
+
+
+def _job_temp_dir(cache: PreviewChunkCache, job_id: str) -> Path:
+    if (
+        not isinstance(job_id, str)
+        or not job_id
+        or job_id in {".", ".."}
+        or any(separator in job_id for separator in ("/", "\\"))
+        or "\x00" in job_id
+    ):
+        raise PreviewChunkWorkerError("job_id must be a safe path component")
+    return cache.root / "tmp" / job_id
 
 
 def _load_project_state(
@@ -248,11 +292,69 @@ def _content_fingerprint(
             alpha_mode="opaque",
         )
     except Exception:
-        remotion = ""
+        unresolved = [
+            {
+                "composition_uid": composition.composition_uid,
+                "composition_id": composition.composition_id,
+                "props": composition.props,
+                "position_sec": composition.position_sec,
+                "duration_sec": composition.duration_sec,
+                "alpha": composition.alpha,
+            }
+            for composition in (
+                timeline.remotion_compositions if timeline is not None else []
+            )
+        ]
+        remotion = "unresolved:" + hashlib.sha256(
+            json.dumps(
+                unresolved,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
     payload = {"assets": assets, "remotion": remotion}
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _operation_kind(operation: Operation) -> str:
+    return str(getattr(operation, "kind", ""))
+
+
+def _fingerprint_inputs(
+    *,
+    previous: PreviewManifest | None,
+    old_timeline: Timeline | None,
+    graph_hash: str,
+    operations: list[Operation],
+) -> tuple[str | None, list[Operation]]:
+    """Avoid replaying historical operations against an available snapshot.
+
+    ``EditGraphStore.load_all()`` returns the complete edit history.  Passing
+    that history to invalidation would make an unchanged historical
+    ``add_clip`` dirty on every later audio edit.  The old/new timeline slice
+    comparison is the source of truth when the previous snapshot is
+    available; only unknown/full-timeline operations remain conservative.
+    """
+
+    if old_timeline is None:
+        return (
+            previous.edit_graph_hash if previous is not None else None,
+            operations,
+        )
+
+    return (
+        graph_hash,
+        [
+            operation
+            for operation in operations
+            if (
+                _operation_kind(operation) in {"raw_mlt_xml", "free_form_code"}
+                or _operation_kind(operation) not in _KNOWN_OPERATION_KINDS
+            )
+        ],
+    )
 
 
 def _profile_info(
@@ -876,7 +978,13 @@ def _publish(
     *,
     graph_revision: int,
     graph_hash: str,
+    store: EditGraphStore | None = None,
 ) -> bool:
+    if store is not None and _graph_identity(store) != (
+        graph_revision,
+        graph_hash,
+    ):
+        return False
     current = cache.read_manifest()
     if _newer_manifest(current, graph_revision, graph_hash):
         return False
@@ -889,11 +997,14 @@ def _clear_job_id(
     *,
     graph_revision: int,
     graph_hash: str,
+    job_id: str | None = None,
 ) -> PreviewManifest | None:
     manifest = cache.read_manifest()
     if manifest is None or _newer_manifest(manifest, graph_revision, graph_hash):
         return manifest
     if manifest.graph_revision != graph_revision or manifest.edit_graph_hash != graph_hash:
+        return manifest
+    if job_id is not None and manifest.job_id != job_id:
         return manifest
     if manifest.job_id is not None:
         manifest = manifest.model_copy(
@@ -947,7 +1058,7 @@ def render_preview_chunks(
 
     project_dir = Path(project_dir).resolve()
     cache = _preview_cache(project_dir)
-    temp_dir = cache.root / "tmp" / job_id
+    temp_dir = _job_temp_dir(cache, job_id)
     temp_dir.mkdir(parents=True, exist_ok=True)
     failed_chunks: list[str] = []
     graph_changed = False
@@ -1003,15 +1114,16 @@ def render_preview_chunks(
             project,
             timeline,
         )
-        fingerprint_operations = (
-            operations
-            if previous is None or previous.edit_graph_hash != graph_hash
-            else []
+        fingerprint_graph_hash, fingerprint_operations = _fingerprint_inputs(
+            previous=previous,
+            old_timeline=old_timeline,
+            graph_hash=graph_hash,
+            operations=operations,
         )
         fingerprints = compute_chunk_fingerprints(
             old_timeline=old_timeline,
             new_timeline=timeline,
-            old_graph_hash=previous.edit_graph_hash if previous else None,
+            old_graph_hash=fingerprint_graph_hash,
             new_graph_hash=graph_hash,
             operations=fingerprint_operations,
             windows=windows,
@@ -1033,11 +1145,13 @@ def render_preview_chunks(
             chunk_frames=effective_chunk_frames,
             job_id=job_id,
         )
+        _check_graph(store, graph_revision, graph_hash)
         if not _publish(
             cache,
             active,
             graph_revision=graph_revision,
             graph_hash=graph_hash,
+            store=store,
         ):
             return _result(
                 cache=cache,
@@ -1090,6 +1204,7 @@ def render_preview_chunks(
                 active,
                 graph_revision=graph_revision,
                 graph_hash=graph_hash,
+                store=store,
             ):
                 graph_changed = True
                 break
@@ -1099,6 +1214,7 @@ def render_preview_chunks(
                 cache,
                 graph_revision=graph_revision,
                 graph_hash=graph_hash,
+                job_id=job_id,
             )
             final_manifest = cache.read_manifest()
             if final_manifest is not None:
@@ -1123,6 +1239,7 @@ def render_preview_chunks(
                 cache,
                 graph_revision=captured_graph_revision,
                 graph_hash=captured_graph_hash,
+                job_id=job_id,
             )
             final_manifest = cache.read_manifest() or final_manifest
         return _result(
@@ -1138,14 +1255,14 @@ def render_preview_chunks(
 
     final_manifest = cache.read_manifest()
     if (
-        params
-        and captured_graph_revision is not None
+        captured_graph_revision is not None
         and captured_graph_hash is not None
     ):
         _clear_job_id(
             cache,
             graph_revision=captured_graph_revision,
             graph_hash=captured_graph_hash,
+            job_id=job_id,
         )
         final_manifest = cache.read_manifest() or final_manifest
     return _result(
