@@ -47,8 +47,15 @@ def list_frozen_frames(
     min_sec: float = DEFAULT_FREEZE_MIN_SEC,
     noise_db: float = DEFAULT_FREEZE_NOISE_DB,
     scale_height: int = DEFAULT_SCALE_HEIGHT,
+    in_sec: float = 0.0,
+    out_sec: float = 0.0,
 ) -> FrozenFramesResult:
-    """Return frozen-frame spans for ``video_path`` (any span ≥ ``min_sec``)."""
+    """Return frozen-frame spans for a source range.
+
+    The optional range is useful for source baselines: a timeline should not
+    decode the tail of a long asset that is not used by the edit. Returned
+    timestamps remain relative to the original source.
+    """
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         return FrozenFramesResult(
@@ -65,8 +72,17 @@ def list_frozen_frames(
         f"scale=-2:{int(scale_height)}:flags=bicubic,"
         f"freezedetect=n={noise_db}dB:d={min_sec}"
     )
-    cmd = [ffmpeg, "-hide_banner", "-i", video_path,
-           "-vf", vf, "-an", "-f", "null", "-"]
+    if out_sec > 0 and out_sec <= in_sec:
+        return FrozenFramesResult(
+            ok=False, min_sec=min_sec, noise_db=noise_db, spans=[],
+            error=f"invalid range: out_sec={out_sec} must be > in_sec={in_sec}",
+        )
+    cmd = [ffmpeg, "-hide_banner", "-i", video_path]
+    if in_sec > 0:
+        cmd += ["-ss", f"{in_sec:.3f}"]
+    if out_sec > 0:
+        cmd += ["-t", f"{(out_sec - in_sec):.3f}"]
+    cmd += ["-vf", vf, "-an", "-f", "null", "-"]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
@@ -81,7 +97,9 @@ def list_frozen_frames(
             error=lines[-1] if lines else "ffmpeg failed",
         )
     try:
-        total_duration = probe_duration(video_path)
+        total_duration = (
+            out_sec if out_sec > 0 else probe_duration(video_path)
+        )
     except Exception:
         total_duration = None
     return FrozenFramesResult(

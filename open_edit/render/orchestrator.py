@@ -12,6 +12,7 @@ structured RenderResult.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import time
 from pathlib import Path
@@ -32,7 +33,14 @@ from open_edit.render.profiles import (
     profile_with_quality,
     resolve_encoder_args,
 )
+from open_edit.render.remotion import resolve_alpha_mode
+from open_edit.render.remotion.safety import render_reference_fingerprint
 from open_edit.render.snapshot_recorder import record_snapshot
+from open_edit.render.source_repair import (
+    SOURCE_REPAIR_POLICY_VERSION,
+    collect_source_baseline,
+    repair_render_output,
+)
 from open_edit.render.timeline_plan import build_render_plan
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
@@ -49,6 +57,7 @@ class RenderResult(BaseModel):
     elapsed_sec: float = 0.0
     cache_hit: bool = False
     edit_graph_hash: str = ""
+    diagnostics: dict = Field(default_factory=dict)
     error: Optional[str] = None
 
 
@@ -102,8 +111,8 @@ def render_project(
     project_dir: directory containing `.open_edit/edit_graph.db`
     workdir: directory for the rendered MP4 (and the cache)
 
-    If profile_name is None, a profile is auto-selected from mode:
-    proxy -> 720p30, final -> 1080p30.
+    If profile_name is None, the profile is auto-selected from mode:
+    proxy -> fast_proxy (640x360), final -> 1080p30.
     """
     melt_bin = shutil.which("melt")
     if melt_bin is None:
@@ -124,16 +133,27 @@ def render_project(
     timeline = derive_or_load_timeline(project, store, strict=True)
 
     # Materialize Remotion compositions to CAS clips before emit. Fail hard.
+    materialize_t0 = time.monotonic()
     try:
         timeline = materialize_remotion_compositions(
             timeline, project_dir, mode=mode,
         )
     except RemotionMaterializeError as exc:
+        materialize_elapsed = time.monotonic() - materialize_t0
         return _fail(
             mode=mode, profile=profile, output_path="",
             duration_sec=timeline.duration_sec, elapsed_sec=0.0,
             graph_hash="", error=str(exc),
+            diagnostics={
+                "stages": {
+                    "remotion_materialize": {
+                        "elapsed_sec": materialize_elapsed,
+                        "bytes": 0,
+                    },
+                },
+            },
         )
+    materialize_elapsed = time.monotonic() - materialize_t0
 
     plan = build_render_plan(
         timeline,
@@ -141,12 +161,59 @@ def render_project(
         AssetStore(project_dir / ".open_edit" / "assets"),
         mode,
     )
+    source_baseline = collect_source_baseline(
+        plan.melt_timeline, plan.asset_paths,
+    )
+    materialized_bytes = sum(
+        ov.media_path.stat().st_size
+        for ov in plan.overlay_clips
+        if ov.media_path.is_file()
+    )
+    diagnostics = {
+        "stages": {
+            "remotion_materialize": {
+                "elapsed_sec": materialize_elapsed,
+                "bytes": materialized_bytes,
+            },
+            "melt": {"elapsed_sec": 0.0, "bytes": 0},
+            "ffmpeg": {"elapsed_sec": 0.0, "bytes": 0},
+        },
+        "profile": {
+            "name": profile.name,
+            "width": profile.width,
+            "height": profile.height,
+            "quality": profile.quality or "fast",
+            "audio_bitrate": profile.ab or ("320k" if mode == "final" else "96k"),
+        },
+        "source_baseline": source_baseline,
+    }
 
     payload = [op.model_dump(mode="json") for op in applied_ops]
     graph_hash = canonical_json_hash(payload)
+    alpha_modes = sorted({
+        resolve_alpha_mode() if composition.alpha else "opaque"
+        for composition in timeline.remotion_compositions
+    })
+    content_fingerprint = render_reference_fingerprint(
+        project_dir, timeline.remotion_compositions,
+        alpha_mode=",".join(alpha_modes) or "opaque",
+    )
+    diagnostics["content_fingerprint"] = content_fingerprint
+    diagnostics["alpha_mode"] = ",".join(alpha_modes) or "opaque"
+    diagnostics["profile"].update({
+        "fingerprint": fingerprint,
+        "encoder_backend": resolve_backend(encoder_backend),
+    })
 
     cache = RenderCache(workdir / "render_cache")
-    cache_key = render_cache_key(graph_hash, fingerprint)
+    # Source repair runs after overlays are burned. Include its policy version
+    # so a corrected overlay-protection rule cannot serve an older proxy.
+    cache_content_fingerprint = (
+        f"{content_fingerprint}|{SOURCE_REPAIR_POLICY_VERSION}"
+    )
+    cache_key = render_cache_key(
+        graph_hash, fingerprint, cache_content_fingerprint,
+    )
     if not force:
         cached = cache.get(cache_key)
         if cached and cache.is_fresh(cached):
@@ -154,6 +221,7 @@ def render_project(
                 ok=True, output_path=str(cached), mode=mode,
                 profile=profile.model_dump(), duration_sec=timeline.duration_sec,
                 elapsed_sec=0.0, cache_hit=True, edit_graph_hash=graph_hash,
+                diagnostics={**diagnostics, "cache": {"hit": True}},
             )
 
     config = EmitterConfig(profile=profile.model_dump())
@@ -164,15 +232,18 @@ def render_project(
     workdir.mkdir(parents=True, exist_ok=True)
     xml_path = workdir / f"project_{graph_hash[:12]}.mlt"
     xml_path.write_text(xml)
+    diagnostics["stages"]["melt"]["bytes"] = xml_path.stat().st_size
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
 
     spec = resolve_encoder_args(profile, encoder_backend)
-    audio_bitrate = profile.ab or ("320k" if mode == "final" else "160k")
+    audio_bitrate = profile.ab or ("320k" if mode == "final" else "96k")
     cmds = build_pipe_commands(
         melt_bin, xml_path, output_mp4, profile, spec, plan.overlay_clips,
         audio_bitrate=audio_bitrate, workdir=workdir,
     )
-    melt_timeout = 7200 if mode == "final" else 600
+    # Proxy used to hard-cap at 600s, which killed long encodes before moov
+    # was written (unreadable MP4). Scale with timeline length; keep a floor.
+    melt_timeout = 7200 if mode == "final" else max(600, int(timeline.duration_sec * 3) + 120)
     t0 = time.monotonic()
     try:
         result = run_pipe(cmds, timeout_s=melt_timeout)
@@ -182,6 +253,7 @@ def render_project(
             duration_sec=timeline.duration_sec, elapsed_sec=time.monotonic() - t0,
             graph_hash=graph_hash, error=str(exc),
             project_dir=project_dir, project_id=project_id, record_failed_snapshot=True,
+            diagnostics=diagnostics,
         )
     # hwaccel retry: melt failed with hwaccel XML -> re-emit without + retry once
     if result.returncode != 0 and hwaccel_on and result.melt_rc != 0:
@@ -197,8 +269,54 @@ def render_project(
                 duration_sec=timeline.duration_sec, elapsed_sec=time.monotonic() - t0,
                 graph_hash=graph_hash, error=str(exc),
                 project_dir=project_dir, project_id=project_id, record_failed_snapshot=True,
+                diagnostics=diagnostics,
             )
     elapsed = time.monotonic() - t0
+    if result.returncode == 0 and output_mp4.is_file() and output_mp4.stat().st_size > 0:
+        repair_t0 = time.monotonic()
+        repair_path = output_mp4.with_name(f"{output_mp4.stem}.repaired.mp4")
+        repair = repair_render_output(
+            output_mp4,
+            repair_path,
+            source_baseline,
+            protected_spans=[
+                (
+                    overlay.position_sec,
+                    overlay.position_sec + overlay.duration_sec,
+                )
+                for overlay in plan.overlay_clips
+            ],
+            repair_intentional_black=(
+                os.environ.get("OPEN_EDIT_REPAIR_INTENTIONAL_BLACK", "0")
+                .strip().lower() not in {"0", "false", "no"}
+            ),
+        )
+        if repair.get("ok") and repair.get("changed"):
+            os.replace(repair_path, output_mp4)
+        diagnostics["repair"] = {
+            key: value
+            for key, value in repair.items()
+            if key not in {"output_path"}
+        }
+        diagnostics["repair"]["elapsed_sec"] = time.monotonic() - repair_t0
+    elapsed = time.monotonic() - t0
+    diagnostics["stages"]["melt"]["elapsed_sec"] = getattr(
+        result, "melt_elapsed_sec", 0.0,
+    )
+    diagnostics["stages"]["ffmpeg"]["elapsed_sec"] = getattr(
+        result, "ffmpeg_elapsed_sec", 0.0,
+    )
+    diagnostics["stages"]["audio"] = {
+        "elapsed_sec": getattr(result, "audio_elapsed_sec", 0.0),
+        "bytes": (
+            cmds.audio_wav.stat().st_size
+            if cmds.audio_wav.is_file() else 0
+        ),
+    }
+    diagnostics["stages"]["ffmpeg"]["bytes"] = (
+        output_mp4.stat().st_size if output_mp4.is_file() else 0
+    )
+    diagnostics["elapsed_sec"] = elapsed
 
     if result.returncode != 0 or not output_mp4.is_file() or output_mp4.stat().st_size == 0:
         return _fail(
@@ -207,6 +325,7 @@ def render_project(
             graph_hash=graph_hash,
             error=(result.stderr or f"render pipe exited {result.returncode}"),
             project_dir=project_dir, project_id=project_id, record_failed_snapshot=True,
+            diagnostics=diagnostics,
         )
 
     cache.put(cache_key, output_mp4)
@@ -215,6 +334,7 @@ def render_project(
         ok=True, output_path=str(output_mp4), mode=mode,
         profile=profile.model_dump(), duration_sec=timeline.duration_sec,
         elapsed_sec=elapsed, cache_hit=False, edit_graph_hash=graph_hash,
+        diagnostics=diagnostics,
     )
 
 
@@ -230,6 +350,7 @@ def _fail(
     project_dir: Optional[Path] = None,
     project_id: Optional[str] = None,
     record_failed_snapshot: bool = False,
+    diagnostics: Optional[dict] = None,
 ) -> RenderResult:
     """Single failure path: produce the failure RenderResult.
 
@@ -245,4 +366,5 @@ def _fail(
         ok=False, output_path=output_path, mode=mode,
         profile=profile.model_dump(), duration_sec=duration_sec,
         elapsed_sec=elapsed_sec, edit_graph_hash=graph_hash, error=error,
+        diagnostics=diagnostics or {},
     )

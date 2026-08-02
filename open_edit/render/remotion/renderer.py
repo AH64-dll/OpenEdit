@@ -4,19 +4,23 @@ from __future__ import annotations
 import json
 import os
 import signal
+import shutil
 import subprocess
-import sys
+import tempfile
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
 from open_edit.render.profiles import RenderProfile
 from open_edit.render.remotion.safety import (
+    ALPHA_POLICY_VERSION,
     RemotionRenderError,
     composition_cache_key,
     composition_source_bundle,
     resolve_remotion_root,
+    stage_referenced_assets,
     validate_entry_point,
 )
 
@@ -35,33 +39,103 @@ class RemotionRenderResult:
     error: str | None = None
 
 
-def _alpha_vcodec() -> str:
-    """Alpha materialization codec.
+@lru_cache(maxsize=1)
+def probe_alpha_capability() -> bool:
+    """Verify that this FFmpeg build can decode and composite VP8 alpha.
 
-    Windows: ProRes 4444 — VP8/WebM alpha is unreliable with ffmpeg composite.
-    Linux/macOS: keep libvpx (WebM alpha) which is lighter and already proven.
+    Encoding a WebM file is not sufficient: some FFmpeg builds report an
+    alpha tag but expose the decoded frames as opaque ``yuv420p``. The probe
+    therefore creates a tiny half-transparent VP8 frame and composites it
+    over blue, rejecting the common all-red opaque result.
     """
-    if sys.platform == "win32":
-        return "prores_ks"
-    return "libvpx"
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    try:
+        with tempfile.TemporaryDirectory(prefix="open-edit-alpha-") as td:
+            overlay_path = Path(td) / "probe.webm"
+            encode = subprocess.run(
+                [
+                    ffmpeg, "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i",
+                    "color=c=red@0.5:s=8x8:d=0.1",
+                    "-frames:v", "1", "-an",
+                    "-vf", "format=yuva420p",
+                    "-c:v", "libvpx", "-pix_fmt", "yuva420p",
+                    "-auto-alt-ref", "0", "-f", "webm", str(overlay_path),
+                ],
+                capture_output=True, timeout=8,
+            )
+            if encode.returncode != 0 or not overlay_path.is_file():
+                return False
+            composite = subprocess.run(
+                [
+                    ffmpeg, "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=c=blue:s=8x8:d=0.1",
+                    "-i", str(overlay_path),
+                    "-filter_complex",
+                    "[1:v]format=yuva420p[ov];"
+                    "[0:v][ov]overlay=shortest=1:format=auto,format=rgb24",
+                    "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                    "pipe:1",
+                ],
+                capture_output=True, timeout=8,
+            )
+            if composite.returncode != 0 or len(composite.stdout) < 3:
+                return False
+            # Opaque VP8 decoding produces pure red here. Blue or a blended
+            # red/blue pixel means the alpha plane survived the round trip.
+            pixels = composite.stdout
+            return any(
+                not (pixels[i] > 245 and pixels[i + 1] < 10 and pixels[i + 2] < 10)
+                for i in range(0, len(pixels) - 2, 3)
+            )
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
-def remotion_profile_for_mode(mode: Literal["proxy", "final"], alpha: bool = False) -> RenderProfile:
+def resolve_alpha_mode(requested: str | None = None) -> str:
+    """Resolve ``auto`` to a verified alpha codec, never a guess."""
+    raw = (
+        requested
+        or os.environ.get("OPEN_EDIT_ALPHA_MODE", "auto")
+    ).strip().lower()
+    if raw == "auto":
+        return "vp8" if probe_alpha_capability() else "prores"
+    if raw not in {"prores", "vp8", "vp9"}:
+        raise ValueError("alpha_mode must be auto, prores, vp8, or vp9")
+    return raw
+
+
+def _alpha_vcodec(alpha_mode: str | None = None) -> str:
+    return {
+        "prores": "prores_ks",
+        "vp8": "libvpx",
+        "vp9": "libvpx-vp9",
+    }[resolve_alpha_mode(alpha_mode)]
+
+
+def remotion_profile_for_mode(
+    mode: Literal["proxy", "final"],
+    alpha: bool = False,
+    alpha_mode: str | None = None,
+) -> RenderProfile:
     """Return width/height/fps used for Remotion materialization.
 
     Proxy keeps 30fps (same as composition timing) so short overlays like
     2.16s intros keep correct duration; only spatial resolution is reduced.
     """
-    alpha_vcodec = _alpha_vcodec()
+    alpha_vcodec = _alpha_vcodec(alpha_mode) if alpha else "libx264"
     if mode == "proxy":
         return RenderProfile(
             name="remotion_proxy",
-            # Half-res proxy on all platforms; Windows ProRes stays lighter this way.
-            width=960,
-            height=540,
+            # Match the fast proxy dimensions so alpha materialization is not
+            # rendered larger than the frame it will be composited into.
+            width=640,
+            height=360,
             frame_rate_num=30,
             frame_rate_den=1,
-            vcodec=alpha_vcodec if alpha else "libx264",
+            vcodec=alpha_vcodec,
         )
     return RenderProfile(
         name="remotion_final",
@@ -69,7 +143,7 @@ def remotion_profile_for_mode(mode: Literal["proxy", "final"], alpha: bool = Fal
         height=1080,
         frame_rate_num=30,
         frame_rate_den=1,
-        vcodec=alpha_vcodec if alpha else "libx264",
+        vcodec=alpha_vcodec,
     )
 
 
@@ -98,6 +172,7 @@ class RemotionRunner:
         remotion_root = resolve_remotion_root(project_path)
         validate_entry_point(project_path, entry_point)
         composition_source = composition_source_bundle(project_path, composition_id)
+        stage_referenced_assets(project_path, composition_source, props)
         content_hash = composition_cache_key(
             composition_source=composition_source,
             composition_id=composition_id,
@@ -105,6 +180,7 @@ class RemotionRunner:
             profile=profile,
             alpha=alpha,
             duration_sec=0.0,
+            project_path=project_path,
         )
 
         output_path = Path(output_path)
@@ -115,17 +191,24 @@ class RemotionRunner:
         # Remotion CLI codec names (not ffmpeg encoder names).
         use_prores_alpha = alpha and profile.vcodec == "prores_ks"
         use_vp8_alpha = alpha and profile.vcodec == "libvpx"
+        use_vp9_alpha = alpha and profile.vcodec == "libvpx-vp9"
         if use_prores_alpha:
             codec = "prores"
-        elif use_vp8_alpha:
-            codec = "vp8"
+        elif use_vp8_alpha or use_vp9_alpha:
+            codec = "vp9" if use_vp9_alpha else "vp8"
         else:
             codec = "h264"
         fps = profile.frame_rate_num / max(profile.frame_rate_den, 1)
 
         alpha_args: list[str] = []
-        if use_prores_alpha:
-            # Windows-only path today (see _alpha_vcodec).
+        if use_vp8_alpha or use_vp9_alpha:
+            alpha_args = [
+                "--pixel-format", "yuva420p",
+                "--image-format", "png",
+            ]
+        elif use_prores_alpha:
+            # ProRes is the correctness fallback when VP8/VP9 alpha probing
+            # cannot prove transparent pixels survive this FFmpeg build.
             alpha_args = [
                 "--pixel-format", "yuva444p10le",
                 "--image-format", "png",

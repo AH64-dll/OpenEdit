@@ -101,6 +101,8 @@ def test_render_project_uses_profile_scoped_cache_key(tmp_path: Path, monkeypatc
     )
     assert result.ok is True, result.error
     assert cache_keys and all("high" in k and "cpu" in k for k in cache_keys)
+    assert result.diagnostics["stages"]["remotion_materialize"]["elapsed_sec"] >= 0
+    assert result.diagnostics["stages"]["ffmpeg"]["bytes"] == 3
 
 
 def test_render_project_hwaccel_retry(tmp_path: Path, monkeypatch) -> None:

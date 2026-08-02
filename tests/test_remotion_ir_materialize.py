@@ -159,6 +159,70 @@ def test_materialize_injects_clip_and_caches(project_with_remotion: Path) -> Non
     assert not (project_with_remotion / ".open_edit" / "remotion" / "out" / "materialize_cache.json").exists()
 
 
+def test_materialize_uses_mov_cache_for_prores_alpha(
+    project_with_remotion: Path,
+) -> None:
+    source = project_with_remotion / "image.png"
+    source.write_bytes(b"image")
+    store = EditGraphStore(project_with_remotion / ".open_edit" / "edit_graph.db")
+    op = AddRemotionCompositionOp(
+        author="ai",
+        entry_point="src/index.ts",
+        composition_id="FocusPopup",
+        props={"imageSrc": source.as_uri()},
+        position_sec=0.0,
+        duration_sec=1.0,
+        alpha=True,
+    )
+    store.append(op)
+    project = Project(
+        name="proj",
+        workdir=project_with_remotion,
+        edit_graph=store.load_all(),
+    )
+    timeline = derive_timeline(project)
+
+    materialize_remotion_compositions(
+        timeline, project_with_remotion, mode="proxy",
+    )
+
+    cache_dir = project_with_remotion / ".open_edit" / "remotion" / "out" / "cache"
+    cached = [p.name for p in cache_dir.glob("materialize:*")]
+    assert len(cached) == 1
+    assert cached[0].endswith(".mov")
+
+
+def test_materialize_invalidates_when_prop_file_changes(
+    project_with_remotion: Path,
+) -> None:
+    source = project_with_remotion / "popup-source.png"
+    source.write_bytes(b"first-image")
+    store = EditGraphStore(project_with_remotion / ".open_edit" / "edit_graph.db")
+    op = AddRemotionCompositionOp(
+        author="ai",
+        entry_point="src/index.ts",
+        composition_id="FocusPopup",
+        props={"imageSrc": source.as_uri()},
+        position_sec=0.0,
+        duration_sec=1.0,
+        alpha=True,
+    )
+    store.append(op)
+    project = Project(
+        name="proj",
+        workdir=project_with_remotion,
+        edit_graph=store.load_all(),
+    )
+    timeline = derive_timeline(project)
+    materialize_remotion_compositions(timeline, project_with_remotion, mode="proxy")
+    source.write_bytes(b"second-image")
+    materialize_remotion_compositions(timeline, project_with_remotion, mode="proxy")
+
+    cache_dir = project_with_remotion / ".open_edit" / "remotion" / "out" / "cache"
+    cached = list(cache_dir.glob("materialize:*"))
+    assert len(cached) == 2
+
+
 def test_materialize_fails_hard_on_bad_entry(project_with_remotion: Path) -> None:
     timeline = Timeline()
     timeline = apply_operation(

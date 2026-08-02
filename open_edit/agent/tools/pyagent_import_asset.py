@@ -25,6 +25,7 @@ content (we still require HTTPS to be safe).
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 import os
 import re
@@ -43,8 +44,8 @@ from open_edit.storage.paths import ProjectPaths
 # Config
 # ---------------------------------------------------------------------------
 
-# Where the in-process search-result cache lives. ``search_assets``
-# writes one JSON per result here, ``import_asset`` reads from it.
+# Legacy/global search-result cache. New searches also persist result records
+# under the project cache so result IDs survive a server restart.
 # Default: a per-process temp dir so tests can override it cheaply.
 _SEARCH_RESULT_CACHE_DIR: Path = Path(
     os.environ.get(
@@ -62,7 +63,8 @@ _MAX_DOWNLOAD_BYTES: int = 2 * 1024 * 1024 * 1024
 _ALLOWED_HOST_SUFFIXES = (
     "pexels.com", "pexelsusercontent.com", "freesound.org",
     "openverse.org", "wordpress.com", "wordpress.org", "wp.com", "s.w.org",
-    "wikimedia.org", "flickr.com", "staticflickr.com", "archive.org",
+    "wikimedia.org", "wikimediafoundation.org", "wmflabs.org",
+    "flickr.com", "staticflickr.com", "archive.org",
 )
 _SAFE_RESULT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,255}\Z")
 
@@ -312,6 +314,62 @@ def _store_result(cache_dir: Path, result: dict[str, Any]) -> None:
         pass
 
 
+def _project_search_cache_dir(project_path: str | Path) -> Path:
+    return (
+        ProjectPaths.for_project(project_path).root
+        / ".open_edit" / "cache" / "search_results"
+    )
+
+
+def _import_manifest_path(
+    project_path: str | Path, provider: str, source_url: str,
+) -> Path:
+    key = f"{provider.strip().lower()}|{source_url.strip()}"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return (
+        ProjectPaths.for_project(project_path).root
+        / ".open_edit" / "cache" / "import_assets" / f"{digest}.json"
+    )
+
+
+def _read_import_manifest(
+    project_path: str | Path, provider: str, source_url: str,
+) -> dict[str, Any] | None:
+    path = _import_manifest_path(project_path, provider, source_url)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _write_import_manifest(
+    project_path: str | Path, provider: str, source_url: str,
+    manifest: dict[str, Any],
+) -> None:
+    path = _import_manifest_path(project_path, provider, source_url)
+    tmp_path: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=".import-", suffix=".tmp", delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(manifest, tmp, sort_keys=True)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    except (OSError, TypeError, ValueError):
+        pass
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -345,7 +403,13 @@ def import_asset(args: dict, project_path: str) -> dict:
     # — has license/attribution) or from the explicit ``source_url`` path.
     cached: dict[str, Any] | None = None
     if result_id:
-        cached = _lookup_result(_SEARCH_RESULT_CACHE_DIR, result_id)
+        for cache_dir in (
+            _project_search_cache_dir(project_path),
+            _SEARCH_RESULT_CACHE_DIR,
+        ):
+            cached = _lookup_result(cache_dir, result_id)
+            if cached is not None:
+                break
         if cached is None:
             return {
                 "status": "error",
@@ -359,7 +423,11 @@ def import_asset(args: dict, project_path: str) -> dict:
         # Use the cached preview_url as the actual download target so
         # the LLM can't pick a different file than the one the search
         # returned (which might be a different license).
-        source_url = cached.get("preview_url") or ""
+        source_url = (
+            cached.get("source_url")
+            or cached.get("preview_url")
+            or ""
+        )
         if not source_url:
             return {
                 "status": "error",
@@ -369,7 +437,18 @@ def import_asset(args: dict, project_path: str) -> dict:
                 ),
             }
 
-    allow_any_https = bool(cached and cached.get("source") == "openverse")
+    source_name = (
+        (cached or {}).get("provider")
+        or (cached or {}).get("source")
+        or args.get("provider")
+        or "direct"
+    )
+    source_page_url = (
+        (cached or {}).get("source_page_url")
+        or args.get("source_page_url")
+        or ""
+    )
+    allow_any_https = source_name == "openverse"
     if not _is_allowed_source_url(source_url, allow_any_https=allow_any_https):
         return {
             "status": "error",
@@ -394,7 +473,34 @@ def import_asset(args: dict, project_path: str) -> dict:
         or (cached or {}).get("attribution")
         or ""
     )
-    source_name = (cached or {}).get("source") or "direct"
+    content_hash = str((cached or {}).get("content_hash") or "")
+
+    # A stable result ID/source URL maps to one import manifest. If the CAS
+    # object still exists, return it without downloading the provider bytes
+    # again. This makes repeated imports reproducible and cheap.
+    manifest = _read_import_manifest(project_path, source_name, source_url)
+    if manifest:
+        from open_edit.storage.assets import AssetStore
+        store = AssetStore(ProjectPaths.for_project(project_path).assets_dir)
+        cached_hash = str(manifest.get("asset_hash") or "")
+        asset = store.get(cached_hash) if cached_hash else None
+        if asset is not None and store.path(cached_hash) is not None:
+            return {
+                "status": "ok",
+                "result": "ingested",
+                "asset_hash": asset.asset_hash,
+                "content_hash": asset.content_hash or asset.asset_hash,
+                "source": source_name,
+                "provider": source_name,
+                "source_url": source_url,
+                "source_page_url": source_page_url,
+                "kind": asset.type,
+                "license": asset.license or license_str,
+                "attribution": asset.attribution or attribution_str,
+                "filename": Path(asset.original_path).name,
+                "duration_sec": asset.duration_sec,
+                "cached": True,
+            }
 
     # Download to a temp file so ``AssetStore.ingest_paths`` can hash it
     # (it needs an on-disk path, not raw bytes).
@@ -435,6 +541,8 @@ def import_asset(args: dict, project_path: str) -> dict:
         try:
             assets = store.ingest_paths(
                 [str(tmp_path)], license=license_str, attribution=attribution_str,
+                provider=source_name, source_url=source_url,
+                source_page_url=source_page_url,
             )
         except Exception as exc:  # noqa: BLE001
             return {
@@ -448,11 +556,30 @@ def import_asset(args: dict, project_path: str) -> dict:
         except Exception:
             pass
 
+    content_hash = asset.content_hash or asset.asset_hash
+    _write_import_manifest(
+        project_path,
+        source_name,
+        source_url,
+        {
+            "asset_hash": asset.asset_hash,
+            "content_hash": content_hash,
+            "provider": source_name,
+            "source_url": source_url,
+            "source_page_url": source_page_url,
+            "license": license_str,
+            "attribution": attribution_str,
+        },
+    )
     return {
         "status": "ok",
         "result": "ingested",
         "asset_hash": asset.asset_hash,
+        "content_hash": content_hash,
         "source": source_name,
+        "provider": source_name,
+        "source_url": source_url,
+        "source_page_url": source_page_url,
         "kind": asset.type,
         "license": license_str,
         "attribution": attribution_str,

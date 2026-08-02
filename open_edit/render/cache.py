@@ -6,8 +6,11 @@ never disagree with the kernel/serve job-dedup hash.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -28,13 +31,28 @@ def canonical_json_hash(obj: Any) -> str:
     return compute_edit_graph_hash(obj)
 
 
-def render_cache_key(graph_hash: str, profile_fingerprint: str) -> str:
-    """Cache key = graph hash + profile identity (resolution/quality/overrides/encoder).
+def render_cache_key(
+    graph_hash: str,
+    profile_fingerprint: str,
+    content_fingerprint: str = "",
+) -> str:
+    """Cache key = graph + profile + referenced-content identity.
 
     The ``|`` separator is sanitized to ``_`` because the key is used
     verbatim as a filename and ``|`` is forbidden on Windows.
     """
-    return f"{graph_hash}|{profile_fingerprint}".replace("|", "_")
+    parts = [graph_hash, profile_fingerprint]
+    if content_fingerprint:
+        parts.append(content_fingerprint)
+    return "|".join(parts).replace("|", "_")
+
+
+def _file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def cache_ttl_sec() -> int:
@@ -59,17 +77,74 @@ class RenderCache:
     def _cache_path(self, key: str, ext: str = "mp4") -> Path:
         return self.cache_dir / f"{key}.{ext}"
 
+    def _metadata_path(self, key: str, ext: str = "mp4") -> Path:
+        return self.cache_dir / ".meta" / f"{key}.{ext}.json"
+
     def get(self, key: str, ext: str = "mp4") -> Path | None:
         path = self._cache_path(key, ext)
-        if path.exists():
-            return path
-        return None
+        if not path.is_file():
+            return None
+        metadata_path = self._metadata_path(key, ext)
+        if metadata_path.is_file():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                expected = str(metadata.get("source_hash") or "")
+                if not expected or _file_hash(path) != expected:
+                    return None
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                return None
+        # Legacy cache entries without metadata remain readable; a new put
+        # immediately upgrades them to content-verified entries.
+        return path
 
     def put(self, key: str, source_path: str | Path, ext: str = "mp4") -> Path:
-        """Copy `source_path` into the cache. Returns the destination path."""
+        """Atomically store a content-verified cache entry."""
         dest = self._cache_path(key, ext)
-        if not dest.exists():
-            shutil.copy2(source_path, dest)
+        source = Path(source_path)
+        source_hash = _file_hash(source)
+        metadata_path = self._metadata_path(key, ext)
+        metadata = {
+            "schema": 1,
+            "key": key,
+            "ext": ext,
+            "source_hash": source_hash,
+            "size_bytes": source.stat().st_size,
+            "updated_at": time.time(),
+        }
+        try:
+            if dest.is_file() and metadata_path.is_file():
+                existing = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if existing.get("source_hash") == source_hash and _file_hash(dest) == source_hash:
+                    return dest
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_dest: Path | None = None
+            with tempfile.NamedTemporaryFile(
+                dir=dest.parent, prefix=f".{dest.name}.", delete=False,
+            ) as tmp:
+                temp_dest = Path(tmp.name)
+            shutil.copyfile(source, temp_dest)
+            os.replace(temp_dest, dest)
+            temp_meta: Path | None = None
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=metadata_path.parent,
+                prefix=f".{metadata_path.name}.", delete=False,
+            ) as tmp:
+                temp_meta = Path(tmp.name)
+                json.dump(metadata, tmp, sort_keys=True)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(temp_meta, metadata_path)
+        finally:
+            for temp in (
+                locals().get("temp_dest"),
+                locals().get("temp_meta"),
+            ):
+                if isinstance(temp, Path):
+                    try:
+                        temp.unlink(missing_ok=True)
+                    except OSError:
+                        pass
         return dest
 
     def is_fresh(self, path: Path, max_age_sec: int | None = None) -> bool:

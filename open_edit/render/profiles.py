@@ -82,6 +82,7 @@ DEFAULT_PROFILES: list[RenderProfile] = [
     RenderProfile(name="1080p60", width=1920, height=1080, frame_rate_num=60, frame_rate_den=1),
     RenderProfile(name="720p30", width=1280, height=720, frame_rate_num=30, frame_rate_den=1),
     RenderProfile(name="480p30", width=854, height=480, frame_rate_num=30, frame_rate_den=1),
+    RenderProfile(name="fast_proxy", width=640, height=360, frame_rate_num=30, frame_rate_den=1),
 ]
 
 _PROFILE_BY_NAME: dict[str, RenderProfile] = {p.name: p for p in DEFAULT_PROFILES}
@@ -106,11 +107,11 @@ def profile_with_quality(
 ) -> RenderProfile:
     """Resolve a profile name + mode into a RenderProfile carrying quality.
 
-    Defaults: profile None -> 1080p30 (final) / 720p30 (proxy);
+    Defaults: profile None -> 1080p30 (final) / fast_proxy (proxy);
     quality None -> standard (final) / fast (proxy).
     """
     if not profile_name:
-        profile_name = "1080p30" if mode == "final" else "720p30"
+        profile_name = "1080p30" if mode == "final" else "fast_proxy"
     profile = select_profile(profile_name)
     update: dict = {"quality": quality or _mode_default_quality(mode)}
     for key in ("crf", "vb", "preset", "scale", "codec", "ab"):
@@ -131,7 +132,7 @@ def resolve_encoder_args(profile: RenderProfile, backend: str | None = None) -> 
 def profile_fingerprint(profile: RenderProfile, backend: str | None = None) -> str:
     """Stable cache-key component: resolution + quality + overrides + backend."""
     parts = [profile.name, f"q={profile.quality or 'fast'}"]
-    for key in ("crf", "vb", "preset", "scale", "codec"):
+    for key in ("crf", "vb", "preset", "scale", "codec", "ab"):
         value = getattr(profile, key)
         if value is not None:
             parts.append(f"{key}={value}")
@@ -146,7 +147,7 @@ def profile_to_mlt_args(
     mode: str = "proxy",
 ) -> list[str]:
     spec = resolve_encoder_args(profile, backend)
-    ab = profile.ab or ("320k" if mode == "final" else "160k")
+    ab = profile.ab or ("320k" if mode == "final" else "96k")
     args = [
         f"s={profile.width}x{profile.height}",
         f"frame_rate_num={profile.frame_rate_num}",

@@ -19,6 +19,12 @@ def test_default_profiles_includes_720p30() -> None:
     assert "720p30" in names
 
 
+def test_default_profiles_includes_fast_proxy() -> None:
+    fast = select_profile("fast_proxy")
+    assert (fast.width, fast.height) == (640, 360)
+    assert fast.quality is None
+
+
 def test_select_profile_returns_named_profile() -> None:
     p = select_profile("1080p30")
     assert p.name == "1080p30"
@@ -81,7 +87,9 @@ def test_profile_with_quality_defaults_by_mode():
     p = profile_with_quality(None, "final")
     assert p.name == "1080p30" and p.quality == "standard"
     p2 = profile_with_quality(None, "proxy")
-    assert p2.name == "720p30" and p2.quality == "fast"
+    assert p2.name == "fast_proxy"
+    assert (p2.width, p2.height) == (640, 360)
+    assert p2.quality == "fast"
 
 
 def test_profile_with_quality_applies_overrides():

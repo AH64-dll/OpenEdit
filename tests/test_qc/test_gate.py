@@ -1,9 +1,13 @@
 """Tests for the QC gate (documented 6 checks + pipeline diagnostics)."""
 import shutil
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
+from open_edit.qc import gate as gate_mod
+from open_edit.qc.black_frames import BlackFramesResult, BlackSpan
+from open_edit.qc.frozen_frames import FrozenFramesResult
 from open_edit.qc.gate import run_qc_gate, QCReport
 
 
@@ -118,3 +122,57 @@ def test_run_qc_gate_overlays_burned_informational() -> None:
     overlays = next(c for c in overlay.checks if c.name == "overlays_burned")
     assert overlays.passed is True
     assert "visual review" in overlays.detail
+
+
+def test_source_known_black_span_is_not_a_new_render_defect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "proxy.mp4"
+    output.write_bytes(b"proxy")
+    monkeypatch.setattr(
+        gate_mod,
+        "probe_streams",
+        lambda _: SimpleNamespace(
+            ok=True, container_duration_s=1.0, video_streams=1,
+            audio_streams=1, video_duration_s=1.0, audio_duration_s=1.0,
+            codec_types=["video", "audio"], error=None,
+        ),
+    )
+    monkeypatch.setattr(
+        gate_mod,
+        "list_black_frames",
+        lambda _: BlackFramesResult(
+            ok=True, in_sec=0.0, out_sec=0.0, threshold=0.1, min_sec=0.5,
+            spans=[BlackSpan(start_sec=0.0, end_sec=0.6, duration_sec=0.6)],
+        ),
+    )
+    monkeypatch.setattr(
+        gate_mod,
+        "list_frozen_frames",
+        lambda *args, **kwargs: FrozenFramesResult(
+            ok=True, min_sec=1.0, noise_db=-50.0, spans=[],
+        ),
+    )
+    monkeypatch.setattr(
+        gate_mod, "list_silence",
+        lambda _: SimpleNamespace(ok=True, spans=[]),
+    )
+    monkeypatch.setattr(
+        gate_mod, "get_thumbnail",
+        lambda *args, **kwargs: SimpleNamespace(
+            ok=True, width=2, height=2, error=None,
+        ),
+    )
+
+    report = run_qc_gate(
+        str(output),
+        tmp_path,
+        source_baseline={
+            "black_frames": [{"start_sec": 0.0, "end_sec": 0.6}],
+            "frozen_frames": [],
+        },
+    )
+
+    black_check = next(c for c in report.checks if c.name == "black_frames")
+    assert black_check.passed is True
+    assert report.source_known_spans["black_frames"]

@@ -28,6 +28,19 @@ AUDIO_SYNC_TOLERANCE_S = 0.2
 FROZEN_MIN_SEC = 1.0
 
 
+def _span_overlaps_any(
+    span: dict, known_spans: list[dict], tolerance_sec: float = 0.05,
+) -> bool:
+    start = float(span.get("start_sec", 0.0))
+    end = float(span.get("end_sec", start))
+    for known in known_spans:
+        known_start = float(known.get("start_sec", 0.0))
+        known_end = float(known.get("end_sec", known_start))
+        if start <= known_end + tolerance_sec and end >= known_start - tolerance_sec:
+            return True
+    return False
+
+
 class QCCheck(BaseModel):
     name: str
     passed: bool
@@ -40,6 +53,7 @@ class QCReport(BaseModel):
     # Deterministic spans consumed by the visual-verify evidence stage:
     # {"black_frames": [...], "silence": [...], "frozen_frames": [...]}
     spans: dict[str, list[dict]] = {}
+    source_known_spans: dict[str, list[dict]] = {}
     duration_sec: float | None = None
 
     @classmethod
@@ -53,6 +67,7 @@ def run_qc_gate(
     *,
     target_duration_s: float | None = None,
     mode: str | None = None,
+    source_baseline: dict | None = None,
 ) -> QCReport:
     """Run all QC checks against a rendered video file.
 
@@ -72,6 +87,10 @@ def run_qc_gate(
     checks: list[QCCheck] = []
     spans: dict[str, list[dict]] = {
         "black_frames": [], "silence": [], "frozen_frames": [],
+    }
+    source_known_spans: dict[str, list[dict]] = {
+        "black_frames": list((source_baseline or {}).get("black_frames") or []),
+        "frozen_frames": list((source_baseline or {}).get("frozen_frames") or []),
     }
     duration_sec: float | None = None
 
@@ -100,6 +119,7 @@ def run_qc_gate(
             checks.append(QCCheck(name=name, passed=False, detail="skipped: no video"))
         report = QCReport.from_checks(checks)
         report.spans = spans
+        report.source_known_spans = source_known_spans
         return report
 
     # 3. streams: ≥1 video stream AND ≥1 audio stream (ffprobe)
@@ -171,27 +191,48 @@ def run_qc_gate(
 
     # 6. black_frames
     bf_result = list_black_frames(video_path)
+    black_spans = (
+        [s.model_dump() for s in bf_result.spans]
+        if bf_result.ok else []
+    )
+    new_black_spans = [
+        span for span in black_spans
+        if not _span_overlaps_any(span, source_known_spans["black_frames"])
+    ]
     checks.append(QCCheck(
-        name="black_frames", passed=bf_result.ok and not bf_result.spans,
+        name="black_frames", passed=bf_result.ok and not new_black_spans,
         detail=(
-            f"{len(bf_result.spans)} black frames"
+            f"{len(black_spans)} black spans "
+            f"({len(new_black_spans)} new; "
+            f"{len(black_spans) - len(new_black_spans)} source-known)"
             if bf_result.ok else (bf_result.error or "failed")
         ),
     ))
     if bf_result.ok:
-        spans["black_frames"] = [s.model_dump() for s in bf_result.spans]
+        spans["black_frames"] = black_spans
 
     # 7. frozen_frames: no interval ≥1.0s where the video didn't change
     ff_result = list_frozen_frames(video_path, min_sec=FROZEN_MIN_SEC)
+    frozen_spans = (
+        [s.model_dump() for s in ff_result.spans]
+        if ff_result.ok else []
+    )
+    new_frozen_spans = [
+        span for span in frozen_spans
+        if not _span_overlaps_any(span, source_known_spans["frozen_frames"])
+    ]
     checks.append(QCCheck(
-        name="frozen_frames", passed=ff_result.ok and not ff_result.spans,
+        name="frozen_frames", passed=ff_result.ok and not new_frozen_spans,
         detail=(
-            f"{len(ff_result.spans)} frozen intervals (min {FROZEN_MIN_SEC:.1f}s)"
+            f"{len(frozen_spans)} frozen intervals "
+            f"({len(new_frozen_spans)} new; "
+            f"{len(frozen_spans) - len(new_frozen_spans)} source-known; "
+            f"min {FROZEN_MIN_SEC:.1f}s)"
             if ff_result.ok else (ff_result.error or "failed")
         ),
     ))
     if ff_result.ok:
-        spans["frozen_frames"] = [s.model_dump() for s in ff_result.spans]
+        spans["frozen_frames"] = frozen_spans
 
     # 8. silence
     sil_result = list_silence(video_path)
@@ -237,6 +278,7 @@ def run_qc_gate(
 
     report = QCReport.from_checks(checks)
     report.spans = spans
+    report.source_known_spans = source_known_spans
     report.duration_sec = duration_sec
     return report
 

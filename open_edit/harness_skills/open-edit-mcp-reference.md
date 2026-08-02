@@ -125,7 +125,6 @@ Notes from the UI → `query_project` / `get_pending_notes`.
 
 | Env | Purpose |
 |---|---|
-| `OPEN_EDIT_INGEST_ALLOWLIST` | Colon-separated absolute roots for ingest |
 | `OPEN_EDIT_WHISPER_LANGUAGE` | e.g. `ar` |
 | `OPEN_EDIT_WHISPER_MODEL` | e.g. `small` |
 | `OPEN_EDIT_NODE_BIN` | Node for Remotion |

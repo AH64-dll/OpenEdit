@@ -137,6 +137,50 @@ def test_import_asset_by_result_id_uses_cached_metadata(tmp_path, monkeypatch):
     assert asset.attribution == "Source: Pexels"
 
 
+def test_import_asset_reuses_wikimedia_result_by_stable_id(
+    tmp_path, monkeypatch,
+):
+    """The same provider result is imported once and then served from CAS."""
+    if not shutil.which("open_edit"):
+        pytest.skip("open_edit CLI not on PATH; cannot bootstrap project")
+    if not shutil.which("ffprobe"):
+        pytest.skip("ffprobe not installed; cannot ingest media in tests")
+
+    project = tmp_path / "proj"
+    _bootstrap_project(project)
+    cache = tmp_path / "search_cache"
+    result_id = "wikimedia-4242"
+    _seed_search_result_file(cache, result_id, {
+        "id": result_id,
+        "provider": "wikimedia",
+        "source": "wikimedia",
+        "kind": "photo",
+        "title": "Gemini logo",
+        "thumbnail_url": "https://upload.wikimedia.org/thumb.png",
+        "preview_url": "https://upload.wikimedia.org/logo.svg",
+        "source_url": "https://upload.wikimedia.org/logo.svg",
+        "source_page_url": "https://commons.wikimedia.org/wiki/File:Logo.svg",
+        "license": "CC BY-SA 4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+        "attribution_required": True,
+        "attribution": "Example Artist — Wikimedia Commons",
+    })
+    monkeypatch.setattr(mod, "_SEARCH_RESULT_CACHE_DIR", cache)
+
+    real_bytes = _REAL_MP4.read_bytes()
+    with mock.patch.object(mod, "_http_download", return_value=real_bytes) as download:
+        first = import_asset({"result_id": result_id}, str(project))
+        second = import_asset({"result_id": result_id}, str(project))
+
+    assert first["status"] == "ok", first
+    assert second["status"] == "ok", second
+    assert first["asset_hash"] == second["asset_hash"]
+    assert first["content_hash"] == first["asset_hash"]
+    assert first["provider"] == "wikimedia"
+    assert first["source_url"] == "https://upload.wikimedia.org/logo.svg"
+    assert download.call_count == 1
+
+
 def test_import_asset_unknown_result_id_returns_error(tmp_path, monkeypatch):
     """A bogus ``result_id`` (not in the search cache) is a clear error,
     not a crash."""

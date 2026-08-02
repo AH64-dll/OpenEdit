@@ -1,10 +1,12 @@
 """Tests for black-frame detection."""
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from open_edit.qc.black_frames import list_black_frames, BlackFramesResult
+import open_edit.qc.black_frames as black_frames_mod
 
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
@@ -36,3 +38,23 @@ def test_list_black_frames_missing_file() -> None:
     result = list_black_frames("/nonexistent/file.mp4")
     assert result.ok is False
     assert "not found" in result.error
+
+
+def test_list_black_frames_uses_pixel_threshold(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"source")
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(black_frames_mod.shutil, "which", lambda _: "ffmpeg")
+    monkeypatch.setattr(black_frames_mod.subprocess, "run", fake_run)
+
+    result = list_black_frames(str(source))
+
+    assert result.ok is True
+    vf = seen[0][seen[0].index("-vf") + 1]
+    assert "pix_th=0.1" in vf
+    assert "pic_th=0.98" in vf

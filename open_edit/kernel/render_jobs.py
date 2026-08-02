@@ -401,6 +401,9 @@ class RenderJobService:
                 project_path / "thumbs",
                 target_duration_s=float(target) if target is not None else None,
                 mode=out.get("mode"),
+                source_baseline=(result.get("diagnostics") or {}).get(
+                    "source_baseline",
+                ),
             )
             out["qc_report"] = qc.model_dump(mode="json")
         except Exception as exc:

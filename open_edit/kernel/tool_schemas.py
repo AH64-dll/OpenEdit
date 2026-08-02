@@ -64,7 +64,8 @@ Use this for ALL read-only queries about the project:
 - "get_pending_notes" → get pending review notes
 - "get_style_profile" → get the project's style profile (call early)
 - "analyze_narrative" → analyze narrative structure of assets
-- "search_assets" → search **internet stock** libraries (Pexels/Freesound/Openverse)
+- "search_assets" → search the durable **internet stock** cascade
+  (Pexels/Freesound → Openverse → Wikimedia Commons)
 - "get_transcript_packed" → get silence-aware, speaker-grouped phrase transcript
 
 ## 2. edit_project (preferred for mutations)
@@ -75,8 +76,7 @@ Use this for ALL project edits:
 - For creative suggestions (SFX, music, visuals, silence cuts), use the "generate" parameter
 - **Search before generate:** before any generate=visual / music / sfx call
   search_assets and use import_asset for suitable licensed
-  Pexels/Freesound/Openverse stock; generate only when stock is unavailable
-  or unsuitable.
+  provider stock; generate only when stock is unavailable or unsuitable.
 - Generated ops are returned for review; commit them with operation="apply_generated_ops"
 
 ## 3. run_script (only when edit_project can't do it)

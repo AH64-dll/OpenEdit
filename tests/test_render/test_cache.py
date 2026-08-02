@@ -67,6 +67,22 @@ def test_render_cache_put_and_get(tmp_path: Path) -> None:
     assert retrieved == cached
 
 
+def test_render_cache_replaces_same_key_when_source_content_changes(
+    tmp_path: Path,
+) -> None:
+    cache = RenderCache(tmp_path / "cache")
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"first")
+    cached = cache.put("same-key", src)
+    assert cached.read_bytes() == b"first"
+
+    src.write_bytes(b"second")
+    replaced = cache.put("same-key", src)
+    assert replaced == cached
+    assert cached.read_bytes() == b"second"
+    assert (tmp_path / "cache" / ".meta" / "same-key.mp4.json").is_file()
+
+
 def test_render_cache_get_miss_returns_none(tmp_path: Path) -> None:
     cache = RenderCache(tmp_path / "cache")
     assert cache.get("nope") is None
@@ -128,6 +144,14 @@ def test_render_cache_key_composes() -> None:
     key = render_cache_key("hash1", "1080p30|q=standard|enc=gpu")
     assert key == "hash1_1080p30_q=standard_enc=gpu"
     assert key != render_cache_key("hash1", "720p30|q=fast|enc=gpu")
+
+
+def test_render_cache_key_includes_reference_content() -> None:
+    from open_edit.render.cache import render_cache_key
+
+    first = render_cache_key("hash1", "fast_proxy|q=fast", "image-a")
+    second = render_cache_key("hash1", "fast_proxy|q=fast", "image-b")
+    assert first != second
 
 
 def test_render_cache_key_is_windows_safe() -> None:

@@ -121,14 +121,35 @@ class AssetStore:
         """Path to the metadata sidecar JSON next to the CAS file."""
         return self.assets_dir / asset_hash[:2] / f"{asset_hash}.meta.json"
 
-    def ingest(self, source_path: str, transcribe: bool = True) -> Asset:
-        return self.ingest_paths([source_path], do_transcribe=transcribe)[0]
+    def ingest(
+        self,
+        source_path: str,
+        transcribe: bool = True,
+        *,
+        license: str = "",
+        attribution: str = "",
+        provider: str = "",
+        source_url: str = "",
+        source_page_url: str = "",
+    ) -> Asset:
+        return self.ingest_paths(
+            [source_path],
+            license=license,
+            attribution=attribution,
+            do_transcribe=transcribe,
+            provider=provider,
+            source_url=source_url,
+            source_page_url=source_page_url,
+        )[0]
 
     def ingest_paths(
         self, paths: list[str],
         license: str = "",
         attribution: str = "",
         do_transcribe: bool = True,
+        provider: str = "",
+        source_url: str = "",
+        source_page_url: str = "",
     ) -> list[Asset]:
         """Ingest one or more files. Returns one Asset per input path.
 
@@ -176,6 +197,10 @@ class AssetStore:
                 alignment=alignment,
                 license=license,
                 attribution=attribution,
+                content_hash=asset_hash,
+                provider=provider,
+                source_url=source_url,
+                source_page_url=source_page_url,
             )
             sidecar = self._sidecar_path(asset_hash)
             sidecar.write_text(asset.model_dump_json(indent=2))
@@ -201,6 +226,7 @@ class AssetStore:
             height=media_info["height"],
             codec=media_info["codec"],
             has_audio=media_info["has_audio"],
+            content_hash=asset_hash,
         )
 
     def path(self, asset_hash: str) -> Optional[Path]:

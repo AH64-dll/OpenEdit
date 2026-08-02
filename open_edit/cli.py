@@ -191,6 +191,7 @@ def cmd_render(args: argparse.Namespace) -> int:
                 "duration_sec": result.duration_sec,
                 "elapsed_sec": result.elapsed_sec,
                 "cache_hit": result.cache_hit,
+                "diagnostics": result.diagnostics,
                 "mode": args.mode,
             }))
             return 0
@@ -200,6 +201,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         qc = run_qc_gate(
             result.output_path, project_dir / "thumbs",
             target_duration_s=result.duration_sec, mode=args.mode,
+            source_baseline=(result.diagnostics or {}).get("source_baseline"),
         )
         print(f"QC: {'PASS' if qc.passed else 'FAIL'}")
         for c in qc.checks:

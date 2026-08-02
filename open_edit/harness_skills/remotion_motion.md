@@ -28,6 +28,16 @@ Company / Automators license. See `docs/REMOTION_LICENSE.md`.
 4. `generate_remotion_composition` — append IR op with props / timing.
 5. `trigger_render` with `mode=proxy` or `final` — materialize + melt + ffmpeg burn-in.
 
+## Transparent overlays and proxy cost
+
+`alpha` is the per-pixel transparency mask that lets a popup coexist with
+the original video. ProRes 4444 stores RGB plus that mask and remains the
+correctness fallback. With `OPEN_EDIT_ALPHA_MODE=auto`, Open Edit first runs
+an FFmpeg decode-and-composite probe and uses VP8/VP9 alpha only when the
+probe proves the mask survives; otherwise it selects ProRes automatically.
+Proxy renders use the `fast_proxy` 640x360 profile, fast encoder tier, and
+lower audio bitrate. Alpha intermediates use those same proxy dimensions.
+
 ## Props example
 
 ```json

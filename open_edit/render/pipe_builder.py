@@ -112,10 +112,14 @@ def build_pipe_commands(
     fps = _fps_string(profile)
     audio_wav = (workdir or output_mp4.parent) / f"{output_mp4.stem}.audio.wav"
 
+    # IMPORTANT: use ``f=rawvideo`` (muxer), not ``format=rawvideo``.
+    # ``format=`` leaves avformat on the default MPEG-PS muxer while still
+    # labeling the codec rawvideo; ffmpeg ``-f rawvideo`` then misreads the
+    # stream and produces green/corrupt frames (see debug session c7c4ca).
     melt_video_cmd = [
         melt_bin, str(xml_path),
         "-consumer", "avformat:pipe:",
-        "format=rawvideo",
+        "f=rawvideo",
         "vcodec=rawvideo",
         "pix_fmt=yuv420p",
         f"s={size}",

@@ -118,6 +118,12 @@ class Asset(BaseModel):
     # it out before publishing".
     license: str = ""
     attribution: str = ""
+    # Provenance for imported third-party media. ``content_hash`` is normally
+    # identical to ``asset_hash`` and is explicit for API consumers.
+    content_hash: str = ""
+    provider: str = ""
+    source_url: str = ""
+    source_page_url: str = ""
 
 
 # ===== Operation base + concrete variants =====

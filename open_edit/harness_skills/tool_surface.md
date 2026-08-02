@@ -14,7 +14,7 @@ Inspect project state. Sub-queries:
 | Name | Required params | Returns |
 |---|---|---|
 | `list_assets` | — | All known assets with hash, path, duration, alignment status. |
-| `search_assets` | `query` (text) | Internet stock search across Pexels/Freesound/Openverse (video, photo, and audio). |
+| `search_assets` | `query` (text) | Durable internet stock cascade across Pexels/Freesound, Openverse, and Wikimedia Commons. |
 | `get_pending_notes` | `project_id` | Notes the user attached to the project. |
 | `get_style_profile` | `op_type` | Style guidance for the given op type (cut, transition, effect, etc.). |
 | `analyze_narrative` | `asset_hash` | Rule-based narrative segments. |
@@ -32,8 +32,8 @@ Mutations:
 - `add_marker` — annotate a timeline point.
 - `set_pinned_value` — pin a value (e.g., aspect ratio) for downstream ops.
 - `import_asset` — bring a new asset into the project.
-- `ingest_local` — ingest absolute local media paths (project dir or
-  `OPEN_EDIT_INGEST_ALLOWLIST`).
+- `ingest_local` — ingest any readable absolute local media path; symlinks are
+  resolved and copied into the project CAS.
 - `add_clip` / `trim_clip` / `replace_clip_source` / `change_clip_speed` —
   everyday timeline placement (prefer over `run_script`).
 - `remove_clip` / `set_audio_gain` / `apply_silence_gaps` — remove, mute,
@@ -62,8 +62,8 @@ Creative generation (use these INSTEAD of hand-rolling):
 
 **Search before generate:** Before `generate=visual`, `generate=music`, or
 `generate=sfx`, prefer `search_assets` followed by `import_asset` when
-licensed Pexels/Freesound/Openverse stock is a suitable fit. Generate only when stock
-does not meet the brief or licensing requirements.
+licensed provider stock is a suitable fit. Generate only when stock does not
+meet the brief or licensing requirements.
 
 `apply_generated_ops` validates structured ops and rejects the batch
 on the first failure. `RawMltXmlOp` and `FreeFormCodeOp` BYPASS this

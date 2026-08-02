@@ -1,4 +1,4 @@
-"""Tests for ingest_local path containment and CAS ingest."""
+"""Tests for unrestricted ingest_local path access and CAS ingest."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,12 +23,26 @@ def test_ingest_local_rejects_relative_path(project: Path) -> None:
     assert "absolute" in result["errors"][0]["error"]
 
 
-def test_ingest_local_rejects_outside_allowlist(project: Path, tmp_path: Path) -> None:
+def test_ingest_local_accepts_any_folder(project: Path, tmp_path: Path) -> None:
     outsider = tmp_path / "outside.mp4"
     outsider.write_bytes(b"not-really-mp4")
-    result = ingest_local({"paths": [str(outsider)]}, str(project))
-    assert result["count"] == 0
-    assert "ALLOWLIST" in result["errors"][0]["error"]
+    fake_asset = MagicMock(
+        asset_hash="outside123",
+        duration_sec=1.0,
+        type="video",
+        has_audio=False,
+        alignment=[],
+    )
+    with patch("open_edit.agent.tools.pyagent_ingest_local.get_asset_store") as gas:
+        store = MagicMock()
+        store.ingest.return_value = fake_asset
+        gas.return_value = store
+        result = ingest_local(
+            {"paths": [str(outsider)], "transcribe": False}, str(project),
+        )
+    assert result["status"] == "ok"
+    assert result["count"] == 1
+    store.ingest.assert_called_once_with(str(outsider.resolve()), transcribe=False)
 
 
 def test_ingest_local_allows_project_path(project: Path) -> None:
@@ -54,12 +68,16 @@ def test_ingest_local_allows_project_path(project: Path) -> None:
     store.ingest.assert_called_once_with(str(media.resolve()), transcribe=False)
 
 
-def test_ingest_local_allowlist_root(project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    allow = tmp_path / "videos"
-    allow.mkdir()
-    media = allow / "talk.mp4"
+def test_ingest_local_follows_symlink(project: Path, tmp_path: Path) -> None:
+    source_dir = tmp_path / "videos"
+    source_dir.mkdir()
+    media = source_dir / "talk.mp4"
     media.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 32)
-    monkeypatch.setenv("OPEN_EDIT_INGEST_ALLOWLIST", str(allow))
+    link = project / "linked-talk.mp4"
+    try:
+        link.symlink_to(media)
+    except OSError:
+        pytest.skip("symlinks unavailable on this platform")
     fake_asset = MagicMock(
         asset_hash="def456",
         duration_sec=2.0,
@@ -71,6 +89,7 @@ def test_ingest_local_allowlist_root(project: Path, tmp_path: Path, monkeypatch:
         store = MagicMock()
         store.ingest.return_value = fake_asset
         gas.return_value = store
-        result = ingest_local({"paths": [str(media)]}, str(project))
+        result = ingest_local({"paths": [str(link)], "transcribe": False}, str(project))
     assert result["status"] == "ok"
     assert result["ingested"][0]["words"] == 2
+    store.ingest.assert_called_once_with(str(media.resolve()), transcribe=False)

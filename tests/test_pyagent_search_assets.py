@@ -190,6 +190,33 @@ OPENVERSE_FILTER_RESPONSE = {
     ],
 }
 
+WIKIMEDIA_RESPONSE = {
+    "query": {
+        "pages": [
+            {
+                "pageid": 4242,
+                "title": "File:Gemini logo.svg",
+                "canonicalurl": "https://commons.wikimedia.org/wiki/File:Gemini_logo.svg",
+                "imageinfo": [
+                    {
+                        "url": "https://upload.wikimedia.org/wikipedia/commons/g/gm/Gemini_logo.svg",
+                        "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/g/gm/Gemini_logo.svg/800px-Gemini_logo.svg.png",
+                        "descriptionurl": "https://commons.wikimedia.org/wiki/File:Gemini_logo.svg",
+                        "mime": "image/svg+xml",
+                        "extmetadata": {
+                            "Artist": {"value": "Example Artist"},
+                            "LicenseShortName": {"value": "CC BY-SA 4.0"},
+                            "LicenseUrl": {
+                                "value": "https://creativecommons.org/licenses/by-sa/4.0/"
+                            },
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -458,6 +485,24 @@ def test_search_assets_cache_key_distinguishes_limit(pexels_key, tmp_path):
     assert m.call_count == 2
 
 
+def test_search_assets_cache_is_project_scoped(pexels_key, tmp_path):
+    """A server must not serve one project's cached result to another."""
+    project_a = tmp_path / "project-a"
+    project_b = tmp_path / "project-b"
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=PEXELS_VIDEO_RESPONSE,
+    ) as m:
+        search_assets(
+            {"query": "project-scoped-cache", "kind": "video", "limit": 3},
+            str(project_a),
+        )
+        search_assets(
+            {"query": "project-scoped-cache", "kind": "video", "limit": 3},
+            str(project_b),
+        )
+    assert m.call_count == 2
+
+
 def test_search_assets_cache_respects_ttl(pexels_key, tmp_path, monkeypatch):
     """After the TTL elapses, the next call hits the network again."""
     import time as time_mod
@@ -547,6 +592,124 @@ def test_search_assets_surfaces_non_200_status(pexels_key, tmp_path):
         )
     assert "error" in res
     assert "429" in res["error"] or "rate" in res["error"].lower()
+
+
+def test_search_assets_retries_403_before_returning_primary_results(
+    pexels_key, tmp_path, monkeypatch,
+):
+    """A transient provider denial is retried before the cascade advances."""
+    with mock.patch.object(
+        mod, "_http_get_json",
+        side_effect=[RuntimeError("upstream 403: forbidden"), PEXELS_PHOTO_RESPONSE],
+    ) as http, mock.patch.object(mod.time, "sleep") as sleep:
+        res = search_assets(
+            {"query": "rain", "kind": "photo", "limit": 1},
+            str(tmp_path),
+        )
+
+    assert res["status"] == "ok"
+    assert res["source"] == "pexels"
+    assert http.call_count == 2
+    sleep.assert_called_once()
+
+
+def test_search_assets_persists_cache_across_process_cache_reset(
+    pexels_key, tmp_path,
+):
+    """A project cache survives clearing the process-local search dictionary."""
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=PEXELS_PHOTO_RESPONSE,
+    ) as http:
+        first = search_assets(
+            {"query": "persistent rain", "kind": "photo", "limit": 1},
+            str(tmp_path),
+        )
+    assert first["status"] == "ok"
+    assert http.call_count == 1
+
+    _cache_clear()
+    with mock.patch.object(
+        mod, "_http_get_json", side_effect=AssertionError("network should not run"),
+    ):
+        second = search_assets(
+            {"query": "persistent rain", "kind": "photo", "limit": 1},
+            str(tmp_path),
+        )
+    assert second == first
+
+
+def test_search_assets_uses_stale_project_cache_when_all_providers_fail(
+    pexels_key, tmp_path, monkeypatch,
+):
+    """An expired response remains usable during a provider outage."""
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=PEXELS_PHOTO_RESPONSE,
+    ):
+        first = search_assets(
+            {"query": "stale rain", "kind": "photo", "limit": 1},
+            str(tmp_path),
+        )
+    assert first["status"] == "ok"
+    _cache_clear()
+    cache_file = next((tmp_path / ".open_edit" / "cache" / "search_assets").glob("*.json"))
+    cached_document = json.loads(cache_file.read_text())
+    cached_document["expires_at"] = 0.0
+    cache_file.write_text(json.dumps(cached_document))
+    with mock.patch.object(
+        mod, "_call_provider",
+        side_effect=RuntimeError("all providers unavailable"),
+    ):
+        stale = search_assets(
+            {"query": "stale rain", "kind": "photo", "limit": 1},
+            str(tmp_path),
+        )
+    assert stale["status"] == "ok"
+    assert stale["cache_status"] == "stale"
+    assert "last cached" in stale["warning"]
+
+
+def test_search_assets_cascades_to_wikimedia_with_degraded_warning(
+    pexels_key, tmp_path,
+):
+    """Configured providers fail over to Openverse then Wikimedia for logos."""
+    with mock.patch.object(
+        mod, "_http_get_json",
+        side_effect=[
+            RuntimeError("upstream 403: forbidden"),
+            RuntimeError("upstream 403: forbidden"),
+            RuntimeError("upstream 403: forbidden"),
+            {"results": []},
+            WIKIMEDIA_RESPONSE,
+        ],
+    ) as http, mock.patch.object(mod.time, "sleep"):
+        res = search_assets(
+            {"query": "Gemini logo", "kind": "photo", "role": "logo", "limit": 1},
+            str(tmp_path),
+        )
+
+    assert res["status"] == "ok"
+    assert res["source"] == "wikimedia"
+    assert res["degraded_source"]["used_provider"] == "wikimedia"
+    assert res["degraded_source"]["failed_providers"] == ["pexels", "openverse"]
+    result = res["results"][0]
+    assert result["id"] == "wikimedia-4242"
+    assert result["provider"] == "wikimedia"
+    assert result["source_url"].startswith("https://upload.wikimedia.org/")
+    assert result["source_page_url"].endswith("Gemini_logo.svg")
+    assert result["license"] == "CC BY-SA 4.0"
+    assert "Example Artist" in result["attribution"]
+    assert http.call_count == 5
+
+
+def test_search_wikimedia_preserves_attribution_metadata():
+    """Wikimedia normalization retains the Commons license and creator."""
+    with mock.patch.object(
+        mod, "_http_get_json", return_value=WIKIMEDIA_RESPONSE,
+    ):
+        payload = mod._search_wikimedia("Gemini logo", "photo", 1, "logo")
+
+    assert payload["source"] == "wikimedia"
+    assert payload["results"][0]["attribution_required"] is True
 
 
 def test_search_assets_openverse_photo_without_key(no_keys, tmp_path):

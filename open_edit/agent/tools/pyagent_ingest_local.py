@@ -1,12 +1,10 @@
 """pyagent_ingest_local: ingest local media files into the project CAS.
 
-Paths must be absolute and resolve under the project directory or under
-``OPEN_EDIT_INGEST_ALLOWLIST`` (``os.pathsep``-separated absolute roots;
-``:`` on POSIX, ``;`` on Windows).
+Paths must be absolute. Any readable local media file may be ingested;
+symlinks are resolved before the source is copied into the project CAS.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -18,28 +16,6 @@ _MEDIA_SUFFIXES = {
     ".mp3", ".wav", ".aac", ".flac", ".m4a",
     ".jpg", ".jpeg", ".png", ".webp",
 }
-
-
-def _allowlist_roots(project_path: Path) -> list[Path]:
-    roots = [project_path.resolve()]
-    raw = (os.environ.get("OPEN_EDIT_INGEST_ALLOWLIST") or "").strip()
-    for part in raw.split(os.pathsep):
-        part = part.strip()
-        if not part:
-            continue
-        roots.append(Path(part).expanduser().resolve())
-    return roots
-
-
-def _path_allowed(path: Path, roots: list[Path]) -> bool:
-    resolved = path.resolve()
-    for root in roots:
-        try:
-            resolved.relative_to(root)
-            return True
-        except ValueError:
-            continue
-    return False
 
 
 @tool_result
@@ -61,8 +37,6 @@ def ingest_local(args: dict, project_path: str) -> dict[str, Any]:
             "expected_keys": ["paths"],
         }
 
-    project = Path(project_path).resolve()
-    roots = _allowlist_roots(project)
     do_transcribe = bool(args.get("transcribe", True))
     store = get_asset_store(project_path)
 
@@ -84,16 +58,6 @@ def ingest_local(args: dict, project_path: str) -> dict[str, Any]:
             errors.append({
                 "path": item,
                 "error": f"unsupported media suffix: {path.suffix}",
-            })
-            continue
-        if not _path_allowed(path, roots):
-            errors.append({
-                "path": item,
-                "error": (
-                    "path escapes project and OPEN_EDIT_INGEST_ALLOWLIST; "
-                    "set OPEN_EDIT_INGEST_ALLOWLIST to a colon-separated "
-                    "list of allowed absolute roots"
-                ),
             })
             continue
         try:

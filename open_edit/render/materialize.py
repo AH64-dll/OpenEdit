@@ -16,6 +16,7 @@ from open_edit.render.remotion import (
     remotion_profile_for_mode,
     render_composition,
     resolve_remotion_root,
+    stage_referenced_assets,
     validate_entry_point,
 )
 from open_edit.storage.assets import AssetStore
@@ -69,6 +70,12 @@ def materialize_remotion_compositions(
         composition_source = composition_source_bundle(
             project_path, composition.composition_id,
         )
+        try:
+            stage_referenced_assets(
+                project_path, composition_source, composition.props,
+            )
+        except RemotionRenderError as exc:
+            raise RemotionMaterializeError(str(exc)) from exc
         key = composition_cache_key(
             composition_source=composition_source,
             composition_id=composition.composition_id,
@@ -76,9 +83,15 @@ def materialize_remotion_compositions(
             profile=profile,
             alpha=composition.alpha,
             duration_sec=composition.duration_sec,
+            project_path=project_path,
         )
-        # ProRes 4444 with alpha is .mov; opaque Remotion stays .mp4.
-        ext = "mov" if composition.alpha else "mp4"
+        # ProRes 4444 with alpha is .mov; VP8 alpha is WebM. The container
+        # extension must agree with Remotion's codec or its CLI rejects the
+        # render before starting.
+        if composition.alpha:
+            ext = "webm" if profile.vcodec in {"libvpx", "libvpx-vp9"} else "mov"
+        else:
+            ext = "mp4"
         cache_key = _materialize_key(composition.composition_id, key)
         cached_path = cache.get(cache_key, ext=ext)
         if cached_path is not None:

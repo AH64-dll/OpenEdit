@@ -1,27 +1,29 @@
-"""pyagent_search_assets: agent-initiated internet search for stock media.
+"""pyagent_search_assets: durable, provider-cascaded stock media search.
 
-Dispatches to Pexels (video/photo) and Freesound (audio) when the
-corresponding API key is configured. A missing Pexels key for
-``kind=video`` is a hard error with a structured
-``{"status": "error", "error": "...OPEN_EDIT_PEXELS_API_KEY..."}`` payload
-(no network call), so the LLM/UI sees exactly which env var to set instead
-of a confusing upstream 403 from Openverse's video endpoint. Photo/audio
-fall back to the keyless Openverse API, and an explicit ``license`` filter
-always routes to Openverse — Pexels and Freesound cannot filter by license,
-so Openverse is the deliberate source for that case.
+Configured Pexels/Freesound providers are attempted first, followed by
+Openverse and (for still images, logos, and icons) Wikimedia Commons. Every
+provider is normalized to the same result contract and provider failures are
+isolated from the editing pipeline. Search responses are cached under the
+project's ``.open_edit/cache`` directory so a server restart does not discard
+usable results.
 
 Normalises the result into a stable shape so the LLM, the TS extension
 and the frontend all see the same fields regardless of the source:
 
     {
         "id": str,                  # e.g. "pexels-video-12345"
-        "source": str,              # "pexels" | "freesound"
+        "source": str,              # provider id
+        "provider": str,            # same as source
         "kind": str,                # "video" | "photo" | "audio"
         "title": str,
         "thumbnail_url": str,
         "preview_url": str,         # playable URL (mp4 / mp3 / jpeg)
+        "source_url": str,          # exact bytes to import
+        "source_page_url": str,     # human-facing source page
         "duration_seconds": float | None,
-        "license": str,             # human-readable ("Pexels License" / "CC BY 4.0")
+        "license": str,             # human-readable license
+        "license_url": str,
+        "content_hash": str,        # populated after import when bytes are fetched
         "attribution_required": bool,
         "attribution": str,         # the credit text to display, "" if none
     }
@@ -31,11 +33,10 @@ When the relevant API key is missing, the tool returns a structured
 than crashing — the LLM can read the error and the UI can render a
 helpful message.
 
-Caching: a small in-memory dict keyed by ``kind:query:limit`` with a
-5-minute TTL (configurable via ``_CACHE_TTL_S``). The cache lives for
-the lifetime of the process; it's wiped on server restart. This is
-deliberately simple — sqlite would be overkill for v1.4 (one entry
-per LLM turn, server lifetime is hours at most).
+Caching uses a process-local fast path plus an atomic JSON cache under the
+project. The key includes provider role, kind, query, license, and limit.
+Expired entries remain available as a stale fallback if every provider is
+temporarily unavailable.
 
 Environment
 -----------
@@ -45,12 +46,15 @@ Environment
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from open_edit.agent.tools._contract import tool_result
@@ -73,6 +77,8 @@ _CACHE_TTL_S: float = 300.0
 _MAX_LIMIT: int = 20
 _DEFAULT_LIMIT: int = 8
 _OPENVERSE_MAX_FETCH: int = 100
+_MAX_PROVIDER_ATTEMPTS: int = 3
+_RETRY_BACKOFF_S = (0.05, 0.15)
 
 # Network timeout for upstream calls. Short enough that a hung API
 # doesn't block the chat turn for too long.
@@ -84,6 +90,7 @@ _PEXELS_VIDEO_URL = "https://api.pexels.com/videos/search"
 _PEXELS_PHOTO_URL = "https://api.pexels.com/v1/search"
 _FREESOUND_SEARCH_URL = "https://freesound.org/apiv2/search/text/"
 _OPENVERSE_URL = "https://api.openverse.org/v1"
+_WIKIMEDIA_API_URL = "https://commons.wikimedia.org/w/api.php"
 
 
 # ---------------------------------------------------------------------------
@@ -176,26 +183,167 @@ def _http_get_json(url: str, *, headers: dict[str, str] | None = None,
 # ---------------------------------------------------------------------------
 
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_CACHE_SCHEMA = 1
 
 
-def _cache_key(kind: str, query: str, limit: int, license: str = "any") -> str:
+def _cache_key(
+    kind: str,
+    query: str,
+    limit: int,
+    license: str = "any",
+    role: str = "",
+    provider_scope: str = "",
+) -> str:
+    """Build the durable key for one normalized search request."""
     # Lowercase the query so "Rain" and "rain" share the cache slot.
-    return f"{kind}:{query.strip().lower()}:{limit}:{license.strip().lower()}"
+    return "|".join((
+        kind.strip().lower(),
+        query.strip().lower(),
+        license.strip().lower(),
+        role.strip().lower() or kind.strip().lower(),
+        provider_scope.strip().lower(),
+        str(limit),
+    ))
 
 
-def _cache_get(key: str) -> dict[str, Any] | None:
-    entry = _CACHE.get(key)
-    if entry is None:
-        return None
-    ts, value = entry
-    if (time.monotonic() - ts) > _CACHE_TTL_S:
-        _CACHE.pop(key, None)
-        return None
-    return value
+def _project_cache_path(project_path: str | Path, key: str) -> Path:
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return (
+        Path(project_path).expanduser().resolve()
+        / ".open_edit" / "cache" / "search_assets" / f"{digest}.json"
+    )
 
 
-def _cache_put(key: str, value: dict[str, Any]) -> None:
-    _CACHE[key] = (time.monotonic(), value)
+def _memory_cache_key(
+    project_path: str | Path | None, key: str,
+) -> str:
+    """Keep process-local results isolated when one server serves projects."""
+    if not project_path:
+        return key
+    return f"{Path(project_path).expanduser().resolve()}::{key}"
+
+
+def _read_persistent_cache(
+    project_path: str | Path | None, key: str,
+) -> tuple[dict[str, Any] | None, bool]:
+    """Return ``(payload, is_stale)`` from the project cache."""
+    if not project_path:
+        return None, False
+    path = _project_cache_path(project_path, key)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if document.get("schema") != _CACHE_SCHEMA:
+            return None, False
+        payload = document.get("payload")
+        if not isinstance(payload, dict):
+            return None, False
+        is_stale = float(document.get("expires_at", 0.0)) <= time.time()
+        return payload, is_stale
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None, False
+
+
+def _cache_get(
+    key: str, project_path: str | Path | None = None,
+) -> dict[str, Any] | None:
+    memory_key = _memory_cache_key(project_path, key)
+    entry = _CACHE.get(memory_key)
+    if entry is not None:
+        ts, value = entry
+        if (time.monotonic() - ts) <= _CACHE_TTL_S:
+            return value
+        _CACHE.pop(memory_key, None)
+    payload, is_stale = _read_persistent_cache(project_path, key)
+    if payload is not None and not is_stale:
+        _CACHE[memory_key] = (time.monotonic(), payload)
+        return payload
+    return None
+
+
+def _cache_put(
+    key: str,
+    value: dict[str, Any],
+    project_path: str | Path | None = None,
+    *,
+    attempts: int = 1,
+) -> None:
+    _CACHE[_memory_cache_key(project_path, key)] = (time.monotonic(), value)
+    if not project_path:
+        return
+    path = _project_cache_path(project_path, key)
+    document = {
+        "schema": _CACHE_SCHEMA,
+        "cache_key": key,
+        "provider": value.get("provider") or value.get("source") or "",
+        "query": value.get("query", ""),
+        "kind": value.get("kind", ""),
+        "license": value.get("requested_license", "any"),
+        "role": value.get("role", ""),
+        "fetched_at": time.time(),
+        "expires_at": time.time() + _CACHE_TTL_S,
+        "attempts": attempts,
+        "payload": value,
+    }
+    tmp_path: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(document, tmp, sort_keys=True)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    except (OSError, TypeError, ValueError):
+        # Search remains useful if the cache directory is read-only.
+        pass
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _cache_stale(
+    project_path: str | Path | None, key: str,
+) -> dict[str, Any] | None:
+    payload, is_stale = _read_persistent_cache(project_path, key)
+    return payload if payload is not None and is_stale else None
+
+
+def _is_retryable_provider_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in (
+        " 403", " 408", " 429", "timeout", "timed out",
+        "temporarily unavailable", "connection reset", "network error",
+    ))
+
+
+def _call_provider(
+    provider: str,
+    operation,
+) -> tuple[dict[str, Any], int]:
+    """Run one provider with bounded retry/backoff.
+
+    Provider errors are deliberately raised after the retry budget so the
+    cascade can try the next provider. The attempt count is retained in the
+    durable cache metadata for diagnostics.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, _MAX_PROVIDER_ATTEMPTS + 1):
+        try:
+            result = operation()
+            return result, attempt
+        except Exception as exc:  # noqa: BLE001 - isolate upstream failures
+            last_error = exc
+            if attempt >= _MAX_PROVIDER_ATTEMPTS or not _is_retryable_provider_error(exc):
+                break
+            time.sleep(_RETRY_BACKOFF_S[min(attempt - 1, len(_RETRY_BACKOFF_S) - 1)])
+    assert last_error is not None
+    raise RuntimeError(f"{provider}: {last_error}") from last_error
 
 
 def _cache_clear() -> None:
@@ -289,12 +437,17 @@ def _search_pexels_video(query: str, limit: int) -> dict[str, Any]:
         results.append({
             "id": f"pexels-video-{v.get('id', '')}",
             "source": "pexels",
+            "provider": "pexels",
             "kind": "video",
             "title": v.get("url") or f"Pexels video {v.get('id', '')}",
             "thumbnail_url": v.get("image") or "",
             "preview_url": preview,
+            "source_url": preview,
+            "source_page_url": v.get("url") or "",
             "duration_seconds": v.get("duration"),
             "license": "Pexels License",
+            "license_url": "https://www.pexels.com/license/",
+            "content_hash": "",
             "attribution_required": False,
             # Pexels doesn't *require* attribution but crediting is
             # appreciated. We leave a hint string so the UI can show
@@ -325,12 +478,17 @@ def _search_pexels_photo(query: str, limit: int) -> dict[str, Any]:
         results.append({
             "id": f"pexels-photo-{p.get('id', '')}",
             "source": "pexels",
+            "provider": "pexels",
             "kind": "photo",
             "title": title,
             "thumbnail_url": thumb,
             "preview_url": preview,
+            "source_url": preview,
+            "source_page_url": page_url,
             "duration_seconds": None,
             "license": "Pexels License",
+            "license_url": "https://www.pexels.com/license/",
+            "content_hash": "",
             "attribution_required": False,
             "attribution": (
                 f"Photo by {photographer} on Pexels" if photographer else ""
@@ -361,12 +519,17 @@ def _search_freesound(query: str, limit: int) -> dict[str, Any]:
         results.append({
             "id": f"freesound-{r.get('id', '')}",
             "source": "freesound",
+            "provider": "freesound",
             "kind": "audio",
             "title": name or f"Freesound {r.get('id', '')}",
             "thumbnail_url": thumb,
             "preview_url": preview,
+            "source_url": preview,
+            "source_page_url": r.get("url") or f"https://freesound.org/s/{r.get('id', '')}/",
             "duration_seconds": r.get("duration"),
             "license": license_short,
+            "license_url": license_url,
+            "content_hash": "",
             "attribution_required": _freesound_attribution_required(license_url),
             "attribution": _freesound_attribution_text(
                 name, username, license_short,
@@ -456,20 +619,111 @@ def _search_openverse(
             continue
         title = item.get("title") or f"Openverse {kind} {item.get('id', '')}"
         creator = str(item.get("creator") or "").strip()
+        source_page_url = (
+            item.get("foreign_landing_url")
+            or item.get("detail_url")
+            or item.get("creator_url")
+            or ""
+        )
         results.append({
             "id": f"openverse-{kind}-{item.get('id', '')}",
             "source": "openverse",
+            "provider": "openverse",
             "kind": kind,
             "title": title,
             "thumbnail_url": item.get("thumbnail") or preview,
             "preview_url": preview,
+            "source_url": preview,
+            "source_page_url": source_page_url,
             "duration_seconds": item.get("duration") if kind == "audio" else None,
             "license": license_name,
+            "license_url": item.get("license_url") or "",
+            "content_hash": "",
             "attribution_required": not _is_cc0_license(license_name),
             "attribution": f"{title} by {creator} ({license_name})" if creator else "",
         })
     results.sort(key=lambda r: _license_rank_key(r["license"]))
     return {"source": "openverse", "results": results[:limit]}
+
+
+def _metadata_value(metadata: dict[str, Any], key: str) -> str:
+    value = metadata.get(key)
+    if isinstance(value, dict):
+        value = value.get("value")
+    return str(value or "").strip()
+
+
+def _search_wikimedia(
+    query: str, kind: str, limit: int, role: str = "",
+) -> dict[str, Any]:
+    """Search Wikimedia Commons files and preserve page-level provenance."""
+    if kind != "photo":
+        return {"source": "wikimedia", "provider": "wikimedia", "results": []}
+    search_text = " ".join(part for part in (role, query) if part).strip()
+    data = _http_get_json(
+        _WIKIMEDIA_API_URL,
+        params={
+            "action": "query",
+            "generator": "search",
+            "gsrsearch": search_text,
+            "gsrnamespace": 6,
+            "gsrlimit": limit,
+            "prop": "imageinfo",
+            "iiprop": "url|mime|size|extmetadata",
+            "iiurlwidth": 1600,
+            "format": "json",
+            "formatversion": 2,
+        },
+    )
+    results: list[dict[str, Any]] = []
+    pages = (data.get("query") or {}).get("pages") or []
+    for page in pages:
+        image_info = (page.get("imageinfo") or [{}])[0]
+        source_url = str(image_info.get("url") or "").strip()
+        if not source_url.startswith("https://"):
+            continue
+        metadata = image_info.get("extmetadata") or {}
+        title = str(page.get("title") or "").removeprefix("File:").strip()
+        page_url = str(
+            image_info.get("descriptionurl")
+            or page.get("canonicalurl")
+            or ""
+        )
+        license_name = _metadata_value(metadata, "LicenseShortName")
+        license_name = license_name or "Wikimedia Commons"
+        license_url = _metadata_value(metadata, "LicenseUrl")
+        artist = _metadata_value(metadata, "Artist")
+        page_id = page.get("pageid")
+        stable_key = str(page_id or page_url or source_url or title)
+        stable_id = f"wikimedia-{hashlib.sha256(stable_key.encode()).hexdigest()[:16]}"
+        if page_id is not None:
+            stable_id = f"wikimedia-{page_id}"
+        attribution = (
+            f"{artist} — Wikimedia Commons" if artist else "Wikimedia Commons"
+        )
+        results.append({
+            "id": stable_id,
+            "source": "wikimedia",
+            "provider": "wikimedia",
+            "kind": "photo",
+            "role": role or "photo",
+            "title": title or f"Wikimedia image {page_id or ''}".strip(),
+            "thumbnail_url": image_info.get("thumburl") or source_url,
+            "preview_url": source_url,
+            "source_url": source_url,
+            "source_page_url": page_url,
+            "duration_seconds": None,
+            "license": license_name,
+            "license_url": license_url,
+            "content_hash": "",
+            "attribution_required": not _is_cc0_license(license_name),
+            "attribution": attribution,
+        })
+    return {
+        "source": "wikimedia",
+        "provider": "wikimedia",
+        "results": results[:limit],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -481,13 +735,7 @@ _VALID_KINDS = ("video", "photo", "audio")
 
 @tool_result
 def search_assets(args: dict, project_path: str) -> dict:
-    """Search Pexels / Freesound for stock media matching ``args['query']``.
-
-    The ``project_path`` is unused (the tool is project-agnostic) but
-    is part of the standard tool signature so the bridge can dispatch
-    uniformly. Future versions might scope the search to the project's
-    style profile.
-    """
+    """Search the provider cascade for stock media."""
     query = (args.get("query") or "").strip()
     if not query:
         return {
@@ -516,22 +764,30 @@ def search_assets(args: dict, project_path: str) -> dict:
         limit = _DEFAULT_LIMIT
     limit = min(limit, _MAX_LIMIT)
     requested_license = str(args.get("license") or "any").strip() or "any"
+    role = str(args.get("role") or "").strip().lower()
 
-    # Cache lookup. Key includes kind + query + limit so different
-    # requests for the same query don't conflate.
-    cache_key = _cache_key(kind, query, limit, requested_license)
-    cached = _cache_get(cache_key)
+    provider_scope_parts: list[str] = []
+    if requested_license.lower() == "any":
+        if kind == "video" and _pexels_api_key():
+            provider_scope_parts.append("pexels")
+        elif kind == "photo" and _pexels_api_key():
+            provider_scope_parts.append("pexels")
+        elif kind == "audio" and _freesound_api_key():
+            provider_scope_parts.append("freesound")
+    provider_scope_parts.append("openverse")
+    if kind == "photo":
+        provider_scope_parts.append("wikimedia")
+    provider_scope = ">".join(provider_scope_parts)
+    cache_key = _cache_key(
+        kind, query, limit, requested_license, role, provider_scope,
+    )
+    cached = _cache_get(cache_key, project_path)
     if cached is not None:
         return cached
 
-    # Dispatch to the right backend.
-    # kind=video without the Pexels key is a hard error so the LLM/UI
-    # gets a clear "set this env var" message instead of a confusing
-    # upstream 403 from Openverse's video endpoint (which rejects
-    # unauthenticated requests in practice). No network call is made.
-    # Photo/audio keep the keyless Openverse fallback, and an explicit
-    # ``license`` filter always routes to Openverse (Pexels and Freesound
-    # cannot filter by license, so it needs no key).
+    # Openverse's unauthenticated video endpoint is not a usable fallback in
+    # practice. Keep the explicit configuration error instead of waiting
+    # through a guaranteed 403; photos and audio still cascade keylessly.
     if (
         kind == "video"
         and requested_license.lower() == "any"
@@ -546,35 +802,101 @@ def search_assets(args: dict, project_path: str) -> dict:
             ),
             "results": [],
         }
-    try:
-        use_openverse = (
-            requested_license.lower() != "any"
-            or (kind in ("video", "photo") and not _pexels_api_key())
-            or (kind == "audio" and not _freesound_api_key())
-        )
-        if use_openverse:
-            payload = _search_openverse(query, kind, limit, requested_license)
-        elif kind == "video":
-            payload = _search_pexels_video(query, limit)
-        elif kind == "photo":
-            payload = _search_pexels_photo(query, limit)
-        else:  # audio
-            payload = _search_freesound(query, limit)
-    except Exception as exc:  # noqa: BLE001 — surface any upstream error
-        return {
-            "status": "error",
-            "error": f"search_assets({kind}) failed: {exc}",
-            "results": [],
-        }
 
-    # Stash query/kind in the payload for cache-key introspection +
-    # frontend rendering. The frontend uses these to drive the
-    # "Search again for <query>" affordance.
+    provider_specs: list[tuple[str, Any]] = []
+    license_any = requested_license.lower() == "any"
+    if license_any:
+        if kind == "video" and _pexels_api_key():
+            provider_specs.append(
+                ("pexels", lambda: _search_pexels_video(query, limit)),
+            )
+        elif kind == "photo" and _pexels_api_key():
+            provider_specs.append(
+                ("pexels", lambda: _search_pexels_photo(query, limit)),
+            )
+        elif kind == "audio" and _freesound_api_key():
+            provider_specs.append(
+                ("freesound", lambda: _search_freesound(query, limit)),
+            )
+    provider_specs.append((
+        "openverse",
+        lambda: _search_openverse(query, kind, limit, requested_license),
+    ))
+    if kind == "photo":
+        provider_specs.append((
+            "wikimedia",
+            lambda: _search_wikimedia(query, kind, limit, role),
+        ))
+
+    failed_providers: list[str] = []
+    provider_errors: dict[str, str] = {}
+    attempts_by_provider: dict[str, int] = {}
+    payload: dict[str, Any] | None = None
+    served_stale = False
+    for index, (provider, operation) in enumerate(provider_specs):
+        try:
+            candidate, attempts = _call_provider(provider, operation)
+            attempts_by_provider[provider] = attempts
+        except Exception as exc:  # noqa: BLE001 - continue the cascade
+            failed_providers.append(provider)
+            provider_errors[provider] = str(exc)
+            continue
+        candidate_results = candidate.get("results") or []
+        has_later_provider = index < len(provider_specs) - 1
+        if candidate_results or not has_later_provider:
+            payload = candidate
+            break
+        failed_providers.append(provider)
+        provider_errors[provider] = "provider returned no results"
+
+    if payload is None:
+        stale = _cache_stale(project_path, cache_key)
+        if stale is not None:
+            payload = dict(stale)
+            served_stale = True
+            payload["cache_status"] = "stale"
+            payload["warning"] = (
+                "All configured asset providers were unavailable; "
+                "returned the last cached response."
+            )
+        else:
+            detail = "; ".join(
+                f"{provider}: {error}"
+                for provider, error in provider_errors.items()
+            )
+            return {
+                "status": "error",
+                "error": (
+                    f"search_assets({kind}) failed across providers"
+                    + (f": {detail}" if detail else "")
+                ),
+                "results": [],
+                "provider_failures": failed_providers,
+            }
+
     payload.setdefault("query", query)
     payload.setdefault("kind", kind)
     payload.setdefault("limit", limit)
+    payload.setdefault("role", role or kind)
+    payload.setdefault("provider_scope", provider_scope)
+    payload.setdefault("requested_license", requested_license)
     payload["status"] = "ok"
-    _cache_put(cache_key, payload)
+    payload.setdefault("provider", payload.get("source", ""))
+    if failed_providers and payload.get("provider") != failed_providers[0]:
+        payload["degraded_source"] = {
+            "used_provider": payload.get("provider") or payload.get("source"),
+            "failed_providers": failed_providers,
+            "message": (
+                "A configured provider failed; results came from the "
+                "next available provider."
+            ),
+        }
+    payload["provider_attempts"] = attempts_by_provider
+    if not served_stale:
+        _cache_put(
+            cache_key, payload, project_path,
+            attempts=sum(attempts_by_provider.values()) or 1,
+        )
 
     # Also write each result to the import-side cache so a follow-up
     # ``import_asset(result_id=...)`` call can look up the license /
@@ -585,8 +907,13 @@ def search_assets(args: dict, project_path: str) -> dict:
             _SEARCH_RESULT_CACHE_DIR,
             _store_result,
         )
+        project_result_cache = (
+            Path(project_path).expanduser().resolve()
+            / ".open_edit" / "cache" / "search_results"
+        )
         for r in payload.get("results", []):
             _store_result(_SEARCH_RESULT_CACHE_DIR, r)
+            _store_result(project_result_cache, r)
     except Exception:
         # Never let cache writes crash the search.
         pass

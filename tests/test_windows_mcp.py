@@ -11,7 +11,6 @@ from open_edit.agent.sandbox import (
     get_sandbox_backend,
     run_render,
 )
-from open_edit.agent.tools.pyagent_ingest_local import _allowlist_roots
 from open_edit.render.encoder import resolve_backend
 from open_edit.render.melt_runner import MeltRunner
 from open_edit.render.profiles import RenderProfile
@@ -38,44 +37,6 @@ def test_windows_run_render_unsupported(tmp_path):
         result = run_render("print(1)", tmp_path, out)
     assert result.ok is False
     assert result.detail == "render_sandbox_unsupported_on_windows"
-
-
-def test_ingest_allowlist_uses_os_pathsep(tmp_path, monkeypatch):
-    a = tmp_path / "Videos"
-    b = tmp_path / "Music"
-    a.mkdir()
-    b.mkdir()
-    project = tmp_path / "proj"
-    project.mkdir()
-    monkeypatch.setenv(
-        "OPEN_EDIT_INGEST_ALLOWLIST",
-        f"{a}{__import__('os').pathsep}{b}",
-    )
-    roots = _allowlist_roots(project)
-    assert project.resolve() in roots
-    assert a.resolve() in roots
-    assert b.resolve() in roots
-
-
-def test_ingest_allowlist_semicolon_not_colon_split_on_drive(monkeypatch, tmp_path):
-    """Simulate Windows pathsep so C:\\Videos is not split on the colon."""
-    project = tmp_path / "proj"
-    project.mkdir()
-    # Use a real local path but force pathsep to ';' like Windows.
-    allow = tmp_path / "Videos"
-    allow.mkdir()
-    monkeypatch.setattr("open_edit.agent.tools.pyagent_ingest_local.os.pathsep", ";")
-    monkeypatch.setenv("OPEN_EDIT_INGEST_ALLOWLIST", f"{allow};{tmp_path / 'Music'}")
-    (tmp_path / "Music").mkdir()
-    roots = _allowlist_roots(project)
-    assert allow.resolve() in roots
-    # Must not have interpreted drive-style colon as a separator for a
-    # single Windows-looking path when pathsep is ';'.
-    fake_win = r"C:\Users\you\Videos"
-    monkeypatch.setenv("OPEN_EDIT_INGEST_ALLOWLIST", fake_win)
-    roots2 = _allowlist_roots(project)
-    # With pathsep=';', the whole string is one root entry (may not exist).
-    assert any(str(r).endswith("Videos") or "Videos" in str(r) for r in roots2)
 
 
 def test_build_melt_command_skips_nice_on_windows(tmp_path):

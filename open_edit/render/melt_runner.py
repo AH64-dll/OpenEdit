@@ -94,6 +94,10 @@ class PipeResult:
     melt_rc: int
     ffmpeg_rc: int
     stderr: str
+    elapsed_sec: float = 0.0
+    audio_elapsed_sec: float = 0.0
+    melt_elapsed_sec: float = 0.0
+    ffmpeg_elapsed_sec: float = 0.0
 
 
 def run_pipe(cmds: PipeCommands, *, timeout_s: float) -> PipeResult:
@@ -106,18 +110,25 @@ def run_pipe(cmds: PipeCommands, *, timeout_s: float) -> PipeResult:
     import subprocess
     import tempfile
     import time as _time
+    overall_t0 = _time.monotonic()
 
     def _exec_sync(cmd: list[str], label: str) -> tuple[int, str]:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
         return proc.returncode, proc.stderr or ""
 
     # 1) Audio pass first (fast: video_off=1). ffmpeg opens it at startup.
+    audio_t0 = _time.monotonic()
     try:
         audio_rc, audio_err = _exec_sync(cmds.melt_audio_cmd, "melt-audio")
     except subprocess.TimeoutExpired:
         raise PipeRunError(f"melt-audio timed out after {timeout_s:g}s") from None
     if audio_rc != 0:
-        return PipeResult(audio_rc, audio_rc, -1, f"melt-audio failed:\n{audio_err.strip()}")
+        return PipeResult(
+            audio_rc, audio_rc, -1, f"melt-audio failed:\n{audio_err.strip()}",
+            elapsed_sec=_time.monotonic() - overall_t0,
+            audio_elapsed_sec=_time.monotonic() - audio_t0,
+        )
+    audio_elapsed = _time.monotonic() - audio_t0
 
     # 2) Video pipe: melt -> ffmpeg.
     deadline = _time.monotonic() + timeout_s
@@ -136,6 +147,7 @@ def run_pipe(cmds: PipeCommands, *, timeout_s: float) -> PipeResult:
                 melt.wait()
             raise PipeRunError(f"pipe spawn failed: {exc}") from None
         melt.stdout.close()
+        ffmpeg_wait_t0 = _time.monotonic()
         try:
             ffmpeg_rc = ffmpeg.wait(timeout=max(0.5, deadline - _time.monotonic()))
         except subprocess.TimeoutExpired:
@@ -144,11 +156,14 @@ def run_pipe(cmds: PipeCommands, *, timeout_s: float) -> PipeResult:
             melt.wait()
             ffmpeg.wait()
             raise PipeRunError(f"render pipe timed out after {timeout_s:g}s") from None
+        ffmpeg_elapsed = _time.monotonic() - ffmpeg_wait_t0
+        melt_wait_t0 = _time.monotonic()
         try:
             melt_rc = melt.wait(timeout=30)
         except subprocess.TimeoutExpired:
             melt.kill()
             melt_rc = melt.wait()
+        melt_elapsed = _time.monotonic() - melt_wait_t0
         melt_err_f.seek(0)
         ff_err_f.seek(0)
         melt_err = melt_err_f.read().decode("utf-8", errors="replace").strip()
@@ -163,7 +178,25 @@ def run_pipe(cmds: PipeCommands, *, timeout_s: float) -> PipeResult:
     # ffmpeg's rc wins when it failed (melt usually dies of broken pipe then);
     # otherwise surface melt's failure (fake-ffmpeg succeeded but melt broke).
     if ffmpeg_rc != 0:
-        return PipeResult(ffmpeg_rc, melt_rc, ffmpeg_rc, stderr)
+        return PipeResult(
+            ffmpeg_rc, melt_rc, ffmpeg_rc, stderr,
+            elapsed_sec=_time.monotonic() - overall_t0,
+            audio_elapsed_sec=audio_elapsed,
+            melt_elapsed_sec=melt_elapsed,
+            ffmpeg_elapsed_sec=ffmpeg_elapsed,
+        )
     if melt_rc != 0:
-        return PipeResult(melt_rc, melt_rc, ffmpeg_rc, stderr)
-    return PipeResult(0, 0, 0, stderr)
+        return PipeResult(
+            melt_rc, melt_rc, ffmpeg_rc, stderr,
+            elapsed_sec=_time.monotonic() - overall_t0,
+            audio_elapsed_sec=audio_elapsed,
+            melt_elapsed_sec=melt_elapsed,
+            ffmpeg_elapsed_sec=ffmpeg_elapsed,
+        )
+    return PipeResult(
+        0, 0, 0, stderr,
+        elapsed_sec=_time.monotonic() - overall_t0,
+        audio_elapsed_sec=audio_elapsed,
+        melt_elapsed_sec=melt_elapsed,
+        ffmpeg_elapsed_sec=ffmpeg_elapsed,
+    )

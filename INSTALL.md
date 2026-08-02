@@ -139,8 +139,7 @@ open_edit init "$env:USERPROFILE\OpenEditProjects\my-talk"
       "command": "/ABSOLUTE/PATH/TO/OpenEdit/.venv/bin/open-edit-mcp",
       "args": ["--project", "/home/YOU/OpenEditProjects/my-talk"],
       "env": {
-        "OPEN_EDIT_RENDER_BACKEND": "cpu",
-        "OPEN_EDIT_INGEST_ALLOWLIST": "/home/YOU/Videos:/home/YOU/Music"
+        "OPEN_EDIT_RENDER_BACKEND": "cpu"
       }
     }
   }
@@ -156,15 +155,14 @@ open_edit init "$env:USERPROFILE\OpenEditProjects\my-talk"
       "command": "C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe",
       "args": ["--project", "C:\\Users\\YOU\\OpenEditProjects\\my-talk"],
       "env": {
-        "OPEN_EDIT_RENDER_BACKEND": "cpu",
-        "OPEN_EDIT_INGEST_ALLOWLIST": "C:\\Users\\YOU\\Videos;C:\\Users\\YOU\\Music"
+        "OPEN_EDIT_RENDER_BACKEND": "cpu"
       }
     }
   }
 }
 ```
 
-Use absolute paths. On Windows, allowlist roots use `;`. Reload MCP in Cursor.
+Use absolute paths. Reload MCP in Cursor after editing the configuration.
 
 Tools: `query_project`, `edit_project`, `run_script`, `trigger_render`,
 `get_render_job`, `cancel_render_job`.
@@ -187,7 +185,7 @@ Open `http://127.0.0.1:8000` and select the same project.
 
 1. Cursor shows `open-edit` MCP connected.
 2. `query_project` works.
-3. `edit_project` / `ingest_local` on an allowlisted file.
+3. `edit_project` / `ingest_local` on any readable absolute media file.
 4. `run_script` minimal `ir.add_clip(...)`.
 5. `trigger_render` proxy if melt+ffmpeg are on PATH.
 

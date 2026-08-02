@@ -50,13 +50,13 @@ Use the host's MCP client to call these tools. Do not re-implement with shell
 | `get_pending_notes` | often needs `project_id` | Review-UI notes |
 | `get_style_profile` | `op_type` | Style before generating ops |
 | `analyze_narrative` | `asset_hash` | Segment structure |
-| `search_assets` | `query` text | Search internet stock (Pexels/Freesound/Openverse) |
+| `search_assets` | `query` text | Search durable provider cascade (Pexels/Freesound → Openverse → Wikimedia Commons) |
 
 ## `edit_project` operations (immediate)
 
 | `operation` | `params` | When |
 |---|---|---|
-| `ingest_local` | `{paths: ["/abs/..."], transcribe?: true}` | Import local media (project dir or `OPEN_EDIT_INGEST_ALLOWLIST`) |
+| `ingest_local` | `{paths: ["/abs/..."], transcribe?: true}` | Import any readable local media path; symlinks are resolved and copied into the project CAS |
 | `import_asset` | tool-specific | Import into CAS when not using ingest_local |
 | `add_marker` | timing + text | Agent note / marker |
 | `set_pinned_value` | key/value | Pin style overrides |
@@ -83,8 +83,9 @@ Silence cuts return gaps; apply with `operation=apply_silence_gaps` (or
 `trim_clip` for a single gap), not a separate audio-only silenceremove pass.
 
 Before generating visual, music, or SFX assets, search first with
-`search_assets` and use `import_asset` when licensed Pexels/Freesound/Openverse stock is
-a suitable fit. Generate only when stock is unavailable or unsuitable.
+`search_assets` and use `import_asset` when licensed provider stock is a
+suitable fit. Search responses preserve provider provenance and survive
+server restarts.
 
 ## Render
 

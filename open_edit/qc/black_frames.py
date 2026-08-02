@@ -16,6 +16,8 @@ from pydantic import BaseModel
 
 DEFAULT_BLACK_THRESHOLD = 0.10
 DEFAULT_BLACK_MIN_SEC = 0.5
+DEFAULT_PICTURE_BLACK_RATIO = 0.98
+DEFAULT_SCALE_HEIGHT = 360
 
 
 class BlackSpan(BaseModel):
@@ -40,8 +42,16 @@ def list_black_frames(
     out_sec: float = 0.0,
     threshold: float = DEFAULT_BLACK_THRESHOLD,
     min_sec: float = DEFAULT_BLACK_MIN_SEC,
+    scale_height: int | None = None,
 ) -> BlackFramesResult:
-    """Return black-frame spans for the [in_sec, out_sec] range."""
+    """Return black-frame spans for the [in_sec, out_sec] range.
+
+    ``scale_height`` can be used for long, high-resolution sources where
+    decoding the full raster just to classify black frames is unnecessarily
+    expensive. The timeline baseline uses the same 360px analysis size as
+    frozen-frame detection, while callers that need the original behavior can
+    leave it unset.
+    """
     if out_sec > 0 and out_sec <= in_sec:
         return BlackFramesResult(
             ok=False, in_sec=in_sec, out_sec=out_sec,
@@ -62,13 +72,21 @@ def list_black_frames(
             error=f"video not found: {video_path}",
         )
 
-    cmd = [ffmpeg, "-hide_banner", "-i", video_path,
-           "-vf", f"blackdetect=d={min_sec}:pic_th={threshold}",
-           "-an", "-f", "null", "-"]
-    if in_sec > 0 or out_sec > 0:
+    filters: list[str] = []
+    if scale_height is not None:
+        filters.append(
+            f"scale=-2:{int(scale_height)}:flags=bicubic"
+        )
+    filters.append(
+        "blackdetect="
+        f"d={min_sec}:pix_th={threshold}:pic_th={DEFAULT_PICTURE_BLACK_RATIO}"
+    )
+    cmd = [ffmpeg, "-hide_banner", "-i", video_path]
+    if in_sec > 0:
         cmd += ["-ss", f"{in_sec:.3f}"]
     if out_sec > 0:
-        cmd += ["-to", f"{(out_sec - in_sec):.3f}"]
+        cmd += ["-t", f"{(out_sec - in_sec):.3f}"]
+    cmd += ["-vf", ",".join(filters), "-an", "-f", "null", "-"]
 
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if proc.returncode != 0:

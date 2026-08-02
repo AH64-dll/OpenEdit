@@ -73,8 +73,8 @@ render fails with a clear error. Do not silently omit the composition.
 - Default model: `base` (fast). Override with `OPEN_EDIT_WHISPER_MODEL=small`.
 - Default language: auto-detect. For Arabic talks set
   `OPEN_EDIT_WHISPER_LANGUAGE=ar`.
-- Optional: `OPEN_EDIT_INGEST_ALLOWLIST=/abs/root1:/abs/root2` for
-  `edit_project operation=ingest_local` outside the project folder.
+- `edit_project operation=ingest_local` accepts any readable absolute local
+  path; symlinks are resolved and copied into the project CAS.
 
 ### Experimental limits (honest)
 

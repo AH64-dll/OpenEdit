@@ -135,8 +135,7 @@ If `open-edit-mcp` is not on `PATH`, use the venv binary:
       "command": "C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe",
       "args": ["--project", "C:\\Users\\you\\OpenEditProjects\\my-talk"],
       "env": {
-        "OPEN_EDIT_RENDER_BACKEND": "cpu",
-        "OPEN_EDIT_INGEST_ALLOWLIST": "C:\\Users\\you\\Videos;C:\\Users\\you\\Music"
+        "OPEN_EDIT_RENDER_BACKEND": "cpu"
       }
     }
   }
@@ -168,17 +167,8 @@ Restart Cursor (or reload MCP servers) after editing the config.
 }
 ```
 
-Paths must be absolute and under the pinned project directory **or** under
-`OPEN_EDIT_INGEST_ALLOWLIST` (`os.pathsep`-separated absolute roots: `:` on
-POSIX, `;` on Windows), e.g.:
-
-```bash
-export OPEN_EDIT_INGEST_ALLOWLIST=/home/you/Videos:/home/you/Music
-```
-
-```powershell
-$env:OPEN_EDIT_INGEST_ALLOWLIST = "C:\Users\you\Videos;C:\Users\you\Music"
-```
+Paths must be absolute and may come from any readable local folder. Symlinks
+are resolved before the file is copied into the project CAS.
 
 ### Arabic transcription
 
@@ -228,7 +218,7 @@ open_edit serve --review-only
 
 | Stage | Mode | Resolution | Purpose |
 |---|---|---|---|
-| Preview | `proxy` | 720p30 | Fast review, iterate with harness |
+| Preview | `proxy` | 640x360 fast_proxy | Fast review, iterate with harness |
 | Delivery | `final` | 1080p30 | Full-quality export |
 
 From MCP: `trigger_render` with `"mode": "proxy"` then `"mode": "final"`.
@@ -249,8 +239,7 @@ Prefer Node 24 for Remotion CLI:
       "env": {
         "OPEN_EDIT_NODE_BIN": "/path/to/node24/bin/node",
         "OPEN_EDIT_WHISPER_LANGUAGE": "ar",
-        "OPEN_EDIT_WHISPER_MODEL": "small",
-        "OPEN_EDIT_INGEST_ALLOWLIST": "/home/you/Videos"
+        "OPEN_EDIT_WHISPER_MODEL": "small"
       }
     }
   }
@@ -289,7 +278,8 @@ Longer planning docs:
 
 ## Security notes
 
-- Tools are project-scoped to the pinned directory (plus ingest allowlist).
+- Tools are project-scoped to the pinned project; local ingestion copies any
+  readable absolute media path into the project CAS.
 - `run_script` uses the bwrap sandbox on Linux by default. On Windows it
   defaults to `OPEN_EDIT_SANDBOX_BACKEND=dev` (no jail — rely on the MCP host).
   Explicit `OPEN_EDIT_SANDBOX_BACKEND=bwrap` is rejected on Windows.

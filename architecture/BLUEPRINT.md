@@ -82,7 +82,7 @@ DOMAIN + SIDE EFFECTS  (siblings; render depends on storage)
                     │  tools/ (27 TOOL_TABLE callables) free_form  │
                     │  sandbox/  skills/ (silence, music, sfx…)    │
                     │  style/ + skills/style-memory.md             │
-                    │  search_assets → Pexels/Freesound/Openverse  │
+                    │  search_assets → provider cascade + provenance │
                     └─────────┬───────────────────┬────────────────┘
                               │                   │
               ┌───────────────▼──────┐   ┌────────▼─────────────────┐
@@ -182,7 +182,7 @@ Also: `cli.py` for local commands without the server.
 | Python tool won’t run in agent | `agent/sandbox/bootstrap.py`, `agent/sandbox/bridge.py` |
 | IDE doesn’t show tools | `mcp/server.py`, `mcp/adapters.py` |
 | Style profile wrong / pins ignored | `style/`, `skills/style-memory.md`, `capture_style_hint` / `set_pinned_value` |
-| Stock search bad / generates instead of search | `agent/tools/pyagent_search_assets.py` (Pexels/Freesound/Openverse) |
+| Stock search bad / generates instead of search | `agent/tools/pyagent_search_assets.py` (Pexels/Freesound → Openverse → Wikimedia) |
 | Sandbox / run_script unavailable | `serve/diagnostics.py` → set `OPEN_EDIT_SANDBOX_BACKEND=dev` |
 
 ---

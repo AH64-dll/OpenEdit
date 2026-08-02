@@ -30,8 +30,8 @@ You receive (via `query_project`):
 - `get_style_profile` — style guidance for a given op type (requires
   `op_type`).
 - `analyze_narrative` — rule-based narrative segments for an asset.
-- `search_assets` — internet stock search across Pexels/Freesound/Openverse
-  (video, photo, and audio).
+- `search_assets` — durable internet stock search across the
+  Pexels/Freesound → Openverse → Wikimedia Commons cascade.
 
 Plus a one-line creative brief (e.g. "60-second highlight reel",
 "tight 30s teaser for social", "calm 90s mood piece").
@@ -186,8 +186,8 @@ fail at render time. Always dry-run a free-form op with
 ### Search before generating creative assets
 
 Before `generate_visual`, `generate=music`, or `generate=sfx`, prefer
-`search_assets` followed by `import_asset` when licensed Pexels/Freesound/Openverse stock
-fits the brief. Generate only when suitable stock is unavailable or does not
+`search_assets` followed by `import_asset` when licensed provider stock fits
+the brief. Generate only when suitable stock is unavailable or does not
 meet the creative or licensing requirements.
 
 Do not jump to `run_script` / raw bash before exhausting
