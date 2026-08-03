@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Do not start `open_edit/` code until AH64 approves this index **and** the relevant track plan. Execute with `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`, one track at a time per the order below.
 >
-> **Status:** **M0–M3 COMPLETE** on `feat/render-m0-m1-remotion-engine` (2026-08-03). Acceptances: [M0/M1](../specs/2026-08-03-m0-m1-acceptance.md) · [M2](../specs/2026-08-03-m2-acceptance.md) · [M3](../specs/2026-08-03-m3-acceptance.md). Review Studio UI Tasks 11–13 skipped (MCP-first). M4 live MLT still deferred.
+> **Status:** **M0–M3 COMPLETE**; **PR open / smoke done** on `feat/render-m0-m1-remotion-engine` (2026-08-03). Acceptances: [M0/M1](../specs/2026-08-03-m0-m1-acceptance.md) · [M2](../specs/2026-08-03-m2-acceptance.md) · [M3](../specs/2026-08-03-m3-acceptance.md) (manual MCP/host smoke recorded). Preview chunks still gated (`OPEN_EDIT_PREVIEW_CHUNKS=1`). Review Studio UI Tasks 11–13 skipped (MCP-first). M4 live MLT still deferred.
 > **Date:** 2026-08-03
 > **Orchestra:** Grok (orchestrator) + GPT Luna 5.6 planning tracks
 > **Architecture:** [2026-08-02-open-edit-rendering-architecture.md](../specs/2026-08-02-open-edit-rendering-architecture.md)

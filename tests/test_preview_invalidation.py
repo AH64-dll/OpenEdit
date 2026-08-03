@@ -129,10 +129,15 @@ def test_slice_preserves_clip_effects_and_filters_audio_plane() -> None:
         plane="audio",
     )
 
-    assert [track.kind for track in sliced.tracks] == ["audio"]
-    assert sliced.tracks[0].clips[0].position_sec == pytest.approx(0.0)
-    assert sliced.tracks[0].clips[0].in_point_sec == pytest.approx(1.0)
-    assert sliced.tracks[0].clips[0].out_point_sec == pytest.approx(2.0)
+    # Audio plane keeps video-track A/V clips so volume/gain fingerprints and
+    # melt audio emission see the same media as the video plane.
+    assert [track.kind for track in sliced.tracks] == ["video", "audio"]
+    video_clip = sliced.tracks[0].clips[0]
+    audio_clip = sliced.tracks[1].clips[0]
+    assert video_clip.effects == [effect]
+    assert audio_clip.position_sec == pytest.approx(0.0)
+    assert audio_clip.in_point_sec == pytest.approx(1.0)
+    assert audio_clip.out_point_sec == pytest.approx(2.0)
     assert video.effects == [effect]
 
 

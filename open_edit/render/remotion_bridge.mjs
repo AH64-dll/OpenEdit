@@ -44,6 +44,11 @@ const pixelFormat = argValue("--pixel-format");
 const imageFormat = argValue("--image-format");
 const proresProfile = argValue("--prores-profile");
 const concurrency = argValue("--concurrency");
+const browserExecutable =
+  argValue("--browser-executable") ||
+  process.env.OPEN_EDIT_REMOTION_BROWSER ||
+  process.env.REMOTION_BROWSER_EXECUTABLE ||
+  null;
 
 if (!projectRoot || !compositionId || !output) {
   fail("missing required --project-root, --composition-id, or --output");
@@ -90,6 +95,9 @@ const extraArgs = [
   ...(imageFormat ? [`--image-format=${imageFormat}`] : []),
   ...(proresProfile ? [`--prores-profile=${proresProfile}`] : []),
   ...(concurrency ? [`--concurrency=${concurrency}`] : []),
+  ...(browserExecutable
+    ? [`--browser-executable=${browserExecutable}`]
+    : []),
 ];
 const args = fallbackNpx
   ? [

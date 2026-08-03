@@ -180,9 +180,12 @@ def _slice_tracks(
     fps_den: int,
     plane: PreviewPlane,
 ) -> list[Track]:
+    # Audio fingerprints/renders must keep video-track A/V clips: volume and
+    # other clip audio live on the video clip when there is no separate audio
+    # track. Video plane stays video-only so Remotion/HTML stay out of audio.
     selected_kinds = (
         {"video", "audio"}
-        if plane == "both"
+        if plane in {"both", "audio"}
         else {plane}
     )
     sliced_tracks: list[Track] = []
@@ -1132,6 +1135,7 @@ def _effect_in_plane(effect: Any, plane: OperationPlane) -> bool:
         or effect_type.startswith("audio_")
         or bool(params.get("normalize"))
         or "gain_db" in params
+        or "gain" in params
     )
     is_video = (
         effect_type in _VIDEO_EFFECT_NAMES

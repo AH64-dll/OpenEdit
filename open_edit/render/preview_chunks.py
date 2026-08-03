@@ -871,8 +871,13 @@ def _bake_chunk(
     overlays: list[OverlayClip] = []
 
     def fail_plane(plane: str, error: BaseException) -> None:
-        del error
         nonlocal chunk
+        logger.warning(
+            "preview-chunks plane=%s chunk=%s failed: %s",
+            plane,
+            chunk.chunk_id,
+            error,
+        )
         old_state = getattr(chunk, plane)
         chunk = _set_plane_state(
             chunk,
