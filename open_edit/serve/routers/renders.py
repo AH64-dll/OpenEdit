@@ -81,8 +81,8 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "preview-chunks is disabled; set "
-                    "OPEN_EDIT_PREVIEW_CHUNKS=1 to enable it"
+                    "preview-chunks is disabled; remove "
+                    "OPEN_EDIT_PREVIEW_CHUNKS=0 (or set it to 1)"
                 ),
             )
         media = (req.media or "").strip().lower()

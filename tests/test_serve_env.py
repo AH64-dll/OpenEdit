@@ -137,11 +137,20 @@ def test_build_render_spec_uses_env_value_when_set(tmp_path, monkeypatch):
     assert spec["hyperframes_bin"] == "/env/hf"
 
 
-def test_preview_rollout_flags_default_off(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preview_rollout_flags_default_on_for_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("OPEN_EDIT_AUTO_PREVIEW", raising=False)
     monkeypatch.delenv("OPEN_EDIT_PREVIEW_CHUNKS", raising=False)
 
     assert auto_preview_enabled() is False
+    assert preview_chunks_enabled() is True
+
+
+def test_preview_chunks_can_be_explicitly_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPEN_EDIT_PREVIEW_CHUNKS", "0")
     assert preview_chunks_enabled() is False
 
 
@@ -170,4 +179,4 @@ def test_ui_config_exposes_preview_rollout_flags(
     assert response.status_code == 200
     body = response.json()
     assert body["auto_preview"] is False
-    assert body["preview_chunks"] is False
+    assert body["preview_chunks"] is True

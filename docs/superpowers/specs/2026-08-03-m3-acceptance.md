@@ -14,9 +14,9 @@ intentionally excluded.
 - Free-form IR stays sandboxed and never renders preview media.
 - No live MLT SDL/OpenGL consumer is introduced.
 
-The preview-chunk API remains behind `OPEN_EDIT_PREVIEW_CHUNKS=1`. When the
-gate is disabled, the route returns a clear feature-disabled response while
-proxy and final rendering remain available. Jobs return a durable job ID and
+The preview-chunk API is **enabled by default**. Set
+`OPEN_EDIT_PREVIEW_CHUNKS=0` to disable generation while proxy and final
+rendering remain available. Jobs return a durable job ID and
 the worker publishes a schema-versioned manifest atomically.
 
 ## Acceptance criteria
@@ -110,9 +110,9 @@ Smoke blockers fixed on this branch before recording:
 3. Remotion bridge accepts `OPEN_EDIT_REMOTION_BROWSER` /
    `REMOTION_BROWSER_EXECUTABLE` when Chrome Headless Shell is unavailable.
 
-Feature remains **default-off** (`OPEN_EDIT_PREVIEW_CHUNKS` unset/0). Review
+Feature is **default-on**. Review
 Studio playlist UI smoke (red→yellow→green scrub UX) was not run — MCP-first.
 
-Rollback is `OPEN_EDIT_PREVIEW_CHUNKS=0` (or unset), followed by the preview
+Rollback is `OPEN_EDIT_PREVIEW_CHUNKS=0`, followed by the preview
 cache wipe route if needed. This leaves proxy/final artifacts and the edit
 graph untouched.

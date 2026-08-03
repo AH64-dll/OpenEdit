@@ -23,6 +23,12 @@ def auto_preview_enabled() -> bool:
 
 
 def preview_chunks_enabled() -> bool:
-    """Return whether preview-chunk generation is enabled for this server."""
-    raw = (os.environ.get("OPEN_EDIT_PREVIEW_CHUNKS") or "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    """Return whether preview-chunk generation is enabled for this server.
+
+    Default on; set ``OPEN_EDIT_PREVIEW_CHUNKS=0`` to disable.
+    """
+    from open_edit.kernel.tool_executor import (
+        preview_chunks_enabled as _enabled,
+    )
+
+    return _enabled()

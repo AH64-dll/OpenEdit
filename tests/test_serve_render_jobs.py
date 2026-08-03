@@ -322,7 +322,7 @@ def test_render_route_rejects_preview_chunks_when_gate_is_disabled(
     from fastapi.testclient import TestClient
 
     proj, project_id = seeded_project
-    monkeypatch.delenv("OPEN_EDIT_PREVIEW_CHUNKS", raising=False)
+    monkeypatch.setenv("OPEN_EDIT_PREVIEW_CHUNKS", "0")
     with TestClient(app_mod.app) as client:
         response = client.post(
             f"/api/projects/{project_id}/render",
@@ -335,7 +335,7 @@ def test_render_route_rejects_preview_chunks_when_gate_is_disabled(
     assert response.status_code == 409
     body = response.json()
     error_text = body.get("detail", body.get("error", ""))
-    assert "OPEN_EDIT_PREVIEW_CHUNKS=1" in error_text
+    assert "OPEN_EDIT_PREVIEW_CHUNKS=0" in error_text
     assert DEFAULT_RENDER_JOB_SERVICE.list_jobs(proj) == []
 
 

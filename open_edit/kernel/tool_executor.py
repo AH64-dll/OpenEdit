@@ -186,9 +186,15 @@ MAX_PREVIEW_RANGES = 64
 
 
 def preview_chunks_enabled() -> bool:
-    """Return the explicit rollout flag for manifest-backed preview jobs."""
-    raw = (os.environ.get("OPEN_EDIT_PREVIEW_CHUNKS") or "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    """Return whether manifest-backed preview-chunk jobs are enabled.
+
+    Default **on** after M3 smoke. Set ``OPEN_EDIT_PREVIEW_CHUNKS=0`` (or
+    ``false``/``no``/``off``) to disable without touching proxy/final.
+    """
+    raw = os.environ.get("OPEN_EDIT_PREVIEW_CHUNKS")
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _normalise_preview_params(args: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
@@ -416,8 +422,8 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
             return {
                 "ok": False,
                 "error": (
-                    "preview-chunks is disabled; set "
-                    "OPEN_EDIT_PREVIEW_CHUNKS=1 to enable it"
+                    "preview-chunks is disabled; remove "
+                    "OPEN_EDIT_PREVIEW_CHUNKS=0 (or set it to 1)"
                 ),
                 "error_code": "feature_disabled",
             }

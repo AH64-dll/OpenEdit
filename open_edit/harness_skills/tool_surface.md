@@ -115,7 +115,8 @@ second enqueue tool:
 `priority` is `interactive` or `background`. The server normalizes and bounds
 range requests, while chunk geometry/profile remain server policy.
 
-Set `OPEN_EDIT_PREVIEW_CHUNKS=1` to enable generation. With the default
+Preview generation is **on by default**. Set `OPEN_EDIT_PREVIEW_CHUNKS=0` to
+disable it; this does not change `proxy` or `final`. With the default
 `wait=false`, save the returned durable `job_id` and poll
 `get_render_job({"job_id": "<job-id>"})`. The job result is manifest-oriented;
 it is not a whole-file MP4. Manifest states are red/yellow/green:

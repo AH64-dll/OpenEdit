@@ -126,9 +126,9 @@ with a cheap muxed `playback` artifact for synchronized browser playback.
 `priority` is `interactive` or `background`: interactive jobs prioritize the
 requested window, while background jobs may cover all dirty ranges.
 
-Preview generation is disabled unless the host sets
-`OPEN_EDIT_PREVIEW_CHUNKS=1`. The default remains disabled; this gate does not
-change `proxy` or `final`. `trigger_render` is non-blocking by default
+Preview generation is **on by default**. Set
+`OPEN_EDIT_PREVIEW_CHUNKS=0` to disable it without changing `proxy` or
+`final`. `trigger_render` is non-blocking by default
 (`wait=false`) and returns a durable `job_id`. Poll it with
 `get_render_job`:
 

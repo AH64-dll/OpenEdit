@@ -271,8 +271,9 @@ audio are independent cache planes, with a cheap muxed `playback` artifact.
 playhead window, while background requests may cover all dirty ranges. Chunk
 geometry, codecs, and cache policy remain server/profile policy.
 
-The MCP/REST enqueue path is disabled by default. Set
-`OPEN_EDIT_PREVIEW_CHUNKS=1` before issuing preview requests. With
+The MCP/REST enqueue path is **enabled by default**. Set
+`OPEN_EDIT_PREVIEW_CHUNKS=0` to disable preview generation without affecting
+`proxy` or `final`. With
 `wait=false` (the default), save the returned durable `job_id` and poll:
 
 ```json
@@ -327,7 +328,7 @@ Operator controls are configured through:
   artifacts, and `OPEN_EDIT_PREVIEW_CACHE_MAX_AGE_SEC` (7 days by default)
   controls preview artifact TTL.
 - `OPEN_EDIT_CACHE_MIN_FREE_BYTES` reserves free space for preview writes.
-- `OPEN_EDIT_PREVIEW_CHUNKS=1` is still required for MCP/REST preview enqueue;
+- `OPEN_EDIT_PREVIEW_CHUNKS=0` disables MCP/REST preview enqueue (default on);
   `OPEN_EDIT_AUTO_PREVIEW` does not bypass that rollout gate.
 - `OPEN_EDIT_FINAL_QC_BUDGET_SEC` and
   `OPEN_EDIT_QC_BLACKDETECT_MAX_SEC` (900 seconds by default).

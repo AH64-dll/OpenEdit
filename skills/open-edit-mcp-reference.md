@@ -93,8 +93,8 @@ whole-file `proxy` artifact. `ranges` may be omitted to process all dirty
 chunks. Use `media=video`, `audio`, or `both`; video and audio are independent
 planes, and `playback` is their cheap mux. Use `priority=interactive` for the
 requested playhead window or `background` for broader dirty coverage.
-Generation requires `OPEN_EDIT_PREVIEW_CHUNKS=1`; the default-disabled gate
-does not affect `proxy` or `final`.
+Generation is **on by default**; set `OPEN_EDIT_PREVIEW_CHUNKS=0` to disable
+without affecting `proxy` or `final`.
 
 `trigger_render` returns a durable `job_id` immediately unless `wait=true`.
 Poll with:
@@ -172,7 +172,7 @@ Notes from the UI → `query_project` / `get_pending_notes`.
 | `OPEN_EDIT_NODE_BIN` | Node for Remotion |
 | `OPEN_EDIT_AUTO_PROXY` | Auto proxy after graph changes (serve) |
 | `OPEN_EDIT_AUTO_PREVIEW` | Auto preview-chunk requests after graph changes (serve) |
-| `OPEN_EDIT_PREVIEW_CHUNKS` | Enable `preview-chunks` enqueue (default disabled) |
+| `OPEN_EDIT_PREVIEW_CHUNKS` | Disable `preview-chunks` enqueue when set to `0` (default on) |
 | `OPEN_EDIT_PREVIEW_CACHE_MAX_BYTES` | Preview cache cap (512 MiB default) |
 | `OPEN_EDIT_PREVIEW_CACHE_MAX_AGE_SEC` | Preview cache TTL (7 days default) |
 | `OPEN_EDIT_CACHE_MIN_FREE_BYTES` | Minimum free space reserve for preview writes |
