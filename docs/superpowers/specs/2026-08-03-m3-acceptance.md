@@ -2,8 +2,9 @@
 
 Date: 2026-08-03
 Scope: MCP/REST host-worker preview chunks and rollout verification
-Status: automated acceptance passed; manual MCP smoke is pending a media-backed
-project. Review Studio UI Tasks 11–13 are intentionally excluded.
+Status: automated acceptance passed; **manual MCP/host smoke completed** on
+`/home/ah64/OpenEditProjects/timeline-test`. Review Studio UI Tasks 11–13 remain
+intentionally excluded.
 
 ## Product boundaries
 
@@ -86,21 +87,31 @@ The configured Ruff command reports 21 pre-existing findings outside the
 changed worker/tests; targeted Ruff and IDE diagnostics for changed files are
 clean. `mypy` is unavailable in the environment.
 
-## Manual smoke and rollback
+## Manual smoke (2026-08-03, timeline-test)
 
-The pinned MCP project was checked with `query_project(list_assets)` and has
-no assets, so the Review Studio render/edit/restart/cache-wipe smoke path was
-not run against that empty project. It must be completed with a short
-media-backed project before enabling the feature by default:
+Project: `/home/ah64/OpenEditProjects/timeline-test` (8s clip on `v1`, asset
+`4e0f3e40…aa3436`). Env: `OPEN_EDIT_PREVIEW_CHUNKS=1`,
+`OPEN_EDIT_REMOTION_BROWSER=/usr/bin/google-chrome-stable`, `.venv/bin` first
+on `PATH`.
 
-1. Start Review Studio review-only and load the project.
-2. Render proxy, then a 4–8 second chunk window.
-3. Observe red → yellow → green transitions and sequential playback.
-4. Seek into a red chunk and confirm whole-file proxy fallback labeling.
-5. Apply one Remotion edit and one audio-gain edit; verify plane-specific
-   invalidation.
-6. Restart the server and verify manifest/job recovery.
-7. Clear chunk cache and verify the edit graph and proxy remain.
+| Step | Result |
+|---|---|
+| MCP `trigger_render` `mode=proxy` | Job `173aed44…` succeeded; output `project_bf574f9f946b.mp4`; QC passed (~4.3s) |
+| Host `preview-chunks` 0–4s (gate on) | Manifest green; video/audio/playback artifacts published |
+| Remotion `SmokeTitle` @ 0–3s + re-chunk | Overlapping video rebuilt; chunks green with Remotion burned |
+| `set_audio_gain` then re-chunk | Video keys preserved (5 hits); audio+playback miss/rebuild; plane invalidation OK |
+
+Smoke blockers fixed on this branch before recording:
+
+1. `get_preview_video_renderer` returned Unavailable → host melt→ffmpeg
+   `HostPreviewVideoRenderer`.
+2. Audio-plane slice dropped video-track A/V clips → gain never dirtied audio
+   fingerprints; slice now keeps video tracks for `plane=audio`.
+3. Remotion bridge accepts `OPEN_EDIT_REMOTION_BROWSER` /
+   `REMOTION_BROWSER_EXECUTABLE` when Chrome Headless Shell is unavailable.
+
+Feature remains **default-off** (`OPEN_EDIT_PREVIEW_CHUNKS` unset/0). Review
+Studio playlist UI smoke (red→yellow→green scrub UX) was not run — MCP-first.
 
 Rollback is `OPEN_EDIT_PREVIEW_CHUNKS=0` (or unset), followed by the preview
 cache wipe route if needed. This leaves proxy/final artifacts and the edit
