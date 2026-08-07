@@ -3560,3 +3560,143 @@ body { font-family: var(--font-body); }
 @media (min-width: 1024px) {
   .btn.mobile-only { display: none !important; }
 }
+
+/* ============================================================
+   UI polish 2026-08-07 — professional TV-O logo + φ layout
+   ============================================================ */
+:root,
+[data-theme="dark"],
+[data-theme="light"] {
+  --phi: 1.6180339887;
+  --sidebar-w: calc(144px * var(--phi)); /* ~233px */
+  --timeline-h: calc(100px * var(--phi)); /* ~162px */
+  --panel-gap: calc(6px * var(--phi));
+  --panel-pad: calc(8px * var(--phi));
+}
+
+.topbar {
+  align-items: center;
+}
+
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* TV sits as the letter O — tight gap, optically slightly lower */
+.logo {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.14em !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1 !important;
+  text-decoration: none !important;
+  color: var(--oe-ink) !important;
+  transform: translateY(1px);
+}
+
+.logo-text {
+  display: inline-block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  color: var(--oe-ink) !important;
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1 !important;
+  transform: translateY(0.5px);
+  white-space: nowrap;
+}
+
+.logo-mark,
+.crt-tv-icon {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 1.22em !important;
+  height: 1.05em !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  margin-top: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--oe-accent) !important;
+}
+
+.logo-mark::before,
+.logo-mark::after,
+.crt-tv-icon::before,
+.crt-tv-icon::after {
+  content: none !important;
+  display: none !important;
+}
+
+.logo-tv {
+  display: block;
+  width: 22px;
+  height: 19px;
+}
+
+body.has-timeline main.layout,
+.layout {
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--sidebar-w) !important;
+  gap: 0;
+}
+
+body.has-timeline main.layout {
+  height: calc(100vh - var(--topbar-h) - var(--timeline-h)) !important;
+}
+
+.timeline-panel {
+  flex-basis: var(--timeline-h) !important;
+  height: var(--timeline-h) !important;
+  min-height: calc(89px * var(--phi)) !important;
+}
+
+/* Keep the outer shell tracks on the same φ-based geometry. */
+.site-wrapper {
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--timeline-h) !important;
+}
+
+.panel-left .tab-content,
+.panel-right > section,
+.panel-tabs {
+  margin-left: calc(var(--panel-pad) * 0.75);
+  margin-right: calc(var(--panel-pad) * 0.75);
+}
+
+.dropzone {
+  aspect-ratio: var(--phi) / 1;
+  max-height: calc(89px * var(--phi));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.asset-icon,
+.render-thumb {
+  width: calc(21px * var(--phi)) !important;
+  height: calc(21px * var(--phi)) !important;
+}
+
+.preview-frame,
+.preview-stage {
+  border-radius: calc(5px * var(--phi));
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --sidebar-w: min(320px, 86vw);
+    --timeline-h: calc(89px * var(--phi));
+  }
+}

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=20260807-fix4-round2">
+  <link rel="stylesheet" href="/style.css?v=20260807-ui-polish-phi">
 </head>
 <body class="has-timeline">
   <div class="site-wrapper">
@@ -18,8 +18,15 @@
     <div class="topbar-left">
       <div class="topbar-brand">
         <a class="logo" data-od-id="logo" id="logo" href="/" aria-label="Open Edit">
-          <!-- The monitor silhouette is the O; the screen is glass, never a letter glyph. -->
-          <span class="logo-mark" aria-hidden="true"></span>
+          <!-- TV mark is the letter O — keep it flush with "pen Edit". -->
+          <span class="logo-mark" aria-hidden="true">
+            <svg class="logo-tv" viewBox="0 0 28 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9.4 3.4 7.6 1.3M18.6 3.4l1.8-2.1" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
+              <rect x="2.4" y="3.6" width="23.2" height="15.8" rx="4" stroke="currentColor" stroke-width="1.7"/>
+              <rect x="5.6" y="6.6" width="16.8" height="9.6" rx="2.1" fill="currentColor" fill-opacity="0.16"/>
+              <path d="M11 19.4v2.2h6v-2.2" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
           <span class="logo-text">pen&nbsp;Edit</span>
         </a>
         <span class="topbar-sep" aria-hidden="true">|</span>

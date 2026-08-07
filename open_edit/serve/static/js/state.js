@@ -36,6 +36,7 @@ export const state = {
   proxyRenderInFlight: false,
   renderPollTimer: null,
   previewRenderId: null,
+  _autoSeedTimelineFor: null,
 };
 
 // Hydrate from localStorage if it's available (browser). Tests stub

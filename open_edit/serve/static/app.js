@@ -83,6 +83,7 @@ function renderProjectSelect() {
 export function selectProject(id) {
   if (id === state.currentProjectId) return;
   state.currentProjectId = id;
+  state._autoSeedTimelineFor = null;
   if (id) {
     try { localStorage.setItem('open_edit.current_project_id', id); } catch {}
   } else {
@@ -188,7 +189,8 @@ export async function loadProjectState() {
 }
 
 async function paintProjectSnapshot(s) {
-  renderAssets(normalizeAssets(s.assets), { onAddToTimeline: addAssetToTimeline });
+  const assets = normalizeAssets(s.assets);
+  renderAssets(assets, { onAddToTimeline: addAssetToTimeline });
   renderEditGraph(normalizeEdits(s));
   renderNotesSummary(normalizeNotes(s));
   const inlineRenders = normalizeRenders(s);
@@ -198,13 +200,27 @@ async function paintProjectSnapshot(s) {
   } else {
     await refreshRendersList();
   }
-  if (s.timeline_full) {
-    const newDur = Number(s.timeline_full.duration_sec || 0);
-    if (Math.abs(newDur - tlDurationSec) > 0.5) tlAutoFitPending = false;
-    renderTimeline(s.timeline_full, {
-      edits: normalizeEdits(s),
-      notes: normalizeNotes(s).list,
-    });
+  const timeline = normalizeTimeline(s.timeline_full ?? s.timeline);
+  const newDur = Number(timeline.duration_sec || 0);
+  if (Math.abs(newDur - tlDurationSec) > 0.5) tlAutoFitPending = false;
+  renderTimeline(timeline, {
+    edits: normalizeEdits(s),
+    notes: normalizeNotes(s).list,
+  });
+  const hasClips = Number(timeline.clip_count || 0) > 0
+    || (timeline.tracks ?? []).some((track) => (track.clips ?? []).length > 0);
+  if (assets.length && !hasClips && state._autoSeedTimelineFor !== state.currentProjectId) {
+    state._autoSeedTimelineFor = state.currentProjectId;
+    const firstAsset = assets.find((asset) => {
+      const mediaType = String(
+        asset.type || asset.mime_type || asset.mime || asset.media_type
+          || asset.extra?.type || asset.extra?.mime_type || asset.extra?.mime
+          || asset.extra?.media_type || '',
+      ).toLowerCase();
+      return mediaType === 'video' || mediaType.startsWith('video/');
+    }) || assets[0];
+    addAssetToTimeline(firstAsset);
+    return;
   }
   maybeLoadSourcePreview(s);
   if (s.timeline_status === 'invalid') {
@@ -1512,7 +1528,7 @@ function maybeLoadSourcePreview(s) {
     return;
   }
 
-  const tl = s?.timeline_full;
+  const tl = normalizeTimeline(s?.timeline_full ?? s?.timeline);
   const assets = normalizeAssets(s?.assets || []);
   const firstClip = (tl?.tracks ?? []).flatMap((t) => t.clips ?? [])[0];
   const assetHash = firstClip?.asset_hash || assets[0]?.hash;
@@ -1699,7 +1715,9 @@ function updatePreviewTransport() {
   const play = $('#btn-play');
   if (play) {
     const playing = !!player && !player.paused && !player.ended;
-    play.replaceChildren(icon(playing ? 'pause' : 'play'));
+    if (typeof play.replaceChildren === 'function') {
+      play.replaceChildren(icon(playing ? 'pause' : 'play'));
+    }
     play.title = playing ? 'Pause preview' : 'Play preview';
     play.setAttribute('aria-label', play.title);
   }
@@ -1744,9 +1762,13 @@ function togglePreviewPlayback() {
 }
 
 function seekToSec(sec) {
-  const clamped = Math.max(0, Math.min(Number(sec) || 0, tlDurationSec || 0));
-  state.playheadSec = clamped;
   const player = $('#preview-player');
+  const mediaDuration = Number(player?.duration);
+  const duration = tlDurationSec > 0
+    ? tlDurationSec
+    : (Number.isFinite(mediaDuration) && mediaDuration > 0 ? mediaDuration : 0);
+  const clamped = Math.max(0, Math.min(Number(sec) || 0, duration));
+  state.playheadSec = clamped;
   if (player && player.src) {
     try { player.currentTime = clamped; } catch { /* ignore */ }
   }
