@@ -8,7 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=20260807-fix4-round2">
+  <link rel="stylesheet" href="/style.css?v=20260807-round4-b18">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="2" y="5" width="28" height="19" rx="4" fill="%232779c3"/><rect x="7" y="10" width="18" height="9" rx="1.5" fill="%230b1015"/><rect x="10" y="27" width="12" height="3" rx="1.5" fill="%23182027"/></svg>">
 </head>
 <body class="has-timeline">
   <div class="site-wrapper">
@@ -69,8 +70,8 @@
       <button id="btn-toggle-right-panel" class="btn btn-ghost btn-xs review-only" title="Toggle renders panel" data-od-id="btn-toggle-right-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 6h9v12H4zm12 0h2v12h-2z"/></svg></button>
       <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" title="Settings & API Keys" data-od-id="btn-settings"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M19.14 12.94a6.5 6.5 0 0 0 0-2l2-1.5a.5.5 0 0 0 .12-.65l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.2.9a6.5 6.5 0 0 0-1.5-1l-.3-2.2a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.3 2.2a6.5 6.5 0 0 0-1.5 1l-2.2-.9a.5.5 0 0 0-.65.2l-1.9 3.2a.5.5 0 0 0 .12.65l2 1.5a6.5 6.5 0 0 0 0 2l-2 1.5a.5.5 0 0 0-.12.65l1.9 3.2a.5.5 0 0 0 .6.2l2.2-.9a6.5 6.5 0 0 0 1.5 1l.3 2.2a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.3-2.2a6.5 6.5 0 0 0 1.5-1l2.2.9a.5.5 0 0 0 .65-.2l1.9-3.2a.5.5 0 0 0-.12-.65zM12 15.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg> Settings</button>
       <button id="btn-topbar-stop" class="btn btn-secondary hidden agent-only" title="Interrupt request" data-od-id="btn-topbar-stop"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop</button>
-      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets" data-od-id="btn-left-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
-      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders" data-od-id="btn-right-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets" aria-label="Toggle assets" data-od-id="btn-left-panel"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders" aria-label="Toggle renders" data-od-id="btn-right-panel"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <span id="conn-status" class="conn conn-status disconnected" title="Disconnected" data-od-id="conn-status">
         <i aria-hidden="true"></i><span class="conn-label">Connected</span>
       </span>
@@ -94,7 +95,7 @@
         <div id="dropzone" class="dropzone">
           <div class="dropzone-inner">
             <div class="dropzone-icon">
-              <svg class="icon-svg" style="width:24px;height:24px;" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+              <svg class="icon-svg" style="width:24px;height:24px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
             </div>
             <div class="dropzone-text">Drop video, audio, or images<br><span class="muted">or click to browse</span></div>
           </div>
@@ -142,9 +143,9 @@
           </div>
         </div>
         <div class="transport" role="group" aria-label="Preview transport">
-          <button id="btn-skip-back" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-back" title="Skip back 5 seconds" aria-label="Skip back 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M16 6v12M8 9v6l-5-3z"/></svg></button>
+          <button id="btn-skip-back" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-back" title="Skip back 5 seconds" aria-label="Skip back 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 6v12"/><path d="M8 9v6l-5-3z" fill="currentColor" stroke="none"/></svg></button>
           <button id="btn-play" type="button" class="btn btn-primary btn-icon" data-preview-action="play" title="Play preview" aria-label="Play preview"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M10 6L18 12 10 18z"/></svg></button>
-          <button id="btn-skip-fwd" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-fwd" title="Skip forward 5 seconds" aria-label="Skip forward 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M8 6v12M16 9v6l5-3z"/></svg></button>
+          <button id="btn-skip-fwd" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-fwd" title="Skip forward 5 seconds" aria-label="Skip forward 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v12"/><path d="M16 9v6l5-3z" fill="currentColor" stroke="none"/></svg></button>
           <span class="transport-time" aria-label="Preview time"><strong id="tc-current">00:00.00</strong><span class="transport-total"> / —</span></span>
         </div>
       </div>
@@ -175,7 +176,7 @@
       </div>
 
       <div class="chat-input-row agent-only">
-        <textarea id="chat-input" class="chat-input" placeholder="Type a prompt to edit video... (Enter to send, Shift+Enter for newline, Ctrl+K for commands)" rows="1" disabled></textarea>
+        <textarea id="chat-input" class="chat-input" placeholder="Type a prompt to edit video... (Enter to send, Shift+Enter for newline, Ctrl+K for commands)" aria-label="Editing prompt for the selected project" rows="1" disabled></textarea>
         <button id="btn-send" class="btn btn-primary" disabled data-od-id="btn-send">
           Send
           <svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
@@ -192,8 +193,8 @@
       <div class="panel-section section-block">
         <div class="panel-section-header panel-head">
           <span class="panel-title">Renders</span>
-          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh" data-od-id="btn-refresh-renders">
-            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh" aria-label="Refresh renders" data-od-id="btn-refresh-renders">
+            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           </button>
         </div>
         <div id="renders-list" class="renders-list">
@@ -323,7 +324,7 @@
 
       <div class="settings-block">
         <h4>API Key Configuration (BYOK)</h4>
-        <div class="settings-keys">
+        <form id="settings-keys-form" class="settings-keys" onsubmit="return false">
           <div class="settings-key-field">
             <label class="small muted" for="key-anthropic">Anthropic API Key</label>
             <input type="password" id="key-anthropic" class="text-input" placeholder="sk-ant-..." autocomplete="off">
@@ -340,12 +341,11 @@
             <label class="small muted" for="key-antigravity">Antigravity / Google Key <span class="muted">(binary manages own auth)</span></label>
             <input type="password" id="key-antigravity" class="text-input" placeholder="key..." autocomplete="off">
           </div>
-        </div>
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn btn-ghost" data-modal-close>Cancel</button>
-        <button id="btn-save-settings-keys" class="btn btn-primary" data-od-id="btn-save-settings-keys">Save Keys</button>
+          <div class="modal-actions settings-keys-actions">
+            <button class="btn btn-ghost" data-modal-close>Cancel</button>
+            <button id="btn-save-settings-keys" class="btn btn-primary" data-od-id="btn-save-settings-keys">Save Keys</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -353,6 +353,6 @@
   <!-- =================== Toast =================== -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="/app.js?v=20260807-fix4-round2"></script>
+  <script type="module" src="/app.js?v=20260807-round4-b18"></script>
 </body>
 </html>
