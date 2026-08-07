@@ -21,7 +21,7 @@ from open_edit.ir.hash import compute_edit_graph_hash
 
 DEFAULT_TTL_SEC = 86400  # 24h
 ENV_TTL = "OPEN_EDIT_RENDER_CACHE_TTL_SEC"
-DEFAULT_RENDER_CACHE_MAX_BYTES = 1024**3
+DEFAULT_RENDER_CACHE_MAX_BYTES = 32 * 1024**3
 DEFAULT_REMOTION_CACHE_MAX_BYTES = 512 * 1024**2
 ENV_RENDER_CACHE_MAX_BYTES = "OPEN_EDIT_RENDER_CACHE_MAX_BYTES"
 ENV_REMOTION_CACHE_MAX_BYTES = "OPEN_EDIT_REMOTION_CACHE_MAX_BYTES"
@@ -47,15 +47,23 @@ def render_cache_key(
     profile_fingerprint: str,
     content_fingerprint: str = "",
 ) -> str:
-    """Cache key = graph + profile + referenced-content identity.
-
-    The ``|`` separator is sanitized to ``_`` because the key is used
-    verbatim as a filename and ``|`` is forbidden on Windows.
-    """
+    """Return a stable, filesystem-safe cache key under filename limits."""
     parts = [graph_hash, profile_fingerprint]
     if content_fingerprint:
         parts.append(content_fingerprint)
-    return "|".join(parts).replace("|", "_")
+    raw = "|".join(parts).replace("|", "_")
+    if len(raw) <= 180:
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    markers: list[str] = []
+    for marker in ("source_proxy_", "hyperframes=", "source-repair-", "emission="):
+        match = re.search(rf"{re.escape(marker)}[^|]*", raw)
+        if match:
+            markers.append(match.group(0)[:36])
+    readable = "_".join(markers)
+    profile = profile_fingerprint.replace("|", "_")[:64]
+    key = f"{graph_hash[:32]}_{profile}_{readable}_{digest}"
+    return key[:180] if len(key) > 180 else key
 
 
 def _file_hash(path: Path) -> str:
@@ -265,7 +273,7 @@ class RenderCache:
                         existing["mode"] = mode
                     self._write_metadata(metadata_path, existing)
                     os.utime(dest, (now, now))
-                    self.evict()
+                    self.evict(protect=dest)
                     return dest
             dest.parent.mkdir(parents=True, exist_ok=True)
             metadata_path.parent.mkdir(parents=True, exist_ok=True)
@@ -296,7 +304,7 @@ class RenderCache:
                     temp_dest.unlink(missing_ok=True)
                 except OSError:
                     pass
-        self.evict()
+        self.evict(protect=dest)
         return dest
 
     def _last_accessed_at(self, path: Path) -> float:
@@ -313,10 +321,15 @@ class RenderCache:
             pass
         return path.stat().st_mtime
 
-    def evict(self) -> int:
-        """Remove least-recently-used artifacts until ``max_bytes`` is met."""
+    def evict(self, protect: str | Path | None = None) -> int:
+        """Remove least-recently-used artifacts until ``max_bytes`` is met.
+
+        ``protect`` (an absolute artifact path) is exempt from eviction so a
+        freshly stored entry is never deleted by its own ``put()``.
+        """
         if self.max_bytes is None:
             return 0
+        protected = str(Path(protect).resolve()) if protect is not None else None
 
         entries: list[tuple[float, int, Path]] = []
         total_bytes = 0
@@ -324,7 +337,11 @@ class RenderCache:
             if not path.is_file() or path.name.startswith("."):
                 continue
             size = path.stat().st_size
+            # A protected (just-written) entry still counts toward the cap so
+            # the cap is honored globally, but it is never itself evicted.
             total_bytes += size
+            if protected is not None and str(path.resolve()) == protected:
+                continue
             entries.append((self._last_accessed_at(path), size, path))
 
         if total_bytes <= self.max_bytes:

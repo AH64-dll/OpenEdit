@@ -557,6 +557,126 @@ def test_worker_clears_own_job_id_after_unexpected_failure(
     assert manifest.job_id is None
 
 
+def _patch_fingerprints(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    chunk_count: int,
+    key_prefix: str = "adaptive",
+) -> None:
+    monkeypatch.setattr(
+        preview_chunks,
+        "compute_chunk_fingerprints",
+        lambda **_: [
+            ChunkFingerprint(
+                video_key=f"{key_prefix}-video-{index}",
+                audio_key=f"{key_prefix}-audio-{index}",
+                composition_uids=(),
+                video_dirty=True,
+                audio_dirty=True,
+                start_sec=float(index),
+                end_sec=float(index + 1),
+            )
+            for index in range(chunk_count)
+        ],
+    )
+
+
+def test_chunk_size_adaptive_default_and_explicit_param() -> None:
+    # 37-min/2211s at 30fps: round(66331/64)=1036 -> capped at 30s (900).
+    assert preview_chunks._chunk_size(30, 1, {}, 66331) == 900
+    assert preview_chunks._chunk_size(30, 1, {}, 66330) == 900
+    # Short/empty timelines fall back to the 1s floor.
+    assert preview_chunks._chunk_size(30, 1, {}, 0) == 30
+    assert preview_chunks._chunk_size(30, 1, {}, 1920) == 30
+    assert preview_chunks._chunk_size(30000, 1001, {}, 66331) == 900
+    # Explicit param still wins.
+    assert preview_chunks._chunk_size(30, 1, {"chunk_frames": 120}, 66331) == 120
+    # Invalid explicit values fall back to the adaptive default (None).
+    assert preview_chunks._chunk_size(30, 1, {"chunk_frames": 0}, 66331) is None
+    assert preview_chunks._chunk_size(30, 1, {"chunk_frames": "x"}, 66331) is None
+
+
+def test_preview_worker_uses_adaptive_chunk_size_on_long_timeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, store = _project(tmp_path, duration_sec=2211.0)
+    monkeypatch.setattr(
+        preview_chunks,
+        "_load_job_params",
+        lambda project_dir, job_id: {
+            "ranges": [{"start_sec": 0.0, "end_sec": 2211.0}],
+            "media": "both",
+        },
+    )
+    # 2211s * 30fps = 66330 frames -> 900-frame chunks -> 74 windows.
+    _patch_fingerprints(monkeypatch, chunk_count=74)
+    renderer = FakePreviewVideoRenderer()
+
+    result = preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-adaptive",
+        renderer=renderer,
+        run_commands=_run_commands,
+    )
+
+    manifest = PreviewChunkCache(
+        project_dir / ".open_edit" / "preview_chunks",
+        min_free_bytes=0,
+    ).read_manifest()
+    assert result["ok"] is True
+    assert manifest is not None
+    assert manifest.chunk_frames == 900
+    assert len(manifest.chunks) == 74
+    assert manifest.chunks[0].start_frame == 0
+    assert manifest.chunks[0].end_frame == 900
+    assert manifest.chunks[-1].end_frame == 66330
+    assert result["diagnostics"]["counts"]["total_chunks"] == 74
+    # Renderer records core_start_frame // 30: one call per 900-frame chunk.
+    assert len(renderer.calls) == 74
+    assert renderer.calls[1] == 30
+
+
+def test_preview_worker_honors_explicit_chunk_frames_param(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_dir, store = _project(tmp_path)
+    monkeypatch.setattr(
+        preview_chunks,
+        "_load_job_params",
+        lambda project_dir, job_id: {
+            "ranges": [{"start_sec": 0.0, "end_sec": 2.0}],
+            "media": "both",
+            "chunk_frames": 10,
+        },
+    )
+    # Explicit 10-frame chunks win over the 1s (30-frame) adaptive default.
+    _patch_fingerprints(monkeypatch, chunk_count=6)
+
+    result = preview_chunks.render_preview_chunks(
+        project_id="project",
+        project_dir=project_dir,
+        job_id="job-explicit",
+        renderer=FakePreviewVideoRenderer(),
+        run_commands=_run_commands,
+    )
+
+    manifest = PreviewChunkCache(
+        project_dir / ".open_edit" / "preview_chunks",
+        min_free_bytes=0,
+    ).read_manifest()
+    assert result["ok"] is True
+    assert manifest is not None
+    assert manifest.chunk_frames == 10
+    assert len(manifest.chunks) == 6
+    assert [(c.start_frame, c.end_frame) for c in manifest.chunks[:2]] == [
+        (0, 10),
+        (10, 20),
+    ]
+
+
 def test_preview_chunks_cli_emits_one_worker_result_json(
     tmp_path: Path, monkeypatch, capsys,
 ) -> None:

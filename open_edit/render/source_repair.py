@@ -30,7 +30,7 @@ from open_edit.render.ffmpeg_probe import probe_duration
 # Bump this when render-only repair semantics change. The orchestrator folds
 # it into the render-cache key so a corrected repair policy cannot reuse an
 # older proxy that was produced with different frame protection rules.
-SOURCE_REPAIR_POLICY_VERSION = "source-repair-v5-eo-overlay"
+SOURCE_REPAIR_POLICY_VERSION = "source-repair-v6-verify-preview"
 SOURCE_REPAIR_WINDOW_PADDING_SEC = 1.0
 
 
@@ -50,8 +50,10 @@ def _map_span(
     clip_out: float,
     asset_hash: str,
 ) -> dict[str, Any] | None:
-    start = max(float(span.start_sec), clip_in)
-    end = min(float(span.end_sec), clip_out)
+    start = float(span["start_sec"] if isinstance(span, dict) else span.start_sec)
+    end = float(span["end_sec"] if isinstance(span, dict) else span.end_sec)
+    start = max(start, clip_in)
+    end = min(end, clip_out)
     if end <= start:
         return None
     return {
@@ -68,11 +70,98 @@ def _map_span(
     }
 
 
+def _baseline_cache_path(
+    cache_dir: str | Path,
+    asset_hash: str,
+    source_hash: str,
+    source_end_sec: float,
+) -> Path:
+    """Deterministic per-asset cache path in the render cache dir."""
+    extent = f"{float(source_end_sec):.3f}".rstrip("0").rstrip(".")
+    stem = f"{asset_hash[:16]}-{source_hash[:16]}-{extent}"
+    return Path(cache_dir) / "source_baseline" / f"{stem}.json"
+
+
+def _load_baseline_cache(
+    cache_dir: str | Path,
+    asset_hash: str,
+    source_hash: str,
+    source_end_sec: float,
+) -> dict[str, Any] | None:
+    """Return cached detector spans for an unchanged source, or None."""
+    try:
+        path = _baseline_cache_path(
+            cache_dir, asset_hash, source_hash, source_end_sec,
+        )
+        if not path.is_file():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("asset_hash") != asset_hash:
+            return None
+        if payload.get("source_hash") != source_hash:
+            return None
+        if abs(float(payload.get("source_end_sec", -1.0)) - float(source_end_sec)) > 1e-6:
+            return None
+        return {
+            "black": payload.get("black", []),
+            "frozen": payload.get("frozen", []),
+        }
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _span_to_dict(span: Any) -> dict[str, Any]:
+    """Normalize a detector span (pydantic model or dict) to a plain dict."""
+    if isinstance(span, dict):
+        return dict(span)
+    as_dict = getattr(span, "model_dump", None)
+    if callable(as_dict):
+        return as_dict()
+    return dict(getattr(span, "__dict__", {}))
+
+
+def _store_baseline_cache(
+    cache_dir: str | Path,
+    asset_hash: str,
+    source_hash: str,
+    source_end_sec: float,
+    black_spans: list[Any],
+    frozen_spans: list[Any],
+) -> None:
+    """Persist detector spans so an unchanged source skips the next scan."""
+    try:
+        path = _baseline_cache_path(
+            cache_dir, asset_hash, source_hash, source_end_sec,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "version": 1,
+            "asset_hash": asset_hash,
+            "source_hash": source_hash,
+            "source_end_sec": float(source_end_sec),
+            "black": [_span_to_dict(s) for s in black_spans],
+            "frozen": [_span_to_dict(s) for s in frozen_spans],
+        }), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
 def collect_source_baseline(
     timeline: Timeline,
     asset_paths: dict[str, str],
+    *,
+    cache_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Detect and map source defects to their rendered timeline positions."""
+    """Detect and map source defects to their rendered timeline positions.
+
+    Per-asset detector results are cached on disk keyed by ``asset_hash`` and
+    the analyzed source extent, so an unchanged source (same hash, same used
+    duration) is never re-scanned by the CPU black/freeze detectors. Callers
+    that want a fresh scan can pass ``cache_dir=None`` (default: no cache) or
+    delete the cache directory.
+    """
     black_by_path: dict[str, list[Any]] = {}
     frozen_by_path: dict[str, list[Any]] = {}
     source_hashes: dict[str, str] = {}
@@ -117,31 +206,54 @@ def collect_source_baseline(
                     continue
                 try:
                     source_hashes[clip.asset_hash] = _hash_file(path)
-                    black_result = list_black_frames(
-                        str(path),
-                        scale_height=DEFAULT_SCALE_HEIGHT,
-                        out_sec=source_end_by_path.get(key, 0.0),
-                    )
-                    frozen_result = list_frozen_frames(
-                        str(path),
-                        out_sec=source_end_by_path.get(key, 0.0),
-                    )
-                    black_by_path[key] = (
-                        black_result.spans if black_result.ok else []
-                    )
-                    frozen_by_path[key] = (
-                        frozen_result.spans if frozen_result.ok else []
-                    )
-                    if not black_result.ok and black_result.error:
-                        errors.append({
-                            "asset_hash": clip.asset_hash,
-                            "error": black_result.error,
-                        })
-                    if not frozen_result.ok and frozen_result.error:
-                        errors.append({
-                            "asset_hash": clip.asset_hash,
-                            "error": frozen_result.error,
-                        })
+                    # Per-asset baseline cache: unchanged source + extent skips
+                    # the CPU black/freeze re-scan entirely.
+                    cached: dict[str, Any] | None = None
+                    if cache_dir is not None:
+                        cached = _load_baseline_cache(
+                            cache_dir,
+                            clip.asset_hash,
+                            source_hashes[clip.asset_hash],
+                            source_end_by_path.get(key, 0.0),
+                        )
+                    if cached is not None:
+                        black_by_path[key] = cached.get("black", [])
+                        frozen_by_path[key] = cached.get("frozen", [])
+                    else:
+                        black_result = list_black_frames(
+                            str(path),
+                            scale_height=DEFAULT_SCALE_HEIGHT,
+                            out_sec=source_end_by_path.get(key, 0.0),
+                        )
+                        frozen_result = list_frozen_frames(
+                            str(path),
+                            out_sec=source_end_by_path.get(key, 0.0),
+                        )
+                        black_by_path[key] = (
+                            black_result.spans if black_result.ok else []
+                        )
+                        frozen_by_path[key] = (
+                            frozen_result.spans if frozen_result.ok else []
+                        )
+                        if cache_dir is not None and black_result.ok and frozen_result.ok:
+                            _store_baseline_cache(
+                                cache_dir,
+                                clip.asset_hash,
+                                source_hashes[clip.asset_hash],
+                                source_end_by_path.get(key, 0.0),
+                                black_by_path[key],
+                                frozen_by_path[key],
+                            )
+                        if not black_result.ok and black_result.error:
+                            errors.append({
+                                "asset_hash": clip.asset_hash,
+                                "error": black_result.error,
+                            })
+                        if not frozen_result.ok and frozen_result.error:
+                            errors.append({
+                                "asset_hash": clip.asset_hash,
+                                "error": frozen_result.error,
+                            })
                 except (OSError, subprocess.SubprocessError) as exc:
                     black_by_path[key] = []
                     frozen_by_path[key] = []
@@ -403,6 +515,27 @@ def _read_frame(stream: Any, frame_size: int) -> bytes | None:
     return data
 
 
+
+
+def _repair_video_codec() -> tuple[str, tuple[str, ...]]:
+    """Pick the fastest available encoder for repair re-encodes.
+
+    NVENC is preferred (GPU is idle during the CPU-bound repair pass);
+    falls back to libx264 veryfast (the historical repair encoder).
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is not None:
+        try:
+            probe = subprocess.run(
+                [ffmpeg, "-hide_banner", "-encoders"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if "h264_nvenc" in probe.stdout:
+                return "h264_nvenc", ("-preset", "p4", "-rc", "constqp", "-cq", "18")
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return "libx264", ("-preset", "veryfast", "-crf", "18")
+
 def _repair_stream(
     input_path: Path,
     output_path: Path,
@@ -415,27 +548,51 @@ def _repair_stream(
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise RuntimeError("ffmpeg not on PATH")
-    frame_size = width * height * 3
-    decoder = subprocess.Popen(
-        [
-            ffmpeg, "-hide_banner", "-loglevel", "error",
-            "-i", str(input_path), "-map", "0:v:0", "-an",
-            "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
-        ],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
-    encoder = subprocess.Popen(
-        [
-            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "rawvideo", "-pix_fmt", "rgb24",
-            "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
-            "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-            "-pix_fmt", "yuv420p", "-c:a", "copy", "-shortest",
-            str(output_path),
-        ],
-        stdin=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
+    frame_size = width * height * 3 // 2  # yuv420p: 1.5 bytes/px (rgb24 was 3)
+    # NVENC preferred (GPU idle during repair), with a libx264 fallback for
+    # inputs NVENC cannot encode (e.g. sub-33px test frames).
+    vcodec, vargs = _repair_video_codec()
+    for attempt in range(2):
+        decoder = subprocess.Popen(
+            [
+                ffmpeg, "-hide_banner", "-loglevel", "error",
+                "-i", str(input_path), "-map", "0:v:0", "-an",
+                "-f", "rawvideo", "-pix_fmt", "yuv420p", "-",
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        encoder = subprocess.Popen(
+            [
+                ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+                "-f", "rawvideo", "-pix_fmt", "yuv420p",
+                "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
+                "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?",
+                "-c:v", vcodec, *vargs,
+                "-pix_fmt", "yuv420p", "-c:a", "copy", "-shortest",
+                str(output_path),
+            ],
+            stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            _pump_frames(decoder, encoder, frame_size, spans)
+            return
+        except RuntimeError:
+            if attempt == 0 and vcodec == "h264_nvenc":
+                # NVENC cannot encode this input (dimensions/format); retry
+                # once with the CPU encoder.
+                vcodec, vargs = "libx264", ("-preset", "veryfast", "-crf", "18")
+                continue
+            raise
+    _pump_frames(decoder, encoder, frame_size, spans)
+
+
+def _pump_frames(
+    decoder: subprocess.Popen,
+    encoder: subprocess.Popen,
+    frame_size: int,
+    spans: list[tuple[int, int, str]],
+) -> None:
+    """Stream decoded frames through the repair loop into the encoder."""
     assert decoder.stdout is not None
     assert encoder.stdin is not None
     span_index = 0
@@ -460,10 +617,11 @@ def _repair_stream(
                 frame_index += 1
                 frame = _read_frame(decoder.stdout, frame_size)
             following = frame
-            for repaired in _repair_window(window, previous, following, mode):
+            repaired_window = list(_repair_window(window, previous, following, mode))
+            for repaired in repaired_window:
                 encoder.stdin.write(repaired)
-            if window:
-                previous = _repair_window(window, previous, following, mode)[-1]
+            if repaired_window:
+                previous = repaired_window[-1]
             # ``frame`` is the first frame after the span and is processed on
             # the next loop iteration without being discarded.
     except (BrokenPipeError, OSError):
@@ -641,6 +799,7 @@ def repair_render_output(
     protected_spans: Iterable[dict[str, Any] | tuple[float, float]] = (),
     detector_timeout_s: float | None = None,
     skip_if_no_source_defects: bool = True,
+    reencode: bool = True,
 ) -> dict[str, Any]:
     """Repair source-known defects in a rendered output.
 
@@ -650,6 +809,11 @@ def repair_render_output(
     transitions. Callers that have independently verified a frozen defect can
     opt in with ``repair_source_frozen=True``. ``repair_intentional_black``
     only opts into repairing detected black spans.
+
+    ``reencode=False`` (preview/proxy renders) runs the detectors and reports
+    confirmed spans but never re-encodes: the output file is left untouched
+    and ``changed`` stays ``False``. This turns a 10-minute whole-file CPU
+    re-encode into a bounded detection pass for review artifacts.
     """
     input_path = Path(video_path)
     desired_path = Path(output_path)
@@ -776,6 +940,15 @@ def repair_render_output(
     frozen = _subtract_protected_spans(frozen, protected)
     if not black and not frozen:
         return no_change("no_confirmed_source_defects")
+    if not reencode:
+        # Preview/review-artifact: verification only. Report the confirmed
+        # spans and leave the rendered file untouched (no whole-file CPU
+        # re-encode). OPEN_EDIT_REPAIR=1 re-enables re-encoding.
+        result = no_change("verify_only_preview_render")
+        result["changed"] = False
+        result["confirmed_black_spans"] = black
+        result["confirmed_frozen_spans"] = frozen
+        return result
     temp_path: Path | None = None
     try:
         width, height, fps = _video_layout(input_path)

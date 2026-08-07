@@ -93,7 +93,7 @@ def _build_video_command(
         # Keep this spelling: ffmpeg consumes the actual rawvideo muxer stream.
         "f=rawvideo",
         "vcodec=rawvideo",
-        "pix_fmt=yuv420p",
+        "pix_fmt=nv12",
         f"s={size}",
         f"frame_rate_num={profile.frame_rate_num}",
         f"frame_rate_den={profile.frame_rate_den}",
@@ -102,7 +102,7 @@ def _build_video_command(
     ]
     video_input = [
         "-f", "rawvideo",
-        "-pix_fmt", "yuv420p",
+        "-pix_fmt", "nv12",
         "-s", size,
         "-r", fps,
         "-i", "-",

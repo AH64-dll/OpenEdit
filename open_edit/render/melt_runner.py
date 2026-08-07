@@ -206,27 +206,34 @@ def _run_pipe_with_frame_feeders(
 
     overall_t0 = time.monotonic()
     audio_t0 = time.monotonic()
-    try:
-        audio_proc = subprocess.run(
-            cmds.melt_audio_cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired:
-        raise PipeRunError(f"melt-audio timed out after {timeout_s:g}s") from None
-    audio_rc = audio_proc.returncode
-    audio_err = audio_proc.stderr or ""
-    if audio_rc != 0:
-        return PipeResult(
-            audio_rc,
-            audio_rc,
-            -1,
-            f"melt-audio failed:\n{audio_err.strip()}",
-            elapsed_sec=time.monotonic() - overall_t0,
-            audio_elapsed_sec=time.monotonic() - audio_t0,
-        )
-    audio_elapsed = time.monotonic() - audio_t0
+    if not cmds.melt_audio_cmd:
+        # Audio was satisfied from the wav cache (orchestrator) — skip the
+        # melt-audio pass entirely and mux the cached mix below.
+        audio_rc = 0
+        audio_err = ""
+        audio_elapsed = 0.0
+    else:
+        try:
+            audio_proc = subprocess.run(
+                cmds.melt_audio_cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+            )
+        except subprocess.TimeoutExpired:
+            raise PipeRunError(f"melt-audio timed out after {timeout_s:g}s") from None
+        audio_rc = audio_proc.returncode
+        audio_err = audio_proc.stderr or ""
+        if audio_rc != 0:
+            return PipeResult(
+                audio_rc,
+                audio_rc,
+                -1,
+                f"melt-audio failed:\n{audio_err.strip()}",
+                elapsed_sec=time.monotonic() - overall_t0,
+                audio_elapsed_sec=time.monotonic() - audio_t0,
+            )
+        audio_elapsed = time.monotonic() - audio_t0
 
     frame_overlays = list(cmds.frame_overlays)
     if frame_overlays and os.name != "posix":

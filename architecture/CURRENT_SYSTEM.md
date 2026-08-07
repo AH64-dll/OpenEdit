@@ -64,8 +64,8 @@ Deterministic fixtures live under `testdata/`:
 
 ## Motion Graphics Backends
 
-- **HyperFrames**: `AddHtmlOverlayOp` → late composite when `mode=overlay`
-- **Remotion**: `AddRemotionCompositionOp` → materialize to CAS → melt talk → ffmpeg burn-in (proxy/final)
+- **HyperFrames**: `AddHtmlOverlayOp` → host materialization/cache → shared proxy/final/preview graphics composite; `mode=overlay` remains compatibility path
+- **Remotion**: legacy `AddRemotionCompositionOp` → compatibility materialize to CAS → melt talk → ffmpeg composite
 - **moviepy**: legacy `generate_visual_for_segment` template path
 
 See `docs/REMOTION_LICENSE.md` and `docs/architecture/TARGET_SYSTEM.md`.

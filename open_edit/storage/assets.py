@@ -101,6 +101,62 @@ def _probe_media(path: str) -> dict:
     }
 
 
+def source_proxy_auto_enqueue_enabled() -> bool:
+    """Whether ingest should auto-enqueue source-proxy generation.
+
+    Default **on**: proxies are needed by the ``proxy`` emission policies
+    (proxy-edit, preview-chunk), so starting generation at ingest time lets
+    the durable queue fill idle time. Set ``OPEN_EDIT_SOURCE_PROXY_AUTO=0``
+    (or ``false``/``no``/``off``) to disable; the queue still runs when the
+    render path asks for a proxy.
+    """
+    raw = os.environ.get("OPEN_EDIT_SOURCE_PROXY_AUTO")
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _maybe_enqueue_source_proxy(assets_dir: Path, asset: Asset) -> None:
+    """Best-effort, non-blocking background source-proxy enqueue.
+
+    Never raises and never blocks ingest: proxy generation is a durable
+    queue job with bounded concurrency, and ingest success must not depend
+    on it. Cheap eligibility pre-checks mirror ``generate_asset_proxy``'s
+    own shortcuts so images/audio/small/alpha sources don't create rows.
+    """
+    if not source_proxy_auto_enqueue_enabled():
+        return
+    if asset.type != "video" or asset.has_alpha or asset.proxy_status == "ready":
+        return
+    try:
+        from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
+
+        if (
+            asset.height is not None
+            and asset.height <= DEFAULT_SOURCE_PROXY_PROFILE.height
+        ):
+            return
+        # The canonical layout is <root>/.open_edit/assets; the legacy layout
+        # is <root>/assets. Mirrors timeline_plan's project-path derivation.
+        parent = Path(assets_dir).parent
+        project_path = parent.parent if parent.name == ".open_edit" else parent
+
+        from open_edit.kernel.asset_proxy_jobs import (
+            DEFAULT_ASSET_PROXY_JOB_SERVICE,
+        )
+
+        DEFAULT_ASSET_PROXY_JOB_SERVICE.enqueue(
+            project_path.name,
+            project_path,
+            asset.asset_hash,
+            profile=DEFAULT_SOURCE_PROXY_PROFILE,
+        )
+    except Exception:
+        # A proxy error (DB lock, missing ffmpeg, race) must never fail the
+        # ingest that just succeeded.
+        _LOG.debug("source proxy auto-enqueue skipped", exc_info=True)
+
+
 def list_assets_from_disk(project_path: Path) -> list[Asset]:
     """Read all asset sidecar JSONs from <project>/assets/."""
     assets_dir = project_path / ".open_edit" / "assets"
@@ -224,6 +280,7 @@ class AssetStore:
             )
             sidecar = self._sidecar_path(asset_hash)
             sidecar.write_text(asset.model_dump_json(indent=2))
+            _maybe_enqueue_source_proxy(self.assets_dir, asset)
             assets.append(asset)
         return assets
 

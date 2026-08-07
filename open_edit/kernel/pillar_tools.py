@@ -26,6 +26,8 @@ _QUERY_ROUTING: dict[str, str] = {
     "analyze_narrative": "analyze_narrative",
     "search_assets": "search_assets",
     "get_transcript_packed": "get_transcript_packed",
+    "get_silence_gaps": "get_silence_gaps",
+    "get_timeline_view": "get_timeline_view",
 }
 
 # Sub-command → TOOL_TABLE name for the edit pillar mode. Includes the
@@ -37,12 +39,14 @@ _EDIT_ROUTING: dict[str, str] = {
     "import_asset": "import_asset",
     "ingest_local": "ingest_local",
     "add_clip": "add_clip",
+    "add_hyperframes_overlay": "add_hyperframes_overlay",
     "trim_clip": "trim_clip",
     "replace_clip_source": "replace_clip_source",
     "change_clip_speed": "change_clip_speed",
     "remove_clip": "remove_clip",
     "set_audio_gain": "set_audio_gain",
     "apply_silence_gaps": "apply_silence_gaps",
+    "auto_color_grade": "auto_color_grade",
 }
 
 # Generate kind → TOOL_TABLE name for the generate pillar mode.
@@ -168,5 +172,5 @@ def dispatch_generate(kind: str, params: dict[str, Any], project_path: Path) -> 
     fn = TOOL_TABLE[_GENERATE_ROUTING[kind]] if kind in _GENERATE_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown generate kind: {kind!r}"}
-    p = dict(params) if params else {}
+    p = _with_project_id(dict(params) if params else {}, project_path)
     return fn(p, str(project_path))

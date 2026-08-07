@@ -8,61 +8,79 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=20260728-gpu-encoder">
+  <link rel="stylesheet" href="/style.css?v=20260807-fix4-round2">
 </head>
 <body class="has-timeline">
   <div class="site-wrapper">
 
   <!-- =================== Top bar =================== -->
-  <header class="topbar">
+  <header class="topbar" data-od-id="topbar">
     <div class="topbar-left">
-      <span class="logo">
-        <span class="logo-badge"></span> Open Edit
-      </span>
-      <span class="topbar-sep">|</span>
-      <label class="topbar-label" for="project-select">Project</label>
-      <select id="project-select" class="project-select">
-        <option value="">— select —</option>
-      </select>
-      <button id="btn-new-project" class="btn btn-ghost btn-xs" title="New project">+ New</button>
-      <button id="btn-refresh-project" class="btn btn-ghost btn-xs" title="Refresh projects">
-        <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-      </button>
+      <div class="topbar-brand">
+        <a class="logo" data-od-id="logo" id="logo" href="/" aria-label="Open Edit">
+          <!-- The monitor silhouette is the O; the screen is glass, never a letter glyph. -->
+          <span class="logo-mark" aria-hidden="true"></span>
+          <span class="logo-text">pen&nbsp;Edit</span>
+        </a>
+        <span class="topbar-sep" aria-hidden="true">|</span>
+      </div>
+      <div class="topbar-project">
+        <label class="topbar-label" for="project-select">Project</label>
+        <div class="project-select-wrap">
+          <select id="project-select" class="project-select">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <div class="topbar-project-actions">
+          <button id="btn-new-project" class="btn btn-ghost btn-xs" title="New project" data-od-id="btn-new-project">+ New</button>
+          <button id="btn-refresh-project" class="btn btn-ghost btn-xs" title="Refresh projects" data-od-id="btn-refresh-project">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </button>
+        </div>
+      </div>
     </div>
-    
-    <div class="topbar-center agent-only">
-      <label class="topbar-label" for="llm-provider-select">Provider</label>
-      <select id="llm-provider-select" class="topbar-select" disabled>
-        <option value="">—</option>
-      </select>
-      <label class="topbar-label" for="llm-model-select">Model</label>
-      <select id="llm-model-select" class="topbar-select" disabled>
-        <option value="">—</option>
-      </select>
-      <span id="llm-tools-warn" class="llm-warn hidden"
-            title="This provider does not support the 11 Open Edit tools">⚠ no tools</span>
+
+    <div class="topbar-center">
+      <span class="mode-badge" role="status" aria-live="polite">
+        <span class="pulse" aria-hidden="true"></span>
+        <span id="mode-label" data-review-label="Review · MCP" data-agent-label="Agent · built-in">Review · MCP</span>
+      </span>
+      <div class="topbar-provider agent-only">
+        <label class="topbar-label" for="llm-provider-select">Provider</label>
+        <select id="llm-provider-select" class="topbar-select" disabled>
+          <option value="">—</option>
+        </select>
+        <label class="topbar-label" for="llm-model-select">Model</label>
+        <select id="llm-model-select" class="topbar-select" disabled>
+          <option value="">—</option>
+        </select>
+        <span id="llm-tools-warn" class="llm-warn hidden"
+              title="This provider does not support the 11 Open Edit tools"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-4zm-1 5H7v-6h4zm-4 2v2H7v-2zm0 2v2h2v-2zm2 0h2v-2h-2zm6 0v2h2v-2zm0 2v2h2v-2z"/></svg> no tools</span>
+      </div>
     </div>
 
     <div class="topbar-right">
-      <button id="btn-cmd-k" class="btn btn-ghost btn-xs" title="Command Palette (Cmd+K)">
+      <button id="btn-cmd-k" class="btn btn-ghost btn-xs" title="Command Palette (Cmd+K)" data-od-id="btn-cmd-k">
         <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <span class="kbd-badge">⌘K</span>
+        <span class="kbd-badge">Ctrl K</span>
       </button>
-      <button id="btn-toggle-theme" class="btn btn-ghost btn-xs" title="Toggle Light/Dark Theme">🌙</button>
-      <button id="btn-toggle-left-panel" class="btn btn-ghost btn-xs review-only" title="Toggle assets panel">◧</button>
-      <button id="btn-toggle-right-panel" class="btn btn-ghost btn-xs review-only" title="Toggle renders panel">◨</button>
-      <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" title="Settings & API Keys">⚙️ Settings</button>
-      <button id="btn-topbar-stop" class="btn btn-secondary hidden agent-only" title="Interrupt request">Stop ⏹</button>
-      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets">☰</button>
-      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders">≡</button>
-      <span id="conn-status" class="conn-status disconnected" title="Disconnected">●</span>
+      <button id="btn-toggle-theme" class="btn btn-ghost btn-xs" title="Toggle Light/Dark Theme" data-od-id="btn-toggle-theme"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 0 1 11.21 3 7 7 0 0 0 12 19a9 9 0 0 0 9-6.21zM12 2a1 1 0 0 1 1 1v2a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm8.05 10.05a1 1 0 0 1-.05 2h-2a1 1 0 0 1 0-2h2zm-16 0a1 1 0 0 1 0 2H4a1 1 0 0 1 0-2h.05zM12 5.5a1 1 0 0 1 1 1V8a1 1 0 0 1-2 0V6.5a1 1 0 0 1 1-1z"/></svg></button>
+      <button id="btn-toggle-left-panel" class="btn btn-ghost btn-xs review-only" title="Toggle assets panel" data-od-id="btn-toggle-left-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 6h9v12H4zm12 0h2v12h-2z"/></svg></button>
+      <button id="btn-toggle-right-panel" class="btn btn-ghost btn-xs review-only" title="Toggle renders panel" data-od-id="btn-toggle-right-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 6h9v12H4zm12 0h2v12h-2z"/></svg></button>
+      <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" title="Settings & API Keys" data-od-id="btn-settings"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M19.14 12.94a6.5 6.5 0 0 0 0-2l2-1.5a.5.5 0 0 0 .12-.65l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.2.9a6.5 6.5 0 0 0-1.5-1l-.3-2.2a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.3 2.2a6.5 6.5 0 0 0-1.5 1l-2.2-.9a.5.5 0 0 0-.65.2l-1.9 3.2a.5.5 0 0 0 .12.65l2 1.5a6.5 6.5 0 0 0 0 2l-2 1.5a.5.5 0 0 0-.12.65l1.9 3.2a.5.5 0 0 0 .6.2l2.2-.9a6.5 6.5 0 0 0 1.5 1l.3 2.2a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.3-2.2a6.5 6.5 0 0 0 1.5-1l2.2.9a.5.5 0 0 0 .65-.2l1.9-3.2a.5.5 0 0 0-.12-.65zM12 15.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg> Settings</button>
+      <button id="btn-topbar-stop" class="btn btn-secondary hidden agent-only" title="Interrupt request" data-od-id="btn-topbar-stop"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop</button>
+      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets" data-od-id="btn-left-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders" data-od-id="btn-right-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <span id="conn-status" class="conn conn-status disconnected" title="Disconnected" data-od-id="conn-status">
+        <i aria-hidden="true"></i><span class="conn-label">Connected</span>
+      </span>
     </div>
   </header>
 
   <!-- =================== Main 3-column layout =================== -->
-  <main class="layout">
+  <main class="layout" data-od-id="layout">
     <!-- ----- LEFT panel ----- -->
-    <aside id="left-panel" class="panel panel-left">
+    <aside id="left-panel" class="panel panel-left" data-od-id="panel-left">
       <div class="panel-tabs">
         <button class="tab active" data-tab="assets">Assets</button>
         <button class="tab" data-tab="edits">Edit graph</button>
@@ -109,32 +127,42 @@
     </aside>
 
     <!-- ----- CENTER panel ----- -->
-    <section class="panel panel-center">
+    <section class="panel panel-center" data-od-id="panel-center">
       <div id="preview-panel" class="preview-panel">
-        <div class="preview-panel-header">
-          <span>Preview</span>
+        <div class="preview-panel-header panel-head">
+          <span class="panel-title">Preview</span>
           <span id="preview-mode-badge" class="preview-mode-badge muted small">—</span>
         </div>
-        <video id="preview-player" class="preview-player" controls playsinline></video>
-        <div id="preview-empty" class="empty-state preview-empty">
-          Render a review artifact (`mode=proxy`) to review the full cut.
+        <div class="preview-stage" role="group" aria-label="Preview stage">
+          <div class="preview-media">
+            <video id="preview-player" class="preview-player" controls playsinline></video>
+          </div>
+          <div id="preview-empty" class="empty-state preview-empty">
+            Render a review artifact (`mode=proxy`) to review the full cut.
+          </div>
+        </div>
+        <div class="transport" role="group" aria-label="Preview transport">
+          <button id="btn-skip-back" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-back" title="Skip back 5 seconds" aria-label="Skip back 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M16 6v12M8 9v6l-5-3z"/></svg></button>
+          <button id="btn-play" type="button" class="btn btn-primary btn-icon" data-preview-action="play" title="Play preview" aria-label="Play preview"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M10 6L18 12 10 18z"/></svg></button>
+          <button id="btn-skip-fwd" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-fwd" title="Skip forward 5 seconds" aria-label="Skip forward 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M8 6v12M16 9v6l5-3z"/></svg></button>
+          <span class="transport-time" aria-label="Preview time"><strong id="tc-current">00:00.00</strong><span class="transport-total"> / —</span></span>
         </div>
       </div>
 
       <div id="chat-log" class="chat-log agent-only">
         <div class="empty-state">
-          <div style="font-size: 20px; font-weight:700; color:var(--text-primary); margin-bottom: 8px;">Welcome to Open Edit</div>
-          <div>Select or create a project to start chatting with your AI video editor.</div>
-          
+          <div class="welcome-title">Welcome to Open Edit</div>
+          <div class="welcome-sub">Select or create a project to start chatting with your AI video editor.</div>
+
           <div class="prompt-chips-container" id="prompt-chips">
-            <div class="prompt-chip" data-prompt="Cut dead air and silent pauses from the video">✂️ Cut silences</div>
-            <div class="prompt-chip" data-prompt="Add lower-third title overlay at start">🏷️ Add lower-third</div>
-            <div class="prompt-chip" data-prompt="Normalize audio levels to -16dBFS">🔊 Normalize audio</div>
-            <div class="prompt-chip" data-prompt="Render final 1080p MP4">🎬 Render final video</div>
+            <div class="prompt-chip" data-prompt="Cut dead air and silent pauses from the video">Cut silences</div>
+            <div class="prompt-chip" data-prompt="Add lower-third title overlay at start">Add lower-third</div>
+            <div class="prompt-chip" data-prompt="Normalize audio levels to -16dBFS">Normalize audio</div>
+            <div class="prompt-chip" data-prompt="Render final 1080p MP4">Render final video</div>
           </div>
         </div>
       </div>
-      
+
       <div id="chat-status" class="chat-status hidden agent-only" data-state="idle" aria-live="polite">
         <span class="chat-status-dot"></span>
         <span class="chat-status-text"></span>
@@ -145,85 +173,88 @@
       <div id="cost-badge" class="cost-badge hidden agent-only" data-source="unavailable" aria-live="polite">
         <span class="cost-badge-text"></span>
       </div>
-      
+
       <div class="chat-input-row agent-only">
-        <textarea id="chat-input" class="chat-input" placeholder="Type a prompt to edit video... (Enter to send, Shift+Enter for newline, ⌘K for commands)" rows="1" disabled></textarea>
-        <button id="btn-send" class="btn btn-primary" disabled>
+        <textarea id="chat-input" class="chat-input" placeholder="Type a prompt to edit video... (Enter to send, Shift+Enter for newline, Ctrl+K for commands)" rows="1" disabled></textarea>
+        <button id="btn-send" class="btn btn-primary" disabled data-od-id="btn-send">
           Send
           <svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
         </button>
         <button id="btn-stop" class="btn btn-secondary hidden" title="Interrupt request">
-          Stop ⏹
+          Stop
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
         </button>
       </div>
     </section>
 
     <!-- ----- RIGHT panel ----- -->
-    <aside id="right-panel" class="panel panel-right">
-      <div class="panel-section">
-        <div class="panel-section-header">
-          <span>Renders</span>
-          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh">
+    <aside id="right-panel" class="panel panel-right" data-od-id="panel-right">
+      <div class="panel-section section-block">
+        <div class="panel-section-header panel-head">
+          <span class="panel-title">Renders</span>
+          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh" data-od-id="btn-refresh-renders">
             <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           </button>
         </div>
         <div id="renders-list" class="renders-list">
           <div class="empty-state">No renders yet.</div>
         </div>
-        <div class="render-buttons">
-          <label class="encoder-select muted small" title="GPU uses NVENC when available; CPU uses software x264">
-            Encoder
+        <div class="render-buttons compact-renders">
+          <label class="encoder-select muted small">
             <select id="render-encoder-select">
-              <option value="gpu" selected>GPU (default)</option>
+              <option value="gpu" selected>GPU</option>
               <option value="cpu">CPU</option>
             </select>
           </label>
-          <button id="btn-render-proxy" class="btn btn-secondary btn-sm">Render proxy</button>
-          <button id="btn-render-final" class="btn btn-secondary btn-sm">Render final</button>
+          <button id="btn-render-proxy" class="btn btn-secondary btn-sm" data-od-id="btn-render-proxy">Proxy</button>
+          <button id="btn-render-final" class="btn btn-secondary btn-sm" data-od-id="btn-render-final">Final</button>
         </div>
       </div>
 
-      <div class="panel-section">
-        <div class="panel-section-header">
-          <span>Notes</span>
-          <button id="btn-show-notes" class="btn btn-ghost btn-xs">View</button>
+      <div class="panel-section section-block">
+        <div class="panel-section-header panel-head">
+          <span class="panel-title">Notes</span>
+          <button id="btn-show-notes" class="btn btn-ghost btn-xs" data-od-id="btn-show-notes">View</button>
         </div>
         <div id="notes-summary" class="notes-summary muted small">—</div>
       </div>
 
-      <div class="panel-section">
-        <div class="panel-section-header"><span>Style</span></div>
+      <div class="panel-section section-block">
+        <div class="panel-section-header panel-head"><span class="panel-title">Style</span></div>
         <div class="muted small agent-only">Pinned values come from the agent as you chat.</div>
         <div class="muted small review-only">External agent (MCP) owns style and edits.</div>
       </div>
+
     </aside>
   </main>
 
   <!-- =================== Timeline Panel =================== -->
-  <section id="timeline-panel" class="timeline-panel" aria-label="Timeline">
+  <section id="timeline-panel" class="timeline-panel" aria-label="Timeline" data-od-id="timeline-panel">
     <div class="timeline-panel-header">
       <span>Timeline</span>
       <div class="timeline-panel-controls">
         <span class="timeline-timecode" id="timeline-timecode-label">00:00.00</span>
         <span class="timeline-zoom-label" id="timeline-duration-label">—</span>
-        <button id="btn-copy-timecode" class="btn btn-ghost btn-xs" title="Copy playhead time for agent">Copy time</button>
-        <button id="btn-add-note-playhead" class="btn btn-ghost btn-xs" title="Add review note at playhead">Note here</button>
-        <button id="btn-timeline-zoom-in"  class="btn btn-ghost btn-xs" title="Zoom in">+</button>
-        <button id="btn-timeline-zoom-out" class="btn btn-ghost btn-xs" title="Zoom out">−</button>
-        <button id="btn-timeline-fit"      class="btn btn-ghost btn-xs" title="Fit to window">Fit</button>
+        <button id="btn-copy-timecode" class="btn btn-ghost btn-xs" title="Copy playhead time for agent" data-od-id="btn-copy-timecode">Copy time</button>
+        <button id="btn-add-note-playhead" class="btn btn-ghost btn-xs" title="Add review note at playhead" data-od-id="btn-add-note-playhead">Note here</button>
+        <button id="btn-timeline-zoom-in"  class="btn btn-ghost btn-xs" title="Zoom in" data-od-id="btn-timeline-zoom-in">+</button>
+        <button id="btn-timeline-zoom-out" class="btn btn-ghost btn-xs" title="Zoom out" data-od-id="btn-timeline-zoom-out">-</button>
+        <button id="btn-timeline-fit"      class="btn btn-ghost btn-xs" title="Fit to window" data-od-id="btn-timeline-fit">Fit</button>
       </div>
     </div>
     <div class="timeline-body">
-      <!-- Track labels column -->
-      <div class="timeline-track-labels" id="timeline-track-labels">
-        <div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>
-      </div>
-      <!-- Ruler + tracks area -->
-      <div class="timeline-ruler-col" id="timeline-ruler-col">
-        <div class="timeline-playhead" id="timeline-playhead"></div>
-        <div class="timeline-ruler" id="timeline-ruler"></div>
-        <div class="timeline-tracks-area" id="timeline-tracks-area">
-          <div class="timeline-empty-state" id="timeline-empty-msg">No clips yet — ask the agent to add some.</div>
+      <div class="timeline-responsive-inner">
+        <!-- Track labels column -->
+        <div class="timeline-track-labels" id="timeline-track-labels">
+          <div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>
+        </div>
+        <!-- Ruler + tracks area -->
+        <div class="timeline-ruler-col" id="timeline-ruler-col">
+          <div class="timeline-playhead" id="timeline-playhead"></div>
+          <div class="timeline-ruler" id="timeline-ruler"></div>
+          <div class="timeline-tracks-area" id="timeline-tracks-area">
+            <div class="timeline-empty-state" id="timeline-empty-msg">No clips yet — ask the agent to add some.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -253,7 +284,7 @@
       <input type="text" id="new-project-name" class="text-input" placeholder="project name" autocomplete="off">
       <div class="modal-actions">
         <button class="btn btn-ghost" data-modal-close>Cancel</button>
-        <button id="btn-create-project" class="btn btn-primary">Create</button>
+        <button id="btn-create-project" class="btn btn-primary" data-od-id="btn-create-project">Create</button>
       </div>
     </div>
   </div>
@@ -283,40 +314,38 @@
   <div id="modal-settings" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop"></div>
     <div class="modal-card modal-card-wide">
-      <h3>Settings & API Keys</h3>
-      
-      <div style="margin-bottom: 16px;">
-        <h4 style="margin: 0 0 8px; font-size: 13px; color: var(--accent);">Detected Local Agent Runtimes</h4>
-        <div id="settings-runtimes-list" class="muted small" style="display: flex; flex-direction: column; gap: 4px;">Loading runtimes…</div>
+      <h3>Settings &amp; API Keys</h3>
+
+      <div class="settings-block">
+        <h4>Detected Local Agent Runtimes</h4>
+        <div id="settings-runtimes-list" class="muted small settings-runtimes-list">Loading runtimes…</div>
       </div>
 
-      <div style="margin-bottom: 16px;">
-        <h4 style="margin: 0 0 8px; font-size: 13px; color: var(--accent);">API Key Configuration (BYOK)</h4>
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <div>
-            <label class="small muted" style="display: block; margin-bottom: 3px;">Anthropic API Key</label>
+      <div class="settings-block">
+        <h4>API Key Configuration (BYOK)</h4>
+        <div class="settings-keys">
+          <div class="settings-key-field">
+            <label class="small muted" for="key-anthropic">Anthropic API Key</label>
             <input type="password" id="key-anthropic" class="text-input" placeholder="sk-ant-..." autocomplete="off">
           </div>
-          <div>
-            <label class="small muted" style="display: block; margin-bottom: 3px;">OpenAI API Key</label>
+          <div class="settings-key-field">
+            <label class="small muted" for="key-openai">OpenAI API Key</label>
             <input type="password" id="key-openai" class="text-input" placeholder="sk-proj-..." autocomplete="off">
           </div>
-          <div>
-            <label class="small muted" style="display: block; margin-bottom: 3px;">OpenCode Key <span class="muted">(binary manages own auth)</span></label>
+          <div class="settings-key-field">
+            <label class="small muted" for="key-opencode">OpenCode Key <span class="muted">(binary manages own auth)</span></label>
             <input type="password" id="key-opencode" class="text-input" placeholder="sk-..." autocomplete="off">
           </div>
-          <div>
-            <label class="small muted" style="display: block; margin-bottom: 3px;">Antigravity / Google Key <span class="muted">(binary manages own auth)</span></label>
+          <div class="settings-key-field">
+            <label class="small muted" for="key-antigravity">Antigravity / Google Key <span class="muted">(binary manages own auth)</span></label>
             <input type="password" id="key-antigravity" class="text-input" placeholder="key..." autocomplete="off">
           </div>
-        </div>
-
         </div>
       </div>
 
       <div class="modal-actions">
         <button class="btn btn-ghost" data-modal-close>Cancel</button>
-        <button id="btn-save-settings-keys" class="btn btn-primary">Save Keys</button>
+        <button id="btn-save-settings-keys" class="btn btn-primary" data-od-id="btn-save-settings-keys">Save Keys</button>
       </div>
     </div>
   </div>
@@ -324,6 +353,6 @@
   <!-- =================== Toast =================== -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="/app.js?v=20260729-preview-rev"></script>
+  <script type="module" src="/app.js?v=20260807-fix4-round2"></script>
 </body>
 </html>

@@ -5,6 +5,8 @@ MLT XML is a render target.
 """
 from __future__ import annotations
 
+import math
+
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -28,6 +30,18 @@ class EmitterConfig(BaseModel):
 def _format_timecode(seconds: float, fps_num: int, fps_den: int) -> str:
     """Convert seconds to MLT frame count (integer)."""
     return str(int(round(seconds * fps_num / fps_den)))
+
+
+def _amp_to_db(amplitude: float) -> float:
+    """Convert a linear amplitude (0..1) to dBFS for MLT volume ``level``.
+
+    MLT's volume filter interprets ``level`` in dBFS (0 dB = unity). A value
+    of 0.0 amplitude maps to -80 dB (below 16-bit quantization noise) rather
+    than 0 dB, which would have been a no-op.
+    """
+    if amplitude <= 0.0:
+        return -80.0
+    return 20.0 * math.log10(amplitude)
 
 
 def _emit_audio_micro_fade(
@@ -83,13 +97,18 @@ def _emit_audio_micro_fade(
     filter_el = etree.SubElement(parent, "filter", attrib={
         "id": f"microfade_{clip_id}",
         "service": "volume",
+        "mlt_service": "volume",
     })
-    for frame, val in deduped:
-        etree.SubElement(filter_el, "kf", attrib={
-            "frame": str(frame),
-            "value": str(val),
-            "interp": "linear",
-        })
+    # MLT >= 7.22 volume "level" is in dBFS (0 dB = unity) and keyframes are
+    # serialized as an animated property string "frame=value; ..." (the legacy
+    # <kf> element is not parsed by producer_xml and amplitude 0..1 values are
+    # interpreted as dB, silently rendering the fade a no-op).
+    level_parts = [
+        f"{frame}={_amp_to_db(val):.1f}" for frame, val in deduped
+    ]
+    etree.SubElement(
+        filter_el, "property", attrib={"name": "level"}
+    ).text = ";".join(level_parts)
 
 
 def _emit_filter(
@@ -99,25 +118,74 @@ def _emit_filter(
     fps_den: int,
 ) -> None:
     """Emit a regular Effect as an MLT <filter> element."""
+    mlt_service = _mlt_service_name(effect.effect_type)
     filter_el = etree.SubElement(parent, "filter", attrib={
         "id": effect.effect_id,
-        "service": effect.effect_type,
+        "service": mlt_service,
+        "mlt_service": mlt_service,
     })
+    prop_names = _catalog_property_names(effect.effect_type)
     for key, value in effect.params.items():
         if key == "service":
             continue
-        prop = etree.SubElement(filter_el, "property", attrib={"name": key})
+        prop = etree.SubElement(filter_el, "property", attrib={"name": prop_names.get(key, key)})
         if isinstance(value, bool):
             prop.text = "1" if value else "0"
         else:
             prop.text = str(value)
     for param, kfs in effect.keyframes.items():
+        prop = etree.SubElement(
+            filter_el, "property", attrib={"name": prop_names.get(param, param)}
+        )
+        parts: list[str] = []
         for time_sec, value, interp in kfs:
-            etree.SubElement(filter_el, "kf", attrib={
-                "frame": _format_timecode(time_sec, fps_num, fps_den),
-                "value": str(value),
-                "interp": interp,
-            })
+            marker = "!" if interp == "discrete" else ("~" if interp == "smooth" else "")
+            parts.append(
+                f"{marker}{_format_timecode(time_sec, fps_num, fps_den)}={value}"
+            )
+        prop.text = ";".join(parts)
+
+
+def _catalog_spec(effect_type: str):
+    """Load the catalog spec for an effect type, or None."""
+    try:
+        from open_edit.ir.catalog.loader import EffectCatalog
+        from pathlib import Path
+
+        catalog = EffectCatalog(Path(__file__).resolve().parent.parent / "ir" / "catalog")
+        return catalog.get(effect_type)
+    except Exception:
+        return None
+
+
+def _mlt_service_name(effect_type: str) -> str:
+    """Resolve the MLT filter/transition service for an effect type.
+
+    The catalog YAML declares the real MLT service (e.g. catalog effect
+    ``contrast`` -> MLT service ``avfilter.eq``). Effect types without a
+    catalog entry (e.g. raw ``transition_*`` or legacy effects) pass through
+    unchanged.
+    """
+    spec = _catalog_spec(effect_type)
+    if spec is not None and spec.mlt_service:
+        return spec.mlt_service
+    return effect_type
+
+
+def _catalog_property_names(effect_type: str) -> dict[str, str]:
+    """Map agent-facing effect param names to MLT filter property names.
+
+    The YAML catalog (``ir/catalog/effects/*.yaml``) may declare an optional
+    ``property`` per param (e.g. brightness ``value`` -> MLT ``level``).
+    Unknown effect types and params pass through unchanged.
+    """
+    spec = _catalog_spec(effect_type)
+    if spec is None:
+        return {}
+    out: dict[str, str] = {}
+    for name, param in spec.params.items():
+        out[name] = param.property or name
+    return out
 
 
 def _emit_transition(
@@ -129,6 +197,7 @@ def _emit_transition(
     trans = etree.SubElement(parent, "transition", attrib={
         "id": effect.effect_id,
         "service": service_name,
+        "mlt_service": service_name,
     })
     for key, value in effect.params.items():
         if key == "service":
@@ -176,6 +245,10 @@ def emit_timeline(
         attrib={
             "LC_NUMERIC": "C",
             "version": "7.22.0",
+            # Must name the tractor: with multiple playlists, an absent
+            # producer attribute makes melt pick the LAST playlist (an audio
+            # track) as main_bin, rendering a white/static video.
+            "producer": "tractor0",
         },
     )
 
@@ -207,13 +280,7 @@ def emit_timeline(
             etree.SubElement(producer, "property", attrib={"name": "hwaccel"}).text = "cuda"
             etree.SubElement(producer, "property", attrib={"name": "hwaccel_device"}).text = "0"
 
-    tractor = etree.SubElement(root, "tractor", attrib={
-        "id": "tractor0",
-        "out": _format_timecode(timeline.duration_sec, fps_num, fps_den),
-    })
-
-    multitrack = etree.SubElement(tractor, "multitrack")
-
+    playlist_track_ids: list[str] = []
     for track in timeline.tracks:
         playlist = etree.SubElement(root, "playlist", attrib={
             "id": f"playlist_{track.track_id}",
@@ -260,8 +327,20 @@ def emit_timeline(
             else:
                 _emit_filter(playlist, effect, fps_num, fps_den)
 
+        playlist_track_ids.append(track.track_id)
+
+    # The tractor must come AFTER the playlists: MLT's XML parser resolves
+    # <track producer="..."> references at parse time, so a tractor emitted
+    # first silently gets unresolved (empty) tracks.
+    tractor = etree.SubElement(root, "tractor", attrib={
+        "id": "tractor0",
+        "out": _format_timecode(timeline.duration_sec, fps_num, fps_den),
+    })
+
+    multitrack = etree.SubElement(tractor, "multitrack")
+    for track_id in playlist_track_ids:
         etree.SubElement(multitrack, "track", attrib={
-            "producer": f"playlist_{track.track_id}",
+            "producer": f"playlist_{track_id}",
         })
 
     # Composite higher video tracks over lower ones. Without this, melt's

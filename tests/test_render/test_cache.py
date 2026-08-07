@@ -146,17 +146,30 @@ def test_render_cache_byte_cap_excludes_metadata_sidecars(
     ) == 8
 
 
-def test_render_cache_does_not_retain_entry_larger_than_cap(
+def test_render_cache_retains_fresh_entry_larger_than_cap(
     tmp_path: Path,
 ) -> None:
+    """The just-written entry must never be evicted by its own put().
+
+    The previous behavior copied the artifact and then immediately deleted it
+    (put -> evict -> LRU delete) whenever the entry exceeded the cap, which
+    made the whole-file cache never hit for renders larger than the cap.
+    """
     cache = RenderCache(tmp_path / "cache", max_bytes=3)
     source = tmp_path / "source.mp4"
     source.write_bytes(b"1234")
 
     cached = cache.put("oversized", source)
 
+    assert cached.exists()
+    assert (tmp_path / "cache" / ".meta" / "oversized.mp4.json").exists()
+    # A subsequent put makes the oversized entry the LRU victim: the cap is
+    # still honored globally.
+    second = tmp_path / "second.mp4"
+    second.write_bytes(b"ab")
+    cache.put("second", second)
     assert not cached.exists()
-    assert not (tmp_path / "cache" / ".meta" / "oversized.mp4.json").exists()
+    assert cache.get("second") is not None
 
 
 def test_render_cache_max_bytes_parses_units_and_invalid_values() -> None:
@@ -294,3 +307,12 @@ def test_render_cache_key_is_windows_safe() -> None:
 
     key = render_cache_key("hash1", "1080p30|q=standard|enc=gpu")
     assert "|" not in key
+
+
+def test_render_cache_key_stays_under_filesystem_filename_limit() -> None:
+    from open_edit.render.cache import render_cache_key
+
+    key = render_cache_key("graph-hash", "profile", "content-" + "x" * 1000)
+    assert len(key) <= 180
+    assert "profile" in key
+    assert key == render_cache_key("graph-hash", "profile", "content-" + "x" * 1000)

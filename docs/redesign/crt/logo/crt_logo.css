@@ -1,0 +1,215 @@
+/* ============================================================================
+   CRT LOGO — OpenEdit · docs/redesign/crt/logo/crt_logo.css
+   ----------------------------------------------------------------------------
+   Pure inline-SVG + CSS CRT television whose SCREEN is the letter "O".
+   Companion to crt_logo_snippet.html (drop-in logo markup).
+
+   USE (designer):
+     1. Replace the <span class="logo" data-od-id="logo"> block in
+        open_edit/serve/static/index.html with the markup from
+        crt_logo_snippet.html (same ids/classes, same "Open&nbsp;Edit" text).
+     2. Load this file AFTER style.css (copy it to open_edit/serve/static/):
+        <link rel="stylesheet" href="/crt_logo.css">
+     3. Nothing else — no JS, no images, no fonts.
+
+   SAFETY / OVERRIDE MODEL
+     · Every rule is namespaced to .logo .logo-badge.crt-logo / .crt-logo-*,
+       so the app's own .logo styles are untouched unless the snippet is used.
+       Specificity (.logo .logo-badge.crt-logo = 0,3,0) beats the app's
+       .logo-badge (0,1,0) and [data-theme="light"] .logo-badge (0,2,0).
+     · Dark-first: palette vars live on the base rule; a matching
+       [data-theme="light"] ancestor swaps them (app sets data-theme on <html>).
+     · All colors inherit the app tokens: --accent (phosphor ring), --green
+       (power LED), --bg* / --text (via --crt-* indirection). Override any
+       --crt-* var to re-skin (see demo.html phosphor variants).
+     · Default badge 26px (--crt-size on .logo). Keep the badge square: the
+       scanline/vignette overlays are positioned as % of the badge so they
+       stay glued to the O-ring only while width == height.
+   ========================================================================== */
+
+/* ---- default badge size (inherited by the badge inside) ---- */
+.logo { --crt-size: 26px; }
+
+/* ============================================================================
+   Badge — replaces the old gradient chip with the CRT TV.
+   ========================================================================== */
+.logo .logo-badge.crt-logo {
+  /* ---- palette: dark first (light overrides below) ---- */
+  --crt-phosphor:     var(--accent);                    /* the O ring            */
+  --crt-glow:         rgba(94, 106, 210, 0.55);         /* tight phosphor glow   */
+  --crt-glow-soft:    rgba(94, 106, 210, 0.22);         /* wide halo             */
+  --crt-wash-c:       rgba(113, 112, 255, 0.16);        /* tube glass phosphor haze */
+  --crt-glass:        #101216;                          /* tube interior         */
+  --crt-scan-dark:    rgba(0, 0, 0, 0.50);              /* scanline dark row     */
+  --crt-scan-bright:  rgba(255, 255, 255, 0.05);        /* phosphor row          */
+  --crt-vignette:     rgba(0, 0, 0, 0.55);              /* screen curvature      */
+  --crt-sheen-c:      rgba(255, 255, 255, 0.55);        /* glass highlight arc   */
+  --crt-body:         #1c1e22;                          /* TV bezel              */
+  --crt-body-stroke:  rgba(255, 255, 255, 0.16);
+  --crt-knob:         #2a2c31;
+  --crt-knob-stroke:  rgba(255, 255, 255, 0.24);
+  --crt-knob-dot:     #101114;
+  --crt-leg:          #2e3138;   /* legs slightly lighter than bezel so they read */
+  --crt-led:          var(--green);                     /* power LED             */
+
+  /* ---- layout (overrides the app's .logo-badge chip) ---- */
+  position: relative;
+  display: inline-block;
+  width: var(--crt-size);
+  height: var(--crt-size);
+  flex-shrink: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* ============================================================================
+   Light theme — same geometry, inverted metal/glass palette.
+   (Matches any [data-theme="light"] ancestor, like the app's <html> tag.)
+   ========================================================================== */
+[data-theme="light"] .logo .logo-badge.crt-logo {
+  --crt-glow:        rgba(94, 106, 210, 0.45);
+  --crt-glow-soft:   rgba(94, 106, 210, 0.16);
+  --crt-wash-c:      rgba(94, 106, 210, 0.15);
+  --crt-glass:       #f3f4f6;
+  --crt-scan-dark:   rgba(16, 17, 20, 0.15);
+  --crt-scan-bright: rgba(255, 255, 255, 0.55);
+  --crt-vignette:    rgba(16, 17, 20, 0.26);
+  --crt-sheen-c:     rgba(255, 255, 255, 0.85);
+  --crt-body:        #e7e9ed;
+  --crt-body-stroke: rgba(16, 17, 20, 0.30);
+  --crt-knob:        #d3d6db;
+  --crt-knob-stroke: rgba(16, 17, 20, 0.40);
+  --crt-knob-dot:    #9aa0a8;
+  --crt-leg:         #cdd0d5;
+}
+
+/* ============================================================================
+   SVG layers
+   ========================================================================== */
+.logo .crt-logo-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  position: relative;
+  z-index: 1;
+  animation: crt-jitter 3.1s steps(1, end) infinite;   /* sub-pixel tube drift */
+}
+.logo .crt-logo .crt-body { fill: var(--crt-body); stroke: var(--crt-body-stroke); stroke-width: 1; }
+.logo .crt-logo .crt-leg  { fill: none; stroke: var(--crt-leg); stroke-width: 1.3; stroke-linecap: round; }
+.logo .crt-logo .crt-glass { fill: var(--crt-glass); }
+.logo .crt-logo .crt-wash {
+  /* phosphor haze inside the tube. NOTE: gradient FILLS on SVG elements are not
+     reliably supported, so we fill with a tinted color and fade it with a CSS
+     radial mask (mask gradients are standard CSS, no url() ids needed). */
+  fill: var(--crt-wash-c);
+  -webkit-mask-image: radial-gradient(circle at 42% 36%, #000 0%, #000 52%, transparent 78%);
+  mask-image: radial-gradient(circle at 42% 36%, #000 0%, #000 52%, transparent 78%);
+}
+.logo .crt-logo .crt-glowring { fill: none; stroke: var(--crt-phosphor); stroke-width: 4.4; opacity: 0.20; }
+.logo .crt-logo .crt-ring     { fill: none; stroke: var(--crt-phosphor); stroke-width: 2.2; }
+.logo .crt-logo .crt-sheen {
+  fill: none;
+  stroke: var(--crt-sheen-c);
+  stroke-width: 1;
+  stroke-dasharray: 9 34;      /* ~1/4 arc — convex glass highlight */
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.logo .crt-logo .crt-knob     { fill: var(--crt-knob); stroke: var(--crt-knob-stroke); stroke-width: 0.7; }
+.logo .crt-logo .crt-knob-dot { fill: var(--crt-knob-dot); }
+.logo .crt-logo .crt-led {
+  fill: var(--crt-led);
+  filter: drop-shadow(0 0 1px var(--crt-led));
+  animation: crt-led-pulse 2.4s ease-in-out infinite;
+}
+.logo .crt-logo .crt-led-glow {
+  fill: var(--crt-led);
+  opacity: 0.32;
+  animation: crt-led-pulse 2.4s ease-in-out 0.35s infinite;
+}
+.logo .crt-logo .crt-screen {
+  filter: drop-shadow(0 0 1.5px var(--crt-glow)) drop-shadow(0 0 4px var(--crt-glow-soft));
+  animation: crt-flicker 0.97s steps(1, end) infinite;  /* ~10-13 fps flicker  */
+}
+
+/* ============================================================================
+   CSS screen overlays — positioned over the O-ring (center 39.64%/42.5% of
+   the 28-unit viewBox, diameter 13.2 units → 42% of a square badge).
+   ========================================================================== */
+.logo .crt-logo .crt-logo-scanlines,
+.logo .crt-logo .crt-logo-vignette {
+  position: absolute;
+  left: 39.6%;
+  top: 42.5%;
+  width: 42%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  pointer-events: none;
+}
+.logo .crt-logo .crt-logo-scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    var(--crt-scan-dark)   0 1px,
+    var(--crt-scan-bright) 1px 2px
+  );
+  animation: crt-flicker 1.13s steps(1, end) 0.17s infinite;
+}
+.logo .crt-logo .crt-logo-vignette {
+  background: radial-gradient(circle at 50% 50%, transparent 55%, var(--crt-vignette) 90%);
+  animation: crt-flicker 0.89s steps(1, end) 0.09s infinite;
+}
+
+/* ============================================================================
+   Hover + motion
+   ========================================================================== */
+.logo .crt-logo { transition: transform 150ms cubic-bezier(0.2, 0, 0, 1); }
+.logo:hover .crt-logo { transform: scale(1.06); }
+.logo:hover .crt-screen {
+  filter: drop-shadow(0 0 2px var(--crt-glow)) drop-shadow(0 0 7px var(--crt-glow-soft));
+}
+
+/* Choppy ~10-13fps flicker: steps(1,end) HOLD each opacity level instead of
+   interpolating, which is what sells the low frame-rate tube feel. */
+@keyframes crt-flicker {
+  0%   { opacity: 1; }
+  4%   { opacity: 0.93; }
+  8%   { opacity: 1; }
+  13%  { opacity: 0.96; }
+  17%  { opacity: 1; }
+  30%  { opacity: 0.90; }
+  34%  { opacity: 1; }
+  48%  { opacity: 0.95; }
+  52%  { opacity: 1; }
+  64%  { opacity: 0.92; }
+  68%  { opacity: 1; }
+  80%  { opacity: 0.97; }
+  84%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+@keyframes crt-jitter {
+  0%, 8%, 30%, 58%, 100% { transform: translate(0, 0); }
+  4%   { transform: translate(0.2px, -0.15px); }
+  26%  { transform: translate(-0.2px, 0.1px); }
+  55%  { transform: translate(0.15px, 0.15px); }
+}
+@keyframes crt-led-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* ---- accessibility: calm it down ---- */
+@media (prefers-reduced-motion: reduce) {
+  .logo .crt-logo-svg,
+  .logo .crt-logo .crt-screen,
+  .logo .crt-logo .crt-logo-scanlines,
+  .logo .crt-logo .crt-logo-vignette,
+  .logo .crt-logo .crt-led,
+  .logo .crt-logo .crt-led-glow {
+    animation: none;
+  }
+  .logo:hover .crt-logo { transform: none; }
+}

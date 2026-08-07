@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Brand Lower Third</title>
+<style>
+  /* ===== Brand Lower Third — cinematic glass panel =====
+     Canvas: 1920x1080. Pure HTML+CSS, no JS, no external assets.
+     Animation plays once (~0.8s total) then holds. */
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 1920px;
+    height: 1080px;
+    background: transparent;
+    overflow: hidden;
+  }
+
+  .lt {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  /* ---- dark glass panel, slides in from left ---- */
+  .panel {
+    position: absolute;
+    left: 0;
+    top: 800px;
+    width: 1150px;
+    height: 200px;
+    border-radius: 0 18px 18px 0;
+    background: linear-gradient(100deg,
+                rgba(10, 12, 16, 0.92) 0%,
+                rgba(18, 22, 30, 0.82) 60%,
+                rgba(24, 30, 42, 0.55) 100%);
+    box-shadow:
+      0 18px 50px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    transform: translateX(-100%);
+    animation: slideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.05s forwards;
+  }
+
+  @keyframes slideIn {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(0); }
+  }
+
+  /* ---- accent bar on the left edge ---- */
+  .accent {
+    position: absolute;
+    left: 0;
+    top: 800px;
+    width: 10px;
+    height: 200px;
+    background: linear-gradient(180deg, #FF5A00 0%, #FF8A3D 55%, #FF5A00 100%);
+    border-radius: 0 4px 4px 0;
+    box-shadow: 0 0 24px rgba(255, 90, 0, 0.55);
+    transform: scaleY(0);
+    transform-origin: center;
+    animation: accentPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 0.55s forwards;
+  }
+
+  @keyframes accentPop {
+    0%   { transform: scaleY(0); }
+    100% { transform: scaleY(1); }
+  }
+
+  /* ---- text block ---- */
+  .text {
+    position: absolute;
+    left: 56px;
+    top: 824px;
+    width: 1060px;
+    height: 152px;
+  }
+
+  /* ---- small uppercase kicker ---- */
+  .kicker {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    text-transform: uppercase;
+    color: #FF5A00;
+    opacity: 0;
+    transform: translateY(14px);
+    animation: fadeUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.28s forwards;
+    white-space: nowrap; max-width: 1400px; overflow: hidden; text-overflow: ellipsis;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---- large title line ---- */
+  .title {
+    position: absolute;
+    left: 0;
+    top: 48px;
+    width: 100%;
+    font-family: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+    font-size: 66px;
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: 0.5px;
+    color: #F2F5F9;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    transform: translateY(22px);
+    animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.38s forwards;
+    white-space: nowrap; max-width: 1400px; overflow: hidden; text-overflow: ellipsis;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  @keyframes fadeUp {
+    0%   { opacity: 0; transform: translateY(20px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---- thin progress underline that draws itself ---- */
+  .underline {
+    position: absolute;
+    left: 56px;
+    top: 988px;
+    width: 620px;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #FF5A00 0%, rgba(255, 90, 0, 0.25) 100%);
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: draw 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards;
+  }
+
+  @keyframes draw {
+    0%   { transform: scaleX(0); }
+    100% { transform: scaleX(1); }
+  }
+</style>
+</head>
+<body>
+  <div class="lt">
+    <div class="panel"></div>
+    <div class="accent"></div>
+    <div class="underline"></div>
+    <div class="text">
+      <div class="kicker">{{kicker}}</div>
+      <div class="title">{{title}}</div>
+    </div>
+  </div>
+</body>
+</html>

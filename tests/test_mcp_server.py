@@ -213,6 +213,8 @@ def test_harness_skills_loadable() -> None:
     playbook = load_skill("open-edit-mcp")
     assert "trigger_render" in playbook
     assert "silence_cuts" in playbook
+    native = load_skill("hyperframes_native")
+    assert "HTML/CSS/JavaScript" in native
     ref = load_skill("open-edit-mcp-reference")
     assert "add_clip" in ref
     assert "query_project" in mcp_instructions()
@@ -269,6 +271,8 @@ def test_packaged_harness_skills_match_repo() -> None:
         "style-memory.md",
         "tool_surface.md",
         "edit-planning.md",
+        "hyperframes_native.md",
+        "remotion_motion.md",
     ):
         pkg_file = packaged / name
         repo_file = repo_skills / name

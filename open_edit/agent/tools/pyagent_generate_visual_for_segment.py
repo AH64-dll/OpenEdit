@@ -29,6 +29,13 @@ def generate_visual_for_segment(args: dict, project_path: str) -> dict:
         {"status": "ok", "op": AddClipOp.model_dump()}
         or {"status": "error", "error": "..."} on failure.
     """
+    missing = [k for k in ("asset_hash", "beat_type", "template") if not args.get(k)]
+    if missing:
+        return {
+            "status": "error",
+            "error": f"missing required args: {', '.join(missing)}",
+            "expected_keys": ["asset_hash", "beat_type", "template", "params", "project_id"],
+        }
     try:
         asset, err = get_asset_or_error(project_path, args["asset_hash"])
         if err:

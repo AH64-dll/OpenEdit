@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Caption Sequence</title>
+<style>
+  /* ===== Caption Sequence — documentary-style caption card =====
+     Canvas: 1920x1080. Pure HTML+CSS+JS, no external assets.
+     Reads OpenEdit JSON vars (window.__open_edit_vars_<overlayId>),
+     falls back to a captions_json primitive, plays the list
+     once (~1.8s per caption, staggered fades) and holds the last.
+     Graceful degradation: single static fallback caption. */
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 1920px;
+    height: 1080px;
+    background: transparent;
+    overflow: hidden;
+  }
+
+  /* root — wrapper adds .clip positioning */
+  .cs {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  /* ---- full-width dark glass card, bottom center ---- */
+  .card {
+    position: absolute;
+    left: 80px;
+    right: 80px;
+    bottom: 96px;
+    height: 112px;
+    box-sizing: border-box;
+    border-radius: 14px;
+    border-left: 6px solid #FF5A00;
+    background: linear-gradient(180deg,
+                rgba(10, 13, 18, 0.90) 0%,
+                rgba(16, 20, 29, 0.78) 100%);
+    box-shadow:
+      0 18px 50px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    opacity: 0;
+    transform: translateY(18px);
+    animation: cardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.15s forwards;
+  }
+
+  @keyframes cardIn {
+    0%   { opacity: 0; transform: translateY(18px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---- caption text: 34px, centered, single line ---- */
+  .caption-text {
+    position: absolute;
+    left: 70px;      /* clears accent border + padding */
+    right: 250px;    /* leaves room for the counter */
+    top: 0;
+    height: 112px;
+    line-height: 112px;
+    font-family: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+    font-size: 34px;
+    font-weight: 500;
+    letter-spacing: 0.4px;
+    color: #F4F7FB;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+    text-align: center;
+    white-space: nowrap;
+    max-width: 1600px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+
+  .caption-text.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ---- small "01 / 03" counter, right side of the card ---- */
+  .counter {
+    position: absolute;
+    right: 44px;
+    top: 0;
+    height: 112px;
+    line-height: 112px;
+    font-family: "Arial", "Arial", sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: rgba(255, 255, 255, 0.45);
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+
+  .counter.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .counter .cur {
+    color: #FF5A00;
+  }
+</style>
+</head>
+<body>
+  <div class="cs">
+    <div class="card" id="oe-card">
+      <div class="caption-text" id="oe-caption-text"></div>
+      <div class="counter" id="oe-counter"><span class="cur" id="oe-counter-cur">01</span> / <span id="oe-counter-total">00</span></div>
+    </div>
+  </div>
+
+  <!-- OpenEdit primitive fallback: JSON array of captions -->
+  
+
+  <script>
+  (function () {
+    'use strict';
+
+    var TIMING = {
+      start: 450,        /* ms until first caption appears (after card entrance) */
+      perCaption: 1800,  /* ms each caption stays on screen */
+      fade: 350          /* ms CSS fade (matches .caption-text transition) */
+    };
+
+    var textEl    = document.getElementById('oe-caption-text');
+    var counterEl = document.getElementById('oe-counter');
+    var curEl     = document.getElementById('oe-counter-cur');
+    var totalEl   = document.getElementById('oe-counter-total');
+    var cardEl    = document.getElementById('oe-card');
+
+    function pad(n) {
+      return (n < 10 ? '0' : '') + n;
+    }
+
+    /* ---- read OpenEdit JSON variables ---- */
+    function readOpenEditVars() {
+      var vars = null;
+      try {
+        if (window.__open_edit_vars && typeof window.__open_edit_vars === 'object') {
+          vars = window.__open_edit_vars;
+        }
+      } catch (e) {}
+      if (!vars) {
+        /* window.__open_edit_vars_<overlayId>: take the first match */
+        var keys = Object.keys(window).filter(function (k) {
+          return k.indexOf('__open_edit_vars_') === 0;
+        });
+        for (var i = 0; i < keys.length && !vars; i++) {
+          try {
+            var v = window[keys[i]];
+            if (v && typeof v === 'object') vars = v;
+          } catch (e) {}
+        }
+      }
+      if (!vars) return { captions: null, accent: null };
+
+      var captions = vars.captions;
+      if (typeof captions === 'string') {
+        try { captions = JSON.parse(captions); } catch (e) { captions = null; }
+      }
+      if (!Array.isArray(captions)) captions = null;
+
+      return {
+        captions: captions,
+        accent: (typeof vars.accent === 'string' && vars.accent) ? vars.accent : null
+      };
+    }
+
+    /* ---- read the captions_json primitive ---- */
+    function readCaptionsJson() {
+      var node = document.getElementById('oe-captions-json');
+      if (!node) return null;
+      try {
+        var parsed = JSON.parse(node.textContent);
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed && Array.isArray(parsed.captions)) return parsed.captions;
+      } catch (e) {}
+      return null;
+    }
+
+    function cleanList(list) {
+      if (!Array.isArray(list)) return [];
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        var s = list[i];
+        if (typeof s === 'string' && s.trim().length > 0) out.push(s);
+      }
+      return out;
+    }
+
+    function applyAccent(accent) {
+      if (!accent) return;
+      cardEl.style.borderLeftColor = accent;
+      curEl.style.color = accent;
+      if (/^#[0-9a-fA-F]{6}$/.test(accent)) {
+        cardEl.style.boxShadow =
+          '0 18px 50px rgba(0,0,0,0.55), ' +
+          'inset 0 1px 0 rgba(255,255,255,0.08), ' +
+          '0 0 44px ' + accent + '66';
+      }
+    }
+
+    function setCounter(index, total) {
+      curEl.textContent = pad(index + 1);
+      totalEl.textContent = pad(total);
+    }
+
+    function showAt(el, on) {
+      if (on) el.classList.add('show');
+      else el.classList.remove('show');
+    }
+
+    /* ---- main ---- */
+    var data = readOpenEditVars();
+    var captions = cleanList(data.captions);
+    if (!captions.length) captions = cleanList(readCaptionsJson());
+    applyAccent(data.accent);
+
+    if (!captions.length) {
+      /* graceful degradation: single static caption */
+      var fb = '{{fallback}}';
+      if (!fb || fb.indexOf('{{') === 0) fb = '';
+      textEl.textContent = fb;
+      if (fb) {
+        setCounter(0, 1);
+        showAt(textEl, true);
+        showAt(counterEl, true);
+      }
+      return;
+    }
+
+    var n = captions.length;
+    setCounter(0, n);
+
+    function play(i) {
+      var tShow = TIMING.start + i * TIMING.perCaption;
+      setTimeout(function () {
+        textEl.textContent = captions[i];
+        setCounter(i, n);
+        showAt(textEl, true);
+        showAt(counterEl, true);
+        if (i < n - 1) {
+          /* fade out so the next caption fades in cleanly */
+          setTimeout(function () {
+            showAt(textEl, false);
+            showAt(counterEl, false);
+          }, TIMING.perCaption - TIMING.fade);
+        }
+        /* last caption is never hidden — sequence holds on it */
+      }, tShow);
+    }
+
+    for (var i = 0; i < n; i++) play(i);
+  })();
+  </script>
+</body>
+</html>

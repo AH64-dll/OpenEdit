@@ -19,9 +19,11 @@ exploring `open_edit/**` source.
 | Skill | File |
 |---|---|
 | Edit planning | [`edit-planning.md`](edit-planning.md) |
+| Asset catalog & effects | [`asset_catalog_guide.md`](asset_catalog_guide.md) |
 | Tool surface (long) | [`tool_surface.md`](tool_surface.md) |
 | Style memory | [`style-memory.md`](style-memory.md) |
-| Remotion vs HyperFrames | [`remotion_motion.md`](remotion_motion.md) |
+| Legacy Remotion migration | [`remotion_motion.md`](remotion_motion.md) |
+| Native HyperFrames route | [`hyperframes_native.md`](hyperframes_native.md) |
 | Free-form / effects | [`freeform_and_effects.md`](freeform_and_effects.md) |
 | QC standards | [`qc-standards.md`](qc-standards.md) |
 

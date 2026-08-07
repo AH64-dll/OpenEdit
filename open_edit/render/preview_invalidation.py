@@ -81,8 +81,15 @@ def make_chunk_windows(
 ) -> list[ChunkWindow]:
     """Build half-open, frame-aligned core windows.
 
-    The default chunk size is one project second, rounded in frame space.  A
-    window initially renders exactly its core; callers that detect a
+    The default chunk size is adaptive: about 64 windows for the full
+    timeline, clamped between one project second and thirty project seconds
+    (``clamp(round(duration_frames / 64), fps_frames, fps_frames * 30)``,
+    where ``fps_frames = round(fps_num / fps_den)``).  Short timelines (up
+    to ~64 seconds) therefore keep the historical one-second chunks, while
+    long timelines grow to at most 30 seconds per chunk.  An explicit
+    ``chunk_frames`` always wins over the default.  Must stay in sync with
+    ``preview_chunks._chunk_size``, which applies the same rule.  A window
+    initially renders exactly its core; callers that detect a
     boundary-crossing transition/effect can widen ``render_*`` and recompute
     the crop counts without changing the published core geometry.
     """
@@ -91,7 +98,9 @@ def make_chunk_windows(
         raise ValueError("duration_frames must be non-negative")
 
     if chunk_frames is None:
-        chunk_frames = max(1, int(round(fps_num / fps_den)))
+        fps_frames = max(1, int(round(fps_num / fps_den)))
+        target = round(duration_frames / 64)
+        chunk_frames = max(fps_frames, min(target, fps_frames * 30))
     if chunk_frames <= 0:
         raise ValueError("chunk_frames must be positive")
 
@@ -450,6 +459,7 @@ _VIDEO_EFFECT_NAMES = frozenset(
         "brightness",
         "chroma",
         "color",
+        "color_grade",
         "composite",
         "contrast",
         "crop",

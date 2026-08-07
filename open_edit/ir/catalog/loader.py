@@ -13,6 +13,8 @@ class ParamSpec(BaseModel):
     default: float | int | str | bool | None = None
     range: list[float] | None = None
     unit: str | None = None
+    property: str | None = None
+    description: str | None = None
 
 
 class EffectSpec(BaseModel):

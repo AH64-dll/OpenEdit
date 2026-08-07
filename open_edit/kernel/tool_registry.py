@@ -17,6 +17,9 @@ _QUERY_PROJECT_DESC = (
     "Read-only queries about the project. Use this for ALL "
     "read-only operations — listing assets, pending notes, style "
     "profile, narrative analysis, asset search, and packed transcript. "
+    "get_silence_gaps returns structured silence + filler spans for cutting; "
+    "get_timeline_view renders an on-demand filmstrip+waveform+word-label PNG "
+    "(the transcript-first visual layer). "
     "list_assets is compact by default (hash/filename/duration); pass "
     "params.detail=true for full metadata, params.include_derivatives=true "
     "to include Remotion rematerialized CAS."
@@ -26,15 +29,18 @@ _EDIT_PROJECT_DESC = (
     "Apply edits to the project or generate creative suggestions. "
     "Use ``operation`` for immediate mutations: add_marker, "
     "set_pinned_value, capture_style_hint, import_asset, ingest_local, "
-    "add_clip, trim_clip, replace_clip_source, change_clip_speed, "
-    "remove_clip, set_audio_gain, apply_silence_gaps, apply_generated_ops. "
-    "Prefer these timeline ops over run_script. "
+    "add_clip, add_hyperframes_overlay, trim_clip, replace_clip_source, "
+    "change_clip_speed, remove_clip, set_audio_gain, apply_silence_gaps, "
+    "auto_color_grade, apply_generated_ops. Prefer these timeline ops over "
+    "run_script. "
     "Use ``generate`` for creative suggestions (SFX, music, visuals, "
     "remotion, silence_cuts) — review then commit via "
     "``operation=\"apply_generated_ops\"`` (or apply_silence_gaps for cuts). "
     "``operation=ingest_local`` ingests any readable absolute local media "
     "path and copies it into the project CAS. "
-    "``generate=remotion`` appends an AddRemotionCompositionOp "
+    "``operation=add_hyperframes_overlay`` adds native HTML/CSS/JS "
+    "graphics. New motion graphics should use HyperFrames, not Remotion. "
+    "``generate=remotion`` appends a legacy AddRemotionCompositionOp "
     "(materializes on proxy/final render; graphics burned via ffmpeg). "
     "``generate=init_remotion`` scaffolds ``.open_edit/remotion/``. "
     "``generate=write_remotion`` writes a TSX composition file."
@@ -51,13 +57,12 @@ _RUN_SCRIPT_DESC = (
 _TRIGGER_RENDER_DESC = (
     "Trigger a render of the current edit graph. Use this when "
     "the user says 'render it', 'give me a preview', or 'export "
-    "the final cut'. Modes: 'proxy' (fast, low-res preview; also "
-    "materializes Remotion compositions and burns them onto the "
-    "melt output via ffmpeg), 'final' (full quality; re-bakes "
-    "Remotion at full profile), 'overlay' (HyperFrames "
-    "HTML overlays only — Remotion does NOT use this mode), or "
-    "'preview-chunks' (range-limited, manifest-backed video/audio "
-    "artifacts). "
+    "the final cut'. Modes: 'proxy' (fast, low-res review artifact), "
+    "'final' (full quality export), 'overlay' (legacy HyperFrames "
+    "composite mode), or 'preview-chunks' (range-limited, "
+    "manifest-backed video/audio artifacts). Motion graphics should use "
+    "the native HyperFrames composition path; legacy Remotion operations "
+    "remain migration inputs only. "
     "encoder: 'gpu' (default) or 'cpu' for video encoding backend. "
     "wait: defaults to false so agents return immediately with job_id "
     "(poll with get_render_job). Pass wait=true only when a synchronous "
@@ -88,6 +93,8 @@ class QueryProjectArgs(BaseModel):
         "analyze_narrative",
         "search_assets",
         "get_transcript_packed",
+        "get_silence_gaps",
+        "get_timeline_view",
     ]
     params: dict = {}
 

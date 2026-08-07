@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -518,3 +519,33 @@ async def test_qc_stage_timing_is_attached_to_result(
     assert updated["qc_report"]["checks"] == []
     assert updated["diagnostics"]["stages"]["qc"]["status"] == "completed"
     assert updated["diagnostics"]["stages"]["qc"]["elapsed_sec"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_launch_surfaces_structured_worker_error(tmp_path: Path, monkeypatch) -> None:
+    service = RenderJobService()
+    (tmp_path / ".open_edit").mkdir(parents=True)
+    with service._connect(tmp_path) as con:
+        con.execute(
+            "INSERT INTO render_jobs "
+            "(job_id, project_id, mode, status, created_at, updated_at, params_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("failed-job", "proj", "preview-chunks", "queued", 1.0, 1.0, "{}"),
+        )
+
+    class FakeProcess:
+        pid = 123
+        returncode = 1
+
+        async def communicate(self):
+            return (
+                json.dumps({"ok": False, "error": "timeline overlap"}).encode(),
+                b"",
+            )
+
+    async def fake_exec(*args, **kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    with pytest.raises(RuntimeError, match="timeline overlap"):
+        await service._launch(tmp_path, "failed-job", "preview-chunks")

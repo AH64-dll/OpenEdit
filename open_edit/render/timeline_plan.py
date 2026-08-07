@@ -21,8 +21,15 @@ EmissionProfile = Literal[
 SourceMediaPolicy = Literal["original", "proxy"]
 
 _EMISSION_POLICY: dict[str, SourceMediaPolicy] = {
+    # ``final`` is the deliverable: it must always render from canonical CAS
+    # bytes (deliverable QC + source repair expect original media).
     "final": "original",
-    "review-artifact": "original",
+    # ``review-artifact`` (mode=proxy) is a 640x360 preview, so prefer the
+    # 360p source proxy when it is ready and its CAS bytes exist. The safety
+    # lives in _resolve_asset_paths_with_diagnostics: a proxy that is not
+    # ready (or whose bytes are missing) falls back to the original and
+    # enqueues proxy generation, so a preview never blocks or corrupts.
+    "review-artifact": "proxy",
     "proxy-edit": "proxy",
     "preview-chunk": "proxy",
 }

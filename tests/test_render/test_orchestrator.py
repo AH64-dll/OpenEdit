@@ -225,7 +225,7 @@ def test_final_render_passes_repair_budget_and_records_policy(
     monkeypatch.setattr(orchestrator, "repair_render_output", fake_repair)
     monkeypatch.setattr(
         orchestrator, "collect_source_baseline",
-        lambda timeline, asset_paths: {
+        lambda timeline, asset_paths, **kwargs: {
             "black_frames": [], "frozen_frames": [], "errors": [],
         },
     )
@@ -503,3 +503,153 @@ def test_render_diagnostics_include_canonical_stages_and_product(
     assert result.diagnostics["stages"]["melt_video"]["elapsed_sec"] == 0.2
     assert result.diagnostics["stages"]["ffmpeg_encode"]["elapsed_sec"] == 0.3
     assert result.diagnostics["legacy_stage_aliases"]["ffmpeg"] == "ffmpeg_encode"
+
+
+def _seed_ready_proxy(
+    project_dir: Path,
+    asset_hash: str,
+    proxy_bytes: bytes = b"derived source proxy bytes",
+) -> str:
+    """Store derived CAS bytes and link them as the asset's ready proxy."""
+    from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
+    from open_edit.storage.assets import AssetStore
+
+    store = AssetStore(project_dir / ".open_edit" / "assets")
+    fake = project_dir / ".open_edit" / "tmp" / "fake-proxy.mp4"
+    fake.parent.mkdir(parents=True, exist_ok=True)
+    fake.write_bytes(proxy_bytes)
+    proxy_hash = store.store_derived(fake)
+    store.update_proxy_metadata(
+        asset_hash,
+        proxy_hash=proxy_hash,
+        profile=DEFAULT_SOURCE_PROXY_PROFILE.name,
+        status="ready",
+    )
+    return proxy_hash
+
+
+def _asset_hash(project_dir: Path) -> str:
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    graph = EditGraphStore(project_dir / ".open_edit" / "edit_graph.db")
+    for op in graph.load_all():
+        if op.status == "applied":
+            return op.asset_hash
+    raise AssertionError("no applied ops")
+
+
+def _proxy_render_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Shared monkeypatches for proxy-mode orchestrator renders."""
+    from open_edit.kernel import asset_proxy_jobs
+    from open_edit.render import orchestrator
+    from open_edit.render.cache import RenderCache
+    from open_edit.render.melt_runner import PipeResult
+
+    enqueued: list[tuple] = []
+    monkeypatch.setattr(
+        asset_proxy_jobs.DEFAULT_ASSET_PROXY_JOB_SERVICE,
+        "enqueue",
+        lambda *args, **kwargs: enqueued.append((args, kwargs)) or object(),
+    )
+    monkeypatch.setattr(RenderCache, "get", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        RenderCache, "put", lambda self, key, source_path: Path(source_path),
+    )
+    monkeypatch.setattr(orchestrator, "_gpu_decode_available", lambda: False)
+    monkeypatch.setattr(
+        orchestrator.shutil,
+        "which",
+        lambda name: "/usr/bin/melt" if name == "melt" else None,
+    )
+
+    def fake_run_pipe(cmds, *, timeout_s):
+        output = Path(cmds.ffmpeg_cmd[-1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"MP4")
+        return PipeResult(0, 0, 0, "")
+
+    monkeypatch.setattr(orchestrator, "run_pipe", fake_run_pipe)
+
+    real_emit = orchestrator.emit_timeline
+    captured: dict = {}
+
+    def spy_emit(timeline, config=None, asset_paths=None, **kwargs):
+        xml = real_emit(timeline, config, asset_paths=asset_paths, **kwargs)
+        captured["xml"] = xml
+        captured["asset_paths"] = dict(asset_paths or {})
+        return xml
+
+    monkeypatch.setattr(orchestrator, "emit_timeline", spy_emit)
+    return captured, enqueued
+
+
+def test_review_artifact_uses_ready_source_proxy_and_reports_hits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured, enqueued = _proxy_render_harness(tmp_path, monkeypatch)
+    project_dir = _make_project(tmp_path, name="proxy-use")
+    asset_hash = _asset_hash(project_dir)
+    proxy_hash = _seed_ready_proxy(project_dir, asset_hash)
+    from open_edit.storage.assets import AssetStore
+
+    store = AssetStore(project_dir / ".open_edit" / "assets")
+
+    result = render_project(
+        "proxy-use",
+        project_dir,
+        tmp_path / "proxy-use-work",
+        mode="proxy",
+    )
+
+    assert result.ok is True, result.error
+    diagnostics = result.diagnostics
+    assert diagnostics["emission_profile"] == "review-artifact"
+    assert diagnostics["source_media_policy"] == "proxy"
+    assert diagnostics["source_proxy_hits"] == {asset_hash: proxy_hash}
+    assert diagnostics["source_proxy_fallbacks"] == {}
+    assert diagnostics["source_proxy_profile_fingerprint"].startswith(
+        "source_proxy_360_v1:"
+    )
+    assert "source_proxy_360_v1:" in diagnostics["cache_content_fingerprint"]
+    # The emitted MLT must point at the proxy CAS object, not the original.
+    assert captured["asset_paths"][asset_hash] == str(
+        store.path(proxy_hash)
+    )
+    assert captured["asset_paths"][asset_hash] != str(store.path(asset_hash))
+    assert str(store.path(proxy_hash)) in captured["xml"]
+    assert str(store.path(asset_hash)) not in captured["xml"]
+    # No proxy was missing, so nothing was enqueued.
+    assert enqueued == []
+
+
+def test_review_artifact_missing_proxy_falls_back_and_queues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
+    from open_edit.storage.assets import AssetStore
+
+    captured, enqueued = _proxy_render_harness(tmp_path, monkeypatch)
+    project_dir = _make_project(tmp_path, name="proxy-fallback")
+    asset_hash = _asset_hash(project_dir)
+    store = AssetStore(project_dir / ".open_edit" / "assets")
+
+    result = render_project(
+        "proxy-fallback",
+        project_dir,
+        tmp_path / "proxy-fallback-work",
+        mode="proxy",
+    )
+
+    assert result.ok is True, result.error
+    diagnostics = result.diagnostics
+    assert diagnostics["source_media_policy"] == "proxy"
+    assert diagnostics["source_proxy_hits"] == {}
+    # Safety: preview renders fall back to canonical bytes and queue the
+    # proxy job instead of failing or corrupting.
+    assert diagnostics["source_proxy_fallbacks"] == {asset_hash: "queued"}
+    assert captured["asset_paths"][asset_hash] == str(store.path(asset_hash))
+    assert str(store.path(asset_hash)) in captured["xml"]
+    assert enqueued and enqueued[0][0][2] == asset_hash
+    assert enqueued[0][1]["profile"] == DEFAULT_SOURCE_PROXY_PROFILE

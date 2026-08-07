@@ -174,6 +174,119 @@ def cmd_undo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_asset_proxy(args: argparse.Namespace) -> int:
+    """Drain (and optionally await) the project's source-proxy job queue.
+
+    Runs every persisted ``queued``/``running``/``orphaned`` asset-proxy job
+    through the host worker pool — the CLI equivalent of the serve
+    background drain. Without ``--wait`` the command returns once the jobs
+    are *started*; with ``--wait`` it blocks until the queue drains (all
+    rows terminal) or ``--timeout`` expires.
+    """
+    if args.project:
+        project_dir = Path(args.project).resolve()
+        if not (project_dir / ".open_edit").is_dir() and project_dir.name != ".open_edit":
+            print(
+                f"error: {project_dir} is not an open_edit project "
+                "(no .open_edit/ directory)",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        project_dir = _find_existing_project(Path.cwd())
+        if project_dir is None:
+            print(
+                "error: no open_edit project found in this directory or any parent",
+                file=sys.stderr,
+            )
+            return 1
+
+    from open_edit.kernel.asset_proxy_jobs import (
+        DEFAULT_ASSET_PROXY_JOB_SERVICE,
+        AssetProxyJobService,
+    )
+
+    # Both call forms work: project root (canonical) or the .open_edit dir
+    # returned by _find_existing_project (legacy CLI convention).
+    root = (
+        project_dir
+        if project_dir.name != ".open_edit"
+        else project_dir.parent
+    )
+    service = DEFAULT_ASSET_PROXY_JOB_SERVICE
+    try:
+        stats = service.drain(root)
+    except Exception as exc:
+        result = {"ok": False, "mode": "asset-proxy", "error": str(exc)}
+        if args.json:
+            print(json.dumps(result, default=str))
+        else:
+            print(f"Asset proxy failed: {result['error']}", file=sys.stderr)
+        return 1
+
+    if args.wait:
+        deadline = time.monotonic() + args.timeout
+        while True:
+            jobs = service.list_jobs(root)
+            pending = [
+                job for job in jobs
+                if job.status in ("queued", "running")
+            ]
+            if not pending:
+                break
+            if time.monotonic() >= deadline:
+                result = {
+                    "ok": False,
+                    "mode": "asset-proxy",
+                    "error": (
+                        f"timed out after {args.timeout}s; "
+                        f"{len(pending)} job(s) still queued/running"
+                    ),
+                    "stats": stats,
+                }
+                if args.json:
+                    print(json.dumps(result, default=str))
+                else:
+                    print(
+                        f"Asset proxy: timed out after {args.timeout}s; "
+                        f"{len(pending)} job(s) still queued/running",
+                        file=sys.stderr,
+                    )
+                return 1
+            time.sleep(0.25)
+        jobs = service.list_jobs(root)
+    else:
+        jobs = service.list_jobs(root)
+
+    succeeded = sum(1 for job in jobs if job.status == "succeeded")
+    failed = sum(1 for job in jobs if job.status == "failed")
+    not_needed = sum(
+        1 for job in jobs
+        if job.status == "succeeded" and job.proxy_hash is None
+    )
+    other = len(jobs) - succeeded - failed
+    if args.json:
+        print(json.dumps({
+            "ok": failed == 0,
+            "mode": "asset-proxy",
+            "drain": stats,
+            "jobs": {
+                "total": len(jobs),
+                "succeeded": succeeded,
+                "failed": failed,
+                "not_needed": not_needed,
+                "other": other,
+            },
+        }, default=str))
+    else:
+        print(
+            f"Asset proxy: drain {stats} | jobs: {len(jobs)} total, "
+            f"{succeeded} succeeded, {failed} failed, "
+            f"{not_needed} not needed, {other} other",
+        )
+    return 0 if failed == 0 else 1
+
+
 def cmd_preview_chunks(args: argparse.Namespace) -> int:
     """Run one durable preview-chunks job and emit its worker result."""
     project_dir = _find_existing_project(Path.cwd())
@@ -579,6 +692,41 @@ def main(argv: list[str] | None = None) -> int:
         help="bypass Remotion caches for one composition UID (repeatable)",
     )
     p_render.set_defaults(func=cmd_render)
+
+    p_asset_proxy = sub.add_parser(
+        "asset-proxy",
+        help=(
+            "Drain (and optionally await) the project's source-proxy "
+            "generation queue"
+        ),
+    )
+    p_asset_proxy.add_argument(
+        "project",
+        nargs="?",
+        default=None,
+        help=(
+            "project path (default: nearest open_edit project from cwd, "
+            "like the other commands)"
+        ),
+    )
+    p_asset_proxy.add_argument(
+        "--wait",
+        action="store_true",
+        default=False,
+        help="block until every queued/running job reaches a terminal state",
+    )
+    p_asset_proxy.add_argument(
+        "--timeout",
+        type=int,
+        default=3600,
+        help="wall-clock wait limit in seconds (default: 3600)",
+    )
+    p_asset_proxy.add_argument(
+        "--json",
+        action="store_true",
+        help="emit one structured drain result JSON object",
+    )
+    p_asset_proxy.set_defaults(func=cmd_asset_proxy)
 
     p_preview_chunks = sub.add_parser(
         "preview-chunks",

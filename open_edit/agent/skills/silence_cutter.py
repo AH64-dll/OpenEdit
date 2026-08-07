@@ -74,27 +74,96 @@ def find_silence_gaps(
     return gaps
 
 
+# ---------------------------------------------------------------------------
+# Filler-word detection (video-use merge: verbatim filler cutting)
+# ---------------------------------------------------------------------------
+
+# Conservative filler vocabulary. Whisper keeps fillers verbatim when
+# normalization is off, so these appear as ordinary tokens. "like" and
+# "you know" are intentionally NOT in the conservative set — they are often
+# content words; enable them explicitly with include_contextual=True.
+FILLER_WORDS: frozenset[str] = frozenset({
+    "um", "uh", "umm", "ummm", "uhh", "uhhh", "hmm", "hmmm", "mm", "mhm",
+    "mm-hmm", "uh-huh", "uhhuh", "er", "erm", "ah", "eh", "hm",
+})
+
+# Contextual fillers: only treated as fillers when flanked by silence
+# (pause >= CONTEXTUAL_PAUSE_MS on both sides or at an utterance edge).
+CONTEXTUAL_FILLERS: frozenset[str] = frozenset({"like", "you", "know", "basically", "actually"})
+CONTEXTUAL_PAUSE_MS: int = 150
+
+
+def _norm_token(word: str) -> str:
+    """Lowercase and strip punctuation for filler matching."""
+    return word.strip().strip(".,!?;:()\"\'").lower()
+
+
+def find_filler_spans(
+    alignment: list[WordAlignment],
+    include_contextual: bool = False,
+    min_confidence: float = 0.0,
+) -> list[tuple[float, float]]:
+    """Find filler-word spans (source time) to cut.
+
+    Returns merged (start, end) spans covering consecutive filler tokens,
+    mirroring how silence gaps are expressed. ``min_confidence`` can be used
+    to skip low-confidence Whisper tokens when false positives are costly
+    (note: Whisper often assigns LOW confidence to genuine fillers, so the
+    default 0.0 keeps detection aggressive).
+
+    Contextual fillers ("like", "you know", ...) are only included when
+    ``include_contextual=True`` AND they are flanked by a pause of at least
+    ``CONTEXTUAL_PAUSE_MS`` or sit at the very start/end of the take.
+    """
+    if not alignment:
+        return []
+    spans: list[tuple[float, float]] = []
+    for i, w in enumerate(alignment):
+        token = _norm_token(w.word)
+        if not token:
+            continue
+        if w.confidence is not None and w.confidence < min_confidence:
+            continue
+        is_filler = token in FILLER_WORDS
+        if not is_filler and include_contextual and token in CONTEXTUAL_FILLERS:
+            pause_before = (
+                w.t_start if i == 0 else w.t_start - alignment[i - 1].t_end
+            )
+            pause_after = (
+                0.0 if i == len(alignment) - 1 else alignment[i + 1].t_start - w.t_end
+            )
+            at_edge = i == 0 or i == len(alignment) - 1
+            if at_edge or (
+                pause_before >= CONTEXTUAL_PAUSE_MS / 1000.0
+                and pause_after >= CONTEXTUAL_PAUSE_MS / 1000.0
+            ):
+                is_filler = True
+        if is_filler:
+            if spans and w.t_start <= spans[-1][1] + 0.35:
+                # merge adjacent/close fillers into one removable span
+                spans[-1] = (spans[-1][0], max(spans[-1][1], w.t_end))
+            else:
+                spans.append((w.t_start, w.t_end))
+    return spans
+
+
 def propose_cuts(
     asset: Asset,
     silence_threshold_ms: int = 400,
     min_segment_s: float = 2.0,
     keep_breath_ms: int = 600,
+    include_fillers: bool = False,
+    filler_min_confidence: float = 0.0,
 ) -> list[dict]:
     """Return gap-based cut suggestions for `asset`.
 
     Each suggestion is a dict::
 
-        {"t_start": float, "t_end": float, "suggested_kind": "trim"}
+        {"t_start": float, "t_end": float, "suggested_kind": "trim",
+         "reason": "silence" | "filler"}
 
-    The agent decides which `clip_id` to attach and whether to apply.
-    We don't emit full IR ops here because the skill doesn't know which
-    clip covers a given source-time range.
-
-    Args:
-        asset: the asset to analyze (must have word-level ``alignment``).
-        silence_threshold_ms: minimum silence length to report.
-        min_segment_s: merge gaps separated by speech shorter than this,
-            protecting short speech fragments from being cut.
+    With ``include_fillers=True``, filler-word spans are merged into the
+    gap list (they are removable intervals like silences).
     """
     if not asset.alignment:
         return []
@@ -105,9 +174,24 @@ def propose_cuts(
         min_segment_s=min_segment_s,
         keep_breath_ms=keep_breath_ms,
     )
+    spans: list[tuple[float, float]] = [(g[0], g[1], "silence") for g in gaps]
+    if include_fillers:
+        for fs, fe in find_filler_spans(
+            asset.alignment, include_contextual=True, min_confidence=filler_min_confidence
+        ):
+            spans.append((fs, fe, "filler"))
+    spans.sort(key=lambda x: x[0])
+    merged: list[tuple[float, float, str]] = []
+    for start, end, reason in spans:
+        if merged and start <= merged[-1][1] + 0.05:
+            # merge overlapping/adjacent; prefer keeping the first reason
+            if end > merged[-1][1]:
+                merged[-1] = (merged[-1][0], end, merged[-1][2])
+        else:
+            merged.append((start, end, reason))
     return [
-        {"t_start": t_start, "t_end": t_end, "suggested_kind": "trim"}
-        for t_start, t_end in gaps
+        {"t_start": t_start, "t_end": t_end, "suggested_kind": "trim", "reason": reason}
+        for t_start, t_end, reason in merged
     ]
 
 

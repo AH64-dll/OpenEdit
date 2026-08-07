@@ -12,7 +12,7 @@ set -euo pipefail
 
 # --- Config ----------------------------------------------------------------
 
-PROJECT_DIR="${OPEN_EDIT_PROJECT_DIR:-/home/ah64/apps/mlt-pipeline/open_edit}"
+PROJECT_DIR="${OPEN_EDIT_PROJECT_DIR:-/home/amr/apps/mlt-pipeline/open_edit}"
 VENV_PY="$PROJECT_DIR/.venv/bin/python"
 CLI="$PROJECT_DIR/.venv/bin/open_edit"
 DEFAULT_PORT="${OPEN_EDIT_PORT:-8765}"
@@ -84,7 +84,7 @@ fi
 # Start server in background; redirect output to log file.
 log "starting server on $URL (logs: $LOG_FILE)"
 : > "$LOG_FILE"
-export OPEN_EDIT_PROJECTS_ROOT="${OPEN_EDIT_PROJECTS_ROOT:-/home/ah64/OpenEditProjects}"
+export OPEN_EDIT_PROJECTS_ROOT="${OPEN_EDIT_PROJECTS_ROOT:-/home/amr/OpenEditProjects}"
 log "sandbox allowed roots: $OPEN_EDIT_PROJECTS_ROOT"
 nohup "$CLI" serve \
     --host "$HOST" \

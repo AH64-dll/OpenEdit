@@ -21,3 +21,9 @@ Verification:
 - `./.venv/bin/python -m compileall -q open_edit/render/preview_invalidation.py tests/test_preview_invalidation.py`
 - IDE diagnostics: no linter errors.
 - Ruff was unavailable in the project virtual environment.
+
+The full `./.venv/bin/python -m pytest -q` run reached 100% but had nine
+pre-existing environment failures: seven CLI tests use the stale
+`/home/ah64/.local/bin/open_edit` without the repository on `sys.path`, and two
+focus-popup tests require missing `/home/ah64/OpenEditProjects/timeline-test`
+fixtures. None touch the Task 4 files.

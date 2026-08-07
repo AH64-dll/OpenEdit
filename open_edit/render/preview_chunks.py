@@ -14,8 +14,10 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -192,6 +194,70 @@ class _PreviewDiagnostics:
         }
 
 
+_ENV_PREVIEW_CHUNK_CONCURRENCY = "OPEN_EDIT_PREVIEW_CHUNK_CONCURRENCY"
+_MAX_PREVIEW_CHUNK_WORKERS = 4
+
+
+def _preview_chunk_concurrency(selected_count: int) -> int:
+    """Return the worker count for the parallel chunk bake.
+
+    ``OPEN_EDIT_PREVIEW_CHUNK_CONCURRENCY`` overrides the default
+    ``min(4, len(selected))``; the result is capped at 4 workers so a
+    runaway value cannot oversubscribe host encoders.
+    """
+
+    raw = os.environ.get(_ENV_PREVIEW_CHUNK_CONCURRENCY)
+    if raw is not None:
+        try:
+            configured = int(raw)
+        except (TypeError, ValueError):
+            configured = 0
+        if configured > 0:
+            return min(configured, _MAX_PREVIEW_CHUNK_WORKERS)
+    return min(_MAX_PREVIEW_CHUNK_WORKERS, max(1, selected_count))
+
+
+class _BakeSharedState:
+    """Lock-guarded accounting shared by parallel chunk-bake workers.
+
+    ``failed_chunks`` and the ``_PreviewDiagnostics`` counters are mutated
+    from worker threads while the pool runs; every mutation goes through
+    this helper so the per-job lock is the single serialization point.
+    Cache-index mutations (``commit_artifact``) are guarded with the same
+    lock from ``_bake_chunk``.
+    """
+
+    def __init__(
+        self,
+        failed_chunks: list[str],
+        metrics: _PreviewDiagnostics,
+    ) -> None:
+        self.lock = threading.Lock()
+        self.failed_chunks = failed_chunks
+        self.metrics = metrics
+
+    def record_failure(self, chunk_id: str) -> None:
+        with self.lock:
+            if chunk_id not in self.failed_chunks:
+                self.failed_chunks.append(chunk_id)
+
+    def count_processed(self) -> None:
+        with self.lock:
+            self.metrics.counts["processed_chunks"] += 1
+
+    def cache_hit(self, plane: str) -> None:
+        with self.lock:
+            self.metrics.cache_hit(plane)
+
+    def cache_miss(self, plane: str) -> None:
+        with self.lock:
+            self.metrics.cache_miss(plane)
+
+    def stage(self, name: str, elapsed: float, *, bytes_written: int = 0) -> None:
+        with self.lock:
+            self.metrics.stage(name, elapsed, bytes_written=bytes_written)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -315,15 +381,29 @@ def _chunk_size(
     fps_num: int,
     fps_den: int,
     params: Mapping[str, Any],
+    duration_frames: int = 0,
 ) -> int | None:
+    """Resolve the chunk size (in project frames) for a preview job.
+
+    An explicit ``params["chunk_frames"]`` always wins (API compatibility).
+    Without one the size is adaptive: about 64 chunks for the full timeline,
+    clamped between one project second and thirty project seconds
+    (``clamp(round(duration_frames / 64), fps_frames, fps_frames * 30)``).
+    Short timelines (up to ~64s) therefore keep the historical one-second
+    chunks.  Must stay in sync with ``make_chunk_windows`` in
+    ``preview_invalidation.py``, which applies the same default rule.
+    """
     raw = params.get("chunk_frames")
-    if raw is None:
-        return None
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        return None
-    return value if value > 0 else None
+    if raw is not None:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    fps_frames = max(1, int(round(fps_num / fps_den)))
+    target = round(duration_frames / 64)
+    return max(fps_frames, min(target, fps_frames * 30))
 
 
 def _parse_params(params: Mapping[str, Any]) -> tuple[
@@ -671,6 +751,7 @@ def _slice_and_emit(
             plan.melt_timeline,
             EmitterConfig(profile=profile.model_dump()),
             asset_paths=plan.asset_paths,
+            hwaccel=True,
         ),
         encoding="utf-8",
     )
@@ -861,9 +942,23 @@ def _bake_chunk(
     store: EditGraphStore,
     graph_revision: int,
     graph_hash: str,
-    failed_chunks: list[str],
-    metrics: _PreviewDiagnostics,
+    shared: _BakeSharedState | None = None,
+    failed_chunks: list[str] | None = None,
+    metrics: _PreviewDiagnostics | None = None,
 ) -> bool:
+    """Bake one chunk; returns True on completion (possibly partial).
+
+    ``shared`` carries the lock-guarded ``failed_chunks`` list and
+    ``_PreviewDiagnostics`` counters used by the parallel pool.  For
+    backward compatibility the legacy ``failed_chunks``/``metrics``
+    arguments are accepted and wrapped into a fresh guarded state when
+    ``shared`` is omitted.
+    """
+    if shared is None:
+        shared = _BakeSharedState(
+            failed_chunks if failed_chunks is not None else [],
+            metrics if metrics is not None else _PreviewDiagnostics(),
+        )
     chunk = active.chunks[chunk_index]
     video_changed = False
     audio_changed = False
@@ -884,8 +979,7 @@ def _bake_chunk(
             plane,
             old_state.model_copy(update={"status": "red", "current": None}),
         )
-        if chunk.chunk_id not in failed_chunks:
-            failed_chunks.append(chunk.chunk_id)
+        shared.record_failure(chunk.chunk_id)
 
     need_video = media in {"video", "both"} and (
         fingerprint.video_dirty or chunk.video.current is None
@@ -895,13 +989,13 @@ def _bake_chunk(
     )
 
     if need_video:
-        metrics.cache_miss("video")
+        shared.cache_miss("video")
     elif _artifact_is_usable(cache, chunk.video.current) is not None:
-        metrics.cache_hit("video")
+        shared.cache_hit("video")
     if need_audio:
-        metrics.cache_miss("audio")
+        shared.cache_miss("audio")
     elif _artifact_is_usable(cache, chunk.audio.current) is not None:
-        metrics.cache_hit("audio")
+        shared.cache_hit("audio")
 
     if need_video:
         video_t0 = time.monotonic()
@@ -930,19 +1024,22 @@ def _bake_chunk(
             rendered_path = Path(renderer.render(request))
             _check_graph(store, graph_revision, graph_hash)
             _validate_output(rendered_path, "video")
-            artifact = cache.commit_artifact(
-                plane="video",
-                key=fingerprint.video_key,
-                source=rendered_path,
-                suffix="mp4",
-                graph_hash=graph_hash,
-            )
+            with shared.lock:
+                artifact = cache.commit_artifact(
+                    plane="video",
+                    key=fingerprint.video_key,
+                    source=rendered_path,
+                    suffix="mp4",
+                    graph_hash=graph_hash,
+                )
+
+
             chunk = _set_plane_state(
                 chunk,
                 "video",
                 PreviewPlaneState(status="green", current=artifact),
             )
-            metrics.stage("video", time.monotonic() - video_t0, bytes_written=artifact.bytes)
+            shared.stage("video", time.monotonic() - video_t0, bytes_written=artifact.bytes)
             video_changed = True
         except _GraphChangedError:
             raise
@@ -950,7 +1047,7 @@ def _bake_chunk(
             fail_plane("video", exc)
         finally:
             if not video_changed:
-                metrics.stage("video", time.monotonic() - video_t0)
+                shared.stage("video", time.monotonic() - video_t0)
 
     if need_audio:
         audio_t0 = time.monotonic()
@@ -984,19 +1081,22 @@ def _bake_chunk(
             run_commands(commands)
             _check_graph(store, graph_revision, graph_hash)
             _validate_output(audio_output, "audio")
-            artifact = cache.commit_artifact(
-                plane="audio",
-                key=fingerprint.audio_key,
-                source=audio_output,
-                suffix="m4a",
-                graph_hash=graph_hash,
-            )
+            with shared.lock:
+                artifact = cache.commit_artifact(
+                    plane="audio",
+                    key=fingerprint.audio_key,
+                    source=audio_output,
+                    suffix="m4a",
+                    graph_hash=graph_hash,
+                )
+
+
             chunk = _set_plane_state(
                 chunk,
                 "audio",
                 PreviewPlaneState(status="green", current=artifact),
             )
-            metrics.stage("audio", time.monotonic() - audio_t0, bytes_written=artifact.bytes)
+            shared.stage("audio", time.monotonic() - audio_t0, bytes_written=artifact.bytes)
             audio_changed = True
         except _GraphChangedError:
             raise
@@ -1004,7 +1104,7 @@ def _bake_chunk(
             fail_plane("audio", exc)
         finally:
             if not audio_changed:
-                metrics.stage("audio", time.monotonic() - audio_t0)
+                shared.stage("audio", time.monotonic() - audio_t0)
 
     if video_changed or audio_changed:
         video_path = _artifact_path(cache, chunk.video)
@@ -1017,7 +1117,7 @@ def _bake_chunk(
             and video_artifact is not None
             and audio_artifact is not None
         ):
-            metrics.cache_miss("playback")
+            shared.cache_miss("playback")
             mux_t0 = time.monotonic()
             try:
                 _check_graph(store, graph_revision, graph_hash)
@@ -1045,33 +1145,35 @@ def _bake_chunk(
                     os.replace(mux_temp, playback_output)
                 _check_graph(store, graph_revision, graph_hash)
                 _validate_output(playback_output, "playback")
-                artifact = cache.commit_artifact(
-                    plane="playback",
-                    key=_playback_key(
-                        video=video_artifact,
-                        audio=audio_artifact,
-                        profile=active.profile,
-                        chunk=chunk,
-                    ),
-                    source=playback_output,
-                    suffix="mp4",
-                    graph_hash=graph_hash,
-                )
+                with shared.lock:
+                    artifact = cache.commit_artifact(
+                        plane="playback",
+                        key=_playback_key(
+                            video=video_artifact,
+                            audio=audio_artifact,
+                            profile=active.profile,
+                            chunk=chunk,
+                        ),
+                        source=playback_output,
+                        suffix="mp4",
+                        graph_hash=graph_hash,
+                    )
+
                 chunk = _set_plane_state(
                     chunk,
                     "playback",
                     PreviewPlaneState(status="green", current=artifact),
                 )
-                metrics.stage("mux", time.monotonic() - mux_t0, bytes_written=artifact.bytes)
+                shared.stage("mux", time.monotonic() - mux_t0, bytes_written=artifact.bytes)
             except _GraphChangedError:
                 raise
             except Exception as exc:
                 fail_plane("playback", exc)
             finally:
                 if chunk.playback.status != "green":
-                    metrics.stage("mux", time.monotonic() - mux_t0)
+                    shared.stage("mux", time.monotonic() - mux_t0)
     elif _artifact_is_usable(cache, chunk.playback.current) is not None:
-        metrics.cache_hit("playback")
+        shared.cache_hit("playback")
 
     active.chunks[chunk_index] = chunk.model_copy(
         update={"status": _chunk_status(chunk)}
@@ -1249,9 +1351,12 @@ def render_preview_chunks(
             store, previous, timeline, graph_hash,
         )
         fps_num, fps_den = _project_fps(project_dir, params)
-        chunk_frames = _chunk_size(fps_num, fps_den, params)
+        duration_frames = max(
+            0, round(timeline.duration_sec * fps_num / fps_den)
+        )
+        chunk_frames = _chunk_size(fps_num, fps_den, params, duration_frames)
         windows = make_chunk_windows(
-            max(0, round(timeline.duration_sec * fps_num / fps_den)),
+            duration_frames,
             fps_num,
             fps_den,
             chunk_frames=chunk_frames,

@@ -1,0 +1,35 @@
+<div class="caption-card" style="
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  transform: translateX(-50%);
+  width: 86%;
+  max-width: 1400px;
+  background: rgba(0, 0, 0, 0.55);
+  border-left: 6px solid #FF5A00;
+  color: #ffffff;
+  padding: 16px 26px;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  border-radius: 4px;
+  opacity: 0;
+  animation: caption-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+">
+  <div style="font-size: 15px; opacity: 0.8; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px;">
+    {{kicker}}
+  </div>
+  <div style="font-size: 34px; font-weight: 700; line-height: 1.25;" id="caption-text">
+    {{caption}}
+  </div>
+</div>
+<style>
+@keyframes caption-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(14px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+</style>
+<script>
+// JSON variables land here when dict/list values are passed:
+//   window.__open_edit_vars_<overlayId> = {"captions": [...], ...}
+// Templates may read them to drive per-frame animation (HyperFrames
+// steps the composition timeline via window.__timelines).
+</script>

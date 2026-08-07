@@ -1,0 +1,543 @@
+2421
+==================== pytest_r2.log 2421
+
+........................................................................ [  4%]
+........................................................................ [  9%]
+....sss................................................................. [ 14%]
+........................................................................ [ 19%]
+........................................................................ [ 24%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 39%]
+........................................................................ [ 43%]
+........................................................................ [ 48%]
+........................................................................ [ 53%]
+........................................................................ [ 58%]
+....................................................................ssss [ 63%]
+........................................................................ [ 68%]
+........................................................................ [ 73%]
+........................................................................ [ 78%]
+........................................................................ [ 83%]
+........................................................................ [ 87%]
+........................................................................ [ 92%]
+........................................................................ [ 97%]
+..................................                                       [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_focus_popup_layout.py:21: timeline-test fixture is not installed
+SKIPPED [1] tests/test_focus_popup_layout.py:40: timeline-test fixture is not installed
+SKIPPED [1] tests/test_focus_popup_layout.py:49: timeline-test fixture is not installed
+SKIPPED [1] tests/test_sandbox_observations.py:19: strace observation fixtures not present in repo
+SKIPPED [1] tests/test_sandbox_observations.py:26: strace observation fixtures not present in repo
+SKIPPED [1] tests/test_sandbox_observations.py:32: strace observation fixtures not present in repo
+SKIPPED [1] tests/test_sandbox_observations.py:38: strace observation fixtures not present in repo
+
+
+"""Asset streaming routes (v1.4 P0-2)."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from open_edit.kernel.asset_proxy_jobs import (
+    DEFAULT_ASSET_PROXY_JOB_SERVICE,
+    AssetProxyJob,
+)
+from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
+
+from .projects import _require_project
+
+router = APIRouter()
+
+_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+class AssetProxyRequest(BaseModel):
+    profile: str = DEFAULT_SOURCE_PROXY_PROFILE.name
+
+
+class AssetProxyJobResponse(BaseModel):
+    job_id: str
+    project_id: str
+    asset_hash: str
+    profile: str
+    status: str
+    created_at: float
+    updated_at: float
+    proxy_hash: str | None = None
+    error: str | None = None
+
+
+def _asset_proxy_job_response(job: AssetProxyJob) -> AssetProxyJobResponse:
+    return AssetProxyJobResponse(
+        job_id=job.job_id,
+        project_id=job.project_id,
+        asset_hash=job.asset_hash,
+        profile=job.profile,
+        status=job.status,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        proxy_hash=job.proxy_hash,
+        error=job.error,
+    )
+
+
+@router.get("/api/projects/{project_id}/assets/{asset_hash}/file")
+async def get_asset_file(project_id: str, asset_hash: str) -> FileResponse:
+    """Stream an asset's bytes for the preview player.
+
+    v1.4 P0-2: without this route, the frontend has nothing to set
+    ``<video src>`` to and the preview modal is empty. The route
+    serves the CAS file with the right ``Content-Type`` (so the
+    browser actually plays the response) and supports HTTP Range
+    requests (so ``<video>`` can seek — without 206 support, some
+    browsers refuse to play).
+
+    The asset hash is validated as a 64-char lowercase hex string
+    before being used in a filesystem path so this route can't be
+    abused to probe arbitrary files.
+    """
+    if not _HASH_RE.fullmatch(asset_hash):
+        raise HTTPException(status_code=400, detail="invalid asset hash")
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+
+    from open_edit.storage.assets import AssetStore
+
+    assets_dir = project_path / ".open_edit" / "assets"
+    store = AssetStore(assets_dir)
+    asset = store.get(asset_hash)
+    if asset is None:
+        raise HTTPException(
+            status_code=404, detail=f"asset not found: {asset_hash[:12]}"
+        )
+    cas_path = Path(asset.stored_path)
+    if not cas_path.exists():
+        raise HTTPException(
+            status_code=404, detail=f"asset bytes missing: {asset_hash[:12]}"
+        )
+
+    # Pick the mime type from the original filename's extension. The
+    # CAS file itself has no extension (it's stored under
+    # ``<prefix>/<hash>``), so ``mimetypes.guess_type`` from a bare
+    # ``Path("13957...").suffix`` returns ``None``. The original
+    # filename (e.g. ``clip_short.mp4``) is preserved in the sidecar.
+    media_type = _guess_mime_type(asset)
+
+    return FileResponse(
+        str(cas_path),
+        media_type=media_type,
+        # ``Accept-Ranges: bytes`` is set automatically by Starlette's
+        # ``FileResponse`` when the client sends a Range header (it
+        # replies with 206 Partial Content). We also set it
+        # unconditionally so the browser knows it can ask for a Range
+        # up front.
+        headers={"Accept-Ranges": "bytes"},
+    )
+
+
+@router.post(
+    "/api/projects/{project_id}/assets/{asset_hash}/proxy",
+    status_code=202,
+)
+async def post_asset_proxy(
+    project_id: str,
+    asset_hash: str,
+    request: AssetProxyRequest,
+) -> AssetProxyJobResponse:
+    """Queue host-side source-proxy generation and return its job id."""
+    if not _HASH_RE.fullmatch(asset_hash):
+        raise HTTPException(status_code=400, detail="invalid asset hash")
+    profile = request.profile.strip()
+    if profile != DEFAULT_SOURCE_PROXY_PROFILE.name:
+        raise HTTPException(status_code=400, detail=f"unknown source proxy profile: {profile}")
+
+    state = await _require_project(project_id)
+    try:
+        job = DEFAULT_ASSET_PROXY_JOB_SERVICE.enqueue(
+            project_id,
+            Path(state.path),
+            asset_hash,
+            profile=DEFAULT_SOURCE_PROXY_PROFILE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _asset_proxy_job_response(job)
+
+
+@router.get(
+    "/api/projects/{project_id}/asset_proxy_jobs/{job_id}",
+)
+async def get_asset_proxy_job(
+    project_id: str,
+    job_id: str,
+) -> AssetProxyJobResponse:
+    """Return durable source-proxy job state."""
+    state = await _require_project(project_id)
+    job = DEFAULT_ASSET_PROXY_JOB_SERVICE.get(Path(state.path), job_id)
+    if job is None or job.project_id != project_id:
+        raise HTTPException(status_code=404, detail=f"asset proxy job not found: {job_id}")
+    return _asset_proxy_job_response(job)
+
+
+def _guess_mime_type(asset: Asset) -> str:  # noqa: F821
+    """Best-effort mime type for a streamed asset.
+
+    Prefers the original filename's extension (``clip_short.mp4`` →
+    ``video/mp4``); falls back to ``application/octet-stream`` for
+    types we don't know. The stdlib ``mimetypes`` is enough for the
+    common formats — we don't need ``python-magic``.
+    """
+    import mimetypes
+
+    name = asset.original_path or asset.stored_path
+    guess, _ = mimetypes.guess_type(name)
+    return guess or "application/octet-stream"
+
+
+I have a strong picture now. Let me check my sub-agent's progress:
+['Any', 'annotations', 'get_agent', 'host_request', 'list_agents', 'recent_messages']
+['Any', 'Literal', 'ReceiverRole', 'annotations', 'display', 'host_request', 'list_agents', 'send']
+
+current
+agents
+
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+Cell In[199], line 2
+      1 import agent_observe
+----> 2 msgs = await agent_observe.recent_messages()
+      3 print(type(msgs))
+      4 print(msgs if isinstance(msgs, str) else str(msgs)[:3000])
+
+TypeError: recent_messages() missing 1 required positional argument: 'target'
+(target: 'str', limit: 'int' = 8, max_chars: 'int' = 800) -> 'dict[str, Any]'
+(target: 'str') -> 'dict[str, Any]'
+[RLMSubagent(rlm_child_id='sub-9202e53e', active_session_id='3662365a89e7', session_id='019fd6e5-3d44-712f-8405-ac501c015136', session_name='kernel-auditor', session_dir=PosixPath('/home/amr/.prime/agent/session-artifacts/019fd4ef-0396-7021-a05d-ac434d9b292e/sub-4bf6b2fb/sub-9202e53e'), status='running')]
+
+The sub-agent is still working. Meanwhile, let me quantify per-chunk overhead myself — this directly informs the segment-rendering plan:
+=== 1s chunk (30 frames) ===
+=== 60s chunk ===
+
+
+real	0m1.500s
+user	0m0.808s
+sys	0m0.561s
+
+real	0m2.837s
+user	0m3.004s
+sys	0m0.457s
+
+chunk   1s ->  1.34s wall, rc=0, size=9362
+chunk   5s ->  1.41s wall, rc=0, size=19702
+chunk  30s ->  1.97s wall, rc=0, size=100267
+chunk  60s ->  2.54s wall, rc=0, size=199072
+
+untitled_cl.mp4: 1.46 GB, sha256 in 1.39s
+project_fe5214616f5a.mp4: 1.10 GB, sha256 in 0.94s
+
+blackdetect 60s window: 1.51s, rc=0
+
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+Cell In[208], line 17
+     13 d = json.load(open("/home/amr/Videos/video/.open_edit/benchmark_logs/full_proxy.json"))
+     14 wins = d["stdout"].split('"detector_windows": [',1)[1]
+     15 import re
+     16 pairs = re.findall(r'\{"start_sec": ([\d.]+), "end_sec": ([\d.]+)\}', wins)
+---> 17 total = sum(e-s for s,e in pairs)
+     18 print("total window seconds:", total, "num windows:", len(pairs))
+
+Cell In[208], line 17, in <genexpr>(.0)
+---> 17 import subprocess, time, os
+
+TypeError: unsupported operand type(s) for -: 'str' and 'str'
+full_proxy: total window seconds: 112.5 num windows: 32
+full_final: total window seconds: 112.5 num windows: 32
+freezedetect 60s window: 0.76s rc=0
+
+"""Black-frame detection for QC.
+
+Wraps ffmpeg's blackdetect filter. A frame is "black" if its average luma
+falls below ``threshold`` for at least ``min_duration`` consecutive seconds.
+"""
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+DEFAULT_BLACK_THRESHOLD = 0.10
+DEFAULT_BLACK_MIN_SEC = 0.5
+DEFAULT_PICTURE_BLACK_RATIO = 0.98
+DEFAULT_SCALE_HEIGHT = 360
+
+
+class BlackSpan(BaseModel):
+    start_sec: float
+    end_sec: float
+    duration_sec: float
+
+
+class BlackFramesResult(BaseModel):
+    ok: bool
+    in_sec: float
+    out_sec: float
+    threshold: float
+    min_sec: float
+    spans: list[BlackSpan]
+    error: Optional[str] = None
+
+
+def list_black_frames(
+    video_path: str,
+    in_sec: float = 0.0,
+    out_sec: float = 0.0,
+    threshold: float = DEFAULT_BLACK_THRESHOLD,
+    min_sec: float = DEFAULT_BLACK_MIN_SEC,
+    scale_height: int | None = None,
+    timeout_s: float | None = None,
+) -> BlackFramesResult:
+    """Return black-frame spans for the [in_sec, out_sec] range.
+
+    ``scale_height`` can be used for long, high-resolution sources where
+    decoding the full raster just to classify black frames is unnecessarily
+    expensive. The timeline baseline uses the same 360px analysis size as
+    frozen-frame detection, while callers that need the original behavior can
+    leave it unset.
+    """
+    if out_sec > 0 and out_sec <= in_sec:
+        return BlackFramesResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold=threshold, min_sec=min_sec, spans=[],
+            error=f"invalid range: out_sec={out_sec} must be > in_sec={in_sec}",
+        )
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return BlackFramesResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold=threshold, min_sec=min_sec, spans=[],
+            error="ffmpeg not on PATH",
+        )
+    if not Path(video_path).is_file():
+        return BlackFramesResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold=threshold, min_sec=min_sec, spans=[],
+            error=f"video not found: {video_path}",
+        )
+
+    filters: list[str] = []
+    if scale_height is not None:
+        filters.append(
+            f"scale=-2:{int(scale_height)}:flags=bicubic"
+        )
+    filters.append(
+        "blackdetect="
+        f"d={min_sec}:pix_th={threshold}:pic_th={DEFAULT_PICTURE_BLACK_RATIO}"
+    )
+    cmd = [ffmpeg, "-hide_banner", "-i", video_path]
+    if in_sec > 0:
+        cmd += ["-ss", f"{in_sec:.3f}"]
+    if out_sec > 0:
+        cmd += ["-t", f"{(out_sec - in_sec):.3f}"]
+    cmd += ["-vf", ",".join(filters), "-an", "-f", "null", "-"]
+
+    timeout = 60.0 if timeout_s is None else max(0.001, float(timeout_s))
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return BlackFramesResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold=threshold, min_sec=min_sec, spans=[],
+            error=f"ffmpeg timed out after {timeout:g}s",
+        )
+    if proc.returncode != 0:
+        lines = (proc.stderr or "").strip().splitlines()
+        return BlackFramesResult(
+            ok=False, in_sec=in_sec, out_sec=out_sec,
+            threshold=threshold, min_sec=min_sec, spans=[],
+            error=lines[-1] if lines else "ffmpeg failed",
+        )
+    spans = _parse_blackdetect(proc.stderr or "", base_offset=in_sec)
+    return BlackFramesResult(
+        ok=True, in_sec=in_sec, out_sec=out_sec,
+        threshold=threshold, min_sec=min_sec, spans=spans,
+    )
+
+
+def _parse_blackdetect(text: str, base_offset: float) -> list[BlackSpan]:
+    """Parse blackdetect lines from ffmpeg's stderr."""
+    spans: list[BlackSpan] = []
+    for m in re.finditer(
+        r"black_start:(-?\d+(?:\.\d+)?)\s+black_end:(-?\d+(?:\.\d+)?)\s+black_duration:(-?\d+(?:\.\d+)?)",
+        text,
+    ):
+        s = float(m.group(1)) + base_offset
+        e = float(m.group(2)) + base_offset
+        d = float(m.group(3))
+        spans.append(BlackSpan(start_sec=s, end_sec=e, duration_sec=d))
+    return spans
+
+
+    black_spans: Iterable[dict[str, Any]],
+    frozen_spans: Iterable[dict[str, Any]],
+    fps: float,
+) -> list[tuple[int, int, str]]:
+    ranges: list[tuple[int, int, str]] = []
+    for span in black_spans:
+        start, end = _span_frame_range(span, fps)
+        ranges.append((start, end, "black"))
+    for span in frozen_spans:
+        start, end = _span_frame_range(span, fps)
+        ranges.append((start, end, "frozen"))
+    ranges.sort()
+    merged: list[tuple[int, int, str]] = []
+    for start, end, mode in ranges:
+        if merged and start <= merged[-1][1]:
+            old_start, old_end, old_mode = merged[-1]
+            merged[-1] = (
+                old_start, max(old_end, end),
+                "frozen" if "frozen" in (old_mode, mode) else "black",
+            )
+        else:
+            merged.append((start, end, mode))
+    return merged
+
+
+def _probe_render_duration(video_path: Path) -> float | None:
+    """Return the output duration when it can be probed safely."""
+    try:
+        duration = float(probe_duration(video_path))
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+        return None
+    if not math.isfinite(duration) or duration <= 0.0:
+        return None
+    return duration
+
+
+def _repair_windows(
+    spans: Iterable[dict[str, Any]],
+    *,
+    duration_sec: float | None,
+) -> list[tuple[float, float]]:
+    """Expand, clamp, and merge source spans for bounded output detection."""
+    intervals: list[tuple[float, float]] = []
+    for span in spans:
+        try:
+            start = float(span["start_sec"])
+            end = float(span["end_sec"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+            continue
+        start = max(0.0, start - SOURCE_REPAIR_WINDOW_PADDING_SEC)
+        end += SOURCE_REPAIR_WINDOW_PADDING_SEC
+        if duration_sec is not None:
+            end = min(end, duration_sec)
+        if end > start:
+            intervals.append((start, end))
+
+    intervals.sort()
+    merged: list[tuple[float, float]] = []
+    for start, end in intervals:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _detector_result(
+    result: Any,
+    *,
+    window_start: float,
+    window_end: float,
+) -> tuple[bool, list[dict[str, Any]], str | None]:
+    """Normalize a detector result without coupling repair to Pydantic."""
+    if isinstance(result, dict):
+        ok = bool(result.get("ok"))
+        raw_spans = result.get("spans") or []
+        error = result.get("error")
+    else:
+        ok = bool(getattr(result, "ok", False))
+        raw_spans = getattr(result, "spans", []) or []
+        error = getattr(result, "error", None)
+
+    spans: list[dict[str, Any]] = []
+    window_length = max(0.0, window_end - window_start)
+    for raw_span in raw_spans:
+        if isinstance(raw_span, dict):
+            span = dict(raw_span)
+        elif hasattr(raw_span, "model_dump"):
+            span = dict(raw_span.model_dump())
+        else:
+            continue
+        try:
+            start = float(span["start_sec"])
+            end = float(span["end_sec"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # Older frozen-frame detectors returned timestamps relative to a
+        # window even though their public contract described source-relative
+        # timestamps. Normalize only spans that cannot be in the requested
+        # absolute window; blackdetect already returns absolute timestamps.
+        if (
+            window_start > 0.0
+            and start < window_start
+            and end <= window_length + 1e-6
+        ):
+            start += window_start
+            end += window_start
+        if end <= start:
+            continue
+        span["start_sec"] = start
+        span["end_sec"] = end
+        span["duration_sec"] = end - start
+        spans.append(span)
+    return ok, spans, str(error) if error else None
+
+
+def _call_detector(
+    detector: Any,
+    video_path: Path,
+    *,
+    in_sec: float,
+    out_sec: float,
+    timeout_s: float | None,
+) -> Any:
+    """Call old and new detector APIs while always preferring a timeout."""
+    kwargs = {
+        "in_sec": in_sec,
+        "out_sec": out_sec,
+        "timeout_s": timeout_s,
+    }
+    if detector is list_black_frames:
+        kwargs["scale_height"] = DEFAULT_SCALE_HEIGHT
+    try:
+        return detector(str(video_path), **kwargs)
+    except TypeError as exc:
+        # M2 Task 4 adds timeout_s to both detectors. Keep this module
+        # importable during the parallel wave and never hide unrelated type
+        # errors from a detector implementation.
+        if "timeout_s" not in str(exc):
+            raise
+        kwargs.pop("timeout_s")
+        return detector(str(video_path), **kwargs)
+
+
+def repair_render_output(
+
+Let me measure the actual repair code path directly on the proxy to find where the 209–313s goes:
+Kernel has been shut down

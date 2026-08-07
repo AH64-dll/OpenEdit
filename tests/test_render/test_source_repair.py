@@ -59,6 +59,63 @@ def test_collect_source_baseline_maps_asset_spans_to_timeline(
     assert baseline["frozen_frames"][0]["start_sec"] == 3.5
 
 
+def test_collect_source_baseline_caches_detector_spans(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """An unchanged source skips the CPU detectors on the second call."""
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"cached-source")
+    timeline = Timeline(
+        duration_sec=5.0,
+        tracks=[Track(
+            track_id="v1",
+            kind="video",
+            clips=[Clip(
+                clip_id="clip-1",
+                asset_hash="asset-1",
+                track_id="v1",
+                track_kind="video",
+                position_sec=0.0,
+                in_point_sec=0.0,
+                out_point_sec=5.0,
+            )],
+        )],
+    )
+    calls: list[list[object]] = []
+
+    def fake_black(*args, **kwargs):
+        calls.append(list(args))
+        return BlackFramesResult(
+            ok=True, in_sec=0.0, out_sec=0.0, threshold=0.1, min_sec=0.5,
+            spans=[BlackSpan(start_sec=1.0, end_sec=1.5, duration_sec=0.5)],
+        )
+
+    def fake_frozen(*args, **kwargs):
+        calls.append(list(args))
+        return FrozenFramesResult(
+            ok=True, min_sec=1.0, noise_db=-50.0,
+            spans=[FrozenSpan(start_sec=2.0, end_sec=2.5, duration_sec=0.5)],
+        )
+
+    monkeypatch.setattr(mod, "list_black_frames", fake_black)
+    monkeypatch.setattr(mod, "list_frozen_frames", fake_frozen)
+    cache_dir = tmp_path / "cache"
+
+    first = mod.collect_source_baseline(
+        timeline, {"asset-1": str(source)}, cache_dir=cache_dir,
+    )
+    assert len(calls) == 2  # black + frozen ran once
+    assert first["black_frames"]
+
+    calls.clear()
+    second = mod.collect_source_baseline(
+        timeline, {"asset-1": str(source)}, cache_dir=cache_dir,
+    )
+    assert len(calls) == 0  # cache hit: detectors skipped
+    assert second["black_frames"] == first["black_frames"]
+    assert second["frozen_frames"] == first["frozen_frames"]
+
+
 def test_repair_frame_sequence_replaces_black_and_interpolates_frozen() -> None:
     frames = [
         bytes((0, 0, 255)),

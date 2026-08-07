@@ -22,7 +22,7 @@ import {
   normalizeTimeline,
   summarizeOpPayload,
 } from './js/state.js';
-import { $, $$, el, showToast, hideModal, showModal, hideAllModals, fmtBytes, fmtTime } from './js/dom.js';
+import { $, $$, el, icon, showToast, hideModal, showModal, hideAllModals, fmtBytes, fmtTime } from './js/dom.js';
 import { api } from './js/api.js';
 import { renderAssets, openAssetPreview } from './js/assets.js';
 import {
@@ -452,8 +452,8 @@ function renderRendersList(renders) {
       : status === 'failed' ? `Failed: ${r.error || 'error'}`
       : status === 'succeeded' ? 'Ready'
       : status;
-    const item = el('div', { class: `render-item render-status-${status}` }, [
-      el('div', { class: 'render-thumb' }, [status === 'running' ? '⏳' : '🎞️']),
+    const item = el('div', { class: `render-card render-status-${status}` }, [
+      el('div', { class: 'render-thumb' }, [icon(status === 'running' || status === 'queued' ? 'hourglass' : 'film')]),
       el('div', { class: 'render-meta' }, [
         el('div', { class: 'render-name' }, [name]),
         el('div', { class: 'render-sub' }, [
@@ -530,7 +530,9 @@ function openNotesModal() {
     for (const n of notes.list) {
       list.appendChild(el('div', { class: 'note-item' }, [
         el('div', { class: 'note-ts' }, [
-          `[${fmtTime(n.timestamp)}] · ${n.source} · ${n.status}`,
+          // Note timestamps are playhead anchors (seconds in the timeline), so
+          // show them as timecodes — not as wall-clock dates.
+          `[${formatTimecode(Number(n.timestamp) || 0)}] · ${n.source} · ${n.status}`,
         ]),
         el('div', { class: 'note-text' }, [n.text]),
       ]));
@@ -548,6 +550,18 @@ async function openSettingsModal() {
 
   showModal('modal-settings');
 
+  // Review-only mode gates these endpoints (404 by design); don't fetch them.
+  if (document.body.classList.contains('review-only-mode')) {
+    if (rList) {
+      rList.innerHTML = '';
+      rList.appendChild(el('div', { class: 'note-item muted small' }, [
+        'Review mode: agent runtimes & API keys are managed by the agent harness. ' +
+        'Start the server without --review-only to configure them here.',
+      ]));
+    }
+    return;
+  }
+
   try {
     const [rRes, kRes] = await Promise.all([
       fetch('/api/runtimes').then(r => r.json()),
@@ -558,8 +572,8 @@ async function openSettingsModal() {
       rList.innerHTML = '';
       for (const rt of rRes.runtimes) {
         const statusBadge = rt.installed
-          ? el('span', { style: 'color: var(--green); font-weight:600;' }, ['✓ Installed'])
-          : el('span', { style: 'color: var(--text-dim);' }, ['— Not detected']);
+          ? el('span', { class: 'dep-status dep-status-ok' }, [icon('check'), 'Installed'])
+          : el('span', { class: 'dep-status dep-status-missing' }, ['Not detected']);
         const pathText = rt.binary_path ? ` (${rt.binary_path})` : '';
         rList.appendChild(el('div', { class: 'note-item' }, [
           el('div', { style: 'display:flex; justify-content:space-between;' }, [
@@ -628,7 +642,9 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('open-edit-theme', theme);
   const btn = $('#btn-toggle-theme');
-  if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+  if (btn) btn.innerHTML = theme === 'dark'
+    ? '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.7 6.7 0 0 0 21 12.8Z"></path></svg>'
+    : '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"></circle><path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>';
 }
 
 function toggleTheme() {
@@ -642,14 +658,14 @@ function toggleTheme() {
 // Command Palette (Cmd+K / Ctrl+K)
 // ----------------------------------------------------------
 const COMMANDS = [
-  { id: 'new-project', title: 'Create New Project', icon: '➕', action: () => $('#btn-new-project')?.click() },
-  { id: 'refresh-projects', title: 'Refresh Projects List', icon: '⟳', action: () => refreshProjects() },
-  { id: 'render-proxy', title: 'Render review artifact (640×360)', icon: '🎬', action: () => triggerRender('proxy') },
-  { id: 'render-final', title: 'Render Final Video (1080p)', icon: '🎥', action: () => triggerRender('final') },
-  { id: 'open-settings', title: 'Open Settings & API Keys', icon: '⚙️', action: () => openSettingsModal() },
-  { id: 'toggle-theme', title: 'Toggle Light / Dark Mode', icon: '🌓', action: () => toggleTheme() },
-  { id: 'upload-assets', title: 'Upload Media Files', icon: '⬆', action: () => $('#file-input')?.click() },
-  { id: 'clear-chat', title: 'Clear Chat Log', icon: '🗑️', action: () => clearChatLog() },
+  { id: 'new-project', title: 'Create New Project', icon: 'plus', action: () => $('#btn-new-project')?.click() },
+  { id: 'refresh-projects', title: 'Refresh Projects List', icon: 'refresh', action: () => refreshProjects() },
+  { id: 'render-proxy', title: 'Render review artifact (640×360)', icon: 'film', action: () => triggerRender('proxy') },
+  { id: 'render-final', title: 'Render Final Video (1080p)', icon: 'video', action: () => triggerRender('final') },
+  { id: 'open-settings', title: 'Open Settings & API Keys', icon: 'settings', action: () => openSettingsModal() },
+  { id: 'toggle-theme', title: 'Toggle Light / Dark Mode', icon: 'moon', action: () => toggleTheme() },
+  { id: 'upload-assets', title: 'Upload Media Files', icon: 'upload', action: () => $('#file-input')?.click() },
+  { id: 'clear-chat', title: 'Clear Chat Log', icon: 'trash', action: () => clearChatLog() },
 ];
 
 let activeCmdIndex = 0;
@@ -678,10 +694,10 @@ function renderCmdList() {
   filteredCommands.forEach((cmd, idx) => {
     const item = el('div', { class: `cmd-item ${idx === activeCmdIndex ? 'active' : ''}` }, [
       el('div', { class: 'cmd-item-label' }, [
-        el('span', {}, [cmd.icon]),
+        icon(cmd.icon),
         el('span', {}, [cmd.title]),
       ]),
-      el('span', { class: 'kbd-badge' }, ['↵']),
+      el('span', { class: 'kbd-badge' }, [icon('enter')]),
     ]);
     item.addEventListener('click', () => executeCmd(cmd));
     list.appendChild(item);
@@ -854,10 +870,10 @@ async function handleFiles(files) {
     const rejected = result.rejected || [];
     detail.innerHTML = '';
     for (const a of accepted) {
-      detail.appendChild(el('div', {}, [`✓ ${a.filename || a.hash || 'file'}`]));
+      detail.appendChild(el('div', { class: 'upload-success' }, [icon('check'), a.filename || a.hash || 'file']));
     }
     for (const r of rejected) {
-      detail.appendChild(el('div', {}, [`✗ ${r.filename || 'file'}: ${r.error || 'rejected'}`]));
+      detail.appendChild(el('div', { class: 'upload-error' }, [icon('close'), `${r.filename || 'file'}: ${r.error || 'rejected'}`]));
     }
     prog.querySelector('div').textContent =
       `Ingested ${accepted.length}/${files.length}` +
@@ -1078,7 +1094,15 @@ function bindEvents() {
       updatePlayheadUi();
     });
     previewPlayer.addEventListener('loadedmetadata', updatePlayheadUi);
+    previewPlayer.addEventListener('play', updatePreviewTransport);
+    previewPlayer.addEventListener('pause', updatePreviewTransport);
+    previewPlayer.addEventListener('ended', updatePreviewTransport);
   }
+  // Keep the redesign's transport controls as a thin layer over the native
+  // video element; native controls remain enabled for accessibility/fallback.
+  $('#btn-skip-back')?.addEventListener('click', () => seekPreviewBy(-5));
+  $('#btn-play')?.addEventListener('click', togglePreviewPlayback);
+  $('#btn-skip-fwd')?.addEventListener('click', () => seekPreviewBy(5));
 
   // Notes & Settings & Theme & Cmd+K
   $('#btn-show-notes').addEventListener('click', openNotesModal);
@@ -1367,6 +1391,15 @@ async function boot() {
   } catch {
     state.reviewOnly = false;
   }
+  // Mode badge: announce the real running mode instead of the static
+  // default text (data-review-label / data-agent-label live in the
+  // index.html markup). Presentation-only.
+  const modeLabelNode = document.querySelector('#mode-label');
+  if (modeLabelNode) {
+    modeLabelNode.textContent = state.reviewOnly
+      ? (modeLabelNode.dataset.reviewLabel || 'Review \u00b7 MCP')
+      : (modeLabelNode.dataset.agentLabel || 'Agent \u00b7 built-in');
+  }
   bindEvents();
   // v1.4 P1-2: chat-status indicator. Lives in the DOM between the
   // chat log and the input row; ``createChatStatus`` keeps it in sync
@@ -1520,7 +1553,36 @@ function _isPlayableRender(r) {
   return true;
 }
 
-function maybeAutoLoadPreview(renders) {
+async function _renderEndpointIsReachable(render) {
+  const renderId = render?.id;
+  if (!state.currentProjectId || !renderId) return false;
+  // The API rejects files outside the active project root.  Skip those stale
+  // durable rows locally so probing them does not create a browser 404 log.
+  // Rows without an absolute path still get the bounded URL probe because
+  // the server may resolve them from its durable job table.
+  const projectPath = String(state.currentProjectState?.path || '').replace(/\/+$/, '');
+  const renderPath = String(render?.path || '');
+  if (projectPath && renderPath && renderPath.startsWith('/')
+      && !(renderPath === projectPath || renderPath.startsWith(`${projectPath}/`))) {
+    return false;
+  }
+  try {
+    // Probe with a one-byte range before assigning <video>.  A project can
+    // contain durable rows whose output was produced in another checkout;
+    // loading those rows would otherwise create a noisy 404 and strand the
+    // preview until the user manually picks an older file-backed render.
+    const response = await fetch(api.renderFileUrl(state.currentProjectId, renderId), {
+      headers: { Range: 'bytes=0-0' },
+      cache: 'no-store',
+    });
+    try { await response.body?.cancel(); } catch { /* probe only */ }
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function maybeAutoLoadPreview(renders) {
   if (!state.reviewOnly || !state.currentProjectId || !renders?.length) return;
   const player = $('#preview-player');
   if (!player) return;
@@ -1543,18 +1605,36 @@ function maybeAutoLoadPreview(renders) {
       if (rb !== ra) return rb - ra;
       return Number(b.timestamp || 0) - Number(a.timestamp || 0);
     });
-  const latest = matchingHash
+  const preferred = matchingHash
     || matchingRev
     || byRev[0]
     || playable.find((r) => r.mode === 'proxy')
     || playable[0];
-  if (!latest?.id) return;
+  if (!preferred?.id) return;
   const stale = Boolean(
+    (currentHash && preferred.edit_graph_hash && preferred.edit_graph_hash !== currentHash)
+    || (currentRev != null && preferred.graph_revision != null && preferred.graph_revision !== currentRev),
+  );
+  if (state.previewRenderId === preferred.id && player.src && !stale) return;
+
+  // Keep the preference above, but fall through to older succeeded rows when
+  // a durable job points at bytes that no longer exist in this project.
+  const candidates = [preferred, ...playable].filter((render, index, all) => (
+    render?.id && all.findIndex((item) => item.id === render.id) === index
+  ));
+  let latest = null;
+  for (const candidate of candidates) {
+    if (await _renderEndpointIsReachable(candidate)) {
+      latest = candidate;
+      break;
+    }
+  }
+  if (!latest?.id) return;
+  const latestStale = Boolean(
     (currentHash && latest.edit_graph_hash && latest.edit_graph_hash !== currentHash)
     || (currentRev != null && latest.graph_revision != null && latest.graph_revision !== currentRev),
   );
-  if (state.previewRenderId === latest.id && player.src && !stale) return;
-  if (stale) {
+  if (latestStale) {
     showToast('Preview is outdated — rendering or click Render Proxy to update.', 'warn');
   }
   loadRenderInPreview(latest.id, latest.mode || 'proxy');
@@ -1604,11 +1684,63 @@ async function isProxyStale() {
   }
 }
 
+function updatePreviewTransport() {
+  const player = $('#preview-player');
+  const current = $('#tc-current');
+  if (current) current.textContent = formatTimecode(state.playheadSec);
+
+  const total = document.querySelector('.transport-total');
+  const mediaDuration = Number(player?.duration);
+  const duration = Number.isFinite(mediaDuration) && mediaDuration > 0
+    ? mediaDuration
+    : tlDurationSec;
+  if (total) total.textContent = ` / ${duration > 0 ? formatTimecode(duration) : '—'}`;
+
+  const play = $('#btn-play');
+  if (play) {
+    const playing = !!player && !player.paused && !player.ended;
+    play.replaceChildren(icon(playing ? 'pause' : 'play'));
+    play.title = playing ? 'Pause preview' : 'Play preview';
+    play.setAttribute('aria-label', play.title);
+  }
+}
+
 function updatePlayheadUi() {
   const label = $('#timeline-timecode-label');
   if (label) label.textContent = formatTimecode(state.playheadSec);
   const playhead = $('#timeline-playhead');
   if (playhead) playhead.style.left = `${secToPx(state.playheadSec)}px`;
+  updatePreviewTransport();
+}
+
+function seekPreviewBy(delta) {
+  const player = $('#preview-player');
+  const mediaTime = Number(player?.currentTime);
+  const current = Number.isFinite(mediaTime) ? mediaTime : (Number(state.playheadSec) || 0);
+  const mediaDuration = Number(player?.duration);
+  const duration = Number.isFinite(mediaDuration) && mediaDuration > 0
+    ? mediaDuration
+    : tlDurationSec;
+  const target = duration > 0
+    ? Math.max(0, Math.min(current + delta, duration))
+    : Math.max(0, current + delta);
+  state.playheadSec = target;
+  if (player) {
+    try { player.currentTime = target; } catch { /* ignore */ }
+  }
+  updatePlayheadUi();
+}
+
+function togglePreviewPlayback() {
+  const player = $('#preview-player');
+  if (!player) return;
+  if (player.paused) {
+    const pending = player.play();
+    if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+  } else {
+    player.pause();
+  }
+  updatePreviewTransport();
 }
 
 function seekToSec(sec) {
@@ -1798,7 +1930,7 @@ export function renderTimeline(timelineData, context = {}) {
     // Label
     const kindBadge = el('span', {
       class: `track-kind-badge ${track.kind ?? 'video'}`,
-    }, [track.kind === 'audio' ? '♪' : '▶']);
+    }, [icon(track.kind === 'audio' ? 'audio' : 'video')]);
     const labelRow = el('div', { class: 'timeline-track-label-row' }, [
       kindBadge,
       document.createTextNode(track.track_id ?? ''),
@@ -1818,7 +1950,7 @@ export function renderTimeline(timelineData, context = {}) {
       const clipEl = el('div', {
         class: `timeline-clip ${clipKind}`,
         style: `left:${left}px;width:${width}px`,
-        title: `${clip.clip_id ?? ''}\n${clip.asset_hash ?? ''}\n${clip.position_sec?.toFixed(2)}s → ${(clip.position_sec + clipDur).toFixed(2)}s`,
+        title: `${clip.clip_id ?? ''}\n${clip.asset_hash ?? ''}\n${clip.position_sec?.toFixed(2)}s -> ${(clip.position_sec + clipDur).toFixed(2)}s`,
       }, [hashShort]);
       trackRow.appendChild(clipEl);
     });

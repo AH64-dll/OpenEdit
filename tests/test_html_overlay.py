@@ -173,6 +173,22 @@ def test_one_overlay_produces_single_clip_div(tmp_path):
     assert html.count('class="clip"') == 1
 
 
+def test_timed_template_does_not_create_nested_hyperframes_clip(tmp_path):
+    template = tmp_path / "animated.html"
+    template.write_text(
+        '<div class="clip" id="inner" data-start="0" data-duration="2" '
+        'data-track-index="0">Animated</div>',
+        encoding="utf-8",
+    )
+    html = html_overlay.generate_composition_html(
+        _timeline([_overlay(template_path="animated.html")]),
+        tmp_path,
+        _render_spec(),
+    )
+    assert 'class="hyperframes-overlay-shell"' in html
+    assert html.count('class="clip"') == 1
+
+
 def test_overlay_data_attrs_match_op(tmp_path):
     """Test 5: clip div's data-start/data-duration/data-track-index
     match the HtmlOverlay op."""
@@ -256,16 +272,19 @@ def test_html_key_substitution_preserves_missing_keys(tmp_path):
     assert "{{title}}" in html  # not replaced
 
 
-def test_non_primitive_variable_raises_overlay_render_error(tmp_path):
-    """Test 11: dict/list variable raises OverlayRenderError (no JSON-blob support in v1.6)."""
+def test_non_primitive_variable_injects_json_payload(tmp_path):
+    """Test 11 (video-use merge): dict/list variables become a JSON payload."""
     template = tmp_path / "my.html"
     template.write_text("<div>{{data}}</div>")
     timeline = _timeline([_overlay(
         template_path="my.html",
         variables={"data": {"nested": "dict"}},
     )])
-    with pytest.raises(html_overlay.OverlayRenderError, match="non-primitive variable"):
-        html_overlay.generate_composition_html(timeline, tmp_path, _render_spec())
+    html = html_overlay.generate_composition_html(timeline, tmp_path, _render_spec())
+    assert "window.__open_edit_vars_overlay_" in html
+    assert '"nested": "dict"' in html
+    # the {{data}} placeholder stays literal; the payload carries the value
+    assert "{{data}}" in html
 
 
 def test_empty_variables_yields_unchanged_template(tmp_path):
@@ -1167,3 +1186,57 @@ def test_render_composited_preserves_bg_mp4_on_overlay_failure(tmp_path):
     # bg.mp4 must be preserved (bg_path is propagated for fallback).
     assert exc_info.value.bg_path == bg
     assert bg.exists(), f"bg.mp4 was unlinked despite bg_path fallback being set"
+
+
+# =========================================================================
+# Video-use merge: JSON variable payloads + caption_card template
+# =========================================================================
+
+
+def test_inline_variables_injects_json_payload_for_non_primitives():
+    from open_edit.render.html_overlay import _inline_variables
+
+    out = _inline_variables(
+        "<div>{{title}}</div>",
+        {"title": "Hi", "captions": ["a", "b"], "meta": {"x": 1}},
+        namespace="ov1",
+    )
+    assert "Hi" in out
+    assert "window.__open_edit_vars_ov1" in out
+    assert '"captions": ["a", "b"]' in out
+    assert '"meta": {"x": 1}' in out
+
+
+def test_inline_variables_json_unserializable_raises():
+    from open_edit.render.html_overlay import OverlayRenderError, _inline_variables
+
+    with pytest.raises(OverlayRenderError):
+        _inline_variables("<div>x</div>", {"bad": object()}, namespace="ov1")
+
+
+def test_generate_composition_html_caption_card_template(tmp_path):
+    from open_edit.render.html_overlay import generate_composition_html
+    from open_edit.ir.types import Timeline, HtmlOverlay
+
+    timeline = Timeline(
+        overlays=[
+            HtmlOverlay(
+                id="ov1",
+                template_path="caption_card.html",
+                variables={
+                    "kicker": "LAUNCH",
+                    "caption": "Ship it",
+                    "captions": ["one", "two"],
+                },
+                position_sec=0.0,
+                duration_sec=3.0,
+            )
+        ],
+        duration_sec=5.0,
+    )
+    html = generate_composition_html(
+        timeline, tmp_path, {"width": 1920, "height": 1080, "fps": 30, "duration_sec": 5.0}
+    )
+    assert "caption-card" in html
+    assert "window.__open_edit_vars_overlay_ov1" in html
+    assert '"captions": ["one", "two"]' in html

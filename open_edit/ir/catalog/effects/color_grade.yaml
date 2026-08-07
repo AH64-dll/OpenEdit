@@ -1,0 +1,25 @@
+name: color_grade
+mlt_service: avfilter.eq
+target_kind: [clip]
+params:
+  contrast:
+    type: float
+    default: 1.0
+    range: [0.5, 1.5]
+    property: av.contrast
+    description: "Contrast multiplier. 1.0 is unchanged; bounds are conservative (video-use auto-grade clamps to [0.94, 1.08])."
+  gamma:
+    type: float
+    default: 1.0
+    range: [0.5, 1.5]
+    property: av.gamma
+    description: "Gamma correction. 1.0 is unchanged; >1.0 lifts midtones, <1.0 darkens."
+  saturation:
+    type: float
+    default: 1.0
+    range: [0.5, 1.5]
+    property: av.saturation
+    description: "Saturation multiplier. 1.0 is unchanged."
+keyframe_params: [contrast, gamma, saturation]
+interp: [linear, discrete]
+description: "Per-clip color grade via ffmpeg eq (MLT avfilter.eq). Compute params with the auto_color_grade operation (signalstats analysis) or set explicitly."

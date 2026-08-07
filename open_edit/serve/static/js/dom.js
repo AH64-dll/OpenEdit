@@ -30,6 +30,42 @@ export function el(tag, props = {}, children = []) {
   return node;
 }
 
+// One restrained icon vocabulary keeps generated controls crisp and aligned.
+// Icons are DOM nodes (not glyphs) so they inherit the button's color and
+// remain legible across themes, zoom levels, and platform font stacks.
+const ICON_PATHS = {
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-14.9-4L3 10m0 0h6M4 13a8 8 0 0 0 14.9 4L21 14m0 0h-6"/>',
+  film: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 5 2 3m4-3 2 3m-8 8 2 3m4-3 2 3M3 10h18M3 14h18"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/>',
+  settings: '<path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19.4 15 .1.1a1.4 1.4 0 0 1-2 2l-.1-.1a1.5 1.5 0 0 0-2.5 1v.2a1.4 1.4 0 0 1-2.8 0V18a1.5 1.5 0 0 0-2.5-1l-.1.1a1.4 1.4 0 0 1-2-2l.1-.1a1.5 1.5 0 0 0-1-2.5h-.2a1.4 1.4 0 0 1 0-2.8h.2a1.5 1.5 0 0 0 1-2.5l-.1-.1a1.4 1.4 0 0 1 2-2l.1.1a1.5 1.5 0 0 0 2.5-1v-.2a1.4 1.4 0 0 1 2.8 0v.2a1.5 1.5 0 0 0 2.5 1l.1-.1a1.4 1.4 0 0 1 2 2l-.1.1a1.5 1.5 0 0 0 1 2.5h.2a1.4 1.4 0 0 1 0 2.8h-.2a1.5 1.5 0 0 0-1 2.5Z"/>',
+  sun: '<circle cx="12" cy="12" r="3.5"/><path d="M12 2v2.2M12 19.8V22M4.9 4.9l1.6 1.6m10.9 10.9 1.6 1.6M2 12h2.2M19.8 12H22M4.9 19.1l1.6-1.6M17.4 6.5l1.6-1.6"/>',
+  moon: '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/>',
+  upload: '<path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4h14v-4"/>',
+  trash: '<path d="M4 7h16m-10 4v6m4-6v6M9 7V4h6v3m-9 0 1 13h10l1-13"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  play: '<path d="m9 6 9 6-9 6z"/>',
+  pause: '<path d="M8 6v12M16 6v12"/>',
+  audio: '<path d="M5 9v6h3l4 3V6L8 9H5Zm11 0a4 4 0 0 1 0 6m2-8a7 7 0 0 1 0 10"/>',
+  monitor: '<rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8m-4-3v3"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 17 5-5 3 3 2-2 6 6"/>',
+  file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 13h6m-6 4h6"/>',
+  hourglass: '<path d="M7 3h10M7 21h10M8 3c0 4 4 4.5 4 6s-4 2-4 6h8c0-4-4-4.5-4-6s4-2 4-6"/>',
+  enter: '<path d="m9 10-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
+};
+
+export function icon(name, className = 'icon-svg') {
+  const svg = el('svg', {
+    class: className,
+    viewBox: '0 0 24 24',
+    'aria-hidden': 'true',
+    focusable: 'false',
+  });
+  svg.innerHTML = `<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name] || ICON_PATHS.monitor}</g>`;
+  return svg;
+}
+
 export function showToast(message, kind = '') {
   const t = $('#toast');
   if (!t) return;
@@ -56,9 +92,15 @@ export function fmtDuration(s) {
 export function fmtTime(iso) {
   if (!iso) return '';
   try {
-    const d = new Date(iso);
+    // Accept epoch SECONDS (render/note timestamps) or ISO strings.
+    let value = iso;
+    if (typeof value === 'number' || /^\d{9,10}(\.\d+)?$/.test(String(value).trim())) {
+      value = Number(value) * 1000;
+    }
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(iso);
     return d.toLocaleString();
-  } catch { return iso; }
+  } catch { return String(iso); }
 }
 
 export function showModal(id) {

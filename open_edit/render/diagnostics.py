@@ -14,6 +14,7 @@ CANONICAL_STAGE_NAMES: tuple[str, ...] = (
     "derive_timeline",
     "render_cache_lookup",
     "remotion_materialize",
+    "hyperframes_materialize",
     "build_render_plan",
     "emit_mlt",
     "melt_audio",

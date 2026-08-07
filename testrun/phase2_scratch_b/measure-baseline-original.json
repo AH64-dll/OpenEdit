@@ -1,0 +1,107 @@
+{
+  "label": "baseline-original",
+  "backend": "cpu",
+  "asset_hash": "508d5bd374445f8722b6535b596c3c677174b5b2c2863f8d1c1433024cad5b3c",
+  "clip": "/home/amr/apps/mlt-pipeline/testrun/media/take1_intro.mp4",
+  "clip_bytes": 7869701,
+  "render_elapsed_wall": 3.443,
+  "ok": true,
+  "error": null,
+  "output_path": "/home/amr/apps/mlt-pipeline/testrun/phase2_scratch_b/render-baseline-original/project_90ae5f24848c.mp4",
+  "output_bytes": 558976,
+  "diagnostics": {
+    "elapsed_sec": 2.6893619830007083,
+    "pipe_elapsed_sec": 2.689221816995996,
+    "emission_profile": "review-artifact",
+    "source_media_policy": "original",
+    "source_proxy_hits": {},
+    "source_proxy_fallbacks": {},
+    "decode_backend": "cpu",
+    "stages": {
+      "derive_timeline": {
+        "elapsed_sec": 0.007083349999447819,
+        "status": "completed",
+        "bytes": null,
+        "returncode": null
+      },
+      "render_cache_lookup": {
+        "elapsed_sec": 0.6774231250019511,
+        "status": "completed",
+        "bytes": null,
+        "returncode": null
+      },
+      "hyperframes_materialize": {
+        "elapsed_sec": 0.0,
+        "status": "skipped",
+        "bytes": null,
+        "returncode": null
+      },
+      "build_render_plan": {
+        "elapsed_sec": 0.00011355600145179778,
+        "status": "completed",
+        "bytes": null,
+        "returncode": null
+      },
+      "remotion_materialize": {
+        "elapsed_sec": 8.575996616855264e-06,
+        "status": "completed",
+        "bytes": 0,
+        "returncode": null
+      },
+      "emit_mlt": {
+        "elapsed_sec": 0.00020226500055287033,
+        "status": "completed",
+        "bytes": 1047,
+        "returncode": null
+      },
+      "source_repair": {
+        "elapsed_sec": 3.38039972120896e-05,
+        "status": "completed",
+        "bytes": null,
+        "returncode": null
+      },
+      "melt_audio": {
+        "elapsed_sec": 0.3043789579969598,
+        "status": "completed",
+        "bytes": 1868878,
+        "returncode": 0
+      },
+      "melt_video": {
+        "elapsed_sec": 1.2029995559714735e-06,
+        "status": "completed",
+        "bytes": 1047,
+        "returncode": 0
+      },
+      "ffmpeg_encode": {
+        "elapsed_sec": 2.3841491889979807,
+        "status": "completed",
+        "bytes": 558976,
+        "returncode": 0
+      },
+      "qc": {
+        "elapsed_sec": 0.0,
+        "status": "skipped",
+        "bytes": null,
+        "returncode": null
+      },
+      "melt": {
+        "elapsed_sec": 1.2029995559714735e-06,
+        "status": "completed",
+        "bytes": 1047,
+        "returncode": 0
+      },
+      "ffmpeg": {
+        "elapsed_sec": 2.3841491889979807,
+        "status": "completed",
+        "bytes": 558976,
+        "returncode": 0
+      },
+      "audio": {
+        "elapsed_sec": 0.3043789579969598,
+        "status": "completed",
+        "bytes": 1868878,
+        "returncode": 0
+      }
+    }
+  }
+}

@@ -1,6 +1,9 @@
 """Per-asset low-resolution source-proxy generation."""
 from __future__ import annotations
 
+import logging
+import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -9,6 +12,8 @@ from pathlib import Path
 
 from open_edit.ir.types import SourceProxyStatus
 from open_edit.storage.assets import AssetStore
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,87 @@ DEFAULT_SOURCE_PROXY_PROFILE = SourceProxyProfile(
     version=1,
 )
 
+# Cache for the one-time NVENC probe (module-global, like cuda_fastpath's
+# ``_cuda_probe_ok`` and encoder.py's probes). Guarded by the GIL; a raced
+# double-probe is harmless (same result, same cost as one extra probe).
+_NVENC_PROBE_OK: bool | None = None
+
+
+def source_proxy_gpu_enabled() -> bool:
+    """Whether source-proxy generation may use a GPU encoder.
+
+    Default **on** (probe decides availability). Set
+    ``OPEN_EDIT_SOURCE_PROXY_GPU=0`` (or ``false``/``no``/``off``) to force
+    the CPU libx264 path.
+    """
+    raw = os.environ.get("OPEN_EDIT_SOURCE_PROXY_GPU")
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _probe_nvenc() -> bool:
+    """True if ffmpeg can encode one frame with ``h264_nvenc`` (probed once).
+
+    Mirrors ``encoder._probe_encoder``: a real 256x256 lavfi frame with the
+    exact flag spellings the proxy command uses, so the probe result matches
+    what the real encode will do.
+    """
+    global _NVENC_PROBE_OK
+    if _NVENC_PROBE_OK is not None:
+        return _NVENC_PROBE_OK
+    if not source_proxy_gpu_enabled():
+        _NVENC_PROBE_OK = False
+        return False
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        _NVENC_PROBE_OK = False
+        return False
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.04",
+        "-frames:v", "1", "-c:v", "h264_nvenc",
+        "-preset", "p4", "-rc", "constqp", "-cq", "23",
+        "-profile:v", "high", "-f", "null", "-",
+    ]
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        _NVENC_PROBE_OK = False
+        return False
+    _NVENC_PROBE_OK = proc.returncode == 0
+    return _NVENC_PROBE_OK
+
+
+def _resolve_encoder(profile: SourceProxyProfile) -> tuple[str, list[str]]:
+    """Pick the actual ffmpeg encoder for a profile.
+
+    The libx264 profile is transparently upgraded to ``h264_nvenc`` when a
+    GPU encoder is available (probed once) and not disabled via
+    ``OPEN_EDIT_SOURCE_PROXY_GPU=0``. The profile contract (name, fingerprint,
+    sidecar ``proxy_profile``) is unchanged — GPU is an execution detail.
+    NVENC does not accept ``-crf``, so the profile's crf maps to constant-QP
+    (``-rc constqp -cq``), the same mapping render/encoder.py uses.
+
+    Returns ``(vcodec, ffmpeg flags that follow ``-c:v``)``.
+    """
+    # The env gate is authoritative (a cached probe result must not outlive
+    # an operator flipping OPEN_EDIT_SOURCE_PROXY_GPU=0 in the same process).
+    if profile.vcodec == "libx264" and source_proxy_gpu_enabled() and _probe_nvenc():
+        return (
+            "h264_nvenc",
+            [
+                "-preset", "p4",
+                "-rc", "constqp",
+                "-cq", str(profile.crf),
+                "-profile:v", "high",
+            ],
+        )
+    return (
+        profile.vcodec,
+        ["-preset", profile.preset, "-crf", str(profile.crf)],
+    )
+
 
 @dataclass(frozen=True)
 class SourceProxyResult:
@@ -51,6 +137,9 @@ class SourceProxyResult:
     output_path: str | None
     elapsed_sec: float
     error: str | None = None
+    # Actual ffmpeg video encoder used (e.g. "h264_nvenc" or "libx264").
+    # None when no encode ran (reuse / not_needed / failed before encode).
+    encoder: str | None = None
 
 
 def _elapsed(started: float) -> float:
@@ -192,6 +281,7 @@ def generate_asset_proxy(
         ) as handle:
             temp_output = Path(handle.name)
 
+        vcodec, codec_flags = _resolve_encoder(profile)
         command = [
             "ffmpeg",
             "-y",
@@ -208,11 +298,8 @@ def generate_asset_proxy(
             f"scale=w='if(gt(ih,{profile.height}),-2,iw)':"
             f"h='min(ih,{profile.height})'",
             "-c:v",
-            profile.vcodec,
-            "-preset",
-            profile.preset,
-            "-crf",
-            str(profile.crf),
+            vcodec,
+            *codec_flags,
             "-pix_fmt",
             "yuv420p",
             "-c:a",
@@ -223,6 +310,11 @@ def generate_asset_proxy(
             "+faststart",
             str(temp_output),
         ]
+        if vcodec != profile.vcodec:
+            log.info(
+                "source proxy %s: using GPU encoder %s (profile %s)",
+                asset_hash[:12], vcodec, profile.name,
+            )
         completed = subprocess.run(
             command,
             capture_output=True,
@@ -256,6 +348,7 @@ def generate_asset_proxy(
             status="ready",
             output_path=str(proxy_path),
             elapsed_sec=_elapsed(started),
+            encoder=vcodec,
         )
     except subprocess.TimeoutExpired as exc:
         detail = _text(exc.stderr) or _text(exc.stdout)

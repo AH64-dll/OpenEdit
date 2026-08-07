@@ -604,8 +604,18 @@ class RenderJobService:
             await self._terminate_process_group(proc)
             raise
         if proc.returncode != 0:
-            raise RuntimeError(stderr.decode("utf-8", errors="replace").strip() or
-                               f"renderer exited {proc.returncode}")
+            stdout_text = stdout.decode("utf-8", errors="replace").strip()
+            stderr_text = stderr.decode("utf-8", errors="replace").strip()
+            try:
+                failed_result = json.loads(stdout_text)
+            except json.JSONDecodeError:
+                failed_result = {}
+            raise RuntimeError(
+                failed_result.get("error")
+                or stderr_text
+                or stdout_text
+                or f"renderer exited {proc.returncode}"
+            )
         try:
             result = json.loads(stdout.decode("utf-8"))
         except json.JSONDecodeError as exc:

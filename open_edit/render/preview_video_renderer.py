@@ -10,6 +10,7 @@ from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.encoder import EncoderSpec
 from open_edit.render.frame_engine import PreviewVideoRequest
 from open_edit.render.materialize import materialize_remotion_compositions
+from open_edit.render.hyperframes import materialize_hyperframes_overlays
 from open_edit.render.pipe_builder import OverlayClip
 from open_edit.render.preview_pipe import build_preview_pipe_commands
 from open_edit.render.profiles import RenderProfile, resolve_encoder_args
@@ -70,6 +71,15 @@ class HostPreviewVideoRenderer:
                 ),
             )
 
+        hyperframes_result = materialize_hyperframes_overlays(
+            timeline,
+            self.project_path,
+            mode="proxy",
+            width=profile.width,
+            height=profile.height,
+            fps=profile.frame_rate_num / max(profile.frame_rate_den, 1),
+        )
+
         store = AssetStore(self.project_path / ".open_edit" / "assets")
         plan = build_render_plan(
             timeline,
@@ -87,6 +97,7 @@ class HostPreviewVideoRenderer:
                 plan.melt_timeline,
                 EmitterConfig(profile=profile.model_dump()),
                 asset_paths=plan.asset_paths,
+                hwaccel=True,
             ),
             encoding="utf-8",
         )
@@ -95,6 +106,15 @@ class HostPreviewVideoRenderer:
             for overlay in plan.overlay_clips
             if isinstance(overlay, OverlayClip)
         ]
+        if hyperframes_result is not None:
+            overlays.append(OverlayClip(
+                position_sec=0.0,
+                duration_sec=timeline.duration_sec,
+                media_path=hyperframes_result.output_path,
+                label="hyperframes",
+                alpha=True,
+            ))
+            overlays.sort(key=lambda overlay: overlay.position_sec)
 
         crop_head = int(request["core_start_frame"]) - int(
             request["render_start_frame"]

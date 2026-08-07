@@ -27,7 +27,9 @@ EXPECTED_TOOL_NAMES = {
     "generate_remotion_composition",
     "generate_visual_for_segment",
     "get_pending_notes",
+    "get_silence_gaps",
     "get_style_profile",
+    "get_timeline_view",
     "get_transcript_packed",
     "import_asset",
     "ingest_local",
@@ -42,12 +44,14 @@ EXPECTED_TOOL_NAMES = {
     "set_pinned_value",
     "write_remotion_composition",
     "add_clip",
+    "add_hyperframes_overlay",
     "trim_clip",
     "replace_clip_source",
     "change_clip_speed",
     "remove_clip",
     "set_audio_gain",
     "apply_silence_gaps",
+    "auto_color_grade",
 }
 
 
@@ -342,6 +346,20 @@ def test_every_tool_table_callable_has_functional_invocation(
         )
         assert result["clip_id"]
 
+    elif name == "add_hyperframes_overlay":
+        template = project / "title.html"
+        template.write_text("<div>title</div>", encoding="utf-8")
+        _graph(project)
+        result = fn(
+            {
+                "template_path": "title.html",
+                "position_sec": 0.0,
+                "duration_sec": 2.0,
+            },
+            str(project),
+        )
+        assert result["engine"] == "hyperframes"
+
     elif name == "add_clip":
         _graph(project)
         result = fn(
@@ -349,6 +367,17 @@ def test_every_tool_table_callable_has_functional_invocation(
             str(project),
         )
         assert result["clip_id"]
+
+    elif name == "auto_color_grade":
+        # graph exists but no clips -> structured error, wrapper callable
+        _graph(project)
+        result = fn({"preset": "auto"}, str(project))
+        assert result["status"] == "error"
+
+    elif name in {"get_silence_gaps", "get_timeline_view"}:
+        # missing asset -> structured error, wrapper callable
+        result = fn({"asset_hash": "missing"}, str(project))
+        assert result["status"] == "error"
 
     elif name in {
         "trim_clip",
@@ -390,4 +419,8 @@ def test_every_tool_table_callable_has_functional_invocation(
     else:  # pragma: no cover - the exact registry assertion guards this
         pytest.fail(f"no functional invocation case for {name}")
 
-    assert result["status"] == ("error" if name == "import_asset" else "ok"), result
+    assert result["status"] == (
+        "error"
+        if name in ("import_asset", "auto_color_grade", "get_silence_gaps", "get_timeline_view")
+        else "ok"
+    ), result

@@ -18,6 +18,7 @@ SKILL_FILES: dict[str, str] = {
     "tool_surface": "tool_surface.md",
     "edit-planning": "edit-planning.md",
     "remotion_motion": "remotion_motion.md",
+    "hyperframes_native": "hyperframes_native.md",
     "qc-standards": "qc-standards.md",
     "freeform_and_effects": "freeform_and_effects.md",
     "style-memory": "style-memory.md",
@@ -31,6 +32,7 @@ MCP_SKILL_STEMS: tuple[str, ...] = (
     "tool_surface",
     "edit-planning",
     "remotion_motion",
+    "hyperframes_native",
     "style-memory",
 )
 

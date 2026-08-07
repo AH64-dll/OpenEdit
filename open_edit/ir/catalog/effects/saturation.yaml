@@ -1,11 +1,13 @@
 name: saturation
-mlt_service: saturation
+mlt_service: avfilter.eq
 target_kind: [clip]
 params:
   value:
     type: float
     default: 1.0
     range: [0.0, 2.0]
+    property: av.saturation
+    description: "Saturation multiplier via ffmpeg eq (MLT avfilter.eq). value=1.0 is unchanged."
 keyframe_params: [value]
 interp: [linear, discrete]
-description: "Saturation adjustment. value=1.0 is unchanged."
+description: "Saturation adjustment (ffmpeg eq saturation). value=1.0 is unchanged; <1.0 desaturates, >1.0 saturates."

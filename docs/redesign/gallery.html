@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>OpenEdit — Style Gallery</title>
+<style>
+body { font-family: system-ui, sans-serif; background: #0e1219; color: #dce4ec; margin: 24px; }
+h1 { font-size: 22px; } h2 { font-size: 15px; margin: 28px 0 8px; color: #8aa; }
+.g { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 20px; }
+.c { background: #131920; border: 1px solid #1e2a38; border-radius: 12px; padding: 12px; }
+.c img { width: 100%; border-radius: 8px; border: 1px solid #1e2a38; }
+.c .name { font-weight: 600; margin-top: 8px; }
+.c .desc { color: #637085; font-size: 12.5px; margin-top: 4px; }
+.note { color: #637085; font-size: 13px; margin-top: 16px; max-width: 900px; line-height: 1.5; }
+</style></head><body>
+<h1>OpenEdit Review Studio — design system gallery</h1>
+<div class="g">
+  <div class="c"><img src="shot_linear-app.png"><div class="name">linear-app (CURRENT v1)</div>
+    <div class="desc">Ultra-minimal, precise, purple accent. Shipped + verified live.</div></div>
+  <div class="c"><img src="shot_raycast.png"><div class="name">raycast</div>
+    <div class="desc">macOS command-palette precision. Near-black blue-tinted, red accent, Inter + positive letter-spacing.</div></div>
+  <div class="c"><img src="shot_arc.png"><div class="name">arc</div>
+    <div class="desc">Frosted glass over peach-coral gradient. Warm, squircle-soft, editorial serif display.</div></div>
+  <div class="c"><img src="shot_shadcn.png"><div class="name">shadcn</div>
+    <div class="desc">Calm zinc/slate neutrals, near-black primary, 8px radius. The extensible baseline.</div></div>
+  <div class="c"><img src="shot_dashboard.png"><div class="name">dashboard</div>
+    <div class="desc">Analytics console: cool surfaces, sky-blue accent, compact status-first cards.</div></div>
+</div>
+<p class="note">Mocks show the OpenEdit studio shell (topbar, assets panel, preview, chat, timeline) rendered with each design system's real tokens.css.
+Linear-app is a live screenshot of the actual app; the other four are token-faithful previews. Pick one (or something else) and I'll ship it as v2.</p>
+</body></html>

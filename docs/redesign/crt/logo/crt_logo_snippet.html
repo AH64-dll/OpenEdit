@@ -1,0 +1,65 @@
+<!-- ============================================================
+  CRT LOGO — OpenEdit · drop-in replacement for the logo region
+  -----------------------------------------------------------------
+  REPLACE this block in open_edit/serve/static/index.html:
+
+      <span class="logo" data-od-id="logo">
+        <span class="logo-badge"></span> Open&nbsp;Edit
+      </span>
+
+  with the <span class="logo" data-od-id="logo"> block below, and add
+  to the <head> AFTER style.css:
+
+      <link rel="stylesheet" href="/crt_logo.css">
+
+  (crt_logo.css lives in docs/redesign/crt/logo/ — copy it into
+   open_edit/serve/static/ as crt_logo.css)
+
+  CONTRACT PRESERVED
+    · .logo class + data-od-id="logo"   (the 82-element id set, unchanged)
+    · .logo-badge class kept (extended with .crt-logo — app CSS falls
+      back to the old chip if .crt-logo is ever removed)
+    · wordmark text "Open&nbsp;Edit" unchanged
+    · zero JS dependencies: app.js and js/*.js never query the logo
+    · no external images/fonts — pure inline SVG + CSS
+    · dark-first; [data-theme="light"] overrides via CSS variables
+    · default badge 26px; tune with --crt-size on .logo (keep it square —
+      the scanline/vignette overlays are %-positioned to the O-ring)
+  ============================================================ -->
+<span class="logo" data-od-id="logo">
+  <!-- CRT television whose SCREEN is the letter "O" (phosphor ring).
+       TV body/knobs/stand = inline SVG; scanlines + curvature vignette
+       + flicker/jitter = CSS layers (see crt_logo.css). -->
+  <span class="logo-badge crt-logo" role="img" aria-label="Open Edit — CRT television logo">
+    <svg class="crt-logo-svg" viewBox="0 0 28 28" aria-hidden="true" focusable="false">
+      <!-- stand: two angled legs + foot bar -->
+      <path class="crt-leg" d="M9.4 22.3 L10.6 25.3"/>
+      <path class="crt-leg" d="M14.6 22.3 L13.4 25.3"/>
+      <path class="crt-leg" d="M10.6 25.3 L13.4 25.3"/>
+      <!-- TV body (bezel) -->
+      <rect class="crt-body" x="2.5" y="2.75" width="21.5" height="19.5" rx="3.75"/>
+      <!-- screen group: glass disc, phosphor wash, glow halo, O-ring, sheen -->
+      <g class="crt-screen">
+        <circle class="crt-glass"    cx="11.1" cy="11.9" r="5.45"/>
+        <circle class="crt-wash"     cx="11.1" cy="11.9" r="5.45"/>
+        <circle class="crt-glowring" cx="11.1" cy="11.9" r="6.6"/>
+        <circle class="crt-ring"     cx="11.1" cy="11.9" r="6.6"/>
+        <circle class="crt-sheen"    cx="11.1" cy="11.9" r="6.6" transform="rotate(-38 11.1 11.9)"/>
+      </g>
+      <!-- controls: channel + volume knobs, power LED -->
+      <g class="crt-knobs">
+        <circle class="crt-knob"     cx="20.5" cy="8.6"  r="1.5"/>
+        <circle class="crt-knob-dot" cx="20.5" cy="8.6"  r="0.6"/>
+        <circle class="crt-knob"     cx="20.5" cy="12.4" r="1.1"/>
+        <circle class="crt-knob-dot" cx="20.5" cy="12.4" r="0.45"/>
+      </g>
+      <circle class="crt-led-glow" cx="20.5" cy="16.9" r="1.35"/>
+      <circle class="crt-led"      cx="20.5" cy="16.9" r="0.65"/>
+    </svg>
+    <!-- CSS scanlines (repeating-linear-gradient), clipped to the screen -->
+    <span class="crt-logo-scanlines" aria-hidden="true"></span>
+    <!-- CSS curvature vignette (radial-gradient), clipped to the screen -->
+    <span class="crt-logo-vignette" aria-hidden="true"></span>
+  </span>
+  Open&nbsp;Edit
+</span>

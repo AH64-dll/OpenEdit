@@ -5,14 +5,14 @@
    mapping is used everywhere; this module just consumes it.
    ============================================================ */
 
-import { $, el, fmtDuration, showModal } from './dom.js';
+import { $, el, icon as makeIcon, fmtDuration, showModal } from './dom.js';
 
 export function assetIcon(a) {
   const fn = (a.filename || '').toLowerCase();
-  if (/\.(mp4|mov|avi|mkv|webm)$/.test(fn)) return '🎬';
-  if (/\.(mp3|wav|aac|flac|m4a)$/.test(fn)) return '🎵';
-  if (/\.(png|jpg|jpeg|gif|webp|bmp)$/.test(fn)) return '🖼️';
-  return '📄';
+  if (/\.(mp4|mov|avi|mkv|webm)$/.test(fn)) return 'video';
+  if (/\.(mp3|wav|aac|flac|m4a)$/.test(fn)) return 'audio';
+  if (/\.(png|jpg|jpeg|gif|webp|bmp)$/.test(fn)) return 'image';
+  return 'file';
 }
 
 export function renderAssets(assets, { onAddToTimeline } = {}) {
@@ -35,7 +35,7 @@ export function renderAssets(assets, { onAddToTimeline } = {}) {
       if (typeof onAddToTimeline === 'function') onAddToTimeline(a);
     });
     const card = el('div', { class: 'asset-card' }, [
-      el('div', { class: 'asset-icon' }, [icon]),
+      el('div', { class: 'asset-icon' }, [makeIcon(icon)]),
       el('div', { class: 'asset-meta' }, [
         el('div', { class: 'asset-filename' }, [a.filename]),
         el('div', { class: 'asset-sub' }, [

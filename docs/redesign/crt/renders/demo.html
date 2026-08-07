@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Renders panel — v1 vs CRT redesign (demo)</title>
+<link rel="stylesheet" href="renders_panel.css">
+<style>
+  /* ===== base palette copied verbatim from open_edit/serve/static/style.css ===== */
+  :root {
+  color-scheme: dark;
+
+  /* ---- Depth layers (deep → elevated → surface) ----
+     Linear luminance stepping: 0.08 → 0.0f → 0.19 → 0.23 */
+  --bg-deep:      #08090a;
+  --bg:           #0f1011;
+  --bg-elev:      #141517;
+  --bg-elev-2:    #191a1b;
+  --bg-surface:   #232326;
+
+  /* ---- Borders (semi-transparent white, never opaque) ---- */
+  --border:        rgba(255, 255, 255, 0.08);
+  --border-hover:  rgba(255, 255, 255, 0.15);
+  --border-focus:  rgba(113, 112, 255, 0.5);
+
+  /* ---- Text ---- */
+  --text:          #f7f8f8;
+  --text-primary:  #f7f8f8;
+  --text-muted:    #d0d6e0;
+  --text-dim:      #8a8f98;
+
+  /* ---- Accent (desaturated indigo-violet) ---- */
+  --accent:        #5e6ad2;
+  --accent-hover:  #828fff;
+  --accent-dim:    rgba(113, 112, 255, 0.10);
+  --accent-glow:   rgba(113, 112, 255, 0.06);
+
+  /* ---- Semantic ---- */
+  --green:         #27a644;
+  --green-dim:     rgba(39, 166, 68, 0.10);
+  --yellow:        #eab308;
+  --yellow-dim:    rgba(234, 179, 8, 0.08);
+  --warn:          #eab308;
+  --red:           #dc2626;
+  --red-dim:       rgba(220, 38, 38, 0.10);
+
+  /* ---- Chat bubbles ---- */
+  --user-bubble:   rgba(113, 112, 255, 0.10);
+  --user-border:   rgba(113, 112, 255, 0.28);
+  --bot-bubble:    rgba(255, 255, 255, 0.04);
+  --bot-border:    rgba(255, 255, 255, 0.09);
+  --tool-bubble:   rgba(234, 179, 8, 0.05);
+  --tool-border:   rgba(234, 179, 8, 0.20);
+
+  /* ---- Radii ---- */
+  --radius:        6px;
+  --radius-lg:     8px;
+  --radius-xl:     12px;
+
+  /* ---- Layout ---- */
+  --topbar-h:      44px;
+  --sidebar-w:     260px;
+
+  /* ---- Motion ---- */
+  --transition:      150ms cubic-bezier(0.2, 0, 0, 1);
+  --transition-slow: 200ms cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- Font stacks (kept from the app; JetBrains Mono for timecodes) ---- */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ---- Elevation + focus (Linear multi-layer stacks) ---- */
+  --shadow-card:  rgba(0, 0, 0, 0.25) 0px 1px 2px, 0 0 0 1px var(--border);
+  --shadow-modal:
+    rgba(0, 0, 0, 0) 0px 8px 2px,
+    rgba(0, 0, 0, 0.01) 0px 5px 2px,
+    rgba(0, 0, 0, 0.04) 0px 3px 2px,
+    rgba(0, 0, 0, 0.07) 0px 1px 1px,
+    rgba(0, 0, 0, 0.08) 0px 0px 1px,
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  --focus-ring: 0 0 0 2px var(--accent-dim), 0 0 0 1px var(--accent);
+}
+  [data-theme="light"] {
+  color-scheme: light;
+
+  --bg-deep:      #f5f6f7;
+  --bg:           #f7f8f8;
+  --bg-elev:      #ffffff;
+  --bg-elev-2:    #ffffff;
+  --bg-surface:   #ebedf0;
+
+  --border:        rgba(16, 17, 20, 0.12);
+  --border-hover:  rgba(16, 17, 20, 0.22);
+  --border-focus:  rgba(94, 106, 210, 0.5);
+
+  --text:          #1a1b1e;
+  --text-primary:  #1a1b1e;
+  --text-muted:    #3f4248;
+  --text-dim:      #6f737b;
+
+  --accent:        #5e6ad2;
+  --accent-hover:  #4752c4;
+  --accent-dim:    rgba(94, 106, 210, 0.10);
+  --accent-glow:   rgba(94, 106, 210, 0.05);
+
+  --green:         #15803d;
+  --green-dim:     rgba(21, 128, 61, 0.08);
+  --yellow:        #a16207;
+  --yellow-dim:    rgba(161, 98, 7, 0.07);
+  --warn:          #a16207;
+  --red:           #dc2626;
+  --red-dim:       rgba(220, 38, 38, 0.07);
+
+  --user-bubble:   rgba(94, 106, 210, 0.08);
+  --user-border:   rgba(94, 106, 210, 0.22);
+  --bot-bubble:    rgba(16, 17, 20, 0.04);
+  --bot-border:    rgba(16, 17, 20, 0.08);
+  --tool-bubble:   rgba(161, 98, 7, 0.06);
+  --tool-border:   rgba(161, 98, 7, 0.18);
+
+  --shadow-card:  rgba(16, 17, 20, 0.06) 0px 1px 3px, 0 0 0 1px var(--border);
+  --shadow-modal:
+    rgba(16, 17, 20, 0.04) 0px 2px 2px,
+    rgba(16, 17, 20, 0.06) 0px 6px 12px,
+    rgba(16, 17, 20, 0.08) 0px 18px 40px;
+}
+
+  /* ===== demo chrome (not part of the app) ===== */
+  * { box-sizing: border-box; }
+  body { background: #060708; margin: 0; padding: 28px 24px 40px; font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif; color: #d7dbe3; }
+  h1 { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 15px; letter-spacing: .08em; color: #3dffa2; margin: 0 0 4px; text-transform: uppercase; }
+  .sub { font-size: 12px; color: #8a8f98; margin: 0 0 18px; max-width: 1100px; line-height: 1.6; }
+  .sub code { color: #3fd9f0; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  #theme-toggle { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.04); color: #d7dbe3; cursor: pointer; }
+  #theme-toggle:hover { border-color: #3dffa2; color: #3dffa2; }
+  .compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; max-width: 900px; }
+  .col { min-width: 0; }
+  .col h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .appwin { min-width: 0; }
+  @media (max-width: 900px) { .compare { grid-template-columns: 1fr; } }
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .col h2 { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; margin: 0; padding: 6px 10px; border-radius: 6px 6px 0 0; }
+  .col.old h2 { color: #ff8a8a; background: rgba(255,93,93,.08); border: 1px solid rgba(255,93,93,.25); border-bottom: none; }
+  .col.new h2 { color: #3dffa2; background: rgba(61,255,162,.07); border: 1px solid rgba(61,255,162,.28); border-bottom: none; }
+  .col.old h2::after { content: "  (style.css rules, unmodified)"; font-size: 9.5px; color: #8a8f98; text-transform: none; letter-spacing: 0; }
+  .col.new h2::after { content: "  (style.css + renders_panel.css)"; font-size: 9.5px; color: #8a8f98; text-transform: none; letter-spacing: 0; }
+
+  /* ===== app window frame ===== */
+  .appwin { background: var(--bg); border: 1px solid var(--border); border-radius: 0 8px 8px 8px; overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .appwin .titlebar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; letter-spacing: .05em; }
+  .appwin .titlebar i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .appwin .titlebar i:nth-child(1) { background: #ff5d5d; } .appwin .titlebar i:nth-child(2) { background: #ffc857; } .appwin .titlebar i:nth-child(3) { background: #3dffa2; }
+  .appwin .panel { height: 640px; width: 380px; margin: 0 auto; }
+
+  /* ===== caption under each window ===== */
+  .legend { font-size: 10.5px; color: #8a8f98; line-height: 1.65; padding: 0 4px; }
+  .legend b { color: #3dffa2; font-weight: 600; }
+  .legend s { color: #ff8a8a; }
+
+  /* old-side faithful rules extracted from style.css (see build_demo.py) */
+  .muted {
+ color: var(--text-muted); 
+}
+.small {
+ font-size: 11.5px; 
+}
+/* ---- SVG icon helper ---- */
+.icon-svg {
+
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  fill: currentColor;
+  flex-shrink: 0;
+
+}
+/* ---------- Buttons ---------- */
+.btn {
+
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition),
+              color var(--transition), box-shadow var(--transition);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+
+}
+.btn:hover {
+
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-hover);
+  color: var(--text);
+
+}
+.btn:active {
+ transform: scale(0.98); 
+}
+.btn:disabled {
+ opacity: 0.35; cursor: not-allowed; pointer-events: none; 
+}
+.btn:focus-visible {
+ outline: none; box-shadow: var(--focus-ring); 
+}
+[data-theme="light"] .btn {
+ background: rgba(16, 17, 20, 0.03); 
+}
+[data-theme="light"] .btn:hover {
+ background: rgba(16, 17, 20, 0.06); 
+}
+.btn-primary {
+
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
+
+}
+.btn-primary:hover {
+
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+  box-shadow: 0 2px 14px var(--accent-dim);
+
+}
+[data-theme="light"] .btn-primary {
+ color: #fff; 
+}
+[data-theme="light"] .btn-primary:hover {
+ color: #fff; 
+}
+.btn-secondary {
+
+  background: transparent;
+  border-color: rgba(113, 112, 255, 0.45);
+  color: #a5a5e8;
+
+}
+.btn-secondary:hover {
+
+  background: var(--accent-dim);
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+
+}
+[data-theme="light"] .btn-secondary {
+
+  border-color: rgba(94, 106, 210, 0.45);
+  color: #4a55b8;
+
+}
+[data-theme="light"] .btn-secondary:hover {
+ color: #4752c4; 
+}
+.btn-ghost {
+
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+
+}
+.btn-ghost:hover {
+
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+
+}
+[data-theme="light"] .btn-ghost:hover {
+ background: rgba(16, 17, 20, 0.05); 
+}
+.btn-outline {
+
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+
+}
+.btn-outline:hover {
+ border-color: var(--accent); color: var(--accent); 
+}
+.btn-danger {
+
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+
+}
+.btn-danger:hover {
+ background: rgba(220, 38, 38, 0.16); border-color: var(--red); color: #ff8a8a; 
+}
+.btn-xs {
+ padding: 2px 7px; font-size: 11px; 
+}
+.btn-sm {
+ padding: 3px 8px; font-size: 11.5px; 
+}
+.panel-right {
+ background: var(--bg); border-left: 1px solid var(--border); 
+}
+.empty-state {
+
+  margin: auto;
+  color: var(--text-dim);
+  text-align: center;
+  font-size: 13px;
+  padding: 32px 24px;
+  line-height: 1.7;
+  max-width: 42ch;
+
+}
+.chat-log > .empty-state {
+
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+
+}
+/* ---------- Right panel ---------- */
+.panel-section {
+
+  border-bottom: 1px solid var(--border);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+}
+.panel-section-header {
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+
+}
+.renders-list {
+ display: flex; flex-direction: column; gap: 4px; 
+}
+.render-item {
+
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+
+}
+.render-item:hover {
+
+  border-color: var(--border-hover);
+  background: var(--bg-surface);
+
+}
+.render-item:focus-visible {
+ outline: none; box-shadow: var(--focus-ring); 
+}
+.render-item .render-thumb {
+
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+
+}
+.render-item .render-meta {
+ flex: 1; min-width: 0; 
+}
+.render-item .render-name {
+
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+}
+.render-item .render-sub {
+
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+
+}
+.render-item.render-status-running .render-thumb,
+.render-item.render-status-queued .render-thumb {
+ color: var(--yellow); 
+}
+.render-item.render-status-failed .render-thumb {
+ color: var(--red); 
+}
+.render-item.render-status-succeeded .render-thumb {
+ color: var(--green); 
+}
+.render-buttons {
+ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; 
+}
+.render-buttons .btn {
+ flex: 1; min-width: 110px; 
+}
+.encoder-select {
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 2px;
+
+}
+.encoder-select select {
+
+  flex: 1;
+  background: var(--bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+
+}
+.encoder-select select:focus-visible {
+ outline: none; box-shadow: var(--focus-ring); 
+}
+body.review-only-mode.panel-right-collapsed .panel-right {
+ display: none; 
+}
+body.review-only-mode.panel-right-collapsed .layout {
+ grid-template-columns: var(--sidebar-w) 1fr; 
+}
+body.review-only-mode.panel-left-collapsed.panel-right-collapsed .layout {
+ grid-template-columns: 1fr; 
+}
+
+  /* keep the two demo windows from inheriting each other's list scroll */
+  .appwin .panel-section { min-height: 0; }
+</style>
+</head>
+<body>
+
+<h1>Renders panel &mdash; v1 vs CRT redesign</h1>
+<p class="sub">
+  Same DOM, same ids/classes, same JS. Left: current <code>style.css</code> rules, untouched.
+  Right: the same markup after appending <code>renders_panel.css</code> (this demo loads the real file).
+  Kept: name, mode, status icon+label, click-to-load. Removed/softened: 34px emoji thumb, noisy
+  size/timestamp tail, full-width buttons, unbounded list. Cards: status LED + phosphor glow
+  (succeeded = phosphor green, running/queued = cyan, failed = red).
+</p>
+
+<div class="toolbar">
+  <button id="theme-toggle" type="button">Toggle light theme</button>
+  <span class="sub" style="margin:0">dark-first &mdash; <code>[data-theme=&quot;light&quot;]</code> overrides ship in the same CSS file</span>
+</div>
+
+<div class="compare">
+  <div class="col old">
+    <h2>v1 &mdash; current</h2>
+    <div class="appwin">
+      <div class="titlebar"><i></i><i></i><i></i>&nbsp; Review Studio &mdash; right panel (renders)</div>
+      <aside class="panel panel-right">
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <span>Renders</span>
+            <button class="btn btn-ghost btn-xs" title="Refresh" data-od-id="btn-refresh-renders">
+              <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+          </div>
+          <div class="renders-list">
+          <div class="render-item render-status-succeeded" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">review_v3_proxy.mp4</div>
+              <div class="render-sub">Review artifact &middot; 640&times;360 &middot; Ready &middot; 24.6 MB &middot; 8/6/2026, 4:12:03 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-succeeded" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">final_cut_1080p.mp4</div>
+              <div class="render-sub">Final export &middot; 1080p &middot; Ready &middot; 124.8 MB &middot; 8/6/2026, 4:15:47 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-running" role="button" tabindex="0">
+            <div class="render-thumb">⏳</div>
+            <div class="render-meta">
+              <div class="render-name">review_v4_proxy.mp4</div>
+              <div class="render-sub">Review artifact &middot; 640&times;360 &middot; Rendering&hellip; &middot; &mdash; &middot; 8/6/2026, 4:18:02 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-queued" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">final_alt_2k.mp4</div>
+              <div class="render-sub">Final export &middot; 1080p &middot; Queued &middot; &mdash; &middot; 8/6/2026, 4:18:05 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-failed" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">final_v2_4k.mp4</div>
+              <div class="render-sub">Final export &middot; 1080p &middot; Failed: ffmpeg exit code 1 &mdash; encoder &rsquo;nvenc&rsquo; not found on this GPU (CUDA 12.4), x264 fallback unavailable &middot; 8/6/2026, 3:58:41 PM</div>
+            </div>
+          </div>
+          </div>
+          <div class="render-buttons">
+            <label class="encoder-select muted small" title="GPU uses NVENC when available; CPU uses software x264">
+              Encoder
+              <select>
+                <option value="gpu" selected>GPU (default)</option>
+                <option value="cpu">CPU</option>
+              </select>
+            </label>
+            <button class="btn btn-secondary btn-sm" data-od-id="btn-render-proxy">Render proxy</button>
+            <button class="btn btn-secondary btn-sm" data-od-id="btn-render-final">Render final</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+    <div class="legend">
+      <b>Kept:</b> name, mode&middot;status line, click-to-load. &nbsp;<s>Noise:</s> 34px emoji tile, long
+      meta line (size, timestamp), 110px-min full-width buttons, list can push Notes/Style out of view.
+    </div>
+  </div>
+
+  <div class="col new">
+    <h2>CRT redesign</h2>
+    <div class="appwin">
+      <div class="titlebar"><i></i><i></i><i></i>&nbsp; Review Studio &mdash; right panel (renders)</div>
+      <aside id="right-panel" class="panel panel-right">
+        <div class="panel-section">
+          <div class="panel-section-header">
+            <span>Renders</span>
+            <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh" data-od-id="btn-refresh-renders">
+              <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+          </div>
+          <div id="renders-list" class="renders-list">
+          <div class="render-item render-status-succeeded" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">review_v3_proxy.mp4</div>
+              <div class="render-sub">Review artifact &middot; 640&times;360 &middot; Ready &middot; 24.6 MB &middot; 8/6/2026, 4:12:03 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-succeeded" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">final_cut_1080p.mp4</div>
+              <div class="render-sub">Final export &middot; 1080p &middot; Ready &middot; 124.8 MB &middot; 8/6/2026, 4:15:47 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-running" role="button" tabindex="0">
+            <div class="render-thumb">⏳</div>
+            <div class="render-meta">
+              <div class="render-name">review_v4_proxy.mp4</div>
+              <div class="render-sub">Review artifact &middot; 640&times;360 &middot; Rendering&hellip; &middot; &mdash; &middot; 8/6/2026, 4:18:02 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-queued" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">final_alt_2k.mp4</div>
+              <div class="render-sub">Final export &middot; 1080p &middot; Queued &middot; &mdash; &middot; 8/6/2026, 4:18:05 PM</div>
+            </div>
+          </div>
+          <div class="render-item render-status-failed" role="button" tabindex="0">
+            <div class="render-thumb">🎞️</div>
+            <div class="render-meta">
+              <div class="render-name">final_v2_4k.mp4</div>
+              <div class="render-sub">Final export &middot; 1080p &middot; Failed: ffmpeg exit code 1 &mdash; encoder &rsquo;nvenc&rsquo; not found on this GPU (CUDA 12.4), x264 fallback unavailable &middot; 8/6/2026, 3:58:41 PM</div>
+            </div>
+          </div>
+          </div>
+          <div class="render-buttons">
+            <label class="encoder-select muted small" title="GPU uses NVENC when available; CPU uses software x264">
+              Encoder
+              <select id="render-encoder-select">
+                <option value="gpu" selected>GPU (default)</option>
+                <option value="cpu">CPU</option>
+              </select>
+            </label>
+            <button id="btn-render-proxy" class="btn btn-secondary btn-sm" data-od-id="btn-render-proxy">Render proxy</button>
+            <button id="btn-render-final" class="btn btn-secondary btn-sm" data-od-id="btn-render-final">Render final</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+    <div class="legend">
+      <b>Kept:</b> render name (mono), mode + status, click-to-load preview, encoder + proxy/final
+      actions, refresh. &nbsp;<b>Removed/softened:</b> oversized thumb &rarr; 26px status-tinted tile;
+      size/timestamp &rarr; truncated to one dim mono line; buttons &rarr; compact cyan/green;
+      list &rarr; internal scroll. Status color coding: succeeded=phosphor green, running/queued=cyan,
+      failed=red (LED + border + hover glow).
+    </div>
+  </div>
+</div>
+
+<script>
+  // ?theme=light (or =dark) presets the theme for headless screenshots.
+  const q = new URLSearchParams(location.search).get('theme');
+  if (q === 'light' || q === 'dark') document.documentElement.setAttribute('data-theme', q);
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const r = document.documentElement;
+    r.setAttribute('data-theme', r.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+</script>
+</body>
+</html>

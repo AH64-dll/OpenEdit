@@ -1,0 +1,27 @@
+{
+  "mark_rect": [
+    14,
+    10.75,
+    24,
+    21
+  ],
+  "before": {
+    "content": "\"\"",
+    "position": "absolute",
+    "width": "16px",
+    "height": "8px",
+    "top": "-7px",
+    "left": "3px",
+    "background": "linear-gradient(57deg, rgba(0, 0, 0, 0) 42%, rgb(183, 194, 204) 44%, rgb(183, 194, 204) 55%, rgba(0, 0, 0, 0) 57%) no-repeat scroll 0% 0% / 50% 100% padding-box border-box, rgba(0, 0, 0, 0) linear-gradient(-57deg, rgba(0, 0, 0, 0) 42%, rgb(183, 194, 204) 44%, rgb(183, 194, 204) 55%, rgba(0, 0, 0, 0) 57%) no-repeat scroll 100% 0% / 50% 100% padding-box border-box"
+  },
+  "after": {
+    "content": "\"\"",
+    "position": "absolute",
+    "width": "16px",
+    "height": "12px",
+    "top": "4px",
+    "left": "3px",
+    "border": "1px solid rgb(113, 129, 142)",
+    "background": "linear-gradient(115deg, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0) 34%, rgba(218, 234, 249, 0.13) 35%, rgba(218, 234, 249, 0.13) 39%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0) 100%) repeat scroll 0% 0% / auto padding-box border-box, repeating-linear-gradient(0deg, rgba(172, 205, 231, 0.075) 0px, rgba(172, 205, 231, 0.075) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 3px) repeat scroll 0% 0% / auto padding-box border-box, rgb(16, 24, 32) none repeat scroll 0% 0% / auto padding-box border-box"
+  }
+}

@@ -1,0 +1,352 @@
+/* ============================================================================
+   renders_panel.css — RENDERS PANEL · CRT redesign override
+   ----------------------------------------------------------------------------
+   Deliverable from the Renders-Panel specialist (docs/redesign/crt/renders/).
+
+   WHAT THIS FILE DOES (append-safe, zero JS changes):
+     • Declutters the right-panel Renders section: compact professional cards,
+       status LED + color coding, mono typography, scanline texture, phosphor
+       glow on hover.
+     • Keeps every id/class the app builds: #renders-list, .render-item,
+       .render-thumb, .render-meta, .render-name, .render-sub,
+       .render-status-{succeeded,running,queued,failed}, .render-buttons,
+       #btn-render-proxy, #btn-render-final, #btn-refresh-renders,
+       #render-encoder-select, .encoder-select, .empty-state.
+     • No JS changes required. Mode-based colors (proxy=cyan / final=green)
+       activate automatically IF the designer adds the optional one-line class
+       from renders_panel.patch.html (render-mode-${mode}); without it the
+       status-based fallback below applies.
+     • Dark-first; [data-theme="light"] overrides at the bottom.
+
+   HOW TO INSTALL: append this file after style.css, e.g.
+     <link rel="stylesheet" href="style.css">
+     <link rel="stylesheet" href="css/renders_panel.css">
+   (or @import it at the end of style.css). All selectors are scoped under
+   #right-panel / #renders-list so nothing leaks into other panels.
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   1. CRT tokens — scoped to the right panel (no :root pollution).
+   ------------------------------------------------------------------------- */
+#right-panel {
+  /* Status LEDs — proxy/scan = cyan, final/ready = phosphor green, fail = red */
+  --crt-cyan:       #3fd9f0;   /* proxy / preview / in-progress phosphor      */
+  --crt-green:      #3dffa2;   /* final / ready phosphor (brighter than --green) */
+  --crt-red:        #ff5d5d;   /* failed                                        */
+  --crt-amber:      #ffc857;   /* queued accent (kept subtle)                  */
+  /* Surface textures */
+  --crt-scanline:   rgba(160, 255, 200, 0.028);   /* dark-theme scanline        */
+  --crt-scanline-2: rgba(0, 0, 0, 0.16);          /* darker interlace line      */
+  /* Fallbacks (status-driven when no mode class is present) */
+  --crt-led:        var(--text-dim);
+}
+
+/* ---------------------------------------------------------------------------
+   2. Section chrome — list owns the remaining height, scrolls internally.
+      (Previously the unbounded list pushed Notes/Style out of the panel.)
+   ------------------------------------------------------------------------- */
+#right-panel .panel-section:first-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#renders-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--crt-green) 28%, transparent) transparent;
+}
+
+#renders-list::-webkit-scrollbar { width: 6px; }
+#renders-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--crt-green) 28%, transparent);
+  border-radius: 3px;
+}
+
+/* Compact empty state */
+#renders-list .empty-state {
+  padding: 18px 12px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+
+/* ---------------------------------------------------------------------------
+   3. Header — tighten the "RENDERS" label, keep refresh button.
+   ------------------------------------------------------------------------- */
+#right-panel .panel-section-header {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+}
+
+#right-panel .panel-section-header .icon-svg { width: 15px; height: 15px; }
+
+/* ---------------------------------------------------------------------------
+   4. Render cards — compact professional tile.
+      Status color is carried by --crt-led on the item; the LED bar, icon tile,
+      border and hover glow all derive from it (single source of truth).
+   ------------------------------------------------------------------------- */
+#renders-list .render-item {
+  position: relative;
+  padding: 6px 8px 6px 11px;
+  gap: 9px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background:
+    repeating-linear-gradient(
+      0deg,
+      var(--crt-scanline) 0px, var(--crt-scanline) 1px,
+      transparent 1px, transparent 3px
+    ),
+    var(--bg-elev-2);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+/* Status LED — thin phosphor bar on the left edge */
+#renders-list .render-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 22%;
+  bottom: 22%;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--crt-led);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--crt-led) 70%, transparent);
+  opacity: 0.85;
+}
+
+/* Hover — subtle CRT glow in the item's own status color */
+#renders-list .render-item:hover {
+  border-color: color-mix(in srgb, var(--crt-led) 55%, var(--border-hover));
+  background:
+    repeating-linear-gradient(
+      0deg,
+      var(--crt-scanline) 0px, var(--crt-scanline) 1px,
+      transparent 1px, transparent 3px
+    ),
+    var(--bg-surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--crt-led) 22%, transparent),
+    0 0 14px -2px color-mix(in srgb, var(--crt-led) 45%, transparent);
+}
+
+#renders-list .render-item:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--accent-dim),
+    0 0 0 1px var(--crt-led);
+}
+
+/* ---------------------------------------------------------------------------
+   5. Status → color mapping (status-driven default).
+      NOTE: with the optional render-mode-* classes (see patch) these are
+      overridden by the mode block below to give proxy=cyan / final=green.
+   ------------------------------------------------------------------------- */
+#renders-list .render-item.render-status-succeeded { --crt-led: var(--crt-green); }
+#renders-list .render-item.render-status-running,
+#renders-list .render-item.render-status-queued   { --crt-led: var(--crt-cyan); }
+#renders-list .render-item.render-status-failed   { --crt-led: var(--crt-red); }
+
+/* Optional mode-driven mapping (proxy=cyan, final=phosphor green).
+   Ships inert unless app.js adds the class — see renders_panel.patch.html §3. */
+#renders-list .render-item.render-mode-proxy { --crt-led: var(--crt-cyan); }
+#renders-list .render-item.render-mode-final { --crt-led: var(--crt-green); }
+/* Failure always wins over mode color. */
+#renders-list .render-item.render-mode-proxy.render-status-failed,
+#renders-list .render-item.render-mode-final.render-status-failed { --crt-led: var(--crt-red); }
+
+/* Failed cards get a soft red wash (still readable, no alarm bells) */
+#renders-list .render-item.render-status-failed {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      var(--crt-scanline) 0px, var(--crt-scanline) 1px,
+      transparent 1px, transparent 3px
+    ),
+    color-mix(in srgb, var(--crt-red) 6%, var(--bg-elev-2));
+}
+
+/* In-progress cards: gentle phosphor blink on the LED (CRT-recorder feel) */
+@keyframes crt-led-blink {
+  0%, 100% { opacity: 0.9; }
+  50%      { opacity: 0.3; }
+}
+#renders-list .render-item.render-status-running::before,
+#renders-list .render-item.render-status-queued::before {
+  animation: crt-led-blink 1.5s steps(2, end) infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   6. Card contents — name (mono), icon tile (status tinted), meta line.
+   ------------------------------------------------------------------------- */
+/* Icon tile: smaller, tinted by status, emoji demoted to a quiet glyph */
+#renders-list .render-item .render-thumb {
+  width: 26px;
+  height: 26px;
+  font-size: 12.5px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--crt-led) 30%, var(--border));
+  background: color-mix(in srgb, var(--crt-led) 7%, var(--bg));
+  color: var(--crt-led);
+}
+
+/* Name: monospace, crisp, single line */
+#renders-list .render-item .render-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+/* Meta line: ONE tiny dim line. Mode + status kept; the trailing
+   "· 24.6 MB · 8/6/2026, 4:12:03 PM" noise is truncated by ellipsis
+   (text nodes cannot be split without JS — truncation removes the
+   visual clutter while keeping the data one hover/click away). */
+#renders-list .render-item .render-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ---------------------------------------------------------------------------
+   7. Action bar — encoder select + Render proxy / Render final.
+      Proxy = cyan outline, Final = phosphor-green outline. Compact.
+   ------------------------------------------------------------------------- */
+#right-panel .render-buttons {
+  gap: 6px;
+  margin-top: 1px;
+}
+
+#right-panel .render-buttons .btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  padding: 4px 8px;
+}
+
+/* Color-coded actions (falls back to existing .btn-secondary look via vars) */
+#btn-render-proxy { --btn-crt: var(--crt-cyan); }
+#btn-render-final { --btn-crt: var(--crt-green); }
+
+#right-panel .render-buttons .btn-secondary {
+  border-color: color-mix(in srgb, var(--btn-crt, #a5a5e8) 45%, var(--border));
+  color: color-mix(in srgb, var(--btn-crt, #a5a5e8) 82%, var(--text-muted));
+  background: color-mix(in srgb, var(--btn-crt, transparent) 6%, transparent);
+}
+
+#right-panel .render-buttons .btn-secondary:hover {
+  border-color: var(--btn-crt, var(--accent-hover));
+  color: var(--btn-crt, var(--accent-hover));
+  background: color-mix(in srgb, var(--btn-crt, var(--accent)) 12%, transparent);
+  box-shadow: 0 0 12px -2px color-mix(in srgb, var(--btn-crt, var(--accent)) 55%, transparent);
+}
+
+/* Quiet glyphs on the actions (pure CSS; busy label "Rendering…" is untouched) */
+#btn-render-proxy::before { content: "\25CF\00A0"; font-size: 0.85em; opacity: 0.85; }
+#btn-render-final::before { content: "\25B8\00A0"; font-size: 0.85em; opacity: 0.85; }
+
+/* Encoder control: tiny uppercase caption + mono select */
+#right-panel .encoder-select {
+  width: 100%;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+#right-panel .encoder-select select {
+  flex: 0 1 96px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--bg-deep);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+#right-panel .encoder-select select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-dim), 0 0 0 1px var(--accent);
+}
+
+/* Refresh button: quiet ghost, phosphor hover */
+#btn-refresh-renders:hover {
+  color: var(--crt-green);
+  box-shadow: 0 0 10px -3px color-mix(in srgb, var(--crt-green) 60%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   8. Light theme — same layout, adjusted phosphors + no visible scanlines.
+   ------------------------------------------------------------------------- */
+[data-theme="light"] #right-panel {
+  --crt-cyan:  #0e7490;   /* darker teal for contrast on white */
+  --crt-green: var(--green);
+  --crt-red:   var(--red);
+  --crt-scanline: rgba(16, 17, 20, 0.018);
+}
+
+[data-theme="light"] #renders-list .render-item {
+  box-shadow: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      var(--crt-scanline) 0px, var(--crt-scanline) 1px,
+      transparent 1px, transparent 3px
+    ),
+    var(--bg-elev-2);
+}
+
+[data-theme="light"] #renders-list .render-item:hover {
+  border-color: color-mix(in srgb, var(--crt-led) 45%, var(--border-hover));
+  box-shadow: 0 0 10px -4px color-mix(in srgb, var(--crt-led) 50%, transparent);
+}
+
+[data-theme="light"] #renders-list .render-item.render-status-failed {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      var(--crt-scanline) 0px, var(--crt-scanline) 1px,
+      transparent 1px, transparent 3px
+    ),
+    color-mix(in srgb, var(--crt-red) 5%, var(--bg-elev-2));
+}
+
+[data-theme="light"] #renders-list .render-item .render-thumb {
+  border-color: color-mix(in srgb, var(--crt-led) 30%, var(--border));
+  background: color-mix(in srgb, var(--crt-led) 7%, var(--bg));
+}
+
+[data-theme="light"] #right-panel .render-buttons .btn-secondary {
+  background: transparent;
+}
+
+[data-theme="light"] #right-panel .encoder-select select {
+  background: var(--bg);
+}
+
+/* ---------------------------------------------------------------------------
+   9. Accessibility — respect reduced motion.
+   ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  #renders-list .render-item,
+  #renders-list .render-item::before,
+  #right-panel .render-buttons .btn {
+    animation: none !important;
+    transition: none !important;
+  }
+}

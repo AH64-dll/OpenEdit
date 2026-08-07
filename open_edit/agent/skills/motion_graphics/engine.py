@@ -65,8 +65,24 @@ def generate_visual(
         ValueError: if ``template`` is not a known template function.
     """
     template_fn = getattr(templates, template, None)
-    if template_fn is None:
-        raise ValueError(f"Unknown template: {template!r}")
+    if template_fn is None or not callable(template_fn):
+        # Beat-type aliases -> template function names (the template package
+        # exposes submodules named after beat types, so a bare getattr on
+        # e.g. "hook" returns the MODULE, not the render function).
+        alias = {
+            "hook": "hook_fade_text",
+            "turn": "turn_slide_text",
+            "scope": "scope_zoom_text",
+            "mechanism": "mechanism_diagram",
+            "cost": "cost_warning",
+            "tease": "tease_glimpse",
+            "button": "button_cta",
+        }
+        template_fn = getattr(templates, alias.get(template, ""), None)
+    if template_fn is None or not callable(template_fn):
+        raise ValueError(
+            f"Unknown template: {template!r}. Available: {', '.join(templates.__all__)}"
+        )
     motion_params = MotionTemplateParams(**params)
     duration_s = segment.t_end - segment.t_start
     code = template_fn(motion_params, duration_s)

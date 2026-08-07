@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -44,6 +45,46 @@ _UNSET = object()
 _FALLBACK_LOCKS: dict[str, threading.Lock] = {}
 _FALLBACK_LOCKS_GUARD = threading.Lock()
 
+# Profiles that persisted job rows may name. ``drain()`` resolves stored
+# profile names back to objects so a restarted worker can continue a job
+# exactly as it was enqueued.
+_PROFILES_BY_NAME: dict[str, SourceProxyProfile] = {
+    DEFAULT_SOURCE_PROXY_PROFILE.name: DEFAULT_SOURCE_PROXY_PROFILE,
+}
+
+
+def source_proxy_worker_enabled() -> bool:
+    """Whether the serve process should pick up queued asset-proxy jobs.
+
+    Default **on** after the proxy-generation phase. Set
+    ``OPEN_EDIT_SOURCE_PROXY_WORKER=0`` (or ``false``/``no``/``off``) to
+    disable the background drain without affecting explicit CLI enqueue/run
+    or the per-project REST surface.
+    """
+    raw = os.environ.get("OPEN_EDIT_SOURCE_PROXY_WORKER")
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
+def register_profile(profile: SourceProxyProfile) -> None:
+    """Make a profile resolvable by name for drained job rows."""
+    _PROFILES_BY_NAME[profile.name] = profile
+
+
+def _profile_by_name(name: str) -> SourceProxyProfile:
+    """Resolve a persisted job's profile name back to its object."""
+    profile = _PROFILES_BY_NAME.get(name)
+    if profile is None:
+        # Only the default profile is enqueued today; a legacy/unknown name
+        # degrades gracefully instead of stranding the row forever.
+        log = logging.getLogger(__name__)
+        log.warning(
+            "asset proxy job references unknown profile %r; using default", name,
+        )
+        return DEFAULT_SOURCE_PROXY_PROFILE
+    return profile
+
 
 @dataclass(frozen=True)
 class AssetProxyJob:
@@ -76,7 +117,7 @@ CREATE INDEX IF NOT EXISTS idx_asset_proxy_jobs_created
     ON asset_proxy_jobs(created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_proxy_jobs_active_key
     ON asset_proxy_jobs(asset_hash, profile)
-    WHERE status IN ('queued', 'running', 'succeeded');
+    WHERE status = 'queued';
 """
 
 
@@ -359,6 +400,60 @@ class AssetProxyJobService:
             )
         return cur.rowcount
 
+    def drain(self, project_path: Path) -> dict[str, int]:
+        """Execute persisted jobs that no live worker owns.
+
+        This is the queue *runner*: rows left ``queued``/``running`` by a
+        prior process (crashed CLI init, killed or reloaded server) are
+        re-queued and handed to this process's bounded thread pool. Rows
+        already owned by a live future are left alone.
+
+        Returns ``{"recovered": n, "started": m, "already_running": k}``.
+        Idempotent: a re-drain of a drained project starts nothing new
+        (rows are terminal or have live futures). Safe to call from the
+        serve lifespan, a CLI command, or a test.
+        """
+        root = _project_root(project_path)
+        if not self.db_path(root).exists():
+            # No queue was ever persisted for this project; don't create one
+            # just by draining.
+            return {"recovered": 0, "started": 0, "already_running": 0}
+        rows: list[AssetProxyJob] = []
+        with self._connect(root) as con:
+            con.row_factory = sqlite3.Row
+            rows = [
+                self._row(row)
+                for row in con.execute(
+                    "SELECT * FROM asset_proxy_jobs "
+                    "WHERE status IN ('queued', 'running', 'orphaned')"
+                ).fetchall()
+            ]
+        recovered = 0
+        started = 0
+        already_running = 0
+        for job in rows:
+            key = (str(root.resolve()), job.job_id)
+            future = self._futures.get(key)
+            if future is not None and not future.done():
+                already_running += 1
+                continue
+            if job.status != "queued":
+                try:
+                    self._update(root, job.job_id, "queued", error=None)
+                except sqlite3.IntegrityError:
+                    # Crash-recovery duplicate: a sibling row for the same
+                    # (asset_hash, profile) is already queued. Run this job
+                    # anyway (status stays 'orphaned'/'running'); the
+                    # advisory per-asset flock + ready-reuse path keep a
+                    # concurrent encode safe (worst case: redundant decode).
+                    pass
+                recovered += 1
+            self._futures[key] = self._executor.submit(
+                self._run, root, job.job_id, _profile_by_name(job.profile),
+            )
+            started += 1
+        return {"recovered": recovered, "started": started, "already_running": already_running}
+
     def _run(
         self,
         project_path: Path,
@@ -366,7 +461,9 @@ class AssetProxyJobService:
         profile: SourceProxyProfile,
     ) -> None:
         job = self.get(project_path, job_id)
-        if job is None or job.status in _TERMINAL:
+        if job is None or job.status in ("succeeded", "failed"):
+            # 'orphaned' is terminal for ordinary flows but runnable when
+            # drain recovered it without a status flip (unique-key sibling).
             return
         self._update(project_path, job_id, "running", proxy_hash=None, error=None)
         try:

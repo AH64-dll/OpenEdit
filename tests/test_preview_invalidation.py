@@ -79,6 +79,47 @@ def test_chunk_windows_keep_final_short_chunk_frame_aligned() -> None:
     )
 
 
+def test_chunk_windows_default_is_adaptive_on_long_timelines() -> None:
+    # 37-min/2211s at 30fps: ~64 chunks wanted, capped at 30s (900 frames).
+    windows = make_chunk_windows(66331, 30, 1)
+
+    assert windows[0].start_frame == 0
+    assert windows[0].end_frame == 900
+    assert len(windows) == 74
+    assert windows[-1].end_frame == 66331
+    assert all(
+        window.end_frame - window.start_frame <= 900
+        for window in windows
+    )
+
+
+def test_chunk_windows_adaptive_default_keeps_one_second_for_short_timelines() -> None:
+    # 64s = 1920 frames at 30fps stays at the 1s floor (30-frame chunks).
+    windows = make_chunk_windows(1920, 30, 1)
+
+    assert [(w.start_frame, w.end_frame) for w in windows[:2]] == [
+        (0, 30),
+        (30, 60),
+    ]
+    assert len(windows) == 64
+    assert windows[-1].end_frame == 1920
+
+
+def test_chunk_windows_adaptive_default_handles_fractional_fps() -> None:
+    # 30000/1001 rounds to 30 frames per second; 64s stays one-second chunks.
+    windows = make_chunk_windows(1920, 30000, 1001)
+
+    assert windows[0].end_frame - windows[0].start_frame == 30
+    assert len(windows) == 64
+
+
+def test_chunk_windows_explicit_chunk_frames_still_wins() -> None:
+    windows = make_chunk_windows(66331, 30, 1, chunk_frames=60)
+
+    assert windows[0].end_frame - windows[0].start_frame == 60
+    assert len(windows) == 1106  # ceil(66331 / 60)
+
+
 def test_slice_crossing_clip_rebases_source_points() -> None:
     timeline = Timeline(
         duration_sec=4.0,

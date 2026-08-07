@@ -1,0 +1,12 @@
+{
+  "type": "motion_graphics",
+  "category": "lower_third",
+  "name": "gfx_lower_third_modern_blue",
+  "template": "modern_blue_slide_in",
+  "duration_sec": 5.0,
+  "parameters": {
+    "title": "Speaker Name",
+    "subtitle": "Job Title",
+    "color": "#0066FF"
+  }
+}

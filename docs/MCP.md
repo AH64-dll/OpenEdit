@@ -180,8 +180,10 @@ export OPEN_EDIT_WHISPER_MODEL=small   # recommended for Arabic
 `project_path` is **not** a tool argument. It is fixed when the MCP process
 starts (`--project` / `OPEN_EDIT_PROJECT`).
 
-Renders go through `RenderJobService`: Remotion **materialize** → melt the full
-timeline → **ffmpeg burn-in** of Remotion graphics (proxy/final). `mode=proxy`
+Renders go through `RenderJobService`: native HyperFrames graphics materialize
+on the host worker → melt the full timeline → **ffmpeg composite/encode**
+(proxy/final). Legacy Remotion graphs remain compatibility inputs during
+migration. `mode=proxy`
 defaults to the `review-artifact` emission profile and is a complete-timeline
 **whole-file review artifact** using the `fast_proxy` 640×360 profile; it is
 not an interactive timeline preview. The M3 **timeline preview chunks** mode is

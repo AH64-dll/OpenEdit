@@ -43,6 +43,7 @@ import asyncio
 import html
 import logging
 import os
+import json
 import re
 import shlex
 import subprocess
@@ -100,16 +101,35 @@ def _resolve_hyperframes_bin() -> str:
 # ---------------------------------------------------------------------------
 
 # Whitelist of variable types we inline at HTML-generation time. Non-primitive
-# values raise OverlayRenderError in v1.6 (no JSON-blob support).
+# values (dicts/lists/None) are injected as a JSON payload under
+# ``window.__open_edit_vars`` (or ``window.__open_edit_vars_<namespace>`` when
+# a namespace is given) so templates can drive data-rich animations — caption
+# arrays, keyframed motion paths, scoreboards — without string templating.
 _PRIMITIVE_TYPES = (str, int, float, bool)
 
 
-def _inline_variables(template_html: str, variables: dict[str, Any]) -> str:
+def _inline_variables(
+    template_html: str,
+    variables: dict[str, Any],
+    namespace: str | None = None,
+) -> str:
     """Replace {{key}} placeholders in template_html with html.escape()'d values.
 
-    Non-primitive values (dicts, lists, None) raise OverlayRenderError.
-    Missing keys are left literal (logged at WARNING level).
+    Primitive values are inlined as before. Non-primitive values (dicts,
+    lists, None) are collected into a JSON blob and injected as a
+    ``<script>window.__open_edit_vars[...] = {...}</script>`` payload.
+    Missing keys are left literal (logged at WARNING level). Raises
+    OverlayRenderError only for JSON-unserializable values.
     """
+    # Non-primitive variables are delivered as a JSON payload regardless of
+    # whether the template references them with {{key}} — templates read them
+    # from window.__open_edit_vars at runtime (e.g. caption arrays).
+    json_payload: dict[str, Any] = {
+        key: value
+        for key, value in variables.items()
+        if not isinstance(value, _PRIMITIVE_TYPES)
+    }
+
     def replace(match: re.Match) -> str:
         key = match.group(1).strip()
         if key not in variables:
@@ -117,12 +137,27 @@ def _inline_variables(template_html: str, variables: dict[str, Any]) -> str:
             return match.group(0)
         value = variables[key]
         if not isinstance(value, _PRIMITIVE_TYPES):
-            raise OverlayRenderError(
-                f"non-primitive variable not supported in v1.6: key={key!r} type={type(value).__name__}"
-            )
+            return match.group(0)  # delivered via the JSON payload
         return html.escape(str(value), quote=True)
 
-    return re.sub(r"\{\{\s*([a-zA-Z_][\w\.]*)\s*\}\}", replace, template_html)
+    out = re.sub(r"\{\{\s*([a-zA-Z_][\w\.]*)\s*\}\}", replace, template_html)
+
+    if json_payload:
+        try:
+            payload_json = json.dumps(json_payload, ensure_ascii=False)
+        except (TypeError, ValueError) as exc:
+            raise OverlayRenderError(
+                f"variables are not JSON-serializable: {exc}"
+            ) from exc
+        # Namespace must be a valid JS identifier: overlay ids are UUIDs
+        # (hyphens would break the inline script syntax).
+        safe_ns = re.sub(r"\W", "_", namespace) if namespace else ""
+        ns = f"_{safe_ns}" if safe_ns else ""
+        script = (
+            f"<script>window.__open_edit_vars{ns} = {payload_json};</script>"
+        )
+        out = out + "\n" + script
+    return out
 
 
 def _resolve_template_path(template_path: str, project_workdir: Path) -> Path:
@@ -213,16 +248,30 @@ def generate_composition_html(
     for overlay, track_idx in track_assignment:
         template_path = _resolve_template_path(overlay.template_path, project_workdir)
         template_html = template_path.read_text(encoding="utf-8")
-        inlined = _inline_variables(template_html, overlay.variables)
         clip_id = _clip_id(overlay)
-        clip_divs.append(
-            f'    <div class="clip" id="{clip_id}" '
-            f'data-start="{overlay.position_sec}" '
-            f'data-duration="{overlay.duration_sec}" '
-            f'data-track-index="{track_idx}">\n'
-            f'      {inlined.strip()}\n'
-            f'    </div>'
+        inlined = _inline_variables(template_html, overlay.variables, namespace=clip_id)
+        has_timed_children = bool(
+            re.search(
+                r"class\s*=\s*['\"][^'\"]*\bclip\b",
+                template_html,
+                flags=re.IGNORECASE,
+            )
         )
+        if has_timed_children:
+            clip_divs.append(
+                f'    <div id="{clip_id}" class="hyperframes-overlay-shell">\n'
+                f'      {inlined.strip()}\n'
+                f'    </div>'
+            )
+        else:
+            clip_divs.append(
+                f'    <div class="clip" id="{clip_id}" '
+                f'data-start="{overlay.position_sec}" '
+                f'data-duration="{overlay.duration_sec}" '
+                f'data-track-index="{track_idx}">\n'
+                f'      {inlined.strip()}\n'
+                f'    </div>'
+            )
 
     clips_block = "\n".join(clip_divs) if clip_divs else ""
     return (

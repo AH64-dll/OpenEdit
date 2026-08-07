@@ -1,0 +1,1 @@
+{"url":"http://127.0.0.1:8001/","inner":[1600,1000],"bodyClass":"has-timeline","modeLabel":"Review · MCP","modeDataset":{"review":"Review · MCP","agent":"Agent · built-in"},"providerVisible":true,"chatVisible":true,"mobileButtons":[{"id":"btn-left-panel","rect":[1485,7,36,30],"display":"flex"},{"id":"btn-right-panel","rect":[1529,7,36,30],"display":"flex"}]}

@@ -1,0 +1,256 @@
+/* ============================================================
+   OPEN EDIT — CRT REDESIGN : TIMELINE MARKERS
+   ------------------------------------------------------------
+   Pure-CSS override layer for timeline edit/note markers.
+
+   HOW TO USE
+     Append this file AFTER open_edit/serve/static/style.css
+     (e.g. <link rel="stylesheet" href=".../static/markers.css">
+     placed after the main stylesheet). It only overrides the two
+     marker selectors and adds scoped custom properties — it never
+     touches app.js output, so it stays safe through re-renders.
+
+   WHAT IT DOES (no JS, no markup changes)
+     • .timeline-edit-marker        → NLE-style CUT POINT: a precise
+       2px vertical line centred on the edit position with small
+       notched trim handles top/bottom (::before / ::after). Reads
+       as a clip-boundary mark, not a floating blob.
+     • .timeline-edit-marker.reverted → same cut point but AMBER
+       (warn) with a dashed line = edit was reverted / dormant.
+     • .timeline-note-marker        → NOTE/CHAT CLOUD: rounded
+       speech bubble floating in the ruler band with a downward
+       tail (::after triangle) pointing at the exact timestamp and
+       a pencil glyph (::before). Amber tint — never confused with
+       the green cut marks.
+
+   DOM CONTRACT (matches app.js renderTimeline() exactly)
+     <div class="timeline-edit-marker [reverted]"
+          style="left:{px}px" title="...">          (no children)
+     <div class="timeline-note-marker"
+          style="left:{px}px" title="...">           (no children)
+     Both appended to the first .timeline-track-row, which is
+     34px tall inside .timeline-ruler-col (ruler 20px above).
+
+   BASELINE RULES THIS LAYER OVERRIDES (style.css v1):
+     .timeline-edit-marker,.timeline-note-marker{
+       position:absolute; top:2px; height:calc(100% - 4px);
+       width:3px; border-radius:2px; cursor:pointer; z-index:4;}
+     .timeline-edit-marker{background:var(--yellow);}
+     .timeline-edit-marker.reverted{background:var(--text-dim);opacity:.5;}
+     .timeline-note-marker{background:#22d3ee;width:6px;}
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1) Scoped CRT palette (additive custom properties)
+   Dark-first; [data-theme="light"] override set mirrors the app's
+   light palette (green #15803d / amber #a16207).
+   ------------------------------------------------------------ */
+:root {
+  /* edit cut point — phosphor green */
+  --crt-edit-line:    #3ee07a;
+  --crt-edit-glow:    rgba(62, 224, 122, 0.45);
+  --crt-edit-handle:  #3ee07a;
+
+  /* reverted edit — amber (warn) */
+  --crt-revert-line:  #ffb328;
+  --crt-revert-glow:  rgba(255, 179, 40, 0.38);
+
+  /* note cloud — phosphor amber */
+  --crt-note-fill:    rgba(255, 179, 40, 0.10);
+  --crt-note-fill-hover: rgba(255, 179, 40, 0.18);
+  --crt-note-border:  rgba(255, 179, 40, 0.40);
+  --crt-note-ink:     #ffc94d;
+  --crt-note-glow:    rgba(255, 179, 40, 0.35);
+}
+
+[data-theme="light"] {
+  --crt-edit-line:    #15803d;                       /* = --green */
+  --crt-edit-glow:    rgba(21, 128, 61, 0.30);
+  --crt-edit-handle:  #15803d;
+
+  --crt-revert-line:  #a16207;                       /* = --yellow */
+  --crt-revert-glow:  rgba(161, 98, 7, 0.28);
+
+  --crt-note-fill:    rgba(161, 98, 7, 0.08);
+  --crt-note-fill-hover: rgba(161, 98, 7, 0.14);
+  --crt-note-border:  rgba(161, 98, 7, 0.50);
+  --crt-note-ink:     #7c4a03;
+  --crt-note-glow:    rgba(161, 98, 7, 0.25);
+}
+
+/* ------------------------------------------------------------
+   2) EDIT MARKERS → END/TRIM CUT POINTS
+   Thin 2px line centred exactly on the inline `left` position
+   (width 2px + margin-left -1px), full track-row height, with
+   notched trim handles at top and bottom like NLE cut points.
+   ------------------------------------------------------------ */
+.timeline-edit-marker {
+  top: 0;
+  height: 100%;
+  width: 2px;
+  margin-left: -1px;                    /* centre cut on the time */
+  border-radius: 0;
+  background: var(--crt-edit-line);
+  box-shadow: 0 0 4px var(--crt-edit-glow), 0 0 1px var(--crt-edit-line);
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+
+/* trim handle — top (notch points down into the cut) */
+.timeline-edit-marker::before {
+  content: "";
+  position: absolute;
+  top: -3px;                            /* straddle the row edge  */
+  left: 50%;
+  width: 11px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: var(--crt-edit-handle);
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 61% 62%, 50% 100%, 39% 62%, 0 62%);
+  transition: height 120ms ease, filter 120ms ease;
+}
+
+/* trim handle — bottom (notch points up into the cut) */
+.timeline-edit-marker::after {
+  content: "";
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  width: 11px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: var(--crt-edit-handle);
+  clip-path: polygon(0 38%, 39% 38%, 50% 0, 61% 38%, 100% 38%, 100% 100%, 0 100%);
+  transition: height 120ms ease, filter 120ms ease;
+}
+
+.timeline-edit-marker:hover {
+  filter: brightness(1.3);
+  box-shadow: 0 0 9px var(--crt-edit-glow), 0 0 2px var(--crt-edit-line);
+}
+.timeline-edit-marker:hover::before,
+.timeline-edit-marker:hover::after {
+  height: 7px;
+  filter: brightness(1.35);
+}
+
+/* ---- Reverted edits: amber dashed cut + amber handles ---- */
+.timeline-edit-marker.reverted {
+  opacity: 1;
+  background-color: transparent;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--crt-revert-line) 0 4px,
+    transparent 4px 7px
+  );
+  box-shadow: 0 0 4px var(--crt-revert-glow);
+}
+.timeline-edit-marker.reverted::before,
+.timeline-edit-marker.reverted::after {
+  background: var(--crt-revert-line);
+  opacity: 0.9;
+}
+.timeline-edit-marker.reverted:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 0 8px var(--crt-revert-glow);
+}
+
+/* ------------------------------------------------------------
+   3) NOTE MARKERS → NOTE / CHAT CLOUDS
+   Rounded speech bubble anchored at the timestamp: it floats in
+   the 20px ruler band above the first track (the marker element
+   already lives in the first .timeline-track-row; we just shift
+   it up). Tail = ::after triangle pointing DOWN at the exact
+   time; glyph = ::before. Whole bubble is clickable (pseudo
+   elements are part of the element's hit area), so the existing
+   click handlers keep working unchanged.
+   ------------------------------------------------------------ */
+.timeline-note-marker {
+  top: -17px;                           /* bubble into ruler band  */
+  height: 16px;
+  width: 58px;
+  margin-left: -29px;                   /* centre bubble on time   */
+  border-radius: 9px;
+  background: var(--crt-note-fill);
+  border: 1px solid var(--crt-note-border);
+  box-shadow: 0 0 6px var(--crt-note-glow);
+  transition: background 120ms ease, border-color 120ms ease,
+              box-shadow 120ms ease;
+}
+
+/* note glyph */
+.timeline-note-marker::before {
+  content: "\270E";                     /* ✎ pencil  */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 9.5px/1 var(--font-mono);
+  color: var(--crt-note-ink);
+}
+
+/* chat tail — triangle pointing down at the timestamp */
+.timeline-note-marker::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top: 6px solid var(--crt-note-fill);
+  transform: translateY(-1px);          /* cover the bubble seam   */
+}
+
+.timeline-note-marker:hover {
+  background: var(--crt-note-fill-hover);
+  border-color: var(--crt-note-ink);
+  box-shadow: 0 0 10px var(--crt-note-glow);
+}
+.timeline-note-marker:hover::before { color: var(--crt-note-ink); }
+
+/* ------------------------------------------------------------
+   4) PROPOSED TIMELINE RESPONSIVENESS IMPROVEMENTS (no JS)
+   ------------------------------------------------------------
+   These are NOT enabled below — they are proposals for the
+   designer to fold into style.css. They are safe (no JS needed)
+   and demoed in demo.html's narrow strip.
+
+   a) Clip hit areas — stretch each clip's invisible hit region
+      by 2px on every side. Clips are absolutely positioned with
+      no padding, so ::after costs nothing visually:
+
+      .timeline-clip::after {
+        content: "";
+        position: absolute;
+        inset: -2px;
+      }
+
+   b) Touch-friendly marker sizes — coarse pointers get bigger
+      handles / bubbles / rows without changing layout maths
+      (rows stay 34px; markers just get more generous):
+
+      @media (pointer: coarse) {
+        .timeline-edit-marker::before,
+        .timeline-edit-marker::after { width: 15px; height: 7px; }
+        .timeline-note-marker { width: 72px; height: 20px;
+                                margin-left: -36px; top: -21px; }
+        .timeline-note-marker::before { font-size: 12px; }
+        .timeline-ruler { height: 26px; }
+      }
+
+   c) Ruler reflow at narrow widths — halve the tick-label
+      density and shrink the labels column so more of the
+      timeline is visible:
+
+      @media (max-width: 760px) {
+        .timeline-ruler-tick:nth-child(even) .timeline-ruler-tick-label {
+          display: none;
+        }
+        .timeline-track-labels { width: 64px; }
+        .timeline-track-label-row { font-size: 9px; padding: 0 4px; }
+        .timeline-panel-header { flex-wrap: wrap; height: auto;
+                                 min-height: 26px; row-gap: 2px; }
+      }
+   ------------------------------------------------------------ */

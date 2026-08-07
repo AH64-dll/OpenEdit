@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Renders panel — index.html patch (old → new)</title>
+<style>
+  body { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; background: #0b0c0d; color: #d7dbe3; max-width: 980px; margin: 32px auto; padding: 0 20px; line-height: 1.55; }
+  h1 { font-size: 18px; color: #3dffa2; letter-spacing: .05em; }
+  h2 { font-size: 13px; color: #3fd9f0; margin-top: 34px; text-transform: uppercase; letter-spacing: .1em; }
+  p, li { font-size: 12.5px; }
+  pre { background: #101214; border: 1px solid rgba(255,255,255,.09); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 11px; }
+  .old pre { border-left: 3px solid #ff5d5d; }
+  .new pre { border-left: 3px solid #3dffa2; }
+  .note { color: #ffc857; }
+  code { color: #3fd9f0; }
+  .opt { border: 1px dashed rgba(63,217,240,.4); border-radius: 8px; padding: 8px 14px; }
+</style>
+</head>
+<body>
+
+<h1>RENDERS PANEL — suggested index.html region patch (OPTIONAL)</h1>
+<p>
+  <b>Status:</b> the entire declutter ships in <code>renders_panel.css</code> (append after
+  <code>style.css</code>) with <b>zero markup changes</b>. The patch below is optional; it only
+  hardens accessibility (aria-labels/titles) and keeps every id/class byte-identical so
+  <code>app.js</code> wiring (<code>btn-render-proxy</code>, <code>btn-render-final</code>,
+  <code>btn-refresh-renders</code>, <code>render-encoder-select</code>, <code>#renders-list</code>)
+  keeps working unchanged. Button <i>text</i> is intentionally untouched — JS
+  <code>setRenderButtonsBusy()</code> reads and restores <code>textContent</code>.
+</p>
+
+<h2>1 · OLD (currently in open_edit/serve/static/index.html — replace this exact region)</h2>
+<div class="old"><pre><div class="panel-section">
+        <div class="panel-section-header">
+          <span>Renders</span>
+          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh" data-od-id="btn-refresh-renders">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </button>
+        </div>
+        <div id="renders-list" class="renders-list">
+          <div class="empty-state">No renders yet.</div>
+        </div>
+        <div class="render-buttons">
+          <label class="encoder-select muted small" title="GPU uses NVENC when available; CPU uses software x264">
+            Encoder
+            <select id="render-encoder-select">
+              <option value="gpu" selected>GPU (default)</option>
+              <option value="cpu">CPU</option>
+            </select>
+          </label>
+          <button id="btn-render-proxy" class="btn btn-secondary btn-sm" data-od-id="btn-render-proxy">Render proxy</button>
+          <button id="btn-render-final" class="btn btn-secondary btn-sm" data-od-id="btn-render-final">Render final</button>
+        </div>
+      </div></pre></div>
+
+<h2>2 · NEW (same ids/classes; + aria-labels, titles, role="group")</h2>
+<div class="new"><pre><div class="panel-section">
+        <div class="panel-section-header">
+          <span>Renders</span>
+          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh renders" aria-label="Refresh renders" data-od-id="btn-refresh-renders">
+            <svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </button>
+        </div>
+        <div id="renders-list" class="renders-list">
+          <div class="empty-state">No renders yet.</div>
+        </div>
+        <div class="render-buttons" role="group" aria-label="Render actions">
+          <label class="encoder-select muted small" title="GPU uses NVENC when available; CPU uses software x264">
+            Encoder
+            <select id="render-encoder-select">
+              <option value="gpu" selected>GPU (default)</option>
+              <option value="cpu">CPU</option>
+            </select>
+          </label>
+          <button id="btn-render-proxy" class="btn btn-secondary btn-sm" title="Render a review proxy (640×360)" aria-label="Render proxy" data-od-id="btn-render-proxy">Render proxy</button>
+          <button id="btn-render-final" class="btn btn-secondary btn-sm" title="Render the final 1080p export" aria-label="Render final" data-od-id="btn-render-final">Render final</button>
+        </div>
+      </div></pre></div>
+
+<h2>3 · OPTIONAL one-line JS hook for per-mode card colors (proxy=cyan / final=green)</h2>
+<p>
+  The card DOM built by <code>app.js → renderRendersList()</code> carries only
+  <code>render-status-*</code> classes, so pure CSS cannot tell a proxy render from a final one.
+  The status-driven fallback in renders_panel.css already color-codes
+  succeeded=phosphor green, running/queued=cyan, failed=red. For exact per-mode colors,
+  add <b>one additive class token</b> (no logic change) in
+  <code>open_edit/serve/static/app.js</code>:
+</p>
+<div class="opt"><pre>// app.js, renderRendersList(), the card root element:
+const item = el('div', { class: `render-item render-status-${status} render-mode-${r.mode || 'proxy'}` }, [
+//        ^^^^ add:  render-mode-${r.mode || 'proxy'}
+</pre></div>
+<p>
+  renders_panel.css already ships the matching rules (<code>.render-mode-proxy</code> →
+  cyan, <code>.render-mode-final</code> → phosphor green, failure always wins). The rules are
+  inert until the class exists, so the file is safe either way.
+</p>
+
+<h2>4 · What the CSS removes / softens (no markup needed)</h2>
+<ul>
+  <li><b>Removed visually:</b> oversized 34px emoji thumb → 26px status-tinted tile; noisy
+      size+timestamp tail in the meta line → single-line ellipsis (mode + status kept);
+      full-width 110px-min action buttons → compact auto-width; unbounded list growth that
+      pushed Notes/Style out of the panel → list scrolls internally.</li>
+  <li><b>Kept:</b> render name, mode label, status icon+label, click-to-load preview
+      (primary action), encoder select, proxy/final buttons, refresh button — same ids/classes.</li>
+  <li><b>Added:</b> status LED bar + per-status border/glow colors, scanline texture,
+      mono typography, phosphor hover glow, CRT blink for in-progress, light-theme overrides.</li>
+</ul>
+
+</body>
+</html>

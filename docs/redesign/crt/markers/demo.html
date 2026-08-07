@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenEdit CRT — Timeline Markers (edit cuts + note clouds)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- REAL app stylesheet (v1 linear baseline) -->
+<link rel="stylesheet" href="../../../../open_edit/serve/static/style.css">
+<!-- CRT override layer (the deliverable under test) -->
+<link rel="stylesheet" href="markers.css">
+<style>
+  /* ============ demo-only shell (CRT flavour) ============ */
+  html, body { height: auto; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 50% -10%, rgba(62,224,122,0.07), transparent 60%),
+      radial-gradient(900px 400px at 85% 110%, rgba(255,179,40,0.05), transparent 60%),
+      var(--bg-deep);
+    color: var(--text);
+    font-family: var(--font-sans);
+    padding: 18px 22px 26px;
+  }
+  body::after { /* scanlines */
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0.16) 0 1px, transparent 1px 3px);
+    mix-blend-mode: multiply; opacity: .5;
+  }
+  .demo-shell { max-width: 1560px; margin: 0 auto; }
+  .demo-header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:10px; }
+  .demo-title h1 {
+    margin:0; font-size:19px; letter-spacing:.08em; font-weight:600;
+    color: var(--crt-edit-line, var(--green));
+    text-shadow: 0 0 12px var(--crt-edit-glow, transparent), 0 0 2px var(--crt-edit-glow, transparent);
+  }
+  .demo-title p { margin:3px 0 0; font-size:11.5px; color: var(--text-dim); font-family: var(--font-mono); }
+  .demo-toggle { display:flex; gap:8px; align-items:center; }
+  .demo-toggle .btn { font-size:11px; }
+  .legend { display:flex; gap:18px; flex-wrap:wrap; font-size:10.5px; color:var(--text-muted); margin: 4px 0 12px; font-family:var(--font-mono); }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; }
+  .sw-green { background: var(--crt-edit-line,#3ee07a); box-shadow:0 0 6px var(--crt-edit-glow,transparent); }
+  .sw-amber { background: var(--crt-revert-line,#ffb328); box-shadow:0 0 6px var(--crt-revert-glow,transparent); }
+  .sw-note { background: var(--crt-note-border,#ffb328); border-radius:6px; }
+
+  .demo-grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  .demo-col h2 { font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); margin:0 0 6px; }
+  .demo-col h2 em { color:var(--crt-edit-line,var(--green)); font-style:normal; }
+  .demo-col h2.old em { color:var(--warn); }
+  .demo-col .cap { font-size:10px; color:var(--text-dim); font-family:var(--font-mono); margin-top:6px; line-height:1.5; }
+
+  /* demo panels: square corners + focus ring, hide demo scrollbars */
+  .demo-panel { border:1px solid var(--border); border-top:1px solid var(--border); border-radius:8px; overflow:hidden; height:184px; }
+  .demo-panel .timeline-ruler-col { scrollbar-width:none; }
+  .demo-panel .timeline-ruler-col::-webkit-scrollbar { display:none; }
+  .demo-panel .timeline-track-labels { scrollbar-width:none; }
+
+  /* ---- OLD (v1 baseline) marker look, scoped to .demo-old ----
+     Exact copies of style.css lines 1633-1646, prefixed so they
+     win inside the old panel. */
+  .demo-old .timeline-edit-marker,
+  .demo-old .timeline-note-marker {
+    position: absolute; top: 2px; height: calc(100% - 4px);
+    width: 3px; border-radius: 2px; cursor: pointer; z-index: 4;
+  }
+  .demo-old .timeline-edit-marker { background: var(--yellow); }
+  .demo-old .timeline-edit-marker.reverted { background: var(--text-dim); opacity: 0.5; }
+  .demo-old .timeline-note-marker { background: #22d3ee; width: 6px; }
+  .demo-old .timeline-edit-marker:hover,
+  .demo-old .timeline-note-marker:hover { filter: brightness(1.25); }
+  /* strip markers.css additions inside the old panel: no notch
+     handles, no centring margin, no bubble/tail/ghost glyph */
+  .demo-old .timeline-edit-marker,
+  .demo-old .timeline-note-marker { margin-left: 0; box-shadow: none; }
+  .demo-old .timeline-edit-marker::before,
+  .demo-old .timeline-edit-marker::after,
+  .demo-old .timeline-note-marker::before,
+  .demo-old .timeline-note-marker::after { content: none !important; display: none; }
+
+  /* ---- NARROW strip: proposed responsive rules (comment block
+         #4 in markers.css) activated here for the demo ---- */
+  .demo-narrow { margin-top:18px; }
+  .demo-narrow h2 { font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); margin:0 0 6px; }
+  .demo-narrow-wrap { max-width: 640px; }
+  .demo-narrow-wrap .timeline-track-labels { width: 64px; }
+  .demo-narrow-wrap .timeline-track-label-row { font-size: 9px; padding: 0 4px; }
+  .demo-narrow-wrap .timeline-ruler-tick:nth-child(even) .timeline-ruler-tick-label { display: none; }
+  .demo-narrow-wrap .timeline-panel-header { flex-wrap: wrap; height: auto; min-height: 26px; row-gap: 2px; }
+  .demo-footer { margin-top:16px; font-size:10px; color:var(--text-dim); font-family:var(--font-mono); line-height:1.7; }
+  .demo-footer b { color:var(--crt-note-ink,var(--yellow)); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="demo-shell">
+
+  <header class="demo-header">
+    <div class="demo-title">
+      <h1>◉ CRT TIMELINE MARKERS</h1>
+      <p>edit ops = NLE cut points (2px line + notched trim handles) · notes = amber chat clouds · markers.css override · dark / light themes</p>
+    </div>
+    <div class="demo-toggle">
+      <button class="btn btn-ghost btn-xs" id="btn-theme" title="Toggle light theme">☀️ light</button>
+    </div>
+  </header>
+
+  <div class="legend">
+    <span><i class="sw sw-green"></i> applied edit — phosphor cut point</span>
+    <span><i class="sw sw-amber"></i> reverted edit — amber dashed cut</span>
+    <span><i class="sw sw-note"></i> review note — chat cloud w/ tail</span>
+    <span>▏playhead (indigo, untouched)</span>
+  </div>
+
+  <div class="demo-grid">
+    <section class="demo-col">
+      <h2><em>NEW</em> — markers.css (CRT override)</h2>
+      <div id="new-panel">    <div class="timeline-panel demo-panel new">
+      <div class="timeline-panel-header">
+        <span>Timeline</span>
+        <div class="timeline-panel-controls">
+          <span class="timeline-timecode" id="timeline-timecode-label">00:06.30</span>
+          <span class="timeline-zoom-label" id="timeline-duration-label">16.0s · 0.8×</span>
+          <button class="btn btn-ghost btn-xs" title="Copy playhead time">Copy time</button>
+          <button class="btn btn-ghost btn-xs" title="Add review note at playhead">Note here</button>
+          <button class="btn btn-ghost btn-xs" title="Zoom in">+</button>
+          <button class="btn btn-ghost btn-xs" title="Zoom out">−</button>
+          <button class="btn btn-ghost btn-xs" title="Fit to window">Fit</button>
+        </div>
+      </div>
+      <div class="timeline-body">
+        <div class="timeline-track-labels" id="timeline-track-labels">
+          <div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>
+          <div class="timeline-track-label-row"><span class="track-kind-badge video">▶</span>v1</div>
+          <div class="timeline-track-label-row"><span class="track-kind-badge audio">♪</span>a1</div>
+        </div>
+        <div class="timeline-ruler-col" id="timeline-ruler-col">
+          <div class="timeline-playhead" id="timeline-playhead" style="left:302px"></div>
+          <div class="timeline-ruler" id="timeline-ruler" style="width:768px">
+      <div class="timeline-ruler-tick" style="left:0px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">0s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:240px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">5s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:480px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">10s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:720px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">15s</div>
+      </div>
+          </div>
+      <div class="timeline-tracks-area" style="width:768px">
+        <div class="timeline-track-row" style="width:768px">
+          <div class="timeline-clip video-clip" style="left:0px;width:216px" title="clip
+a1b2c3d4
+0.0s → 4.5s">a1b2c3d4</div>
+          <div class="timeline-clip video-clip" style="left:216px;width:432px" title="clip
+e5f6a7b8
+4.5s → 13.5s">e5f6a7b8</div>
+          <div class="timeline-clip video-clip" style="left:432px;width:768px" title="clip
+c9d0e1f2
+9.0s → 25.0s">c9d0e1f2</div>
+          <div class="timeline-overlay-marker" style="left:96px;width:58px" title="HTML Overlay: title_card.json5"></div>
+          <div class="timeline-remotion-marker" style="left:624px;width:53px" title="Remotion: comp_01"></div>
+          <div class="timeline-edit-marker" style="left:216px" title="trim @ 00:04.50&#10;cut head of clip e5f6a7b8"></div>
+          <div class="timeline-edit-marker reverted" style="left:432px" title="speed_ramp @ 00:09.00&#10;reverted: ramp 120%"></div>
+          <div class="timeline-note-marker" style="left:77px" title="Note @ 00:01.60: tighten this intro"></div>
+          <div class="timeline-note-marker" style="left:566px" title="Note @ 00:11.80: lower music under VO"></div>
+        </div>
+        <div class="timeline-track-row" style="width:768px">
+        <div class="timeline-clip audio-clip" style="left:0px;width:360px" title="audio
+f1e2d3c4
+0.0s → 7.5s">f1e2d3c4</div>
+        <div class="timeline-clip audio-clip" style="left:360px;width:768px" title="audio
+b5a6c7d8
+7.5s → 23.5s">b5a6c7d8</div>
+        </div>
+      </div>
+        </div>
+      </div>
+    </div></div>
+      <p class="cap">clips v1/a1 · cut at 4.5s (trim, applied) · cut at 9.0s (speed ramp, <b>reverted</b>) · notes at 1.6s &amp; 11.8s · overlay + remotion markers untouched</p>
+    </section>
+    <section class="demo-col">
+      <h2 class="old"><em>OLD</em> — style.css v1 baseline</h2>
+      <div class="demo-old" id="old-panel">    <div class="timeline-panel demo-panel old">
+      <div class="timeline-panel-header">
+        <span>Timeline</span>
+        <div class="timeline-panel-controls">
+          <span class="timeline-timecode" id="timeline-timecode-label">00:06.30</span>
+          <span class="timeline-zoom-label" id="timeline-duration-label">16.0s · 0.8×</span>
+          <button class="btn btn-ghost btn-xs" title="Copy playhead time">Copy time</button>
+          <button class="btn btn-ghost btn-xs" title="Add review note at playhead">Note here</button>
+          <button class="btn btn-ghost btn-xs" title="Zoom in">+</button>
+          <button class="btn btn-ghost btn-xs" title="Zoom out">−</button>
+          <button class="btn btn-ghost btn-xs" title="Fit to window">Fit</button>
+        </div>
+      </div>
+      <div class="timeline-body">
+        <div class="timeline-track-labels" id="timeline-track-labels">
+          <div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>
+          <div class="timeline-track-label-row"><span class="track-kind-badge video">▶</span>v1</div>
+          <div class="timeline-track-label-row"><span class="track-kind-badge audio">♪</span>a1</div>
+        </div>
+        <div class="timeline-ruler-col" id="timeline-ruler-col">
+          <div class="timeline-playhead" id="timeline-playhead" style="left:302px"></div>
+          <div class="timeline-ruler" id="timeline-ruler" style="width:768px">
+      <div class="timeline-ruler-tick" style="left:0px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">0s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:240px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">5s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:480px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">10s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:720px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">15s</div>
+      </div>
+          </div>
+      <div class="timeline-tracks-area" style="width:768px">
+        <div class="timeline-track-row" style="width:768px">
+          <div class="timeline-clip video-clip" style="left:0px;width:216px" title="clip
+a1b2c3d4
+0.0s → 4.5s">a1b2c3d4</div>
+          <div class="timeline-clip video-clip" style="left:216px;width:432px" title="clip
+e5f6a7b8
+4.5s → 13.5s">e5f6a7b8</div>
+          <div class="timeline-clip video-clip" style="left:432px;width:768px" title="clip
+c9d0e1f2
+9.0s → 25.0s">c9d0e1f2</div>
+          <div class="timeline-overlay-marker" style="left:96px;width:58px" title="HTML Overlay: title_card.json5"></div>
+          <div class="timeline-remotion-marker" style="left:624px;width:53px" title="Remotion: comp_01"></div>
+          <div class="timeline-edit-marker" style="left:216px" title="trim @ 00:04.50&#10;cut head of clip e5f6a7b8"></div>
+          <div class="timeline-edit-marker reverted" style="left:432px" title="speed_ramp @ 00:09.00&#10;reverted: ramp 120%"></div>
+          <div class="timeline-note-marker" style="left:77px" title="Note @ 00:01.60: tighten this intro"></div>
+          <div class="timeline-note-marker" style="left:566px" title="Note @ 00:11.80: lower music under VO"></div>
+        </div>
+        <div class="timeline-track-row" style="width:768px">
+        <div class="timeline-clip audio-clip" style="left:0px;width:360px" title="audio
+f1e2d3c4
+0.0s → 7.5s">f1e2d3c4</div>
+        <div class="timeline-clip audio-clip" style="left:360px;width:768px" title="audio
+b5a6c7d8
+7.5s → 23.5s">b5a6c7d8</div>
+        </div>
+      </div>
+        </div>
+      </div>
+    </div></div>
+      <p class="cap">same DOM, same app.js output — only the CSS layer differs. v1 renders 3px yellow blobs and 6px cyan bars.</p>
+    </section>
+  </div>
+
+  <section class="demo-narrow">
+    <h2>NARROW — proposed responsiveness rules (comment block #4 in markers.css, enabled here for demo)</h2>
+    <div class="demo-narrow-wrap">    <div class="timeline-panel demo-panel narrow">
+      <div class="timeline-panel-header">
+        <span>Timeline</span>
+        <div class="timeline-panel-controls">
+          <span class="timeline-timecode" id="timeline-timecode-label">00:06.30</span>
+          <span class="timeline-zoom-label" id="timeline-duration-label">16.0s · 0.8×</span>
+          <button class="btn btn-ghost btn-xs" title="Copy playhead time">Copy time</button>
+          <button class="btn btn-ghost btn-xs" title="Add review note at playhead">Note here</button>
+          <button class="btn btn-ghost btn-xs" title="Zoom in">+</button>
+          <button class="btn btn-ghost btn-xs" title="Zoom out">−</button>
+          <button class="btn btn-ghost btn-xs" title="Fit to window">Fit</button>
+        </div>
+      </div>
+      <div class="timeline-body">
+        <div class="timeline-track-labels" id="timeline-track-labels">
+          <div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>
+          <div class="timeline-track-label-row"><span class="track-kind-badge video">▶</span>v1</div>
+          <div class="timeline-track-label-row"><span class="track-kind-badge audio">♪</span>a1</div>
+        </div>
+        <div class="timeline-ruler-col" id="timeline-ruler-col">
+          <div class="timeline-playhead" id="timeline-playhead" style="left:302px"></div>
+          <div class="timeline-ruler" id="timeline-ruler" style="width:768px">
+      <div class="timeline-ruler-tick" style="left:0px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">0s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:240px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">5s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:480px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">10s</div>
+      </div>
+      <div class="timeline-ruler-tick" style="left:720px">
+        <div class="timeline-ruler-tick-line"></div>
+        <div class="timeline-ruler-tick-label">15s</div>
+      </div>
+          </div>
+      <div class="timeline-tracks-area" style="width:768px">
+        <div class="timeline-track-row" style="width:768px">
+          <div class="timeline-clip video-clip" style="left:0px;width:216px" title="clip
+a1b2c3d4
+0.0s → 4.5s">a1b2c3d4</div>
+          <div class="timeline-clip video-clip" style="left:216px;width:432px" title="clip
+e5f6a7b8
+4.5s → 13.5s">e5f6a7b8</div>
+          <div class="timeline-clip video-clip" style="left:432px;width:768px" title="clip
+c9d0e1f2
+9.0s → 25.0s">c9d0e1f2</div>
+          <div class="timeline-overlay-marker" style="left:96px;width:58px" title="HTML Overlay: title_card.json5"></div>
+          <div class="timeline-remotion-marker" style="left:624px;width:53px" title="Remotion: comp_01"></div>
+          <div class="timeline-edit-marker" style="left:216px" title="trim @ 00:04.50&#10;cut head of clip e5f6a7b8"></div>
+          <div class="timeline-edit-marker reverted" style="left:432px" title="speed_ramp @ 00:09.00&#10;reverted: ramp 120%"></div>
+          <div class="timeline-note-marker" style="left:77px" title="Note @ 00:01.60: tighten this intro"></div>
+          <div class="timeline-note-marker" style="left:566px" title="Note @ 00:11.80: lower music under VO"></div>
+        </div>
+        <div class="timeline-track-row" style="width:768px">
+        <div class="timeline-clip audio-clip" style="left:0px;width:360px" title="audio
+f1e2d3c4
+0.0s → 7.5s">f1e2d3c4</div>
+        <div class="timeline-clip audio-clip" style="left:360px;width:768px" title="audio
+b5a6c7d8
+7.5s → 23.5s">b5a6c7d8</div>
+        </div>
+      </div>
+        </div>
+      </div>
+    </div></div>
+    <p class="cap">640px panel: even tick labels hidden (half-density ruler), 64px label column, wrapping panel header. No JS changes.</p>
+  </section>
+
+  <footer class="demo-footer">
+    <b>deliverables</b> — markers.css (override, append after style.css) · demo.html (this page) · screenshot markers_demo.png<br>
+    <b>DOM contract</b> — .timeline-edit-marker[.reverted] and .timeline-note-marker, no children, inline <i>left</i> px, appended to first .timeline-track-row (exact app.js output).
+  </footer>
+
+</div>
+
+<script>
+  // theme toggle for the demo page (matches app.js applyTheme behaviour)
+  const btn = document.getElementById('btn-theme');
+  function apply(theme){ document.documentElement.setAttribute('data-theme', theme); }
+  apply(new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark');
+  btn.addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+    apply(cur === 'dark' ? 'light' : 'dark');
+  });
+</script>
+</body>
+</html>

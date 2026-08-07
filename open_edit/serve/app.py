@@ -29,6 +29,10 @@ from fastapi import FastAPI, HTTPException, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from open_edit.kernel.asset_proxy_jobs import (
+    DEFAULT_ASSET_PROXY_JOB_SERVICE,
+    source_proxy_worker_enabled,
+)
 from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
 
 from . import projects as projects_mod
@@ -50,6 +54,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Preserve the audit trail and make the interrupted state explicit.
     for project in await projects_mod.list_projects():
         DEFAULT_RENDER_JOB_SERVICE.recover(Path(project.path))
+
+    # Source-proxy jobs are durable host workers too. On startup, pick up
+    # rows left queued/running by a prior process (crashed CLI init, killed
+    # or reloaded server, another uvicorn worker) and run them in this
+    # process's bounded thread pool. Never let proxy recovery break startup.
+    if source_proxy_worker_enabled():
+        for project in await projects_mod.list_projects():
+            try:
+                DEFAULT_ASSET_PROXY_JOB_SERVICE.drain(Path(project.path))
+            except Exception:
+                pass
     yield
 
 

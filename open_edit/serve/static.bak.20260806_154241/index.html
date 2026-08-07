@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Edit — Review Studio</title>
+  <meta name="description" content="Open Edit — review proxy renders, timeline, and edit graph while an external agent drives edits via MCP.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css?v=20260728-gpu-encoder">
+</head>
+<body class="has-timeline">
+  <div class="site-wrapper">
+
+  <!-- =================== Top bar =================== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">
+        <span class="logo-badge"></span> Open Edit
+      </span>
+      <span class="topbar-sep">|</span>
+      <label class="topbar-label" for="project-select">Project</label>
+      <select id="project-select" class="project-select">
+        <option value="">— select —</option>
+      </select>
+      <button id="btn-new-project" class="btn btn-ghost btn-xs" title="New project">+ New</button>
+      <button id="btn-refresh-project" class="btn btn-ghost btn-xs" title="Refresh projects">
+        <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      </button>
+    </div>
+    
+    <div class="topbar-center agent-only">
+      <label class="topbar-label" for="llm-provider-select">Provider</label>
+      <select id="llm-provider-select" class="topbar-select" disabled>
+        <option value="">—</option>
+      </select>
+      <label class="topbar-label" for="llm-model-select">Model</label>
+      <select id="llm-model-select" class="topbar-select" disabled>
+        <option value="">—</option>
+      </select>
+      <span id="llm-tools-warn" class="llm-warn hidden"
+            title="This provider does not support the 11 Open Edit tools">⚠ no tools</span>
+    </div>
+
+    <div class="topbar-right">
+      <button id="btn-cmd-k" class="btn btn-ghost btn-xs" title="Command Palette (Cmd+K)">
+        <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <span class="kbd-badge">⌘K</span>
+      </button>
+      <button id="btn-toggle-theme" class="btn btn-ghost btn-xs" title="Toggle Light/Dark Theme">🌙</button>
+      <button id="btn-toggle-left-panel" class="btn btn-ghost btn-xs review-only" title="Toggle assets panel">◧</button>
+      <button id="btn-toggle-right-panel" class="btn btn-ghost btn-xs review-only" title="Toggle renders panel">◨</button>
+      <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" title="Settings & API Keys">⚙️ Settings</button>
+      <button id="btn-topbar-stop" class="btn btn-secondary hidden agent-only" title="Interrupt request">Stop ⏹</button>
+      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets">☰</button>
+      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders">≡</button>
+      <span id="conn-status" class="conn-status disconnected" title="Disconnected">●</span>
+    </div>
+  </header>
+
+  <!-- =================== Main 3-column layout =================== -->
+  <main class="layout">
+    <!-- ----- LEFT panel ----- -->
+    <aside id="left-panel" class="panel panel-left">
+      <div class="panel-tabs">
+        <button class="tab active" data-tab="assets">Assets</button>
+        <button class="tab" data-tab="edits">Edit graph</button>
+      </div>
+
+      <div class="tab-content active" data-tab="assets">
+        <div id="assets-list" class="assets-list">
+          <div class="empty-state">No assets yet.<br>Upload one below.</div>
+        </div>
+
+        <div id="dropzone" class="dropzone">
+          <div class="dropzone-inner">
+            <div class="dropzone-icon">
+              <svg class="icon-svg" style="width:24px;height:24px;" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            </div>
+            <div class="dropzone-text">Drop video, audio, or images<br><span class="muted">or click to browse</span></div>
+          </div>
+          <input type="file" id="file-input" multiple accept="video/*,audio/*,image/*" hidden>
+        </div>
+        <div id="upload-progress" class="upload-progress hidden"></div>
+      </div>
+
+      <div class="tab-content" data-tab="edits">
+        <div id="edit-graph-list" class="edit-graph-list">
+          <div class="empty-state">No edits yet.<br>Ask the agent to do something.</div>
+        </div>
+        <div id="edit-detail-panel" class="edit-detail-panel hidden">
+          <div class="edit-detail-header">
+            <span id="edit-detail-kind" class="edit-detail-kind"></span>
+            <span id="edit-detail-status" class="edit-detail-status"></span>
+          </div>
+          <div class="edit-detail-meta">
+            <span class="muted">by</span> <span id="edit-detail-author"></span>
+            <span class="muted"> · id </span><span id="edit-detail-id" class="mono"></span>
+          </div>
+          <div id="edit-detail-payload" class="edit-detail-payload"></div>
+          <div class="edit-detail-actions">
+            <button id="btn-edit-undo" class="btn btn-sm btn-outline">Undo</button>
+            <button id="btn-edit-delete" class="btn btn-sm btn-danger">Delete</button>
+          </div>
+        </div>
+        <div class="panel-footer muted small">Click an edit to inspect · Auto-refreshes every 5s</div>
+      </div>
+    </aside>
+
+    <!-- ----- CENTER panel ----- -->
+    <section class="panel panel-center">
+      <div id="preview-panel" class="preview-panel">
+        <div class="preview-panel-header">
+          <span>Preview</span>
+          <span id="preview-mode-badge" class="preview-mode-badge muted small">—</span>
+        </div>
+        <video id="preview-player" class="preview-player" controls playsinline></video>
+        <div id="preview-empty" class="empty-state preview-empty">
+          Render a review artifact (`mode=proxy`) to review the full cut.
+        </div>
+      </div>
+
+      <div id="chat-log" class="chat-log agent-only">
+        <div class="empty-state">
+          <div style="font-size: 20px; font-weight:700; color:var(--text-primary); margin-bottom: 8px;">Welcome to Open Edit</div>
+          <div>Select or create a project to start chatting with your AI video editor.</div>
+          
+          <div class="prompt-chips-container" id="prompt-chips">
+            <div class="prompt-chip" data-prompt="Cut dead air and silent pauses from the video">✂️ Cut silences</div>
+            <div class="prompt-chip" data-prompt="Add lower-third title overlay at start">🏷️ Add lower-third</div>
+            <div class="prompt-chip" data-prompt="Normalize audio levels to -16dBFS">🔊 Normalize audio</div>
+            <div class="prompt-chip" data-prompt="Render final 1080p MP4">🎬 Render final video</div>
+          </div>
+        </div>
+      </div>
+      
+      <div id="chat-status" class="chat-status hidden agent-only" data-state="idle" aria-live="polite">
+        <span class="chat-status-dot"></span>
+        <span class="chat-status-text"></span>
+      </div>
+      <div id="verify-chip" class="verify-chip hidden agent-only" data-state="idle" aria-live="polite">
+        <span class="verify-chip-text"></span>
+      </div>
+      <div id="cost-badge" class="cost-badge hidden agent-only" data-source="unavailable" aria-live="polite">
+        <span class="cost-badge-text"></span>
+      </div>
+      
+      <div class="chat-input-row agent-only">
+        <textarea id="chat-input" class="chat-input" placeholder="Type a prompt to edit video... (Enter to send, Shift+Enter for newline, ⌘K for commands)" rows="1" disabled></textarea>
+        <button id="btn-send" class="btn btn-primary" disabled>
+          Send
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+        <button id="btn-stop" class="btn btn-secondary hidden" title="Interrupt request">
+          Stop ⏹
+        </button>
+      </div>
+    </section>
+
+    <!-- ----- RIGHT panel ----- -->
+    <aside id="right-panel" class="panel panel-right">
+      <div class="panel-section">
+        <div class="panel-section-header">
+          <span>Renders</span>
+          <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </button>
+        </div>
+        <div id="renders-list" class="renders-list">
+          <div class="empty-state">No renders yet.</div>
+        </div>
+        <div class="render-buttons">
+          <label class="encoder-select muted small" title="GPU uses NVENC when available; CPU uses software x264">
+            Encoder
+            <select id="render-encoder-select">
+              <option value="gpu" selected>GPU (default)</option>
+              <option value="cpu">CPU</option>
+            </select>
+          </label>
+          <button id="btn-render-proxy" class="btn btn-secondary btn-sm">Render proxy</button>
+          <button id="btn-render-final" class="btn btn-secondary btn-sm">Render final</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header">
+          <span>Notes</span>
+          <button id="btn-show-notes" class="btn btn-ghost btn-xs">View</button>
+        </div>
+        <div id="notes-summary" class="notes-summary muted small">—</div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-section-header"><span>Style</span></div>
+        <div class="muted small agent-only">Pinned values come from the agent as you chat.</div>
+        <div class="muted small review-only">External agent (MCP) owns style and edits.</div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- =================== Timeline Panel =================== -->
+  <section id="timeline-panel" class="timeline-panel" aria-label="Timeline">
+    <div class="timeline-panel-header">
+      <span>Timeline</span>
+      <div class="timeline-panel-controls">
+        <span class="timeline-timecode" id="timeline-timecode-label">00:00.00</span>
+        <span class="timeline-zoom-label" id="timeline-duration-label">—</span>
+        <button id="btn-copy-timecode" class="btn btn-ghost btn-xs" title="Copy playhead time for agent">Copy time</button>
+        <button id="btn-add-note-playhead" class="btn btn-ghost btn-xs" title="Add review note at playhead">Note here</button>
+        <button id="btn-timeline-zoom-in"  class="btn btn-ghost btn-xs" title="Zoom in">+</button>
+        <button id="btn-timeline-zoom-out" class="btn btn-ghost btn-xs" title="Zoom out">−</button>
+        <button id="btn-timeline-fit"      class="btn btn-ghost btn-xs" title="Fit to window">Fit</button>
+      </div>
+    </div>
+    <div class="timeline-body">
+      <!-- Track labels column -->
+      <div class="timeline-track-labels" id="timeline-track-labels">
+        <div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>
+      </div>
+      <!-- Ruler + tracks area -->
+      <div class="timeline-ruler-col" id="timeline-ruler-col">
+        <div class="timeline-playhead" id="timeline-playhead"></div>
+        <div class="timeline-ruler" id="timeline-ruler"></div>
+        <div class="timeline-tracks-area" id="timeline-tracks-area">
+          <div class="timeline-empty-state" id="timeline-empty-msg">No clips yet — ask the agent to add some.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </div><!-- /.site-wrapper -->
+
+  <div id="modal-cmd-k" class="modal cmd-palette hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-modal-close></div>
+    <div class="cmd-palette-card">
+      <div class="cmd-input-container">
+        <svg class="icon-svg" style="color:var(--text-dim);" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="cmd-input" class="cmd-input" placeholder="Type a command or search..." autocomplete="off">
+        <span class="kbd-badge">ESC</span>
+      </div>
+      <div id="cmd-list" class="cmd-list">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- =================== Modals =================== -->
+  <div id="modal-new-project" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <h3>New project</h3>
+      <input type="text" id="new-project-name" class="text-input" placeholder="project name" autocomplete="off">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Cancel</button>
+        <button id="btn-create-project" class="btn btn-primary">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-asset-preview" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-card-wide">
+      <h3 id="asset-preview-title">Preview</h3>
+      <video id="asset-preview-video" controls class="asset-preview-video"></video>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-notes" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-card-wide">
+      <h3>Review notes</h3>
+      <div id="notes-list" class="notes-list">Loading…</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-settings" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-card-wide">
+      <h3>Settings & API Keys</h3>
+      
+      <div style="margin-bottom: 16px;">
+        <h4 style="margin: 0 0 8px; font-size: 13px; color: var(--accent);">Detected Local Agent Runtimes</h4>
+        <div id="settings-runtimes-list" class="muted small" style="display: flex; flex-direction: column; gap: 4px;">Loading runtimes…</div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <h4 style="margin: 0 0 8px; font-size: 13px; color: var(--accent);">API Key Configuration (BYOK)</h4>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">Anthropic API Key</label>
+            <input type="password" id="key-anthropic" class="text-input" placeholder="sk-ant-..." autocomplete="off">
+          </div>
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">OpenAI API Key</label>
+            <input type="password" id="key-openai" class="text-input" placeholder="sk-proj-..." autocomplete="off">
+          </div>
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">OpenCode Key <span class="muted">(binary manages own auth)</span></label>
+            <input type="password" id="key-opencode" class="text-input" placeholder="sk-..." autocomplete="off">
+          </div>
+          <div>
+            <label class="small muted" style="display: block; margin-bottom: 3px;">Antigravity / Google Key <span class="muted">(binary manages own auth)</span></label>
+            <input type="password" id="key-antigravity" class="text-input" placeholder="key..." autocomplete="off">
+          </div>
+        </div>
+
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Cancel</button>
+        <button id="btn-save-settings-keys" class="btn btn-primary">Save Keys</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================== Toast =================== -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="/app.js?v=20260729-preview-rev"></script>
+</body>
+</html>

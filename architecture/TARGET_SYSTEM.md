@@ -46,24 +46,21 @@ project/
 
 ## Motion Graphics Backends
 
-Open Edit uses three complementary engines — do not collapse them:
+Open Edit uses MLT as the A/V backbone and HyperFrames as the native graphics engine:
 
 | Backend | Role | When to use |
 |---|---|---|
-| **MLT / melt** | Multi-track timeline, audio, trims, transitions | All proxy/final A/V composites |
-| **HyperFrames** (`AddHtmlOverlayOp`) | Simple HTML/CSS templates with `{{var}}` | Lower thirds, banners, captions |
-| **Remotion** (`AddRemotionCompositionOp`) | React motion graphics, materialize → CAS → clip | Kinetic titles, charts, springs, code anim |
-| **moviepy templates** | Legacy procedural fills via render sandbox | Quick beat fills when Remotion is overkill |
+| **MLT / melt** | Multi-track timeline, audio, trims, transitions | Base proxy/final/preview A/V composites |
+| **HyperFrames** (`AddHtmlOverlayOp`) | HTML/CSS/JS compositions, host materialization, preview/final graphics | All new motion graphics |
+| **Remotion** (`AddRemotionCompositionOp`) | Legacy React compatibility and migration input | Existing graphs only; no new authoring |
+| **moviepy templates** | Legacy procedural fills via render sandbox | Existing legacy fills only |
 
-**Remotion contract:** compositions are declared in the edit graph and
-**materialized to CAS media before emit**. Proxy/final then:
-
-1. melt the talk/timeline **without** Remotion graphics tracks
-2. burn Remotion CAS clips onto the melt output with **ffmpeg overlay**
-
-MLT multitrack composite of opaque Remotion clips is not relied on (known
-gap). Remotion is **not** routed through the HyperFrames `mode=overlay`
-late-composite path.
+**Graphics contract:** new HyperFrames compositions are materialized by the
+host graphics seam and composited with the MLT base output through FFmpeg.
+Legacy Remotion compositions remain readable and are materialized through the
+compatibility path until each composition passes HyperFrames frame-parity
+validation. MLT multitrack graphics compositing is not relied on for either
+engine.
 
 **Failure policy:** if Remotion materialization or ffmpeg burn-in fails, the
 render fails with a clear error. Do not silently omit the composition.

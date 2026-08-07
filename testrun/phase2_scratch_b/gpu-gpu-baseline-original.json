@@ -1,0 +1,77 @@
+{
+  "label": "gpu-baseline-original",
+  "ok": true,
+  "error": null,
+  "wall_sec": 3.218,
+  "elapsed_sec": 2.093804863994592,
+  "pipe_elapsed_sec": 1.2310387439938495,
+  "source_media_policy": "original",
+  "source_proxy_hits": {},
+  "source_proxy_fallbacks": {},
+  "cuda_fastpath": {
+    "used": true,
+    "elapsed_sec": 1.2310387439938495,
+    "speed_x": 7.9,
+    "output_path": "/home/amr/apps/mlt-pipeline/testrun/phase2_scratch_b/render-gpu-baseline-original/project_098d922b7e6a.mp4"
+  },
+  "decode_backend": "cuda",
+  "output_bytes": 1378525,
+  "stages": {
+    "derive_timeline": {
+      "elapsed_sec": 0.00049526100337971,
+      "status": "completed"
+    },
+    "render_cache_lookup": {
+      "elapsed_sec": 0.48020901400013827,
+      "status": "completed"
+    },
+    "hyperframes_materialize": {
+      "elapsed_sec": 0.0,
+      "status": "skipped"
+    },
+    "build_render_plan": {
+      "elapsed_sec": 0.00012173099821666256,
+      "status": "completed"
+    },
+    "remotion_materialize": {
+      "elapsed_sec": 8.054994395934045e-06,
+      "status": "completed"
+    },
+    "emit_mlt": {
+      "elapsed_sec": 0.00020332700660219416,
+      "status": "completed"
+    },
+    "source_repair": {
+      "elapsed_sec": 2.0688996301032603e-05,
+      "status": "completed"
+    },
+    "melt_audio": {
+      "elapsed_sec": 0.30441262100066524,
+      "status": "completed"
+    },
+    "melt_video": {
+      "elapsed_sec": 0.0,
+      "status": "completed"
+    },
+    "ffmpeg_encode": {
+      "elapsed_sec": 1.2310387439938495,
+      "status": "completed"
+    },
+    "qc": {
+      "elapsed_sec": 0.0,
+      "status": "skipped"
+    },
+    "melt": {
+      "elapsed_sec": 0.0,
+      "status": "completed"
+    },
+    "ffmpeg": {
+      "elapsed_sec": 1.2310387439938495,
+      "status": "completed"
+    },
+    "audio": {
+      "elapsed_sec": 0.30441262100066524,
+      "status": "completed"
+    }
+  }
+}

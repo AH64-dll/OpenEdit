@@ -44,8 +44,10 @@ from open_edit.agent.tools.pyagent_generate_visual_for_segment import (
     generate_visual_for_segment,
 )
 from open_edit.agent.tools.pyagent_get_pending_notes import get_pending_notes
+from open_edit.agent.tools.pyagent_get_silence_gaps import get_silence_gaps
 from open_edit.agent.tools.pyagent_get_style_profile import get_style_profile
 from open_edit.agent.tools.pyagent_get_transcript_packed import get_transcript_packed
+from open_edit.agent.tools.pyagent_get_timeline_view import get_timeline_view
 from open_edit.agent.tools.pyagent_import_asset import import_asset
 from open_edit.agent.tools.pyagent_ingest_local import ingest_local
 from open_edit.agent.tools.pyagent_init_remotion_project import init_remotion_project
@@ -58,7 +60,9 @@ from open_edit.agent.tools.pyagent_select_music import select_music
 from open_edit.agent.tools.pyagent_set_pinned_value import set_pinned_value
 from open_edit.agent.tools.pyagent_timeline_ops import (
     add_clip,
+    add_hyperframes_overlay,
     apply_silence_gaps,
+    auto_color_grade,
     change_clip_speed,
     remove_clip,
     replace_clip_source,
@@ -76,8 +80,10 @@ __all__ = [
     "generate_remotion_composition",
     "generate_visual_for_segment",
     "get_pending_notes",
+    "get_silence_gaps",
     "get_style_profile",
     "get_transcript_packed",
+    "get_timeline_view",
     "import_asset",
     "ingest_local",
     "init_remotion_project",
@@ -91,12 +97,14 @@ __all__ = [
     "set_pinned_value",
     "write_remotion_composition",
     "add_clip",
+    "add_hyperframes_overlay",
     "trim_clip",
     "replace_clip_source",
     "change_clip_speed",
     "remove_clip",
     "set_audio_gain",
     "apply_silence_gaps",
+    "auto_color_grade",
 ]
 
 TOOL_TABLE: dict[str, Callable] = {
@@ -107,8 +115,10 @@ TOOL_TABLE: dict[str, Callable] = {
     "generate_remotion_composition": generate_remotion_composition,
     "generate_visual_for_segment": generate_visual_for_segment,
     "get_pending_notes": get_pending_notes,
+    "get_silence_gaps": get_silence_gaps,
     "get_style_profile": get_style_profile,
     "get_transcript_packed": get_transcript_packed,
+    "get_timeline_view": get_timeline_view,
     "import_asset": import_asset,
     "ingest_local": ingest_local,
     "init_remotion_project": init_remotion_project,
@@ -123,11 +133,13 @@ TOOL_TABLE: dict[str, Callable] = {
     "write_remotion_composition": write_remotion_composition,
     # pyagent_timeline_ops family (7 everyday clip ops).
     "add_clip": add_clip,
+    "add_hyperframes_overlay": add_hyperframes_overlay,
     "trim_clip": trim_clip,
     "replace_clip_source": replace_clip_source,
     "change_clip_speed": change_clip_speed,
     "remove_clip": remove_clip,
     "set_audio_gain": set_audio_gain,
     "apply_silence_gaps": apply_silence_gaps,
+    "auto_color_grade": auto_color_grade,
 }
 

@@ -1,11 +1,13 @@
 name: contrast
-mlt_service: lumaliftgain
+mlt_service: avfilter.eq
 target_kind: [clip]
 params:
   value:
     type: float
     default: 1.0
     range: [0.0, 2.0]
+    property: av.contrast
+    description: "Contrast multiplier via ffmpeg eq (MLT avfilter.eq). value=1.0 is unchanged."
 keyframe_params: [value]
 interp: [linear, discrete]
-description: "Contrast adjustment. value=1.0 is unchanged; <1.0 lowers, >1.0 raises."
+description: "Contrast adjustment (ffmpeg eq contrast). value=1.0 is unchanged; <1.0 lowers, >1.0 raises."

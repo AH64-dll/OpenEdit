@@ -217,10 +217,16 @@ def validate_timeline(timeline: Timeline) -> list[str]:
         for prev, cur in zip(clips, clips[1:]):
             prev_end = prev.position_sec + (prev.out_point_sec - prev.in_point_sec)
             if prev_end > cur.position_sec + eps:
+                hint = (
+                    " To layer sounds (music + SFX), place each layer on its "
+                    "own audio track (a1, a2, ...)."
+                    if track.kind == "audio"
+                    else ""
+                )
                 errors.append(
                     f"Overlap on track {track.track_id}: clip {prev.clip_id!r} "
                     f"spans [{prev.position_sec:.3f}, {prev_end:.3f}] but clip "
-                    f"{cur.clip_id!r} starts at {cur.position_sec:.3f}."
+                    f"{cur.clip_id!r} starts at {cur.position_sec:.3f}.{hint}"
                 )
         for c in track.clips:
             dur = c.out_point_sec - c.in_point_sec

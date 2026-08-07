@@ -48,13 +48,12 @@ A sequence of IR ops committed to the EditGraph:
   supported by the catalog).
 - `AddEffectOp` — apply a catalog effect (brightness, contrast,
   saturation, luma, eq, gain, volume, panner, delay, music_bed, sfx).
-- `HtmlOverlay` / `AddHtmlOverlayOp` — simple HyperFrames HTML lower-thirds
-  / banners (`{{var}}` templates). Burned only when `mode=overlay`.
-- `AddRemotionCompositionOp` — React/Remotion motion graphics (titles,
-  charts, kinetic type). Materialized to CAS before melt; visible in
-  **proxy and final** (not overlay-mode-only). Prefer
-  `edit_project generate=remotion|init_remotion|write_remotion`.
-  See `skills/remotion_motion.md`.
+- `HtmlOverlay` / `AddHtmlOverlayOp` — native HyperFrames HTML/CSS/JS
+  lower-thirds, banners, captions, and motion graphics. Materialized through
+  the shared host graphics seam for preview chunks, proxy, and final.
+- `AddRemotionCompositionOp` — legacy React/Remotion migration input only.
+  Do not create new Remotion operations. Port existing source to HyperFrames
+  and validate frame parity before removing legacy support.
 - `NormalizeAudioOp` — first-class audio normalization.
 - `RawMltXmlOp` — escape hatch for goals the catalog cannot express
   (zoom/affine, denoise, compression, fades). Embeds raw MLT XML.
@@ -192,3 +191,51 @@ meet the creative or licensing requirements.
 
 Do not jump to `run_script` / raw bash before exhausting
 `edit_project`. See `tool_surface.md` for the full reference.
+
+
+## Transcript-first cutting & grading (video-use merge)
+
+You can edit video **without watching it**. Two layers replace raw frames:
+
+1. **Reading view (always):** `query_project {query: get_transcript_packed}`
+   gives phrase-packed word timestamps with `*--- Silence (Xs) ---*`
+   markers. `query_project {query: get_silence_gaps}` returns structured
+   silence tiers + **filler-word spans** (`uh`, `um`, ...) as data.
+2. **Visual drill-down (decision points only):**
+   `query_project {query: get_timeline_view, params: {asset_hash, start_sec,
+   end_sec}}` renders a filmstrip + waveform + word-label composite PNG.
+   Use it for ambiguous pauses, retake comparisons, cut sanity, and
+   self-eval of rendered output (pass `path:
+   .open_edit/renders/<project>.mp4` for the render itself). If you cannot
+   see images, ask the user or a vision-capable model to read it.
+
+### Cutting craft (video-use hard rules)
+
+- Cut edges snap to **word boundaries** (`apply_silence_gaps` with
+  `snap_to_words: true` enforces this in code).
+- Pad every cut edge: `padding_ms` 30–200 (worked example 50/80). Scribe-
+  class transcript drift is ~50–100 ms.
+- Silence tiers: ≥ 400 ms = cleanest cut target; 150–400 ms = usable with a
+  visual check; < 150 ms = unsafe (mid-phrase).
+- `generate=silence_cuts` now merges filler spans when you pass
+  `include_fillers: true`; `apply_silence_gaps` accepts those spans
+  directly as `gaps`.
+
+### Auto color grading
+
+`edit_project {operation: auto_color_grade, params: {preset: auto}}`
+analyzes each video clip's source range with ffmpeg signalstats and appends
+a bounded `color_grade` effect (contrast/gamma/saturation, each ±8% max) —
+per-clip, data-driven, undoable. Presets: `auto` (default) | `subtle` |
+`neutral_punch` | `warm_cinematic` (creative) | `none`. Override any axis
+with `params: {contrast: 1.04}`. Effects render via MLT `avfilter.eq`
+(melt ≥ 7.22); do NOT add `brightness`/`contrast`/`saturation` effects for
+grading — `color_grade` is the single-axis-complete path.
+
+### Overlays with data
+
+`add_hyperframes_overlay` accepts **JSON variables** (dicts/lists) — they
+are injected as `window.__open_edit_vars_<overlayId>` so templates can
+drive caption arrays, keyframed paths, and scoreboards. Built-in templates:
+`lower_third.html`, `caption_card.html`. Keep overlays animated with
+non-linear easing (ease-out-cubic for reveals; hold the final frame ≥ 1 s).

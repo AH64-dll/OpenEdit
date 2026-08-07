@@ -36,6 +36,8 @@ Mutations:
   resolved and copied into the project CAS.
 - `add_clip` / `trim_clip` / `replace_clip_source` / `change_clip_speed` —
   everyday timeline placement (prefer over `run_script`).
+- `add_hyperframes_overlay` — add native HTML/CSS/JS motion graphics using a
+  project-local template and timing.
 - `remove_clip` / `set_audio_gain` / `apply_silence_gaps` — remove, mute,
   and apply silence-cut proposals without `run_script`.
 - `apply_generated_ops` — commit a list of IR ops (`AddClipOp`,

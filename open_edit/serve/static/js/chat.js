@@ -9,7 +9,7 @@
    "Add to project" button in the search-results panel.
    ============================================================ */
 
-import { $, el, fmtDuration, showToast, truncate } from './dom.js';
+import { $, el, icon as makeIcon, fmtDuration, showToast, truncate } from './dom.js';
 import { state } from './state.js';
 
 // ----------------------------------------------------------
@@ -26,7 +26,7 @@ export function clearChatLog() {
     log.appendChild(el('div', { class: 'empty-state' }, [
       'No projects yet. Run ',
       el('code', {}, ['open_edit init <root>/<name>']),
-      ' in a terminal, then click ⟳ to refresh.',
+      ' in a terminal, then click Refresh to refresh.',
     ]));
   } else {
     log.appendChild(el('div', { class: 'empty-state' }, ['Select a project to start chatting.']));
@@ -93,7 +93,7 @@ export function appendToolCard(toolUseId, name, input) {
     : null;
 
   const card = el('div', { class: 'tool-card' }, [
-    el('div', { class: 'gear' }, ['⚙']),
+    el('div', { class: 'gear' }, [makeIcon('settings')]),
     body,
     searchPanel,
     spinner,
@@ -118,7 +118,7 @@ export function completeToolCard(toolUseId, result, isError = false) {
   if (!entry) {
     // No matching start event; emit a compact completed card.
     const card = el('div', { class: 'tool-card' }, [
-      el('div', { class: 'gear' }, ['⚙']),
+      el('div', { class: 'gear' }, [makeIcon('settings')]),
       el('div', { class: 'tool-body' }, [
         el('div', { class: 'tool-name' }, ['(result)']),
         el('div', { class: 'tool-result' + (isError ? ' failed' : '') }, [truncate(JSON.stringify(result), 200)]),
@@ -145,10 +145,10 @@ export function completeToolCard(toolUseId, result, isError = false) {
   const text = (() => {
     try {
       const r = typeof result === 'string' ? JSON.parse(result) : result;
-      if (r && r.error) return `✗ ${r.error}`;
-      return `✓ ${truncate(JSON.stringify(r), 160)}`;
+      if (r && r.error) return `Error: ${r.error}`;
+      return `OK: ${truncate(JSON.stringify(r), 160)}`;
     } catch {
-      return `✓ ${truncate(String(result), 160)}`;
+      return `OK: ${truncate(String(result), 160)}`;
     }
   })();
   resultEl.textContent = text;
@@ -182,7 +182,7 @@ export function appendSearchResults(result, mountPoint) {
   if (result && result.error) {
     // Error state: a clear message + the cause.
     const errBox = el('div', { class: 'search-results-error' }, [
-      el('div', { class: 'search-results-error-head' }, ['⚠ Search failed']),
+      el('div', { class: 'search-results-error-head' }, ['Search failed']),
       el('div', { class: 'search-results-error-body' }, [result.error]),
     ]);
     root.appendChild(errBox);
@@ -281,7 +281,7 @@ function _renderSearchResultCard(r) {
 
 export function appendRenderEvent(path, mode) {
   const card = el('div', { class: 'render-card' }, [
-    el('div', { class: 'render-icon' }, ['✓']),
+    el('div', { class: 'render-icon' }, [makeIcon('check')]),
     el('div', {}, [
       el('div', {}, [`Rendered (${mode})`]),
       el('div', { class: 'render-path' }, [path || '(no path)']),
@@ -292,7 +292,7 @@ export function appendRenderEvent(path, mode) {
 }
 
 export function appendErrorMessage(message) {
-  const msg = el('div', { class: 'msg msg-error' }, [`⚠ ${message}`]);
+  const msg = el('div', { class: 'msg msg-error' }, [`Error: ${message}`]);
   $('#chat-log').appendChild(msg);
   scrollChatToBottom();
 }
@@ -310,7 +310,7 @@ export function markTurnDone() {
     if (entry.spinner && entry.spinner.isConnected) {
       entry.spinner.remove();
       if (entry.result) {
-        entry.result.textContent = '✗ interrupted';
+        entry.result.textContent = 'Interrupted';
         entry.result.className = 'tool-result failed';
         entry.result.classList.remove('hidden');
       }

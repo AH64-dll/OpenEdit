@@ -1,0 +1,70 @@
+{
+  "checks": [
+    {
+      "name": "page loads, #project-select exists",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "project-select populates",
+      "pass": true,
+      "detail": "options=3 [— select —, e2e-demo (9 assets), video (1 assets)]"
+    },
+    {
+      "name": "e2e-demo project present",
+      "pass": true,
+      "detail": "labels=— select —, e2e-demo (9 assets), video (1 assets)"
+    },
+    {
+      "name": "resolve e2e-demo option value",
+      "pass": true,
+      "detail": "bd2dd83f126d"
+    },
+    {
+      "name": "timeline-clips appear after selecting e2e-demo",
+      "pass": true,
+      "detail": "clips=16"
+    },
+    {
+      "name": "theme toggle flips data-theme",
+      "pass": true,
+      "detail": "dark -> light"
+    },
+    {
+      "name": "body background changes",
+      "pass": true,
+      "detail": "rgb(8, 9, 8) -> rgb(229, 227, 220)"
+    },
+    {
+      "name": "toggle back to dark works",
+      "pass": true,
+      "detail": "light -> dark"
+    },
+    {
+      "name": "chat-log present",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "renders-list present",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "no pageerror events",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "no console errors (excluding transient 404s)",
+      "pass": true,
+      "detail": " (2 console errors total, 404s tolerated)"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "pageErrors": [],
+  "ok": true
+}

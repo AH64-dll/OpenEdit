@@ -1,0 +1,212 @@
+{
+  "version": "1.0.0",
+  "total_assets": 7,
+  "assets": [
+    {
+      "asset_id": "sfx_impact_heavy_explosion_01",
+      "category": "audio",
+      "subcategory": "sfx",
+      "file_path": "assets/audio/sfx/sfx_impact_heavy_explosion_01.wav",
+      "media_type": "audio",
+      "duration_sec": 2.5,
+      "tags": [
+        "action",
+        "battle",
+        "boom",
+        "cinematic",
+        "collision",
+        "combat",
+        "danger",
+        "explosion",
+        "fire",
+        "heavy",
+        "hit",
+        "impact"
+      ],
+      "ai_triggers": [
+        "action_collision",
+        "dramatic_reveal",
+        "dramatic_moment",
+        "explosion_event",
+        "heavy_hit",
+        "scene_emphasis"
+      ],
+      "sample_rate": 48000,
+      "channels": 2,
+      "codec": "pcm_s16le",
+      "recommended_lufs": -14,
+      "recommended_volume_db": -8,
+      "recommended_fade_in_ms": 10,
+      "recommended_fade_out_ms": 20
+    },
+    {
+      "asset_id": "sfx_whoosh_fast_air_01",
+      "category": "audio",
+      "subcategory": "sfx",
+      "file_path": "assets/audio/sfx/sfx_whoosh_fast_air_01.wav",
+      "media_type": "audio",
+      "duration_sec": 0.75,
+      "tags": [
+        "action",
+        "camera",
+        "fast",
+        "pass_by",
+        "sweep",
+        "transition",
+        "whoosh"
+      ],
+      "ai_triggers": [
+        "fast_camera_move",
+        "scene_transition",
+        "text_slide_in"
+      ],
+      "sample_rate": 48000,
+      "channels": 2,
+      "codec": "pcm_s16le",
+      "recommended_lufs": -14,
+      "recommended_volume_db": -12,
+      "recommended_fade_in_ms": 10,
+      "recommended_fade_out_ms": 20
+    },
+    {
+      "asset_id": "sfx_ui_click_soft_01",
+      "category": "audio",
+      "subcategory": "sfx",
+      "file_path": "assets/audio/sfx/sfx_ui_click_soft_01.wav",
+      "media_type": "audio",
+      "duration_sec": 0.15,
+      "tags": [
+        "button",
+        "click",
+        "interaction",
+        "interface",
+        "soft",
+        "ui"
+      ],
+      "ai_triggers": [
+        "ui_button_click",
+        "tab_switch"
+      ],
+      "sample_rate": 48000,
+      "channels": 2,
+      "codec": "pcm_s16le",
+      "recommended_lufs": -22,
+      "recommended_volume_db": -18,
+      "recommended_fade_in_ms": 5,
+      "recommended_fade_out_ms": 5
+    },
+    {
+      "asset_id": "vfx_overlay_light_leak_warm_4k",
+      "category": "video",
+      "subcategory": "overlays",
+      "file_path": "assets/video/overlays/vfx_overlay_light_leak_warm_4k.mov",
+      "media_type": "video",
+      "duration_sec": 5.0,
+      "tags": [
+        "atmosphere",
+        "cinematic",
+        "flare",
+        "light_leak",
+        "lighting",
+        "overlay",
+        "warm"
+      ],
+      "ai_triggers": [
+        "cinematic_transition",
+        "warm_scene_intro"
+      ],
+      "width": 3840,
+      "height": 2160,
+      "fps": 30.0,
+      "codec": "prores",
+      "has_alpha": False,
+      "recommended_blend_mode": "Screen",
+      "secondary_blend_mode": "Add"
+    },
+    {
+      "asset_id": "vfx_transition_glitch_digital_01",
+      "category": "video",
+      "subcategory": "transitions",
+      "file_path": "assets/video/transitions/vfx_transition_glitch_digital_01.mp4",
+      "media_type": "video",
+      "duration_sec": 1.0,
+      "tags": [
+        "artifact",
+        "digital",
+        "distortion",
+        "error",
+        "futuristic",
+        "glitch",
+        "tech"
+      ],
+      "ai_triggers": [
+        "cyberpunk_transition",
+        "digital_corrupt",
+        "system_error"
+      ],
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "codec": "h264",
+      "has_alpha": False,
+      "recommended_blend_mode": "Screen",
+      "secondary_blend_mode": "Overlay"
+    },
+    {
+      "asset_id": "vfx_element_fire_large_alpha",
+      "category": "video",
+      "subcategory": "elements",
+      "file_path": "assets/video/elements/vfx_element_fire_large_alpha.mov",
+      "media_type": "video",
+      "duration_sec": 3.5,
+      "tags": [
+        "action",
+        "element",
+        "fire",
+        "flame",
+        "hot",
+        "vfx"
+      ],
+      "ai_triggers": [
+        "burn_scene",
+        "flame_effect"
+      ],
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "codec": "prores",
+      "has_alpha": True,
+      "recommended_blend_mode": "Screen",
+      "secondary_blend_mode": "Add"
+    },
+    {
+      "asset_id": "gfx_lower_third_modern_blue",
+      "category": "video",
+      "subcategory": "motion_graphics",
+      "file_path": "assets/video/motion_graphics/gfx_lower_third_modern_blue.json",
+      "media_type": "motion_graphics",
+      "duration_sec": 5.0,
+      "tags": [
+        "annotation",
+        "badge",
+        "callout",
+        "lower_third",
+        "motion_graphics",
+        "name",
+        "text",
+        "title"
+      ],
+      "ai_triggers": [
+        "person_identification",
+        "speaker_intro"
+      ],
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "codec": "json",
+      "has_alpha": True,
+      "recommended_blend_mode": "Alpha",
+      "secondary_blend_mode": "Normal"
+    }
+  ]
+}

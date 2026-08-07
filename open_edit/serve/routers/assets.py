@@ -80,8 +80,14 @@ async def get_asset_file(project_id: str, asset_hash: str) -> FileResponse:
         raise HTTPException(
             status_code=404, detail=f"asset not found: {asset_hash[:12]}"
         )
+    # Prefer the sidecar's stored path, but fall back to the deterministic
+    # CAS location (assets_dir/<hash[0:2]>/<hash>) when the sidecar path is
+    # stale — e.g. a project folder moved between machines/homes and the
+    # sidecar still holds an absolute legacy path. Keeps previews working.
     cas_path = Path(asset.stored_path)
-    if not cas_path.exists():
+    if not cas_path.is_file():
+        cas_path = store.path(asset_hash)
+    if cas_path is None or not cas_path.is_file():
         raise HTTPException(
             status_code=404, detail=f"asset bytes missing: {asset_hash[:12]}"
         )

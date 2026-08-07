@@ -11,6 +11,7 @@ dependencies = [
     "uvicorn[standard]>=0.27",
     "anthropic>=0.39",
     "python-multipart>=0.0.9",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +36,7 @@ serve = [
     "uvicorn[standard]>=0.27",
     "anthropic>=0.39",
     "python-multipart>=0.0.9",
+    "pillow>=10.0",
 ]
 mcp = [
     "mcp>=1.0,<2",
@@ -59,6 +61,7 @@ packages = ["open_edit"]
 "open_edit/harness_skills/tool_surface.md" = "open_edit/harness_skills/tool_surface.md"
 "open_edit/harness_skills/edit-planning.md" = "open_edit/harness_skills/edit-planning.md"
 "open_edit/harness_skills/remotion_motion.md" = "open_edit/harness_skills/remotion_motion.md"
+"open_edit/harness_skills/hyperframes_native.md" = "open_edit/harness_skills/hyperframes_native.md"
 "open_edit/harness_skills/qc-standards.md" = "open_edit/harness_skills/qc-standards.md"
 "open_edit/harness_skills/freeform_and_effects.md" = "open_edit/harness_skills/freeform_and_effects.md"
 "open_edit/harness_skills/style-memory.md" = "open_edit/harness_skills/style-memory.md"

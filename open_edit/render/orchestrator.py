@@ -12,15 +12,20 @@ structured RenderResult.
 """
 from __future__ import annotations
 
+import dataclasses
+import logging
 import math
 import os
 import shutil
+import subprocess
 import time
 from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+log = logging.getLogger(__name__)
 
 from open_edit.ir.types import Project
 from open_edit.render.cache import RenderCache, canonical_json_hash, render_cache_key
@@ -39,8 +44,17 @@ from open_edit.render.materialize import (
     materialization_manifest_path,
     materialize_remotion_compositions,
 )
+from open_edit.render.hyperframes import (
+    HyperFramesRenderError,
+    hyperframes_reference_fingerprint,
+    materialize_hyperframes_overlays,
+)
 from open_edit.render.melt_runner import PipeRunError, run_pipe
-from open_edit.render.pipe_builder import build_pipe_commands
+from open_edit.render.cuda_fastpath import (
+    run_cuda_fastpath,
+    timeline_supports_cuda_fastpath,
+)
+from open_edit.render.pipe_builder import OverlayClip, build_pipe_commands
 from open_edit.render.profiles import (
     RenderProfile,
     profile_fingerprint,
@@ -133,8 +147,58 @@ def _contractualize_diagnostics(
 _gpu_decode_ok: bool | None = None
 
 
+def _cuda_result_to_pipe_result(result: object) -> object:
+    """Adapt a successful CUDA fast-path result to the PipeResult surface."""
+    from open_edit.render.melt_runner import PipeResult
+
+    return PipeResult(
+        returncode=0,
+        melt_rc=0,
+        ffmpeg_rc=0,
+        stderr="",
+        elapsed_sec=float(getattr(result, "elapsed_sec", 0.0)),
+        audio_elapsed_sec=float(getattr(result, "audio_elapsed_sec", 0.0)),
+        melt_elapsed_sec=0.0,
+        ffmpeg_elapsed_sec=float(getattr(result, "elapsed_sec", 0.0)),
+        frames_requested=0,
+    )
+
+
 def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def encode_audio_aac_cache(
+    wav_path: Path,
+    aac_path: Path,
+    bitrate: str = "96k",
+    timeout_s: float = 600.0,
+) -> bool:
+    """Encode a wav mix to AAC (fast coder) and cache it under ``aac_path``.
+
+    Returns True when ``aac_path`` is a usable file afterwards. The audio mix
+    depends only on the edit-graph hash, so the encode runs once per graph and
+    every later render muxes it with ``-c:a copy`` (~40s -> ~3s per render).
+    """
+    try:
+        if aac_path.is_file() and aac_path.stat().st_size > 0:
+            return True
+        if not wav_path.is_file():
+            return False
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(wav_path),
+                "-c:a", "aac", "-aac_coder", "fast", "-b:a", bitrate,
+                str(aac_path),
+            ],
+            capture_output=True, text=True, timeout=timeout_s,
+        )
+        if proc.returncode != 0 or not aac_path.is_file():
+            return False
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def _bounded_error(value: object, limit: int = 512) -> str:
@@ -272,18 +336,29 @@ def _frame_pull_fallback_requested() -> bool:
 
 
 def _gpu_decode_available() -> bool:
-    """True if melt can decode with hwaccel=cuda (probed once per process)."""
+    """True if melt can actually decode with hwaccel=cuda (probed once).
+
+    The probe proves CUDA engages rather than silently falling back to CPU:
+    the same short clip is decoded with and without ``hwaccel=cuda``; CUDA is
+    only reported available when the CUDA run completes AND is meaningfully
+    faster than the CPU run. Without the timing comparison, a missing/broken
+    CUDA path would pass the probe via melt's silent CPU fallback.
+    """
     global _gpu_decode_ok
     if _gpu_decode_ok is not None:
         return _gpu_decode_ok
     import shutil as _sh
     import subprocess as _sp
+    import time as _time
 
     melt_bin = _sh.which("melt")
     if melt_bin is None:
         _gpu_decode_ok = False
         return False
     clip_a = Path(__file__).resolve().parents[2] / "tests" / "testdata" / "raw_videos" / "clip_a.mp4"
+    if not clip_a.is_file():
+        _gpu_decode_ok = False
+        return False
     probe_mlt = ("<mlt><producer id='p0'><property name='resource'>"
                  f"{clip_a}</property>"
                  "<property name='hwaccel'>cuda</property>"
@@ -294,10 +369,31 @@ def _gpu_decode_available() -> bool:
     with tempfile.TemporaryDirectory() as td:
         mlt = Path(td) / "probe.mlt"
         mlt.write_text(probe_mlt)
-        proc = _sp.run([melt_bin, str(mlt), "-consumer", "null",
-                        "s=64x64", "frame_rate_num=30", "frame_rate_den=1"],
-                       capture_output=True, text=True, timeout=60)
-        _gpu_decode_ok = proc.returncode == 0
+
+        def _run_cuda(enabled: bool) -> tuple[int, float]:
+            xml = mlt if enabled else None
+            args = (
+                [melt_bin, str(mlt)]
+                if enabled
+                else [melt_bin, str(clip_a)]
+            )
+            args += ["-consumer", "null", "s=256x256",
+                     "frame_rate_num=30", "frame_rate_den=1"]
+            t0 = _time.monotonic()
+            try:
+                proc = _sp.run(args, capture_output=True, text=True, timeout=60)
+            except (OSError, _sp.TimeoutExpired):
+                return 1, 0.0
+            return proc.returncode, _time.monotonic() - t0
+
+        rc_cuda, t_cuda = _run_cuda(True)
+        if rc_cuda != 0:
+            _gpu_decode_ok = False
+            return False
+        # Only run the CPU comparison when CUDA succeeded; a broken CUDA
+        # path that fell back to CPU would otherwise be reported as working.
+        _rc_cpu, t_cpu = _run_cuda(False)
+        _gpu_decode_ok = t_cuda > 0 and t_cuda < max(0.7, t_cpu * 0.6)
     return _gpu_decode_ok
 
 
@@ -414,6 +510,15 @@ def render_project(
         project_dir, timeline.remotion_compositions,
         alpha_mode=",".join(alpha_modes) or "opaque",
     )
+    hyperframes_fingerprint = hyperframes_reference_fingerprint(
+        timeline,
+        project_dir,
+        mode=mode,
+        width=profile.width,
+        height=profile.height,
+        fps=profile.frame_rate_num / max(profile.frame_rate_den, 1),
+    )
+    content_fingerprint = f"{content_fingerprint}|hyperframes={hyperframes_fingerprint}"
     diagnostics = {
         "stages": recorder.stages,
         "profile": {
@@ -436,10 +541,27 @@ def render_project(
         "source_proxy_profile_fingerprint": source_proxy_profile_fingerprint or None,
         "source_proxy_hits": {},
         "source_proxy_fallbacks": {},
+        "decode_backend": (
+            "cuda" if _gpu_decode_available() and resolve_backend(encoder_backend) == "gpu" else "cpu"
+        ),
     }
     whole_file_repair = requested_emission_profile in {
         "final", "review-artifact",
     }
+    # Previews (review-artifact / proxy) skip the repair machinery entirely:
+    # the black/frozen detectors + re-encode are a deliverable-QC concern, and
+    # even verify-only detection costs minutes on a 37-min source. Deliverables
+    # (final) keep full repair. OPEN_EDIT_REPAIR=1 re-enables detect+re-encode
+    # on previews; OPEN_EDIT_REPAIR_DETECT=1 runs detection-only (report only).
+    repair_reencode = whole_file_repair and (
+        requested_emission_profile == "final"
+        or _env_truthy("OPEN_EDIT_REPAIR")
+    )
+    repair_detect = whole_file_repair and (
+        requested_emission_profile == "final"
+        or _env_truthy("OPEN_EDIT_REPAIR")
+        or _env_truthy("OPEN_EDIT_REPAIR_DETECT")
+    )
     repair_intentional_black = _env_truthy(
         "OPEN_EDIT_REPAIR_INTENTIONAL_BLACK",
     )
@@ -452,6 +574,8 @@ def render_project(
         "emission_profile": requested_emission_profile,
         "source_media_policy": source_media_policy,
         "enabled": whole_file_repair,
+        "reencode": repair_reencode,
+        "detect": repair_detect,
         "executed": False,
         "repair_source_black": True,
         "repair_source_frozen": False,
@@ -517,6 +641,49 @@ def render_project(
 
     diagnostics["cache"] = {"hit": False}
     unmaterialized_timeline = timeline
+    hyperframes_result = None
+    if timeline.overlays:
+        hyperframes_t0 = time.monotonic()
+        try:
+            hyperframes_result = materialize_hyperframes_overlays(
+                timeline,
+                project_dir,
+                mode=mode,
+                width=profile.width,
+                height=profile.height,
+                fps=profile.frame_rate_num / max(profile.frame_rate_den, 1),
+            )
+            recorder.record(
+                "hyperframes_materialize",
+                time.monotonic() - hyperframes_t0,
+                cache_hit=bool(hyperframes_result and hyperframes_result.cache_hit),
+                content_hash=hyperframes_result.content_hash if hyperframes_result else "",
+            )
+            diagnostics["hyperframes"] = {
+                "output_path": str(hyperframes_result.output_path) if hyperframes_result else "",
+                "cache_hit": bool(hyperframes_result and hyperframes_result.cache_hit),
+                "content_hash": hyperframes_result.content_hash if hyperframes_result else "",
+            }
+        except HyperFramesRenderError as exc:
+            recorder.record(
+                "hyperframes_materialize",
+                time.monotonic() - hyperframes_t0,
+                status="failed",
+                error=str(exc),
+            )
+            diagnostics["stages"] = recorder.stages
+            return _fail(
+                mode=mode,
+                profile=profile,
+                output_path="",
+                duration_sec=timeline.duration_sec,
+                elapsed_sec=time.monotonic() - hyperframes_t0,
+                graph_hash=graph_hash,
+                error=str(exc),
+                diagnostics=diagnostics,
+            )
+    else:
+        recorder.skip("hyperframes_materialize", reason="no_html_overlays")
     manifest_path = materialization_manifest_path(
         project_dir, mode, fingerprint,
     )
@@ -605,14 +772,24 @@ def render_project(
             error=str(exc),
             diagnostics=diagnostics,
         )
+    if hyperframes_result is not None:
+        plan.overlay_clips.append(OverlayClip(
+            position_sec=0.0,
+            duration_sec=timeline.duration_sec,
+            media_path=hyperframes_result.output_path,
+            label="hyperframes",
+            alpha=True,
+        ))
+        plan.overlay_clips.sort(key=lambda overlay: overlay.position_sec)
     recorder.record("build_render_plan", time.monotonic() - plan_t0)
     diagnostics["emission_profile"] = plan.emission_profile
     diagnostics["source_media_policy"] = plan.source_media_policy
     diagnostics["source_proxy_hits"] = dict(plan.source_proxy_hits)
     diagnostics["source_proxy_fallbacks"] = dict(plan.source_proxy_fallbacks)
-    if whole_file_repair:
+    if whole_file_repair and repair_detect:
         source_baseline = collect_source_baseline(
             plan.melt_timeline, plan.asset_paths,
+            cache_dir=workdir / "render_cache",
         )
     else:
         source_baseline = {
@@ -621,7 +798,11 @@ def render_project(
             "black_frames": [],
             "frozen_frames": [],
             "errors": [],
-            "reason": "emission_profile_not_whole_file",
+            "reason": (
+                "emission_profile_not_whole_file"
+                if not whole_file_repair
+                else "repair_detect_disabled_for_preview"
+            ),
         }
     materialized_bytes = sum(
         getattr(ov, "media_path").stat().st_size
@@ -692,6 +873,13 @@ def render_project(
     # was written (unreadable MP4). Scale with timeline length; keep a floor.
     melt_timeout = 7200 if mode == "final" else max(600, int(timeline.duration_sec * 3) + 120)
 
+    # Audio mix cache: the wav depends only on the edit graph, so identical
+    # re-renders (or proxy-after-final) reuse it instead of re-running the
+    # 15-20s melt-audio pass.
+    audio_cache_dir = workdir / "render_cache" / "audio"
+    audio_cache_dir.mkdir(parents=True, exist_ok=True)
+    audio_cache_path = audio_cache_dir / f"{graph_hash}.wav"
+
     def _switch_to_materialize() -> None:
         nonlocal cmds, frame_pull_enabled, materialize_elapsed
         nonlocal plan, source_baseline, timeline
@@ -741,6 +929,7 @@ def render_project(
             source_baseline = collect_source_baseline(
                 plan.melt_timeline,
                 plan.asset_paths,
+                cache_dir=workdir / "render_cache",
             )
         else:
             source_baseline = {
@@ -765,7 +954,85 @@ def render_project(
         frame_pull["fallback_elapsed_sec"] = time.monotonic() - fallback_t0
 
     def _run_render_pipe():
+        # ---- Audio mix cache: skip melt-audio when an identical graph's mix
+        # ---- already exists (the wav depends only on the edit graph).
+        wav_hit = audio_cache_path.is_file() and audio_cache_path.stat().st_size > 0
+        melt_audio_cmd = cmds.melt_audio_cmd
+        if wav_hit:
+            try:
+                shutil.copyfile(audio_cache_path, cmds.audio_wav)
+                melt_audio_cmd = []
+                diagnostics.setdefault("audio_cache", {})["hit"] = True
+            except OSError:
+                wav_hit = False
+        if not wav_hit:
+            diagnostics.setdefault("audio_cache", {})["hit"] = False
+
+        # ---- AAC cache: the audio encode depends only on the wav (graph
+        # ---- hash), so encode it ONCE per graph and mux with -c:a copy on
+        # ---- every later render. Cuts ~40s (native AAC twoloop) or ~12s
+        # ---- (fast coder) out of every non-cached render after the first.
+        audio_aac_cache = audio_cache_dir / f"{graph_hash}.m4a"
+        audio_aac_path: Path | None = None
+        if cmds.audio_wav.is_file():
+            aac_hit = audio_aac_cache.is_file() and audio_aac_cache.stat().st_size > 0
+            if not aac_hit:
+                aac_t0 = time.monotonic()
+                aac_hit = encode_audio_aac_cache(
+                    cmds.audio_wav, audio_aac_cache, audio_bitrate,
+                )
+                if aac_hit:
+                    diagnostics.setdefault("audio_cache", {})["aac_elapsed_sec"] = (
+                        time.monotonic() - aac_t0
+                    )
+            if aac_hit:
+                audio_aac_path = audio_aac_cache
+            diagnostics.setdefault("audio_cache", {})["aac_hit"] = bool(aac_hit)
+
         if not frame_pull_enabled:
+            # Try the pure-ffmpeg CUDA fast path first when the timeline is
+            # simple enough; fall back to the melt pipe on any ineligibility
+            # or failure. Only whole-file emissions qualify (no trimming).
+            if (
+                requested_emission_profile in {"final", "review-artifact"}
+                and hwaccel_on
+                and not plan.overlay_clips
+                and not plan.frame_overlays
+                and timeline_supports_cuda_fastpath(plan.melt_timeline)
+            ):
+                cuda_result = run_cuda_fastpath(
+                    plan.melt_timeline,
+                    plan.asset_paths,
+                    output_mp4,
+                    profile,
+                    spec,
+                    timeout_s=melt_timeout,
+                    audio_cmd=melt_audio_cmd,
+                    audio_wav=cmds.audio_wav,
+                    audio_aac=audio_aac_path,
+                    acodec=profile.acodec,
+                    audio_bitrate=audio_bitrate,
+                )
+                if cuda_result.used and cuda_result.returncode == 0:
+                    diagnostics["cuda_fastpath"] = {
+                        "used": True,
+                        "elapsed_sec": cuda_result.elapsed_sec,
+                        "speed_x": cuda_result.speed_x,
+                        "output_path": cuda_result.output_path,
+                    }
+                    return _cuda_result_to_pipe_result(cuda_result)
+                diagnostics["cuda_fastpath"] = {
+                    "used": bool(cuda_result.used),
+                    "error": cuda_result.error,
+                    "returncode": cuda_result.returncode,
+                    "elapsed_sec": cuda_result.elapsed_sec,
+                }
+                if cuda_result.used and cuda_result.returncode != 0:
+                    # A failed fast path must not mask a good melt fallback.
+                    log.warning(
+                        "cuda fast path failed (rc=%s), falling back to melt: %s",
+                        cuda_result.returncode, cuda_result.error[-200:],
+                    )
             return run_pipe(cmds, timeout_s=melt_timeout)
         clients = build_frame_pull_clients(
             project_dir,
@@ -932,7 +1199,7 @@ def render_project(
         ]
         repair_t0 = time.monotonic()
         repair_path = output_mp4.with_name(f"{output_mp4.stem}.repaired.mp4")
-        if whole_file_repair:
+        if whole_file_repair and repair_detect:
             diagnostics["repair_policy"]["executed"] = True
             try:
                 repair = repair_render_output(
@@ -943,6 +1210,7 @@ def render_project(
                     repair_intentional_black=repair_intentional_black,
                     detector_timeout_s=repair_budget.get("detector_timeout_s"),
                     skip_if_no_source_defects=True,
+                    reencode=repair_reencode,
                 )
             except Exception as exc:
                 repair = {"ok": False, "changed": False, "error": str(exc)}
@@ -1048,6 +1316,14 @@ def render_project(
         )
 
     cache.put(cache_key, output_mp4)
+    # Write-back the audio mix for identical-graph reuse (skip when the wav
+    # was already a cache hit).
+    if not diagnostics.get("audio_cache", {}).get("hit") and cmds.audio_wav.is_file():
+        try:
+            shutil.copyfile(cmds.audio_wav, audio_cache_path)
+            diagnostics.setdefault("audio_cache", {})["cached"] = True
+        except OSError as exc:
+            diagnostics.setdefault("audio_cache", {})["writeback_error"] = str(exc)[:200]
     if not frame_pull_enabled:
         try:
             successful_manifest = build_materialization_manifest(

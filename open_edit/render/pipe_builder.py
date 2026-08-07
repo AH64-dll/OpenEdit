@@ -100,6 +100,14 @@ def overlay_filter_chain(
             f"{out_label}"
         )
         last = f"[v{i}]"
+    if filters:
+        # Alpha overlays leave the composited frame in rgba (4:4:4), which
+        # libx264 -profile:v high cannot encode (verified with real
+        # HyperFrames ProRes-4444 overlay renders: x264 "high profile
+        # doesn't support 4:4:4" -> rc -22). Rename the last overlay's
+        # output to [vfin] and force 4:2:0 on [vout], which callers map.
+        filters[-1] = filters[-1].replace("[vout]", "[vfin]", 1)
+        filters.append("[vfin]format=yuv420p[vout]")
     return filters
 
 
@@ -157,7 +165,7 @@ def build_pipe_commands(
         "-consumer", "avformat:pipe:",
         "f=rawvideo",
         "vcodec=rawvideo",
-        "pix_fmt=yuv420p",
+        "pix_fmt=nv12",
         f"s={size}",
         f"frame_rate_num={profile.frame_rate_num}",
         f"frame_rate_den={profile.frame_rate_den}",
@@ -172,7 +180,7 @@ def build_pipe_commands(
         "format=wav",
     ]
 
-    video_inputs = ["-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", size, "-r", fps, "-i", "-"]
+    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, "-i", "-"]
     audio_inputs = ["-i", str(audio_wav)]
     overlay_inputs: list[str] = []
     for ov in normalized_overlays:

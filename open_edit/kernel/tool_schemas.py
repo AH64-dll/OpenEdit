@@ -143,9 +143,9 @@ There are **28 concrete op kinds** in ``open_edit.ir.types``. The
 - ``ungroup_edits`` — dissolve a group. Payload: ``{group_id}``.
 
 **Overlay / motion-graphics ops**:
-- ``add_html_overlay`` — HyperFrames HTML template overlay (late composite with ``mode=overlay``). Payload: ``{template_path, variables, position_sec, duration_sec}``.
+- ``add_html_overlay`` — native HyperFrames HTML/CSS/JS overlay. Payload: ``{template_path, variables, position_sec, duration_sec}``.
 - ``remove_html_overlay`` — remove HTML overlay. Payload: ``{overlay_id}``.
-- ``add_remotion_composition`` — Remotion React composition; materializes to a CAS clip on proxy/final render. Payload: ``{entry_point, composition_id, props, position_sec, duration_sec, track_id, alpha}``.
+- ``add_remotion_composition`` — legacy Remotion migration input; do not create new operations. Payload: ``{entry_point, composition_id, props, position_sec, duration_sec, track_id, alpha}``.
 - ``remove_remotion_composition`` — remove Remotion composition. Payload: ``{composition_uid}``.
 
 **Escape hatches**:
