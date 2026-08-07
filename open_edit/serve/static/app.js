@@ -60,6 +60,7 @@ export async function refreshProjects() {
     // saved project we must render the project-aware "Ready to edit"
     // state instead (round-4 B2).
     clearChatLog();
+    refreshProjectDependentControls();
   } catch (e) {
     showToast(`Failed to load projects: ${e.message}`, 'error');
   }
@@ -183,6 +184,7 @@ function clearSourcePreview() {
 // Project state (left + right panels)
 // ----------------------------------------------------------
 export async function loadProjectState() {
+  refreshProjectDependentControls();
   if (!state.currentProjectId) {
     state.currentProjectState = null;
     clearAssetsList();
@@ -829,6 +831,32 @@ function setChatEnabled(enabled) {
   if (enabled && input && !input.disabled) input.focus();
 }
 
+// Round-5 C4: project-dependent controls (render encoder/buttons, LLM selects)
+// must reflect whether a project exists, not just guard on click.
+function refreshProjectDependentControls() {
+  const hasProject = !!state.currentProjectId;
+  const encoderSel = $('#render-encoder-select');
+  const proxyBtn = $('#btn-render-proxy');
+  const finalBtn = $('#btn-render-final');
+  if (encoderSel) {
+    encoderSel.disabled = !hasProject;
+    encoderSel.title = hasProject ? '' : 'Select a project first';
+  }
+  for (const btn of [proxyBtn, finalBtn]) {
+    if (!btn) continue;
+    btn.disabled = !hasProject;
+    btn.title = hasProject ? '' : 'Select a project first';
+  }
+  if (llmProviderSelect) {
+    llmProviderSelect.disabled = !hasProject;
+    llmProviderSelect.title = hasProject ? '' : 'Select a project first';
+  }
+  if (llmModelSelect) {
+    llmModelSelect.disabled = !hasProject;
+    llmModelSelect.title = hasProject ? '' : 'Select a project first';
+  }
+}
+
 function cancelTurn() {
   if (state.ws) {
     try {
@@ -1471,6 +1499,7 @@ async function boot() {
       setReviewConnStatus();
     }
   } else {
+    refreshProjectDependentControls();
     setChatEnabled(false);
     setWsState('disconnected');
   }
