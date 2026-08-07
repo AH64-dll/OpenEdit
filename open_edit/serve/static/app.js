@@ -105,7 +105,7 @@ export function selectProject(id) {
   const ruler = $('#timeline-ruler');
   if (ruler) ruler.innerHTML = '';
   const durationLabel = $('#timeline-duration-label');
-  if (durationLabel) durationLabel.textContent = '';
+  if (durationLabel) durationLabel.textContent = '—';
   const emptyMsg = $('#timeline-empty-msg');
   if (emptyMsg) emptyMsg.classList.remove('hidden');
   if (state.chatStatus) state.chatStatus.reset();
