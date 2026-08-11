@@ -13,6 +13,12 @@
 ![The product timeline](docs/hero-timeline.png)
 *The timeline: clips on V1/A1/A2, edit markers, and a playhead that is ready to scrub.*
 
+<video controls loop muted playsinline poster="docs/intro-poster.jpg" width="640">
+  <source src="docs/intro-highlight.mp4" type="video/mp4">
+  <a href="docs/intro-demo.gif">Open Edit logo intro (animated GIF)</a>
+</video>
+*The 60-second logo intro — animated in HTML/CSS with the HyperFrames engine and rendered entirely through Open Edit's own pipeline (the agent built the project, added the overlay, and ran the final 1080p30 GPU export).*
+
 ## What it is
 
 Open Edit is an AI-native video editor that runs as a **local MCP server** over stdio.
