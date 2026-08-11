@@ -7,11 +7,11 @@
 
 **AI-native video editing, driven over MCP.**
 
-![Open Edit](docs/hero-full.png)
-*The product: ingest, word-level transcription, an append-only edit graph, and deterministic renders.*
+![Open Edit Review Studio](docs/hero-full.png)
+*The Review Studio, live: preview a cut, inspect renders, and scrub the edit graph.*
 
-![The timeline, while it opens](docs/hero-timeline.png)
-*The review studio: scrub a 640×360 proxy, leave time-scoped notes, revert ops in the edit graph.*
+![The product timeline](docs/hero-timeline.png)
+*The timeline: clips on V1/A1/A2, edit markers, and a playhead that is ready to scrub.*
 
 ## What it is
 
