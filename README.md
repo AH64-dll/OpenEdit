@@ -135,6 +135,11 @@ The product is documented and illustrated in the live guide: **[open-edit guide]
 - [skills/](skills/) — agent playbook and harness skills (also shipped in the wheel)
 - [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md) — Remotion licensing
 
+## Contributing
+
+Bugs, ideas, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
+(fork → branch → PR; CI runs tests on every pull request).
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Experimental prototype; behavior may change between
