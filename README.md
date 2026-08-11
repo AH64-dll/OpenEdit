@@ -122,6 +122,10 @@ Register the server in Cursor (`~/.cursor/mcp.json` on Linux/macOS, `%USERPROFIL
 **Render modes:** `proxy` (640×360 review artifact, whole-file) → `final` (1080p).
 Every render passes a deterministic 10-check QC gate before it is offered to you.
 
+## Live guide
+
+The product is documented and illustrated in the live guide: **[open-edit guide](https://ah64-dll.github.io/OpenEdit/)** — what it is, how it works, and how to install it on Linux and Windows.
+
 ## Docs
 
 - [INSTALL.md](INSTALL.md) — full Linux + Windows setup, smoke checks, update/uninstall
