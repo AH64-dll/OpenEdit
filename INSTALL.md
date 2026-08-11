@@ -27,8 +27,8 @@ path.
 
 | Installer | One command |
 |---|---|
-| Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.1/install.sh \| bash` |
-| Windows (PowerShell) | `irm https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.1/install.ps1 \| iex` |
+| Linux / macOS | `curl -fsSL https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.sh \| bash` |
+| Windows (PowerShell) | `irm https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.ps1 \| iex` |
 
 Source archives: [v1.3.1 zip](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.zip) · [v1.3.1 tar.gz](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.tar.gz)
 

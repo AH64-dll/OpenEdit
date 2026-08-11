@@ -55,6 +55,23 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["open_edit"]
 
+# Lean source distribution: only the package + build essentials. Without
+# this hatchling packs the whole working tree (graphify-out, testrun,
+# node_modules...) and the sdist blows past PyPI's 100 MB file limit.
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "open_edit",
+  "pyproject.toml",
+  "README.md",
+  "LICENSE",
+]
+exclude = [
+  "open_edit/graphify-out/**",
+  "open_edit/.agents/**",
+  "open_edit/**/__pycache__/**",
+  "open_edit/**/*.pyc",
+]
+
 # Ship harness skill markdown with the wheel (not Cursor-only).
 [tool.hatch.build.targets.wheel.force-include]
 "open_edit/harness_skills/README.md" = "open_edit/harness_skills/README.md"

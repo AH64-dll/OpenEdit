@@ -35,13 +35,13 @@ No cloud, no built-in LLM. The server is pinned to one project directory and exe
 **Linux / macOS — one command:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.1/install.sh | bash
+curl -fsSL https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.1/install.ps1 | iex
+irm https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.ps1 | iex
 ```
 
 **Source (v1.3.1):** [zip](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.zip) · [tar.gz](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.tar.gz)
