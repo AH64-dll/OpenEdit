@@ -2,6 +2,7 @@
 
 This prompt hands the whole installation to your agent: it detects the OS,
 clones the repository, creates a virtual environment, installs the package,
+provisions the render stack (Node.js, HyperFrames overlay engine, ffmpeg/melt),
 and creates an edit project, then verifies the MCP entry point end to end.
 It works with any agent that can run shell commands and read files,
 including Cursor, Claude Code, and OpenCode. The agent reports the absolute
@@ -32,16 +33,23 @@ You are installing Open Edit, a local AI video editor that runs as an MCP server
 5. Install the optional extras (review UI and local transcription):
    pip install -e ".[mcp,serve]"
    pip install -e ".[mcp,whisper]"
-6. Verify the MCP server entry point runs:
+6. Provision the render stack (Node.js >= 22 + the HyperFrames overlay engine):
+   - Check for Node.js 22+: node --version (Linux/macOS) or node --version (Windows). If missing or older than 22, install Node.js LTS (Linux/macOS: user-local tarball from nodejs.org or your package manager; Windows: winget install OpenJS.NodeJS.LTS or the nodejs.org installer).
+   - Install the pinned JS dependencies and verify the motion-graphics engine:
+     npm install --no-audit --no-fund
+     Linux/macOS: node_modules/.bin/hyperframes --version   (must print 0.7.65)
+     Windows: .\node_modules\.bin\hyperframes.cmd --version
+   - Check the render binaries are on PATH: ffmpeg and ffprobe, and melt (Linux/macOS; on Windows melt is optional — overlay-only renders do not need it). If any are missing, install them (Linux/macOS package manager, Windows winget for ffmpeg) and note it in your report.
+7. Verify the MCP server entry point runs:
    Linux / macOS: .venv/bin/open-edit-mcp --help
    Windows: .\.venv\Scripts\open-edit-mcp.exe --help
    It must print usage with a --project option. If it errors, fix the cause before continuing.
-7. Create an edit project. The folder must exist before init:
+8. Create an edit project. The folder must exist before init:
    Linux / macOS:
      mkdir -p ~/OpenEditProjects/my-talk
      open_edit init ~/OpenEditProjects/my-talk
    Windows:
      New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\OpenEditProjects\my-talk"
      open_edit init "$env:USERPROFILE\OpenEditProjects\my-talk"
-8. Report back: the absolute clone path, the venv path, the absolute project path (the folder that contains .open_edit/), and confirmation that steps 6 and 7 succeeded. Do not skip or fake the verification. Do not modify anything outside the clone and the new project folder.
+9. Report back: the absolute clone path, the venv path, the absolute project path (the folder that contains .open_edit/), the hyperframes version from step 6, and confirmation that steps 7 and 8 succeeded. Do not skip or fake the verification. Do not modify anything outside the clone and the new project folder.
 ```

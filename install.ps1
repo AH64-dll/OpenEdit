@@ -175,6 +175,99 @@ Write-Step "Installing optional extras (.[mcp,whisper]) ..."
 & $venvPy -m pip install -e ".[mcp,whisper]"
 if ($LASTEXITCODE -ne 0) { Write-WarnMsg ".[mcp,whisper] (local transcription) extras install failed; continuing without whisper support." }
 
+# ---- Render runtime: Node.js + HyperFrames engine --------------------------
+$nodeBin = ""
+$nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+if ($nodeCmd) {
+    try {
+        $nodeVer = (& node --version 2>$null)
+        if ($nodeVer -match "^v(\d+)\.") {
+            if ([int]$Matches[1] -ge 22) { $nodeBin = "node" }
+            else { Write-WarnMsg "node $nodeVer is too old (>=22 required by hyperframes 0.7.65); attempting to install Node.js LTS" }
+        }
+    } catch { }
+}
+if (-not $nodeBin) {
+    Write-Step "Node.js not found or too old. Attempting to install Node.js LTS ..."
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        try {
+            & winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements --silent 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+                $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+                if ($nodeCmd) {
+                    try {
+                        $nodeVer = (& node --version 2>$null)
+                        if (($nodeVer -match "^v(\d+)\.") -and ([int]$Matches[1] -ge 22)) { $nodeBin = "node" }
+                    } catch { }
+                }
+            }
+        } catch { Write-WarnMsg ("winget Node.js install failed: " + $_.Exception.Message) }
+    }
+}
+if (-not $nodeBin) {
+    Write-Step "Installing Node.js LTS into $InstallDir\.node (no admin needed) ..."
+    $nodeDir = Join-Path $InstallDir ".node"
+    $nodeRoot = Get-ChildItem -Path $nodeDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($nodeRoot -and (Test-Path -LiteralPath (Join-Path $nodeRoot.FullName "node.exe"))) {
+        $nodeBin = Join-Path $nodeRoot.FullName "node.exe"
+        $env:Path = $nodeRoot.FullName + ";" + $env:Path
+        Write-Ok "Reusing previously installed Node.js at $nodeBin"
+    } else {
+        $nodeZip = Join-Path $env:TEMP "open-edit-node-lts.zip"
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/latest-v22.x/node-v22.23.2-win-x64.zip" -OutFile $nodeZip -TimeoutSec 180
+            Expand-Archive -Path $nodeZip -DestinationPath $nodeDir -Force
+            $nodeRoot = Get-ChildItem -Path $nodeDir -Directory | Select-Object -First 1
+            if ($nodeRoot -and (Test-Path -LiteralPath (Join-Path $nodeRoot.FullName "node.exe"))) {
+                $nodeBin = Join-Path $nodeRoot.FullName "node.exe"
+                $env:Path = $nodeRoot.FullName + ";" + $env:Path
+            }
+        } catch {
+            Write-WarnMsg ("could not download Node.js: " + $_.Exception.Message)
+        }
+    }
+}
+if (-not $nodeBin) {
+    Write-WarnMsg "Node.js is not available; skipping npm install. The HyperFrames overlay engine will be missing. Install Node.js LTS (22+) from https://nodejs.org/en/download and re-run."
+} else {
+    Write-Ok "Using Node.js: $nodeBin"
+    Write-Step "Installing Node.js dependencies (npm install --no-audit --no-fund) ..."
+    $npm = Join-Path (Split-Path $nodeBin -Parent) "npm.cmd"
+    if (-not (Test-Path -LiteralPath $npm)) { $npm = "npm" }
+    $npmExit = 1
+    try {
+        Push-Location $InstallDir
+        & $npm install --no-audit --no-fund 2>$null
+        $npmExit = $LASTEXITCODE
+        Pop-Location
+    } catch {
+        Write-WarnMsg ("npm install failed: " + $_.Exception.Message)
+        try { Pop-Location } catch { }
+    }
+    if ($npmExit -ne 0) {
+        Write-WarnMsg "npm install failed (exit $npmExit). Retry with: cd $InstallDir; npm install --no-audit --no-fund"
+    }
+}
+$hyperBin = Join-Path $InstallDir "node_modules\.bin\hyperframes.cmd"
+$hyperReady = (Test-Path -LiteralPath $hyperBin)
+if (-not $hyperReady) { $hyperReady = (Test-Path -LiteralPath (Join-Path $InstallDir "node_modules\.bin\hyperframes")) }
+if ($hyperReady) {
+    $hyperVer = ""
+    try {
+        $hyperVer = (& $hyperBin --version 2>$null)
+    } catch { }
+    if ($hyperVer -match "0\.7\.65") {
+        Write-Ok "HyperFrames engine ready: $hyperBin ($hyperVer)"
+    } else {
+        Write-WarnMsg "hyperframes shim found at $hyperBin but its version check failed ($hyperVer); overlay rendering may be broken."
+    }
+} else {
+    Write-WarnMsg "hyperframes binary not found; overlay rendering will fall back to npx (requires Node + network) or fail."
+}
+
 # ---- Verify the MCP server -------------------------------------------------
 Write-Step "Verifying MCP server: $mcpBin --help ..."
 & $mcpBin --help *> $null
@@ -202,6 +295,69 @@ if ($NoProject) {
         $projectCreated = $true
     }
 }
+
+# ---- Render runtime: ffmpeg / melt / Chrome --------------------------------
+$probes = @{}
+$ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+$probes["ffmpeg"] = if ($ffmpegCmd) { $ffmpegCmd.Source } else { "" }
+$meltCmd = Get-Command melt -ErrorAction SilentlyContinue
+$probes["melt"] = if ($meltCmd) { $meltCmd.Source } else { "" }
+
+if (-not $probes["ffmpeg"]) {
+    Write-Step "ffmpeg not found. Attempting install via winget (Gyan.FFmpeg) ..."
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        try {
+            & winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements --silent 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+                $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+                if ($ffmpegCmd) { $probes["ffmpeg"] = $ffmpegCmd.Source }
+            }
+        } catch { Write-WarnMsg ("winget ffmpeg install failed: " + $_.Exception.Message) }
+    }
+    if (-not $probes["ffmpeg"]) {
+        Write-WarnMsg "ffmpeg is still not on PATH. Install it manually from https://www.gyan.dev/ffmpeg/builds/ (or: winget install Gyan.FFmpeg) and re-run."
+    }
+}
+
+if (-not $probes["melt"]) {
+    Write-WarnMsg "melt (MLT) is not installed. Video-clip timelines require it for base-video rendering. There is currently no one-command melt install on Windows (no winget/chocolatey package; official builds are source-only on https://github.com/mltframework/mlt/releases). Options: build/install MLT yourself, use WSL with a Linux package (apt install melt), or use Open Edit for overlay/motion-graphics-only renders, which do not need melt."
+}
+
+$chromeFound = ""
+$chromePaths = @(
+    "C:\Program Files\Google\Chrome\Application\chrome.exe",
+    "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe"),
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    (Join-Path $env:LOCALAPPDATA "Microsoft\Edge\Application\msedge.exe")
+)
+foreach ($p in $chromePaths) { if (Test-Path -LiteralPath $p) { $chromeFound = $p; break } }
+if (-not $chromeFound) {
+    $chCmd = Get-Command chrome, chrome.exe, msedge -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($chCmd) { $chromeFound = $chCmd.Source }
+}
+
+# ---- Runtime readiness summary ----------------------------------------------
+Write-Host ""
+Write-Host "Runtime readiness (render pipeline):" -ForegroundColor Cyan
+$rows = @(
+    @{ Name = "ffmpeg";      Status = if ($probes["ffmpeg"]) { "READY  " + $probes["ffmpeg"] } else { "MANUAL - https://www.gyan.dev/ffmpeg/builds/ (winget install Gyan.FFmpeg)" } },
+    @{ Name = "melt (MLT)";  Status = if ($probes["melt"]) { "READY  " + $probes["melt"] } else { "MANUAL - no one-command Windows install; see warning above (WSL: apt install melt)" } },
+    @{ Name = "node";        Status = if ($nodeBin) { "READY  " + $nodeBin } else { "MANUAL - https://nodejs.org/en/download (Node.js LTS)" } },
+    @{ Name = "hyperframes"; Status = if ($hyperReady) { "READY  " + $hyperBin } else { "MANUAL - cd $InstallDir; npm install --no-audit --no-fund" } },
+    @{ Name = "chrome";      Status = if ($chromeFound) { "READY  " + $chromeFound } else { "MANUAL - install Chrome, or: cd $InstallDir; npx @puppeteer/browsers install chrome" } }
+)
+foreach ($r in $rows) {
+    if ($r.Status -like "READY*") {
+        Write-Host ("  {0,-14} {1}" -f $r.Name, $r.Status) -ForegroundColor Green
+    } else {
+        Write-Host ("  {0,-14} {1}" -f $r.Name, $r.Status) -ForegroundColor Yellow
+    }
+}
+Write-Host ""
+Write-Host "Overlay/motion-graphics rendering uses the HyperFrames engine (HTML/CSS/JS) bundled in this repo - no extra install."
 
 # ---- Summary ---------------------------------------------------------------
 Write-Host ""
