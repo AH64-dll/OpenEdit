@@ -36,17 +36,18 @@ transcription.
 On Windows the Linux bwrap/Rust sandbox is **not** used. `run_script` defaults
 to `OPEN_EDIT_SANDBOX_BACKEND=dev` (unsandboxed in the MCP process; the host
 harness owns isolation). Moviepy `generate_visual_for_segment` is unsupported
-(`render_sandbox_unsupported_on_windows`). Core IR edit, ingest, Remotion, and
-`trigger_render` work when the PATH tools below are installed.
+(`render_sandbox_unsupported_on_windows`). Core IR edit, ingest, HyperFrames
+overlays, and `trigger_render` work when the PATH tools below are installed.
 
 #### Windows PATH dependencies
 
 | Tool | Needed for |
 |---|---|
 | Python 3.11+ | MCP server |
-| ffmpeg / ffprobe | probe, overlays, Remotion burn-in |
+| ffmpeg / ffprobe | probe, HyperFrames overlay burn-in, final encode |
 | melt (MLT) | proxy/final timeline render (edit/query still work without it) |
-| Node.js | Remotion compositions (`OPEN_EDIT_NODE_BIN` → `node.exe`) |
+| Node.js (>= 22) | HyperFrames overlay engine — run `npm install` in the repo (`OPEN_EDIT_NODE_BIN` → `node.exe`) |
+| hyperframes (npm) | HTML/CSS/JS motion graphics, pinned `0.7.65`; `node_modules/.bin/hyperframes` |
 
 Safe render default on Windows: `OPEN_EDIT_RENDER_BACKEND=cpu` (already the
 unset default). Set `gpu` to try NVENC/QSV.
@@ -149,7 +150,7 @@ Restart Cursor (or reload MCP servers) after editing the config.
 | Tool | Role |
 |---|---|
 | `query_project` | Read-only project queries |
-| `edit_project` | Mutations + generate (incl. Remotion, `ingest_local`) |
+| `edit_project` | Mutations + generate (incl. HyperFrames overlays, `ingest_local`) |
 | `run_script` | Free-form Python (bwrap sandbox on Linux; `dev` on Windows) |
 | `trigger_render` | Enqueue + wait for proxy/final/overlay/preview-chunks |
 | `get_render_job` | Poll a durable render job by `job_id` |
@@ -344,9 +345,10 @@ Cache eviction protects canonical source CAS and sidecars, active jobs, and
 newest deliverables. It may remove regenerable source proxies, Remotion
 materialize outputs, render-cache entries, and orphaned temporary files.
 
-### Remotion / Node
+### Render runtime / Node
 
-Prefer Node 24 for Remotion CLI:
+Prefer Node 22+ for the HyperFrames overlay engine (pinned `hyperframes@0.7.65`
+requires Node >= 22; Remotion is legacy/migration-only):
 
 ```json
 {
@@ -355,7 +357,7 @@ Prefer Node 24 for Remotion CLI:
       "command": "/path/to/OpenEdit/.venv/bin/open-edit-mcp",
       "args": ["--project", "/absolute/path/to/project"],
       "env": {
-        "OPEN_EDIT_NODE_BIN": "/path/to/node24/bin/node",
+        "OPEN_EDIT_NODE_BIN": "/path/to/node22/bin/node",
         "OPEN_EDIT_WHISPER_LANGUAGE": "ar",
         "OPEN_EDIT_WHISPER_MODEL": "small"
       }

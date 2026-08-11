@@ -367,6 +367,7 @@
         <p class="oe-annot oe-reveal" aria-hidden="true">— SETUP</p>
         <h2 class="oe-h2 oe-reveal">Install</h2>
         <p class="oe-lead oe-reveal">Step-by-step, with tabs: <strong>Linux</strong> | <strong>Windows</strong></p>
+        <p class="oe-lead oe-reveal oe-lead--sub">Fastest: the one-command installers — <code>curl -fsSL https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.1/install.sh | bash</code> (Linux/macOS) or <code>irm https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.1/install.ps1 | iex</code> (Windows). They clone, install Python deps, provision Node 22+ and the HyperFrames overlay engine (<code>npm install</code>), check ffmpeg/melt/Chrome, and print a runtime-readiness summary — no sudo, everything under your home.</p>
 
         <div class="oe-agent oe-reveal">
           <div class="oe-agent-head">
@@ -402,18 +403,25 @@
 5. Install the optional extras (review UI and local transcription):
    pip install -e &quot;.[mcp,serve]&quot;
    pip install -e &quot;.[mcp,whisper]&quot;
-6. Verify the MCP server entry point runs:
+6. Provision the render stack (Node.js 22+ and the HyperFrames overlay engine):
+   - Check for Node.js 22+: node --version. If missing or older than 22, install Node.js LTS (Linux/macOS: user-local tarball from nodejs.org or your package manager; Windows: winget install OpenJS.NodeJS.LTS or the nodejs.org installer).
+   - Install the pinned JS dependencies and verify the engine:
+     npm install --no-audit --no-fund
+     Linux/macOS: node_modules/.bin/hyperframes --version   (must print 0.7.65)
+     Windows: .\node_modules\.bin\hyperframes.cmd --version
+   - Check the render binaries are on PATH: ffmpeg and ffprobe, and melt (Linux/macOS; on Windows melt is optional — overlay-only renders do not need it). If any are missing, install them (Linux/macOS package manager, Windows winget for ffmpeg) and note it in your report.
+7. Verify the MCP server entry point runs:
    Linux / macOS: .venv/bin/open-edit-mcp --help
    Windows: .\.venv\Scripts\open-edit-mcp.exe --help
    It must print usage with a --project option. If it errors, fix the cause before continuing.
-7. Create an edit project. The folder must exist before init:
+8. Create an edit project. The folder must exist before init:
    Linux / macOS:
      mkdir -p ~/OpenEditProjects/my-talk
      open_edit init ~/OpenEditProjects/my-talk
    Windows:
      New-Item -ItemType Directory -Force -Path &quot;$env:USERPROFILE\OpenEditProjects\my-talk&quot;
      open_edit init &quot;$env:USERPROFILE\OpenEditProjects\my-talk&quot;
-8. Report back: the absolute clone path, the venv path, the absolute project path (the folder that contains .open_edit/), and confirmation that steps 6 and 7 succeeded. Do not skip or fake the verification. Do not modify anything outside the clone and the new project folder.</code></pre>
+9. Report back: the absolute clone path, the venv path, the absolute project path (the folder that contains .open_edit/), the hyperframes version from step 6, and confirmation that steps 7 and 8 succeeded. Do not skip or fake the verification. Do not modify anything outside the clone and the new project folder.</code></pre>
           </div>
         </div>
         <h3 class="oe-h3 oe-reveal">Prerequisites</h3>
@@ -425,9 +433,9 @@
             <tbody>
               <tr><td><code>Git</code></td><td><span class="oe-req oe-req--yes">yes</span></td><td>clone the repository</td></tr>
               <tr><td><code>Python 3.11+</code></td><td><span class="oe-req oe-req--yes">yes</span></td><td>runs the MCP server, CLI, and tool kernel</td></tr>
-              <tr><td><code>ffmpeg / ffprobe</code></td><td><span class="oe-req oe-req--rec">recommended</span></td><td>media probing, overlays, QC detectors, final encode</td></tr>
-              <tr><td><code>melt (MLT)</code></td><td><span class="oe-req oe-req--rec">recommended</span></td><td>renders the proxy and final timeline</td></tr>
-              <tr><td><code>Node.js 24</code></td><td><span class="oe-req oe-req--opt">optional</span></td><td>Remotion compositions and HyperFrames motion graphics</td></tr>
+              <tr><td><code>ffmpeg / ffprobe</code></td><td><span class="oe-req oe-req--yes">yes</span></td><td>media probing, HyperFrames overlay burn-in, QC detectors, final encode</td></tr>
+              <tr><td><code>melt (MLT)</code></td><td><span class="oe-req oe-req--rec">recommended</span></td><td>renders the proxy and final timeline; needed for video-clip timelines (overlay-only renders work without it)</td></tr>
+              <tr><td><code>Node.js 22+</code></td><td><span class="oe-req oe-req--yes">yes</span></td><td>runs the HyperFrames motion-graphics engine — the installers auto-install Node and run <code>npm install</code> (pinned <code>hyperframes</code> 0.7.65)</td></tr>
             </tbody>
           </table>
         </div>
@@ -459,7 +467,8 @@
 <span class="p">$</span> python3 -m venv .venv
 <span class="p">$</span> source .venv/bin/activate
 <span class="p">$</span> pip install -U pip
-<span class="p">$</span> pip install -e ".[mcp]"</code></pre>
+<span class="p">$</span> pip install -e ".[mcp]"
+<span class="p">$</span> npm install --no-audit --no-fund   # HyperFrames overlay engine (Node 22+)</code></pre>
                 </div>
               </li>
               <li class="oe-step oe-reveal">
@@ -957,7 +966,7 @@
               <tr><td><code>OPEN_EDIT_PROJECT</code></td><td>—</td><td>Project path for the MCP server (fallback when <code>--project</code> is omitted)</td></tr>
               <tr><td><code>OPEN_EDIT_PROJECTS_ROOT</code></td><td><code>~/OpenEditProjects</code></td><td>Root scanned by <code>open_edit serve</code>; projects must be subdirectories</td></tr>
               <tr><td><code>OPEN_EDIT_RENDER_BACKEND</code></td><td>see note</td><td><code>gpu</code> = probe GPU encoders; <code>cpu</code> = software encode</td></tr>
-              <tr><td><code>OPEN_EDIT_NODE_BIN</code></td><td><code>node</code></td><td>Node executable for Remotion rendering (HyperFrames resolves its own <code>hyperframes</code> binary via PATH or <code>OPEN_EDIT_HYPERFRAMES_BIN</code>)</td></tr>
+              <tr><td><code>OPEN_EDIT_NODE_BIN</code></td><td><code>node</code></td><td>Node executable for the HyperFrames overlay engine (>= 22; legacy Remotion uses it too). HyperFrames resolves its own <code>hyperframes</code> binary via PATH or <code>OPEN_EDIT_HYPERFRAMES_BIN</code></td></tr>
               <tr><td><code>OPEN_EDIT_WHISPER_MODEL</code></td><td><code>base</code></td><td>faster-whisper model size</td></tr>
               <tr><td><code>OPEN_EDIT_WHISPER_LANGUAGE</code></td><td>auto-detect</td><td>faster-whisper language code (e.g. <code>ar</code>)</td></tr>
               <tr><td><code>OPEN_EDIT_SANDBOX_BACKEND</code></td><td><code>bwrap</code> (Linux) / <code>dev</code> (Windows)</td><td><code>run_script</code> isolation; <code>dev</code> runs unsandboxed</td></tr>
@@ -1029,7 +1038,7 @@
               </button>
             </h3>
             <div class="oe-acc-panel" id="oe-acc-p3" role="region" aria-labelledby="oe-acc-b3">
-              <p>Optional. Node.js 24 backs legacy Remotion compositions and HyperFrames, the native HTML/CSS/JS motion graphics. Point at a specific binary with <code>OPEN_EDIT_NODE_BIN</code>. Without Node you lose motion-graphics overlays; everything else, ingest, editing, rendering, QC, works.</p>
+              <p>Required for motion graphics. Node.js 22+ runs the HyperFrames overlay engine (HTML/CSS/JS, pinned <code>hyperframes</code> 0.7.65). The one-command installers auto-install Node (user-local, no sudo) and run <code>npm install</code>. Point at a specific binary with <code>OPEN_EDIT_NODE_BIN</code>; without Node you lose motion-graphics overlays — everything else works. Remotion is legacy.</p>
             </div>
           </div>
           <div class="oe-acc-item oe-reveal">
