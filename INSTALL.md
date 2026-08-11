@@ -10,6 +10,30 @@ You also need a separate **edit project** directory (created with
 
 More MCP detail: [`docs/MCP.md`](docs/MCP.md).
 
+## Option 0 — let your agent install it
+
+The fastest path is to paste one of two prompts and let your agent do the
+work. The [install prompt](docs/agent-install.md) clones the repo, installs
+the package, creates an edit project, and verifies everything end to end.
+The [configure prompt](docs/agent-configure.md) then registers `open-edit`
+as an MCP server in your host (Cursor, Claude Code, OpenCode, or another MCP
+client) and reports the exact paths it used. Prefer the manual route? The
+one-command installers `install.sh` / `install.ps1` are the fastest manual
+path.
+
+---
+
+## Downloads
+
+| Installer | One command |
+|---|---|
+| Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.0/install.sh \| bash` |
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.0/install.ps1 \| iex` |
+
+Source archives: [v1.3.0 zip](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.0.zip) · [v1.3.0 tar.gz](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.0.tar.gz)
+
+Or let your agent install it: [`docs/agent-install.md`](docs/agent-install.md), [`docs/agent-configure.md`](docs/agent-configure.md)
+
 ---
 
 ## Prerequisites

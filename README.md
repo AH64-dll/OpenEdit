@@ -1,45 +1,136 @@
 # Open Edit
 
-AI-native video editor driven as a local **MCP server** (Cursor, OpenCode, Claude Code).
+![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)
+![MCP](https://img.shields.io/badge/MCP-server-000000)
 
-**GitHub:** https://github.com/AH64-dll/OpenEdit
+**AI-native video editing, driven over MCP.**
 
-## What this repo is
+![Open Edit](docs/hero-full.png)
+*The product: ingest, word-level transcription, an append-only edit graph, and deterministic renders.*
 
-Functional Open Edit product code only:
+![The timeline, while it opens](docs/hero-timeline.png)
+*The review studio: scrub a 640×360 proxy, leave time-scoped notes, revert ops in the edit graph.*
 
-- IR / edit graph (`open_edit/ir`, `open_edit/storage`)
-- Tool kernel (`open_edit/kernel`)
-- MCP stdio server (`open_edit/mcp`)
-- Render pipeline: melt / ffmpeg / Remotion (`open_edit/render`)
-- Agent tools + skills (`open_edit/agent`, `skills/`)
-- Optional review UI (`open_edit/serve`)
+## What it is
 
-Not included (removed as dead / out of scope):
+Open Edit is an AI-native video editor that runs as a **local MCP server** over stdio.
+An external agent (Cursor, Claude Code, OpenCode, any MCP client) owns the creative loop;
+Open Edit owns the machinery: SHA-256 content-addressed ingest, word-level transcription
+(faster-whisper), an append-only IR edit graph in SQLite (WAL), and melt + ffmpeg rendering
+with a 640×360 proxy review artifact and a 1080p final export.
 
-- Go `mlt-pipeline` CLIs
-- Rust bwrap sandbox crate (use `OPEN_EDIT_SANDBOX_BACKEND=dev`; default on Windows)
-- Planning dumps, agent scratch, Kdenlive guide forks
+No cloud, no built-in LLM. The server is pinned to one project directory and executes
+28 kinds of IR edit operations against it, each one recorded, reversible, and renderable.
 
-## Install
+## Downloads
 
-See **[INSTALL.md](INSTALL.md)** for Linux and Windows (clone → venv → Cursor `mcp.json`).
+**Linux / macOS — one command:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.0/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/AH64-dll/OpenEdit/v1.3.0/install.ps1 | iex
+```
+
+**Source (v1.3.0):** [zip](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.0.zip) · [tar.gz](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.0.tar.gz)
+
+## The agent way
+
+Open Edit is built to be operated by an agent, not a GUI. Paste the install prompt into
+your agent and it will clone, install, verify end to end, and report back. Then paste the
+configure prompt to register the MCP server in your host and confirm all six tools appear.
+
+- [docs/agent-install.md](docs/agent-install.md) — agent-driven install prompt
+- [docs/agent-configure.md](docs/agent-configure.md) — agent-driven MCP configuration
+
+## The normal way
+
+**Linux / macOS**
 
 ```bash
 git clone https://github.com/AH64-dll/OpenEdit.git
 cd OpenEdit
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e ".[mcp]"        # extras: ,serve (review UI) · ,whisper (transcription)
+```
+
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/AH64-dll/OpenEdit.git C:\OpenEdit
+cd C:\OpenEdit
 python -m venv .venv
-source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1   # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+python -m pip install -U pip
 pip install -e ".[mcp]"
 ```
 
+Check the entry point, create a project, and start the review studio:
+
+```bash
+.venv/bin/open-edit-mcp --help            # Windows: .\.venv\Scripts\open-edit-mcp.exe --help
+mkdir -p ~/OpenEditProjects               # Windows: New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\OpenEditProjects"
+open_edit init ~/OpenEditProjects/my-talk
+open_edit serve --review-only --port 8000 # → http://127.0.0.1:8000 (needs the ,serve extra)
+```
+
+Register the server in Cursor (`~/.cursor/mcp.json` on Linux/macOS, `%USERPROFILE%\.cursor\mcp.json` on Windows) and reload MCP:
+
+```json
+// Linux / macOS
+{
+  "mcpServers": {
+    "open-edit": {
+      "command": "/ABSOLUTE/PATH/TO/OpenEdit/.venv/bin/open-edit-mcp",
+      "args": ["--project", "/home/YOU/OpenEditProjects/my-talk"],
+      "env": { "OPEN_EDIT_RENDER_BACKEND": "cpu" }
+    }
+  }
+}
+
+// Windows
+{
+  "mcpServers": {
+    "open-edit": {
+      "command": "C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe",
+      "args": ["--project", "C:\\Users\\YOU\\OpenEditProjects\\my-talk"],
+      "env": { "OPEN_EDIT_RENDER_BACKEND": "cpu" }
+    }
+  }
+}
+```
+
+## What you get
+
+| Tool | Role |
+|---|---|
+| `query_project` | Read-only project queries |
+| `edit_project` | Mutations + creative generation |
+| `run_script` | Free-form Python IR edits (bwrap sandbox on Linux, `dev` on Windows) |
+| `trigger_render` | Enqueue proxy / final / preview-chunks renders |
+| `get_render_job` | Poll a durable render job by `job_id` |
+| `cancel_render_job` | Cancel queued or running jobs |
+
+**Render modes:** `proxy` (640×360 review artifact, whole-file) → `final` (1080p).
+Every render passes a deterministic 10-check QC gate before it is offered to you.
+
 ## Docs
 
-- [INSTALL.md](INSTALL.md) — Linux + Windows setup
-- [docs/MCP.md](docs/MCP.md) — MCP tools and Cursor config
+- [INSTALL.md](INSTALL.md) — full Linux + Windows setup, smoke checks, update/uninstall
+- [docs/MCP.md](docs/MCP.md) — MCP tools, Cursor config, review UI, render workflow
+- [skills/](skills/) — agent playbook and harness skills (also shipped in the wheel)
 - [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md) — Remotion licensing
-- [skills/open-edit-mcp.md](skills/open-edit-mcp.md) — agent playbook
 
-## License / status
+## License
 
-Experimental prototype. Remotion usage may require a company license — see `docs/REMOTION_LICENSE.md`.
+MIT — see [LICENSE](LICENSE). Experimental prototype; behavior may change between
+releases. Motion graphics use Remotion, which may require a company license for
+commercial work — see [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md).

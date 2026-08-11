@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Open Edit — AI-native video editing, driven over MCP.</title>
+  <meta name="description" content="Open Edit is a local-first, AI-native video editor driven over MCP. Ingest, transcribe, edit by IR ops, render, QC, all on your hardware.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%23140D0C'/%3E%3Crect x='5' y='8' width='22' height='15' rx='2.5' fill='none' stroke='%23D9543F' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='15.5' r='4' fill='none' stroke='%23D9543F' stroke-width='1.6'/%3E%3Crect x='14.2' y='23' width='3.6' height='2.2' fill='%23D9543F'/%3E%3Crect x='8' y='25.2' width='16' height='1.6' rx='0.8' fill='%23D9543F'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20260811-contactsheet-5">
+</head>
+<body>
+  <!-- ======== SVG sprite (inline art, no external icons) ======== -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <defs>
+      <symbol id="oe-ico-github" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.76.11 3.05.73.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.38-5.25 5.67.41.35.77 1.05.77 2.12 0 1.53-.01 2.76-.01 3.14 0 .3.2.67.8.55A10.52 10.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/>
+      </symbol>
+      <symbol id="oe-ico-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4.2"/>
+        <path d="M12 2.6v2M12 19.4v2M2.6 12h2M19.4 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/>
+      </symbol>
+      <symbol id="oe-ico-moon" viewBox="0 0 24 24">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>
+      </symbol>
+      <symbol id="oe-ico-menu" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 12h16M4 17h16"/>
+      </symbol>
+      <symbol id="oe-ico-close" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6L6 18"/>
+      </symbol>
+      <symbol id="oe-ico-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="11" height="11" rx="2.5"/>
+        <path d="M5 15H4.5A2.5 2.5 0 0 1 2 12.5v-8A2.5 2.5 0 0 1 4.5 2h8A2.5 2.5 0 0 1 15 4.5V5"/>
+      </symbol>
+      <symbol id="oe-ico-check" viewBox="0 0 24 24">
+        <path d="M4.5 12.5l5 5 10-11"/>
+      </symbol>
+      <symbol id="oe-ico-chevron" viewBox="0 0 24 24">
+        <path d="M6 9l6 6 6-6"/>
+      </symbol>
+      <symbol id="oe-ico-arrow-up" viewBox="0 0 24 24">
+        <path d="M12 20V4M5.5 10.5 12 4l6.5 6.5"/>
+      </symbol>
+      <symbol id="oe-ico-alert" viewBox="0 0 24 24">
+        <path d="M12 3.5 22 20H2L12 3.5Z"/>
+        <path d="M12 9.5v4.5M12 17.2v.1"/>
+      </symbol>
+      <symbol id="oe-ico-play" viewBox="0 0 24 24">
+        <path d="M8.5 5.8v12.4L19 12 8.5 5.8Z" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="oe-ico-note" viewBox="0 0 24 24">
+        <path d="M5 4h14v13l-3.5 3H5V4Z"/>
+        <path d="M8 8.5h8M8 12h5"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <a class="oe-skip" href="#oe-main">Skip to content</a>
+
+  <!-- ======== Topbar ======== -->
+  <header class="oe-topbar" id="oe-topbar">
+    <div class="oe-container oe-topbar-inner">
+      <a class="oe-brand" href="#hero" aria-label="Open Edit home">
+        <svg class="oe-logo" viewBox="0 0 28 28" aria-hidden="true">
+          <rect x="3.5" y="4.5" width="21" height="15.5" rx="3.2" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="14" cy="12.2" r="4.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="12.6" y="20" width="2.8" height="2.6" fill="currentColor"/>
+          <rect x="8" y="22.6" width="12" height="1.5" rx="0.75" fill="currentColor"/>
+        </svg>
+        <span class="oe-wordmark">Open&nbsp;Edit</span>
+      </a>
+
+      <nav class="oe-nav" aria-label="Primary">
+        <a href="#what">What</a>
+        <a href="#how">How it works</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#install">Install</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+
+      <div class="oe-topbar-actions">
+        <span class="oe-rec" aria-hidden="true"><i class="oe-rec-dot"></i>REC</span>
+        <a class="oe-icon-link" href="https://github.com/AH64-dll/OpenEdit" target="_blank" rel="noopener" aria-label="Open Edit on GitHub">
+          <svg class="oe-ico oe-ico--lg"><use href="#oe-ico-github"/></svg>
+        </a>
+        <a class="oe-btn oe-btn--primary oe-btn--sm" href="#install" data-tab-open="linux">Get started</a>
+        <button class="oe-menu-btn" id="oe-menu-btn" type="button" aria-expanded="false" aria-controls="oe-mobile-menu" aria-label="Open menu">
+          <svg class="oe-ico oe-ico--lg oe-ico-menu-open"><use href="#oe-ico-menu"/></svg>
+          <svg class="oe-ico oe-ico--lg oe-ico-menu-close"><use href="#oe-ico-close"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <nav class="oe-mobile-menu" id="oe-mobile-menu" aria-label="Mobile">
+      <a href="#what">What</a>
+      <a href="#how">How it works</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#install">Install</a>
+      <a href="#workflow">Workflow</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+  </header>
+
+  <main id="oe-main">
+
+    <!-- ======== Hero ======== -->
+    <section id="hero" class="oe-hero">
+      <div class="oe-sprockets" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <div class="oe-container oe-hero-grid">
+        <div class="oe-hero-copy oe-stagger">
+          <p class="oe-hero-annot oe-reveal" aria-hidden="true"><i class="oe-rec-dot"></i>REEL 01 · OPEN EDIT</p>
+          <h1 class="oe-display oe-reveal">AI-native video editing,<br>driven over <em class="oe-serif-accent">MCP</em>.</h1>
+          <p class="oe-hero-sub oe-reveal">The <em class="oe-serif-accent">cut</em> is the <em class="oe-serif-accent">negative</em>. Open Edit prints it.</p>
+          <div class="oe-hero-ctas oe-reveal">
+            <a class="oe-btn oe-btn--primary" href="#install">Start editing</a>
+            <a class="oe-hero-link" href="#how">or read how it works</a>
+          </div>
+        </div>
+
+        <figure class="oe-hero-visual oe-reveal" role="img" aria-label="Animated preview of the Open Edit review timeline">
+          <div class="oe-print oe-print--tilt-l">
+            <div class="oe-print-mat" aria-hidden="true">
+            <!-- ===== Hero timeline: the mini NLE re-dressed as a film strip ===== -->
+            <div class="oe-timeline-screen">
+              <div class="oe-tl-sprockets" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <div class="oe-tl-topbar">
+                <span class="oe-tl-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="oe-tl-title">REVIEW — my-talk</span>
+                <span class="oe-tl-time" id="oe-timecode" aria-hidden="true">00:00.00</span>
+              </div>
+
+              <div class="oe-tl-ruler" aria-hidden="true">
+                <span class="oe-tl-mark" style="--at:0%"><i></i>0s</span>
+                <span class="oe-tl-mark" style="--at:33.3%"><i></i>5s</span>
+                <span class="oe-tl-mark" style="--at:66.6%"><i></i>10s</span>
+                <span class="oe-tl-mark" style="--at:100%"><i></i>15s</span>
+              </div>
+
+              <div class="oe-tl-tracks" aria-hidden="true">
+                <div class="oe-tl-track">
+                  <span class="oe-tl-label">V1</span>
+                  <div class="oe-tl-lane">
+                    <span class="oe-clip oe-clip--v1" style="left:6%; width:30%"><em>intro</em><i class="oe-clip-edge">OE 4806 · 24A</i></span>
+                    <span class="oe-clip oe-clip--v1" style="left:40%; width:36%"><em>b-roll</em><i class="oe-clip-edge">OE 4806 · 24A</i></span>
+                  </div>
+                </div>
+                <div class="oe-tl-track">
+                  <span class="oe-tl-label">A1</span>
+                  <div class="oe-tl-lane">
+                    <span class="oe-clip oe-clip--a1" style="left:6%; width:70%"><em>voiceover</em><i class="oe-clip-edge">OE 4806 · 24A</i></span>
+                  </div>
+                </div>
+                <div class="oe-tl-track">
+                  <span class="oe-tl-label">A2</span>
+                  <div class="oe-tl-lane">
+                    <span class="oe-clip oe-clip--a2" style="left:22%; width:44%"><em>ambience</em><i class="oe-clip-edge">OE 4806 · 24A</i></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="oe-tl-marks" aria-hidden="true">
+                <i style="left:6%"></i><i style="left:36%"></i><i style="left:40%"></i><i style="left:76%"></i>
+              </div>
+              <div class="oe-tl-playhead" aria-hidden="true"><i></i></div>
+              <div class="oe-tl-sprockets oe-tl-sprockets--bottom" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            </div>
+            <span class="oe-print-edge" aria-hidden="true">NEG 02 · REVIEW TIMELINE · 4806-24A</span>
+          </div>
+        </figure>
+      </div>
+      <div class="oe-sprockets" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+    </section>
+
+    <!-- ======== Film marquee ======== -->
+    <div class="oe-marquee" aria-hidden="true">
+      <div class="oe-marquee-track">
+        <span class="oe-marquee-group">OE 4+ 24A 4806 · OPEN EDIT · INGEST · EDIT GRAPH · RENDER · QC · OE 4+ 24A 4806 · OPEN EDIT · INGEST · EDIT GRAPH · RENDER · QC · OE 4+ 24A 4806 · OPEN EDIT · INGEST · EDIT GRAPH · RENDER · QC · </span>
+        <span class="oe-marquee-group">OE 4+ 24A 4806 · OPEN EDIT · INGEST · EDIT GRAPH · RENDER · QC · OE 4+ 24A 4806 · OPEN EDIT · INGEST · EDIT GRAPH · RENDER · QC · OE 4+ 24A 4806 · OPEN EDIT · INGEST · EDIT GRAPH · RENDER · QC · </span>
+      </div>
+    </div>
+
+    <!-- ======== What ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 01</span></div>
+    <section id="what" class="oe-section">
+      <div class="oe-container">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— THE PRODUCT</p>
+        <h2 class="oe-h2 oe-reveal">What is Open Edit?</h2>
+        <p class="oe-lead oe-reveal">The cut is the negative. Open Edit prints it.</p>
+        <p class="oe-lead oe-reveal">Open Edit is an AI-native video editor whose editor is an external agent. Your MCP host drives a stdio server; Open Edit owns everything underneath: a content-addressed media store, word-level transcription, an append-only IR edit graph, a melt + ffmpeg render pipeline, a deterministic QC gate. You edit with ops, not pixels: every change, add a clip, trim, cut silence gaps, set gain, drop an overlay, is an append-only IR op in the SQLite edit graph. Ops revert and supersede; the timeline is always derived. There is no cloud editor and no proprietary timeline format: your project is a directory on disk.</p>
+
+        <div class="oe-pillars oe-stagger">
+          <article class="oe-card oe-pillar oe-pillar--wide oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">01</span>
+            <h3 class="oe-card-title">MCP-native editing</h3>
+            <p>The product surface is a local stdio MCP server with six tools: <code>query_project</code>, <code>edit_project</code>, <code>run_script</code>, <code>trigger_render</code>, <code>get_render_job</code>, <code>cancel_render_job</code>. The agent owns the loop; Open Edit executes. The web UI is for human review.</p>
+          </article>
+          <article class="oe-card oe-pillar oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">02</span>
+            <h3 class="oe-card-title">Local-first &amp; private</h3>
+            <p>Media lands in a SHA-256 content-addressed store; edit history is an append-only IR edit graph in SQLite (WAL). Rendering runs on your hardware. No account, no upload. Media files never leave your machine.</p>
+          </article>
+          <article class="oe-card oe-pillar oe-pillar--offset oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">03</span>
+            <h3 class="oe-card-title">QC-gated renders</h3>
+            <p>Renders are durable jobs with a deterministic QC gate: the full 10-check battery (duration, audio sync, black/frozen frames, silence, overlays burned, thumbnail) runs on final and overlay exports; proxy artifacts run lighter structural checks; warm cache hits skip QC entirely. A failed QC names the check and the reason.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== How it works ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 02</span></div>
+    <section id="how" class="oe-section oe-section--alt">
+      <div class="oe-container">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— THE PIPELINE</p>
+        <h2 class="oe-h2 oe-reveal">How it works</h2>
+        <p class="oe-lead oe-reveal">Five stages from raw media to a QC-passed deliverable.</p>
+
+        <div class="oe-pipeline oe-reveal">
+          <div class="oe-pipeline-line" aria-hidden="true"><span class="oe-pulse"></span></div>
+          <ol class="oe-pipeline-nodes oe-stagger">
+            <li class="oe-node oe-reveal">
+              <span class="oe-node-num" aria-hidden="true">01</span>
+              <div class="oe-node-frame">
+                <h3 class="oe-node-title">Ingest media</h3>
+                <p>Drop files into a project folder. <code>ingest_local</code> copies each file into the SHA-256 content-addressed store and probes it with ffprobe.</p>
+              </div>
+              <span class="oe-node-edge" aria-hidden="true">NEG 01 · INGEST</span>
+            </li>
+            <li class="oe-node oe-reveal">
+              <span class="oe-node-num" aria-hidden="true">02</span>
+              <div class="oe-node-frame">
+                <h3 class="oe-node-title">Transcribe</h3>
+                <p>faster-whisper (CPU, int8) produces word-level timestamps. Transcripts are packed into silence-aware Markdown the agent can read via <code>get_transcript_packed</code>.</p>
+              </div>
+              <span class="oe-node-edge" aria-hidden="true">NEG 02 · TRANSCRIBE</span>
+            </li>
+            <li class="oe-node oe-reveal">
+              <span class="oe-node-num" aria-hidden="true">03</span>
+              <div class="oe-node-frame">
+                <h3 class="oe-node-title">Edit via IR ops</h3>
+                <p>Every edit lands on the append-only IR edit graph: <code>add_clip</code>, <code>trim_clip</code>, <code>set_audio_gain</code>, and more (28 IR op kinds in all). Higher-level ops like <code>apply_silence_gaps</code> and <code>add_hyperframes_overlay</code> expand into several IR ops. Ops can be reverted or superseded; the timeline is derived by replaying applied ops.</p>
+              </div>
+              <span class="oe-node-edge" aria-hidden="true">NEG 03 · EDIT GRAPH</span>
+            </li>
+            <li class="oe-node oe-reveal">
+              <span class="oe-node-num" aria-hidden="true">04</span>
+              <div class="oe-node-frame">
+                <h3 class="oe-node-title">Render</h3>
+                <p>The emitter writes the MLT XML; melt renders it, and ffmpeg composites overlays and encodes. GPU mode auto-probes NVENC/AMF/QSV/VAAPI; CPU mode uses libx264.</p>
+              </div>
+              <span class="oe-node-edge" aria-hidden="true">NEG 04 · RENDER</span>
+            </li>
+            <li class="oe-node oe-reveal">
+              <span class="oe-node-num" aria-hidden="true">05</span>
+              <div class="oe-node-frame">
+                <h3 class="oe-node-title">QC + review</h3>
+                <p>A deterministic QC gate checks durable renders: the full 10-check battery on final/overlay exports, lighter structural checks on proxy artifacts. A 640x360 review artifact lets a human scrub the full cut, copy timecodes, and leave notes before the final export.</p>
+              </div>
+              <span class="oe-node-edge" aria-hidden="true">NEG 05 · QC + REVIEW</span>
+            </li>
+          </ol>
+        </div>
+
+        <div class="oe-loop">
+          <h3 class="oe-h3 oe-reveal">The agent loop</h3>
+          <figure class="oe-terminal-print oe-reveal" role="img" aria-label="Abbreviated MCP conversation between an agent and Open Edit">
+            <div class="oe-print oe-print--tilt-s">
+              <div class="oe-print-mat" aria-hidden="true">
+              <div class="oe-terminal">
+                <div class="oe-terminal-bar">
+                  <span class="oe-tl-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="oe-terminal-title">MCP · stdio</span>
+                  <span class="oe-terminal-chip">6 tools</span>
+                </div>
+                <div class="oe-terminal-body">
+                  <div class="oe-msg oe-msg--agent"><b>agent</b> query_project · read state</div>
+                  <div class="oe-msg oe-msg--oe"><b>open-edit</b> 12 ops applied · timeline derived · 2 pending notes</div>
+                  <div class="oe-msg oe-msg--agent"><b>agent</b> edit_project · add_clip · apply_silence_gaps</div>
+                  <div class="oe-msg oe-msg--oe"><b>open-edit</b> 3 ops applied · reverted 1</div>
+                  <div class="oe-msg oe-msg--agent"><b>agent</b> trigger_render · proxy</div>
+                  <div class="oe-msg oe-msg--oe"><b>open-edit</b> job enqueued → get_render_job … QC 10/10 · 640x360 artifact ready</div>
+                </div>
+              </div>
+            </div>
+              <span class="oe-print-edge" aria-hidden="true">NEG 04 · AGENT LOOP · 4806-24A</span>
+            </div>
+          </figure>
+          <p class="oe-note oe-reveal">The agent drives through MCP: <code>query_project</code> reads state, <code>edit_project</code> mutates, <code>run_script</code> runs sandboxed multi-step IR edits, <code>trigger_render</code> enqueues renders, <code>get_render_job</code> polls them, <code>cancel_render_job</code> stops them. With <code>--review-only</code> the UI is a pure review surface: preview, timeline, notes. Run <code>serve</code> without it and the same UI hosts a chat loop with selectable LLM providers.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== Architecture ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 03</span></div>
+    <section id="architecture" class="oe-section">
+      <div class="oe-container">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— UNDER THE HOOD</p>
+        <h2 class="oe-h2 oe-reveal">Architecture</h2>
+        <p class="oe-lead oe-reveal">One Python package, hard layering, no magic.</p>
+
+        <div class="oe-stack oe-reveal">
+          <div class="oe-band">
+            <span class="oe-band-num" aria-hidden="true">NEG 01</span>
+            <span class="oe-band-name">mcp / serve / cli</span>
+            <span class="oe-band-desc">entry points: stdio MCP server, FastAPI review UI, CLI</span>
+          </div>
+          <div class="oe-band">
+            <span class="oe-band-num" aria-hidden="true">NEG 02</span>
+            <span class="oe-band-name">agent / kernel</span>
+            <span class="oe-band-desc">tool kernel, agent tools + skills, sandbox</span>
+          </div>
+          <div class="oe-band">
+            <span class="oe-band-num" aria-hidden="true">NEG 03</span>
+            <span class="oe-band-name">qc</span>
+            <span class="oe-band-desc">deterministic 10-check QC gate</span>
+          </div>
+          <div class="oe-band">
+            <span class="oe-band-num" aria-hidden="true">NEG 04</span>
+            <span class="oe-band-name">storage / render</span>
+            <span class="oe-band-desc">SQLite (WAL) stores, SHA-256 CAS assets, melt + ffmpeg pipeline</span>
+          </div>
+          <div class="oe-band oe-band--base">
+            <span class="oe-band-num" aria-hidden="true">NEG 05</span>
+            <span class="oe-band-name">ir</span>
+            <span class="oe-band-desc">pure IR: types, apply, derive, validate (no network I/O)</span>
+          </div>
+        </div>
+
+        <p class="oe-note oe-reveal"><code>ir</code> is a pure domain: no network I/O, no project state. Storage and render persist and produce; <code>qc</code> gates deliverables; <code>agent</code>/<code>kernel</code> route tools and run the sandbox; <code>mcp</code>, <code>serve</code>, and <code>cli</code> are thin entry points over one dispatcher. Layering is enforced by tests, not by convention.</p>
+
+        <ul class="oe-chips oe-reveal" aria-label="Technology stack">
+          <li class="oe-chip">Python ≥3.11</li>
+          <li class="oe-chip">Pydantic</li>
+          <li class="oe-chip">SQLite (WAL)</li>
+          <li class="oe-chip">MLT/melt</li>
+          <li class="oe-chip">FFmpeg</li>
+          <li class="oe-chip">faster-whisper</li>
+          <li class="oe-chip">FastAPI</li>
+          <li class="oe-chip">uvicorn</li>
+          <li class="oe-chip">MCP SDK</li>
+          <li class="oe-chip">Remotion (legacy)</li>
+          <li class="oe-chip">HyperFrames (native HTML/CSS/JS motion)</li>
+          <li class="oe-chip">Node.js 24 (optional)</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ======== Install ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 04</span></div>
+    <section id="install" class="oe-section oe-section--alt">
+      <div class="oe-container">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— SETUP</p>
+        <h2 class="oe-h2 oe-reveal">Install</h2>
+        <p class="oe-lead oe-reveal">Step-by-step, with tabs: <strong>Linux</strong> | <strong>Windows</strong></p>
+
+        <div class="oe-agent oe-reveal">
+          <div class="oe-agent-head">
+            <span class="oe-agent-label">Step 1 · Optional — make your agent install it</span>
+            <span class="oe-chip oe-chip--info">Linux · macOS · Windows</span>
+          </div>
+          <p class="oe-agent-intro">Paste this into your coding agent (Cursor, Claude Code, OpenCode, Gemini CLI). The agent installs Open Edit itself, verifies the result, and reports the exact paths it created. It will not touch anything outside the clone and the new project folder.</p>
+          <div class="oe-code">
+            <div class="oe-code-head">
+              <span class="oe-code-label">agent prompt</span>
+              <button class="oe-copy" data-copy="c-agent-install" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-agent-install" class="oe-code-pre--scroll"><code>You are installing Open Edit, a local AI video editor that runs as an MCP server. Do the entire install yourself, then verify it end to end.
+
+1. Detect the operating system: Linux or macOS, or Windows.
+2. Confirm prerequisites are on PATH: git, and Python 3.11+ (python3 on Linux/macOS, python on Windows). If either is missing, stop and tell the user what to install.
+3. Clone the repository and enter it:
+   git clone https://github.com/AH64-dll/OpenEdit.git
+   cd OpenEdit
+4. Create a virtual environment and install the package:
+   Linux / macOS:
+     python3 -m venv .venv
+     source .venv/bin/activate
+     pip install -U pip
+     pip install -e &quot;.[mcp]&quot;
+   Windows (PowerShell):
+     python -m venv .venv
+     .\.venv\Scripts\Activate.ps1
+     python -m pip install -U pip
+     pip install -e &quot;.[mcp]&quot;
+   If PowerShell blocks activation, first run: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+   If your shell does not keep the venv active between commands, call the venv binaries directly: .venv/bin/open_edit and .venv/bin/open-edit-mcp on Linux/macOS, or .\.venv\Scripts\open_edit.exe and .\.venv\Scripts\open-edit-mcp.exe on Windows.
+5. Install the optional extras (review UI and local transcription):
+   pip install -e &quot;.[mcp,serve]&quot;
+   pip install -e &quot;.[mcp,whisper]&quot;
+6. Verify the MCP server entry point runs:
+   Linux / macOS: .venv/bin/open-edit-mcp --help
+   Windows: .\.venv\Scripts\open-edit-mcp.exe --help
+   It must print usage with a --project option. If it errors, fix the cause before continuing.
+7. Create an edit project. The folder must exist before init:
+   Linux / macOS:
+     mkdir -p ~/OpenEditProjects/my-talk
+     open_edit init ~/OpenEditProjects/my-talk
+   Windows:
+     New-Item -ItemType Directory -Force -Path &quot;$env:USERPROFILE\OpenEditProjects\my-talk&quot;
+     open_edit init &quot;$env:USERPROFILE\OpenEditProjects\my-talk&quot;
+8. Report back: the absolute clone path, the venv path, the absolute project path (the folder that contains .open_edit/), and confirmation that steps 6 and 7 succeeded. Do not skip or fake the verification. Do not modify anything outside the clone and the new project folder.</code></pre>
+          </div>
+        </div>
+        <h3 class="oe-h3 oe-reveal">Prerequisites</h3>
+        <div class="oe-table-wrap oe-reveal">
+          <table class="oe-table">
+            <thead>
+              <tr><th scope="col">Prerequisite</th><th scope="col">Required</th><th scope="col">Why</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Git</code></td><td><span class="oe-req oe-req--yes">yes</span></td><td>clone the repository</td></tr>
+              <tr><td><code>Python 3.11+</code></td><td><span class="oe-req oe-req--yes">yes</span></td><td>runs the MCP server, CLI, and tool kernel</td></tr>
+              <tr><td><code>ffmpeg / ffprobe</code></td><td><span class="oe-req oe-req--rec">recommended</span></td><td>media probing, overlays, QC detectors, final encode</td></tr>
+              <tr><td><code>melt (MLT)</code></td><td><span class="oe-req oe-req--rec">recommended</span></td><td>renders the proxy and final timeline</td></tr>
+              <tr><td><code>Node.js 24</code></td><td><span class="oe-req oe-req--opt">optional</span></td><td>Remotion compositions and HyperFrames motion graphics</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="oe-tabs oe-reveal" data-tabs>
+          <div class="oe-tablist" role="tablist" aria-label="Install instructions">
+            <button class="oe-tab" role="tab" id="oe-tab-linux" aria-selected="true" aria-controls="oe-panel-linux" data-tab="linux" tabindex="0">
+              Linux <span class="oe-tab-sub">(also macOS)</span>
+            </button>
+            <button class="oe-tab" role="tab" id="oe-tab-windows" aria-selected="false" aria-controls="oe-panel-windows" data-tab="windows" tabindex="-1">
+              Windows <span class="oe-tab-sub">(PowerShell)</span>
+            </button>
+          </div>
+
+          <div role="tabpanel" id="oe-panel-linux" aria-labelledby="oe-tab-linux">
+            <ol class="oe-steps oe-stagger">
+              <li class="oe-step oe-reveal">
+                <div class="oe-step-head">
+                  <span class="oe-step-num" aria-hidden="true">01</span>
+                  <h4 class="oe-step-title">Clone and install</h4>
+                </div>
+                <div class="oe-code">
+                  <div class="oe-code-head">
+                    <span class="oe-code-label">bash</span>
+                    <button class="oe-copy" data-copy="c-linux-clone" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+                  </div>
+                  <pre id="c-linux-clone"><code><span class="p">$</span> git clone https://github.com/AH64-dll/OpenEdit.git
+<span class="p">$</span> cd OpenEdit
+<span class="p">$</span> python3 -m venv .venv
+<span class="p">$</span> source .venv/bin/activate
+<span class="p">$</span> pip install -U pip
+<span class="p">$</span> pip install -e ".[mcp]"</code></pre>
+                </div>
+              </li>
+              <li class="oe-step oe-reveal">
+                <div class="oe-step-head">
+                  <span class="oe-step-num" aria-hidden="true">02</span>
+                  <h4 class="oe-step-title">Optional extras</h4>
+                </div>
+                <div class="oe-code">
+                  <div class="oe-code-head">
+                    <span class="oe-code-label">bash</span>
+                    <button class="oe-copy" data-copy="c-linux-extras" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+                  </div>
+                  <pre id="c-linux-extras"><code><span class="p">$</span> pip install -e ".[mcp,serve]"     # review UI
+<span class="p">$</span> pip install -e ".[mcp,whisper]"   # local transcription</code></pre>
+                </div>
+              </li>
+              <li class="oe-step oe-reveal">
+                <div class="oe-step-head">
+                  <span class="oe-step-num" aria-hidden="true">03</span>
+                  <h4 class="oe-step-title">Verify</h4>
+                  <span class="oe-chip oe-chip--verified"><svg class="oe-ico oe-ico--xs"><use href="#oe-ico-check"/></svg>verified</span>
+                </div>
+                <div class="oe-code">
+                  <div class="oe-code-head">
+                    <span class="oe-code-label">bash</span>
+                    <button class="oe-copy" data-copy="c-linux-verify" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+                  </div>
+                  <pre id="c-linux-verify"><code><span class="p">$</span> .venv/bin/open-edit-mcp --help</code></pre>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <div role="tabpanel" id="oe-panel-windows" aria-labelledby="oe-tab-windows" hidden>
+            <ol class="oe-steps oe-stagger">
+              <li class="oe-step oe-reveal">
+                <div class="oe-step-head">
+                  <span class="oe-step-num" aria-hidden="true">01</span>
+                  <h4 class="oe-step-title">Clone and install</h4>
+                </div>
+                <div class="oe-code">
+                  <div class="oe-code-head">
+                    <span class="oe-code-label">powershell</span>
+                    <button class="oe-copy" data-copy="c-win-clone" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+                  </div>
+                  <pre id="c-win-clone"><code><span class="p">PS&gt;</span> git clone https://github.com/AH64-dll/OpenEdit.git C:\OpenEdit
+<span class="p">PS&gt;</span> cd C:\OpenEdit
+<span class="p">PS&gt;</span> python -m venv .venv
+<span class="p">PS&gt;</span> .\.venv\Scripts\Activate.ps1
+<span class="p">PS&gt;</span> python -m pip install -U pip
+<span class="p">PS&gt;</span> pip install -e ".[mcp]"</code></pre>
+                </div>
+              </li>
+              <li class="oe-step oe-reveal">
+                <div class="oe-step-head">
+                  <span class="oe-step-num" aria-hidden="true">02</span>
+                  <h4 class="oe-step-title">If activation is blocked</h4>
+                </div>
+                <aside class="oe-callout oe-callout--note" role="note">
+                  <svg class="oe-ico oe-ico--sm"><use href="#oe-ico-alert"/></svg>
+                  <p><code>Set-ExecutionPolicy -Scope CurrentUser RemoteSigned</code></p>
+                </aside>
+              </li>
+              <li class="oe-step oe-reveal">
+                <div class="oe-step-head">
+                  <span class="oe-step-num" aria-hidden="true">03</span>
+                  <h4 class="oe-step-title">Optional extras</h4>
+                </div>
+                <div class="oe-code">
+                  <div class="oe-code-head">
+                    <span class="oe-code-label">powershell</span>
+                    <button class="oe-copy" data-copy="c-win-extras" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+                  </div>
+                  <pre id="c-win-extras"><code><span class="p">PS&gt;</span> pip install -e ".[mcp,serve]"     # review UI
+<span class="p">PS&gt;</span> pip install -e ".[mcp,whisper]"   # local transcription</code></pre>
+                </div>
+              </li>
+              <li class="oe-step oe-reveal">
+                <div class="oe-step-head">
+                  <span class="oe-step-num" aria-hidden="true">04</span>
+                  <h4 class="oe-step-title">Verify</h4>
+                  <span class="oe-chip oe-chip--verified"><svg class="oe-ico oe-ico--xs"><use href="#oe-ico-check"/></svg>verified</span>
+                </div>
+                <div class="oe-code">
+                  <div class="oe-code-head">
+                    <span class="oe-code-label">powershell</span>
+                    <button class="oe-copy" data-copy="c-win-verify" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+                  </div>
+                  <pre id="c-win-verify"><code><span class="p">PS&gt;</span> .\.venv\Scripts\open-edit-mcp.exe --help</code></pre>
+                </div>
+              </li>
+            </ol>
+          </div>
+        </div>
+
+        <h3 class="oe-h3 oe-reveal">Create an edit project</h3>
+        <p class="oe-lead oe-reveal">The project folder must exist before <code>init</code>: it is never created for you. <code>init</code> writes <code>.open_edit/</code> inside it and ingests top-level media files (mp4, mkv, mov, webm, mp3, wav, aac, flac, jpg, jpeg, png, webp).</p>
+        <div class="oe-code-grid oe-reveal">
+          <div class="oe-code">
+            <div class="oe-code-head">
+              <span class="oe-code-label">Linux</span>
+              <button class="oe-copy" data-copy="c-proj-linux" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-proj-linux"><code><span class="p">$</span> mkdir -p ~/OpenEditProjects/my-talk
+<span class="p">$</span> open_edit init ~/OpenEditProjects/my-talk</code></pre>
+          </div>
+          <div class="oe-code">
+            <div class="oe-code-head">
+              <span class="oe-code-label">Windows</span>
+              <button class="oe-copy" data-copy="c-proj-win" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-proj-win"><code><span class="p">PS&gt;</span> New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\OpenEditProjects\my-talk"
+<span class="p">PS&gt;</span> open_edit init "$env:USERPROFILE\OpenEditProjects\my-talk"</code></pre>
+          </div>
+        </div>
+        <p class="oe-note oe-reveal">Projects under <code>OPEN_EDIT_PROJECTS_ROOT</code> (default <code>~/OpenEditProjects</code>) are the ones the review UI can list.</p>
+      </div>
+    </section>
+
+    <!-- ======== Configure ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 05</span></div>
+    <section id="configure" class="oe-section">
+      <div class="oe-container">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— MCP HOST</p>
+        <h2 class="oe-h2 oe-reveal">Configure your MCP host</h2>
+        <p class="oe-lead oe-reveal">Point Cursor, OpenCode, or Claude Code at the server. The project path is pinned at startup and is never a model input.</p>
+        <p class="oe-note oe-reveal">File location: <code>~/.cursor/mcp.json</code> on Linux/macOS, <code>%USERPROFILE%\.cursor\mcp.json</code> on Windows.</p>
+
+        <div class="oe-agent oe-reveal">
+          <div class="oe-agent-head">
+            <span class="oe-agent-label">Step 1 · Optional — make your agent configure it</span>
+            <span class="oe-chip oe-chip--info">Cursor · Claude Code · OpenCode</span>
+          </div>
+          <p class="oe-agent-intro">Paste this into your coding agent after the install is done. The agent resolves the real paths on your machine, registers the MCP server in your host's config, and verifies the server starts.</p>
+          <div class="oe-code">
+            <div class="oe-code-head">
+              <span class="oe-code-label">agent prompt</span>
+              <button class="oe-copy" data-copy="c-agent-configure" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-agent-configure" class="oe-code-pre--scroll"><code>Open Edit is installed and an edit project exists (the folder that contains .open_edit/). Configure your MCP host to launch Open Edit as an MCP server. Do it yourself, then verify.
+
+1. Detect the host you are running in: Cursor, Claude Code, OpenCode, or another MCP client.
+2. Resolve the absolute path to the Open Edit MCP binary:
+   Linux / macOS: &lt;clone&gt;/.venv/bin/open-edit-mcp
+   Windows: &lt;clone&gt;\.venv\Scripts\open-edit-mcp.exe
+   Substitute the real clone path from the install step.
+3. Resolve the absolute path to the edit project folder (the one containing .open_edit/).
+4. Register the server:
+   - Cursor: edit ~/.cursor/mcp.json (Linux/macOS) or %USERPROFILE%\.cursor\mcp.json (Windows). If the file exists, back it up, then merge the new server into its mcpServers object without removing other servers.
+   - Claude Code: the same mcpServers shape goes into the project&#x27;s .mcp.json.
+   - OpenCode: use OpenCode&#x27;s own MCP config format (a per-server object with type and command). Do not paste the Cursor shape into OpenCode&#x27;s config.
+   The entry to add (Cursor and Claude Code), with real absolute paths substituted:
+   {
+     &quot;mcpServers&quot;: {
+       &quot;open-edit&quot;: {
+         &quot;command&quot;: &quot;&lt;absolute path to open-edit-mcp&gt;&quot;,
+         &quot;args&quot;: [&quot;--project&quot;, &quot;&lt;absolute path to the edit project&gt;&quot;],
+         &quot;env&quot;: { &quot;OPEN_EDIT_RENDER_BACKEND&quot;: &quot;cpu&quot; }
+       }
+     }
+   }
+   On Windows, JSON strings escape backslashes, so the command value looks like: C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe
+5. Verify: run the configured command once (open-edit-mcp --project &quot;&lt;project&gt;&quot;) and confirm it speaks MCP on stdio, or reload the host&#x27;s MCP list and confirm the open-edit server appears with its six tools: query_project, edit_project, run_script, trigger_render, get_render_job, cancel_render_job.
+6. Tell the user to reload MCP servers in their host (Cursor: Cmd/Ctrl+Shift+P, then &quot;Reload MCP Servers&quot;). Report exactly which file you wrote, the absolute command path, and the pinned project path.</code></pre>
+          </div>
+        </div>
+
+        <div class="oe-code-grid oe-reveal">
+          <div class="oe-code">
+            <div class="oe-code-head">
+              <span class="oe-code-label">Linux / macOS · ~/.cursor/mcp.json</span>
+              <button class="oe-copy" data-copy="c-json-linux" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-json-linux"><code>{
+  "mcpServers": {
+    "open-edit": {
+      "command": "/ABSOLUTE/PATH/TO/OpenEdit/.venv/bin/open-edit-mcp",
+      "args": ["--project", "/home/YOU/OpenEditProjects/my-talk"],
+      "env": {
+        "OPEN_EDIT_RENDER_BACKEND": "cpu"
+      }
+    }
+  }
+}</code></pre>
+          </div>
+          <div class="oe-code">
+            <div class="oe-code-head">
+              <span class="oe-code-label">Windows · %USERPROFILE%\.cursor\mcp.json</span>
+              <span class="oe-chip oe-chip--info">note</span>
+              <button class="oe-copy" data-copy="c-json-win" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-json-win"><code>{
+  "mcpServers": {
+    "open-edit": {
+      "command": "C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe",
+      "args": ["--project", "C:\\Users\\YOU\\OpenEditProjects\\my-talk"],
+      "env": {
+        "OPEN_EDIT_RENDER_BACKEND": "cpu"
+      }
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <ul class="oe-bullets oe-reveal">
+          <li>Absolute paths are required for both the binary and the project.</li>
+          <li>Reload MCP in Cursor after editing the configuration.</li>
+          <li>The same block works for Claude Code's project <code>.mcp.json</code>. OpenCode uses its own <code>mcp</code> config format (per-server <code>type</code>/<code>command</code>); see OpenCode's docs. The server itself is host-agnostic.</li>
+          <li>The server exposes six tools: <code>query_project</code>, <code>edit_project</code>, <code>run_script</code>, <code>trigger_render</code>, <code>get_render_job</code>, <code>cancel_render_job</code>.</li>
+        </ul>
+
+        <h3 class="oe-h3 oe-reveal">The six tools</h3>
+        <div class="oe-tools oe-stagger">
+          <div class="oe-card oe-tool oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">01</span>
+            <code class="oe-tool-name">query_project</code>
+            <p>All reads: assets, timeline view, packed transcript, silence gaps, pending notes, style profile, narrative analysis, asset search</p>
+          </div>
+          <div class="oe-card oe-tool oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">02</span>
+            <code class="oe-tool-name">edit_project</code>
+            <p>Mutations and creative generation: ingest, clip edits, overlays, generate kinds, commit generated ops</p>
+          </div>
+          <div class="oe-card oe-tool oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">03</span>
+            <code class="oe-tool-name">run_script</code>
+            <p>Sandboxed Python for multi-step IR edits the pillar ops cannot express</p>
+          </div>
+          <div class="oe-card oe-tool oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">04</span>
+            <code class="oe-tool-name">trigger_render</code>
+            <p>Enqueue durable render jobs: <code>proxy</code>, <code>final</code>, <code>overlay</code>, <code>preview-chunks</code></p>
+          </div>
+          <div class="oe-card oe-tool oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">05</span>
+            <code class="oe-tool-name">get_render_job</code>
+            <p>Poll a durable job: progress, diagnostics, QC report</p>
+          </div>
+          <div class="oe-card oe-tool oe-reveal">
+            <span class="oe-frame-num" aria-hidden="true">06</span>
+            <code class="oe-tool-name">cancel_render_job</code>
+            <p>Cancel a queued or running job</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== Review ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 06</span></div>
+    <section id="review" class="oe-section oe-section--alt">
+      <div class="oe-container oe-split">
+        <div class="oe-split-copy">
+          <p class="oe-annot oe-reveal" aria-hidden="true">— HUMAN REVIEW</p>
+          <h2 class="oe-h2 oe-reveal">Review Studio (the UI)</h2>
+          <p class="oe-lead oe-reveal">The human review surface: preview, timeline, renders, notes, style.</p>
+
+          <h3 class="oe-h3 oe-reveal">What it is</h3>
+          <p class="oe-reveal">It is a readout of the server-derived IR, served by a local FastAPI web app. You preview the cut, scrub the timeline, inspect the edit graph, render review artifacts, leave timecoded notes, trigger the final export. The agent drives; the Studio watches.</p>
+
+          <h3 class="oe-h3 oe-reveal">Run it</h3>
+          <div class="oe-code oe-reveal">
+            <div class="oe-code-head">
+              <span class="oe-code-label">bash</span>
+              <button class="oe-copy" data-copy="c-run-install" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-run-install"><code><span class="p">$</span> pip install -e ".[mcp,serve]"</code></pre>
+          </div>
+          <div class="oe-code oe-reveal">
+            <div class="oe-code-head">
+              <span class="oe-code-label">bash</span>
+              <button class="oe-copy" data-copy="c-run-serve" type="button"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy</span></button>
+            </div>
+            <pre id="c-run-serve"><code><span class="p">$</span> open_edit serve --review-only --port 8000</code></pre>
+          </div>
+          <p class="oe-reveal">Open <a class="oe-url-chip" href="http://127.0.0.1:8000" target="_blank" rel="noopener">http://127.0.0.1:8000</a> and select your project (it must live under <code>OPEN_EDIT_PROJECTS_ROOT</code>, default <code>~/OpenEditProjects</code>).</p>
+
+          <h3 class="oe-h3 oe-reveal">Layout</h3>
+          <p class="oe-reveal">Three columns (Assets + Edit graph | Preview | Renders + Notes + Style) above a bottom timeline panel with track labels, ruler, playhead, clip blocks, and edit/note markers. Key microcopy: "Render review artifact (640x360)" to bake the proxy, "Copy time" to copy a <code>[MM:SS.ms]</code> timecode, "Note here" to leave a pending note the agent reads via <code>get_pending_notes</code>, "Render final (1080p)" when the cut is approved.</p>
+
+          <h3 class="oe-h3 oe-reveal">Review-only mode</h3>
+          <p class="oe-reveal"><code>--review-only</code> disables the built-in chat entirely: the WebSocket closes with code 4404. The external agent owns the conversation; the Studio stays a review surface.</p>
+        </div>
+
+        <figure class="oe-split-visual oe-reveal" role="img" aria-label="Stylized miniature of the Open Edit Review Studio: preview, renders, and timeline columns">
+          <div class="oe-print oe-print--tilt-r">
+            <div class="oe-print-mat" aria-hidden="true">
+            <!-- ===== Browser mock: miniature Review Studio ===== -->
+            <div class="oe-browser">
+              <div class="oe-browser-bar">
+                <span class="oe-dot oe-dot--r" aria-hidden="true"></span>
+                <span class="oe-dot oe-dot--y" aria-hidden="true"></span>
+                <span class="oe-dot oe-dot--g" aria-hidden="true"></span>
+                <span class="oe-browser-url">127.0.0.1:8000</span>
+                <span class="oe-browser-badge">review-only</span>
+              </div>
+
+              <div class="oe-browser-top">
+                <svg class="oe-logo oe-logo--mini" viewBox="0 0 28 28" aria-hidden="true">
+                  <rect x="3.5" y="4.5" width="21" height="15.5" rx="3.2" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="14" cy="12.2" r="4.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  <rect x="12.6" y="20" width="2.8" height="2.6" fill="currentColor"/>
+                  <rect x="8" y="22.6" width="12" height="1.5" rx="0.75" fill="currentColor"/>
+                </svg>
+                <span class="oe-browser-app">Open Edit</span>
+                <span class="oe-microlabel oe-microlabel--right">Review Studio</span>
+              </div>
+
+              <div class="oe-browser-cols">
+                <div class="oe-bc">
+                  <span class="oe-microlabel">ASSETS + EDIT GRAPH</span>
+                  <ul class="oe-assets">
+                    <li><i class="oe-thumb oe-thumb--amber"></i><span>intro.mp4</span><em>00:12.4</em></li>
+                    <li><i class="oe-thumb oe-thumb--olive"></i><span>b-roll.mp4</span><em>00:08.1</em></li>
+                    <li><i class="oe-thumb oe-thumb--rust"></i><span>voiceover.wav</span><em>00:10.9</em></li>
+                  </ul>
+                  <div class="oe-graph-ops" aria-hidden="true">
+                    <span>op #41 · add_clip</span>
+                    <span>op #42 · trim_clip</span>
+                    <span>op #43 · set_audio_gain</span>
+                  </div>
+                </div>
+
+                <div class="oe-bc">
+                  <span class="oe-microlabel">PREVIEW</span>
+                  <div class="oe-testpattern" aria-hidden="true">
+                    <span class="oe-tp-badge">640x360</span>
+                    <span class="oe-tp-time">00:07.34</span>
+                  </div>
+                  <button class="oe-mock-btn" type="button" tabindex="-1" aria-hidden="true"><svg class="oe-ico oe-ico--xs"><use href="#oe-ico-play"/></svg>Render review artifact (640x360)</button>
+                </div>
+
+                <div class="oe-bc">
+                  <span class="oe-microlabel">RENDERS + NOTES + STYLE</span>
+                  <ul class="oe-jobs">
+                    <li><span>proxy</span><em class="oe-qc oe-qc--ok">QC 10/10</em></li>
+                    <li><span>final</span><em class="oe-qc oe-qc--queued">queued</em></li>
+                    <li><span>overlay</span><em class="oe-qc oe-qc--ok">done</em></li>
+                  </ul>
+                  <button class="oe-mock-btn oe-mock-btn--ghost" type="button" tabindex="-1" aria-hidden="true"><svg class="oe-ico oe-ico--xs"><use href="#oe-ico-note"/></svg>Note here</button>
+                  <div class="oe-style-row"><span class="oe-microlabel">STYLE</span><span class="oe-chip oe-chip--dim">Neutral · Calm</span></div>
+                </div>
+              </div>
+
+              <div class="oe-browser-tl">
+                <div class="oe-browser-tl-head">
+                  <span class="oe-microlabel">TIMELINE</span>
+                  <span class="oe-tl-time oe-tl-time--mock">00:07.34</span>
+                  <button class="oe-copy oe-copy--mini" type="button" tabindex="-1" aria-hidden="true"><svg class="oe-ico oe-ico--sm"><use href="#oe-ico-copy"/></svg><span>Copy time</span></button>
+                </div>
+                <div class="oe-mtl" aria-hidden="true">
+                  <div class="oe-mtl-ruler"><i style="left:0%"></i><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:100%"></i></div>
+                  <div class="oe-mtl-track"><span class="oe-mtl-label">V1</span><span class="oe-mtl-clip oe-mtl-clip--v1" style="left:4%;width:34%"></span><span class="oe-mtl-clip oe-mtl-clip--v1" style="left:44%;width:52%"></span></div>
+                  <div class="oe-mtl-track"><span class="oe-mtl-label">A1</span><span class="oe-mtl-clip oe-mtl-clip--a1" style="left:4%;width:92%"></span></div>
+                  <div class="oe-mtl-playhead" style="left:44%"></div>
+                  <i class="oe-mtl-mark" style="left:38%"></i>
+                  <i class="oe-mtl-mark" style="left:44%"></i>
+                </div>
+              </div>
+            </div>
+            </div>
+            <span class="oe-print-edge" aria-hidden="true">NEG 03 · REVIEW STUDIO · 4806-24A</span>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ======== Workflow ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 07</span></div>
+    <section id="workflow" class="oe-section">
+      <div class="oe-container">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— WORKFLOW</p>
+        <h2 class="oe-h2 oe-reveal">The daily loop</h2>
+        <p class="oe-lead oe-reveal">From empty folder to QC-passed final, in six steps.</p>
+
+        <div class="oe-workflow-grid oe-reveal">
+          <ol class="oe-timeline">
+            <li class="oe-tl-step">
+              <span class="oe-tl-step-num" aria-hidden="true">1</span>
+              <div>
+                <h3 class="oe-h3">Init a project</h3>
+                <p><code>open_edit init ~/OpenEditProjects/my-talk</code> (folder must pre-exist).</p>
+              </div>
+            </li>
+            <li class="oe-tl-step">
+              <span class="oe-tl-step-num" aria-hidden="true">2</span>
+              <div>
+                <h3 class="oe-h3">Point your MCP host at it</h3>
+                <p>Use the <code>mcp.json</code> block from the Configure section; reload MCP.</p>
+              </div>
+            </li>
+            <li class="oe-tl-step">
+              <span class="oe-tl-step-num" aria-hidden="true">3</span>
+              <div>
+                <h3 class="oe-h3">Ask the agent to edit</h3>
+                <p>It calls ops like <code>ingest_local</code>, <code>add_clip</code>, <code>trim_clip</code>, <code>apply_silence_gaps</code>, <code>set_audio_gain</code>, and <code>add_hyperframes_overlay</code>.</p>
+              </div>
+            </li>
+            <li class="oe-tl-step">
+              <span class="oe-tl-step-num" aria-hidden="true">4</span>
+              <div>
+                <h3 class="oe-h3">Review in Studio</h3>
+                <p>Render the proxy, scrub, copy timecodes, drop notes.</p>
+              </div>
+            </li>
+            <li class="oe-tl-step">
+              <span class="oe-tl-step-num" aria-hidden="true">5</span>
+              <div>
+                <h3 class="oe-h3">Refine</h3>
+                <p>The agent reads pending notes and applies the next round of ops; repeat.</p>
+              </div>
+            </li>
+            <li class="oe-tl-step">
+              <span class="oe-tl-step-num" aria-hidden="true">6</span>
+              <div>
+                <h3 class="oe-h3">Render final</h3>
+                <p>Trigger <code>final</code> once the proxy passes review and QC.</p>
+              </div>
+            </li>
+          </ol>
+          <div class="oe-workflow-side">
+            <h3 class="oe-h3">MCP tool table</h3>
+            <div class="oe-table-wrap">
+              <table class="oe-table">
+                <thead>
+                  <tr><th scope="col">Tool</th><th scope="col">Responsibility</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>query_project</code></td><td>All reads: assets, timeline view, packed transcript, silence gaps, pending notes, style profile, narrative analysis, asset search</td></tr>
+                  <tr><td><code>edit_project</code></td><td>Mutations and creative generation: ingest, clip edits, overlays, generate kinds, commit generated ops</td></tr>
+                  <tr><td><code>run_script</code></td><td>Sandboxed Python for multi-step IR edits the pillar ops cannot express</td></tr>
+                  <tr><td><code>trigger_render</code></td><td>Enqueue durable render jobs: <code>proxy</code>, <code>final</code>, <code>overlay</code>, <code>preview-chunks</code></td></tr>
+                  <tr><td><code>get_render_job</code></td><td>Poll a durable job: progress, diagnostics, QC report</td></tr>
+                  <tr><td><code>cancel_render_job</code></td><td>Cancel a queued or running job</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="oe-h3 oe-reveal">Render modes</h3>
+        <div class="oe-table-wrap oe-reveal">
+          <table class="oe-table">
+            <thead>
+              <tr><th scope="col">Mode</th><th scope="col">What you get</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>proxy</code></td><td>One complete whole-file 640x360 review-artifact MP4 for the full timeline: the human review artifact</td></tr>
+              <tr><td><code>final</code></td><td>Full-quality export read from canonical original sources</td></tr>
+              <tr><td><code>overlay</code></td><td>Legacy HyperFrames composite mode (new motion graphics use <code>add_hyperframes_overlay</code>)</td></tr>
+              <tr><td><code>preview-chunks</code></td><td>Dirty-range cache: independent video/audio planes plus a muxed playback artifact, manifest-backed</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="oe-h3 oe-reveal">CLI reference</h3>
+        <div class="oe-table-wrap oe-reveal">
+          <table class="oe-table">
+            <thead>
+              <tr><th scope="col">Command</th><th scope="col">Purpose</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>open_edit init [folder]</code></td><td>Create a project (<code>.open_edit/</code>) and ingest top-level media</td></tr>
+              <tr><td><code>open_edit list</code></td><td>List edit-graph ops for the nearest project</td></tr>
+              <tr><td><code>open_edit summary</code></td><td>Derived timeline: tracks and clips</td></tr>
+              <tr><td><code>open_edit undo</code></td><td>Revert the most recent applied op</td></tr>
+              <tr><td><code>open_edit render</code></td><td>Render to MP4 + QC gate: <code>--mode proxy|final</code>, <code>--encoder gpu|cpu</code></td></tr>
+              <tr><td><code>open_edit asset-proxy</code></td><td>Drain the per-asset source-proxy job queue</td></tr>
+              <tr><td><code>open_edit preview-chunks --job-id ID</code></td><td>Run the durable preview-chunks worker</td></tr>
+              <tr><td><code>open_edit free-form CODE_FILE PROJECT_DIR</code></td><td>Run a Python script in the sandbox; append produced ops</td></tr>
+              <tr><td><code>open_edit notes &lt;list|add|dismiss&gt;</code></td><td>Review notes lifecycle (notes.db)</td></tr>
+              <tr><td><code>open_edit serve</code></td><td>FastAPI review UI: <code>--host</code>, <code>--port</code>, <code>--token</code>, <code>--review-only</code></td></tr>
+              <tr><td><code>open_edit mcp</code></td><td>stdio MCP server: <code>--project</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== Config ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 08</span></div>
+    <section id="config" class="oe-section oe-section--alt">
+      <div class="oe-container">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— REFERENCE</p>
+        <h2 class="oe-h2 oe-reveal">Configuration</h2>
+        <p class="oe-lead oe-reveal">Everything is a plain environment variable or a JSON file. No hidden state.</p>
+
+        <h3 class="oe-h3 oe-reveal">Environment variables</h3>
+        <div class="oe-table-wrap oe-reveal">
+          <table class="oe-table">
+            <thead>
+              <tr><th scope="col">Variable</th><th scope="col">Default</th><th scope="col">What it does</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>OPEN_EDIT_PROJECT</code></td><td>—</td><td>Project path for the MCP server (fallback when <code>--project</code> is omitted)</td></tr>
+              <tr><td><code>OPEN_EDIT_PROJECTS_ROOT</code></td><td><code>~/OpenEditProjects</code></td><td>Root scanned by <code>open_edit serve</code>; projects must be subdirectories</td></tr>
+              <tr><td><code>OPEN_EDIT_RENDER_BACKEND</code></td><td>see note</td><td><code>gpu</code> = probe GPU encoders; <code>cpu</code> = software encode</td></tr>
+              <tr><td><code>OPEN_EDIT_NODE_BIN</code></td><td><code>node</code></td><td>Node executable for Remotion rendering (HyperFrames resolves its own <code>hyperframes</code> binary via PATH or <code>OPEN_EDIT_HYPERFRAMES_BIN</code>)</td></tr>
+              <tr><td><code>OPEN_EDIT_WHISPER_MODEL</code></td><td><code>base</code></td><td>faster-whisper model size</td></tr>
+              <tr><td><code>OPEN_EDIT_WHISPER_LANGUAGE</code></td><td>auto-detect</td><td>faster-whisper language code (e.g. <code>ar</code>)</td></tr>
+              <tr><td><code>OPEN_EDIT_SANDBOX_BACKEND</code></td><td><code>bwrap</code> (Linux) / <code>dev</code> (Windows)</td><td><code>run_script</code> isolation; <code>dev</code> runs unsandboxed</td></tr>
+              <tr><td><code>OPEN_EDIT_TOKEN</code></td><td>—</td><td>Bearer token for <code>serve</code> (enforced when the client is not localhost)</td></tr>
+              <tr><td><code>OPEN_EDIT_SERVE_HOST</code> / <code>OPEN_EDIT_SERVE_PORT</code></td><td><code>127.0.0.1</code> / <code>8000</code></td><td>Review UI bind address and port</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <aside class="oe-callout oe-callout--dev oe-reveal" role="note">
+          <span class="oe-callout-label" aria-hidden="true">— DEVELOPERS NOTE</span>
+          <p><code>OPEN_EDIT_RENDER_BACKEND</code> has a trap. The docs and the <code>mcp.json</code> examples recommend <code>cpu</code> as the safe default, but the code default when the variable is unset is <code>gpu</code>: it probes NVENC → AMF → QSV → VAAPI and falls back to <code>libx264</code> when no GPU encoder is available, so the unset default means GPU when present, software otherwise. Set <code>cpu</code> to always use software encoding.</p>
+        </aside>
+        <p class="oe-note oe-reveal">The full list (QC policy knobs, cache budgets, asset-proxy concurrency) is in <code>.env.example</code> in the repo root.</p>
+
+        <h3 class="oe-h3 oe-reveal">LLM providers <span class="oe-h3-note">(used by the non-review chat UI; review-only mode needs none)</span></h3>
+        <div class="oe-table-wrap oe-reveal">
+          <table class="oe-table">
+            <thead>
+              <tr><th scope="col">Provider</th><th scope="col">Key</th><th scope="col">Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>anthropic</code> (default)</td><td><code>ANTHROPIC_API_KEY</code></td><td>default model <code>claude-sonnet-4-5</code>; included in the base install</td></tr>
+              <tr><td><code>openai</code></td><td><code>OPENAI_API_KEY</code></td><td>requires the <code>.[openai]</code> extra</td></tr>
+              <tr><td><code>pi</code></td><td><code>PI_API_KEY</code></td><td>via the <code>pi</code> CLI binary</td></tr>
+              <tr><td><code>opencode</code></td><td><code>OPENCODE_API_KEY</code></td><td>via the <code>opencode</code> CLI binary</td></tr>
+              <tr><td><code>antigravity</code></td><td><code>ANTIGRAVITY_API_KEY</code></td><td>via the <code>agy</code>/<code>antigravity</code> CLI binary</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== FAQ ======== -->
+    <div class="oe-cut oe-reveal" aria-hidden="true"><span>CUT HERE — SCENE 09</span></div>
+    <section id="faq" class="oe-section">
+      <div class="oe-container oe-container--narrow">
+        <p class="oe-annot oe-reveal" aria-hidden="true">— QUESTIONS</p>
+        <h2 class="oe-h2 oe-reveal">FAQ</h2>
+
+        <div class="oe-acc" id="oe-acc">
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p1" id="oe-acc-b1">
+                Do I need a GPU?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p1" role="region" aria-labelledby="oe-acc-b1">
+              <p>No. GPU mode auto-probes NVENC/AMF/QSV/VAAPI and falls back to libx264 when nothing probes. Set <code>OPEN_EDIT_RENDER_BACKEND=cpu</code> to always use software encoding: slower, but zero GPU required.</p>
+            </div>
+          </div>
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p2" id="oe-acc-b2">
+                What is the sandbox?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p2" role="region" aria-labelledby="oe-acc-b2">
+              <p><code>run_script</code> executes Python in a bwrap + seccomp jail on Linux, fail-closed by default. On Windows it defaults to <code>dev</code> (unsandboxed, run as a plain subprocess), and an explicit <code>OPEN_EDIT_SANDBOX_BACKEND=bwrap</code> is rejected: the host harness owns isolation there.</p>
+            </div>
+          </div>
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p3" id="oe-acc-b3">
+                Why Node?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p3" role="region" aria-labelledby="oe-acc-b3">
+              <p>Optional. Node.js 24 backs legacy Remotion compositions and HyperFrames, the native HTML/CSS/JS motion graphics. Point at a specific binary with <code>OPEN_EDIT_NODE_BIN</code>. Without Node you lose motion-graphics overlays; everything else, ingest, editing, rendering, QC, works.</p>
+            </div>
+          </div>
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p4" id="oe-acc-b4">
+                Alpha overlays on Windows?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p4" role="region" aria-labelledby="oe-acc-b4">
+              <p>Overlays with transparency land on ProRes 4444 (<code>.mov</code>) on Windows, because WebM/VP8 alpha is unreliable there. The choice is probe-driven: <code>auto</code> verifies VP8 alpha with a real encode round-trip and uses <code>prores</code> when that fails. Linux/macOS use WebM/VP8 (<code>libvpx</code>).</p>
+            </div>
+          </div>
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p5" id="oe-acc-b5">
+                What is unsupported on Windows?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p5" role="region" aria-labelledby="oe-acc-b5">
+              <p>The moviepy <code>generate_visual_for_segment</code> generation op (it needs the Linux render-sandbox binary) and same-pass frame feeding to melt (POSIX inherited descriptors). Everything else, ingest, IR edits, Remotion/HyperFrames, proxy/final render, works.</p>
+            </div>
+          </div>
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p6" id="oe-acc-b6">
+                How do I transcribe locally?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p6" role="region" aria-labelledby="oe-acc-b6">
+              <p>Install the whisper extra: <code>pip install -e ".[mcp,whisper]"</code>. faster-whisper runs on CPU with int8 quantization and word-level timestamps. Tune it with <code>OPEN_EDIT_WHISPER_MODEL</code> (default <code>base</code>) and <code>OPEN_EDIT_WHISPER_LANGUAGE</code> (unset = auto-detect; <code>small</code> is recommended for Arabic).</p>
+            </div>
+          </div>
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p7" id="oe-acc-b7">
+                Remotion license note?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p7" role="region" aria-labelledby="oe-acc-b7">
+              <p>Open Edit itself is free. If you use Remotion compositions, Remotion may require a company license: see <code>docs/REMOTION_LICENSE.md</code>. Native HyperFrames (HTML/CSS/JS) motion graphics carry no such dependency.</p>
+            </div>
+          </div>
+          <div class="oe-acc-item oe-reveal">
+            <h3 class="oe-acc-h">
+              <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p8" id="oe-acc-b8">
+                Where does my media live?
+                <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
+              </button>
+            </h3>
+            <div class="oe-acc-panel" id="oe-acc-p8" role="region" aria-labelledby="oe-acc-b8">
+              <p>Inside the project directory under <code>.open_edit/</code>: media in a SHA-256 content-addressed store, the edit graph in SQLite (WAL), renders and caches alongside. No external service ever sees your media files.</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="oe-faq-more oe-reveal">
+          <a class="oe-btn oe-btn--ghost" href="https://github.com/AH64-dll/OpenEdit" target="_blank" rel="noopener">Still have questions? Open an issue on GitHub</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ======== Footer ======== -->
+  <footer id="footer" class="oe-footer">
+    <div class="oe-sprockets oe-sprockets--footer" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </div>
+    <div class="oe-container oe-footer-inner">
+      <div class="oe-footer-brand">
+        <svg class="oe-logo oe-logo--mini" viewBox="0 0 28 28" aria-hidden="true">
+          <rect x="3.5" y="4.5" width="21" height="15.5" rx="3.2" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="14" cy="12.2" r="4.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="12.6" y="20" width="2.8" height="2.6" fill="currentColor"/>
+          <rect x="8" y="22.6" width="12" height="1.5" rx="0.75" fill="currentColor"/>
+        </svg>
+        <p>AI-native video editing, driven over MCP.</p>
+      </div>
+      <div class="oe-footer-links">
+        <a href="https://github.com/AH64-dll/OpenEdit" target="_blank" rel="noopener">
+          <svg class="oe-ico oe-ico--sm"><use href="#oe-ico-github"/></svg>
+          GitHub
+        </a>
+        <a href="#hero">
+          Back to top
+          <svg class="oe-ico oe-ico--sm" aria-hidden="true"><use href="#oe-ico-arrow-up"/></svg>
+        </a>
+      </div>
+      <p class="oe-footer-small">© 2026 Open Edit · Experimental prototype. Remotion usage may require a company license: see <code>docs/REMOTION_LICENSE.md</code>.</p>
+    </div>
+  </footer>
+
+  <div class="oe-toast" id="oe-toast" role="status" aria-live="polite">Copied to clipboard</div>
+
+  <script src="js/main.js?v=20260811-contactsheet-5"></script>
+  <noscript><style>.oe-reveal{opacity:1;transform:none;filter:none}.oe-cut span{opacity:1}.oe-acc-panel{max-height:none!important;overflow:visible}.oe-acc-btn[aria-expanded="false"] .oe-acc-chevron{transform:rotate(180deg)}#oe-panel-windows{display:block!important}</style></noscript>
+</body>
+</html>
