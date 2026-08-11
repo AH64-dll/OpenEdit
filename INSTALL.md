@@ -49,7 +49,7 @@ chrome → READY or manual steps). Nothing needs sudo.
 | Node.js >= 22 | auto-installed if missing | winget / user-local zip | HyperFrames overlay engine (`npm install`) | install.sh / install.ps1 |
 | hyperframes 0.7.65 | `npm install` in repo | same | HTML/CSS/JS overlay + logo/motion rendering | install.sh / install.ps1 |
 | ffmpeg / ffprobe | detected; manual commands printed | winget `Gyan.FFmpeg` | media probe, proxy, overlay burn-in, final encode | installers detect / provision |
-| melt (MLT) | detected; manual commands printed | choco `mlt`, else manual (see below) | base-video timeline render | installers detect / provision |
+| melt (MLT) | detected; manual commands printed | no packaged install — manual/WSL (see below) | base-video timeline render | installers detect / provision |
 | Chrome/Chromium | detected (common paths) | detected (common paths) | headless capture for HyperFrames | probe; fallback `npx @puppeteer/browsers install chrome` |
 
 **Windows melt note:** there is currently **no one-command melt install on
