@@ -32,7 +32,13 @@ No cloud, no built-in LLM. The server is pinned to one project directory and exe
 
 ## Downloads
 
-**Linux / macOS — one command:**
+**Python package (pip):**
+
+```bash
+pip install open-edit      # installs the open-edit CLI + open-edit-mcp server
+```
+
+**Linux / macOS — one command (full render stack):**
 
 ```bash
 curl -fsSL https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.sh | bash

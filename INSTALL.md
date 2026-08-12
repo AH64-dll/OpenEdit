@@ -27,6 +27,7 @@ path.
 
 | Installer | One command |
 |---|---|
+| pip (Python package) | `pip install open-edit` |
 | Linux / macOS | `curl -fsSL https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.sh \| bash` |
 | Windows (PowerShell) | `irm https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.ps1 \| iex` |
 
