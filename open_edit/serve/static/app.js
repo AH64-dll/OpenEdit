@@ -34,6 +34,7 @@ import {
   sendChatMessage,
   appendSearchResults,
   markTurnDone,
+  setTurnActive,
 } from './js/chat.js';
 import { connectWS, disconnectWS, setReviewConnStatus, setWsState, setOnTurnDone, scheduleReconnect } from './js/ws.js';
 
@@ -54,11 +55,12 @@ export async function refreshProjects() {
     if (!state.currentProjectId && state.projects.length === 1) {
       selectProject(state.projects[0].id);
     }
-    // If no project is selected (and the list is empty), refresh the
-    // chat log so the "no projects" hint replaces the generic placeholder.
-    if (!state.currentProjectId) {
-      clearChatLog();
-    }
+    // Refresh the chat log to match the restored selection: the static
+    // welcome markup is only valid when no project is selected — with a
+    // saved project we must render the project-aware "Ready to edit"
+    // state instead (round-4 B2).
+    clearChatLog();
+    refreshProjectDependentControls();
   } catch (e) {
     showToast(`Failed to load projects: ${e.message}`, 'error');
   }
@@ -105,7 +107,7 @@ export function selectProject(id) {
   const ruler = $('#timeline-ruler');
   if (ruler) ruler.innerHTML = '';
   const durationLabel = $('#timeline-duration-label');
-  if (durationLabel) durationLabel.textContent = '';
+  if (durationLabel) durationLabel.textContent = '—';
   const emptyMsg = $('#timeline-empty-msg');
   if (emptyMsg) emptyMsg.classList.remove('hidden');
   if (state.chatStatus) state.chatStatus.reset();
@@ -156,16 +158,41 @@ function clearAssetsList() {
   list.appendChild(el('div', { class: 'empty-state' }, ['No assets yet.', el('br'), 'Upload one below.']));
 }
 
+// Clear the source preview and transport when no project is selected so the
+// home state never shows media from a deselected project (round-4 B3).
+function clearSourcePreview() {
+  state.previewRenderId = null;
+  const player = $('#preview-player');
+  if (player) {
+    player.removeAttribute('src');
+    player.src = '';
+    player.load();
+  }
+  const empty = $('#preview-empty');
+  if (empty) {
+    empty.classList.remove('hidden');
+    empty.style.display = '';
+  }
+  const badge = $('#preview-mode-badge');
+  if (badge) badge.textContent = '—';
+  const cur = $('#tc-current');
+  if (cur) cur.textContent = '00:00.00';
+  const total = document.querySelector('.transport-total');
+  if (total) total.textContent = ' / —';
+}
+
 // ----------------------------------------------------------
 // Project state (left + right panels)
 // ----------------------------------------------------------
 export async function loadProjectState() {
+  refreshProjectDependentControls();
   if (!state.currentProjectId) {
     state.currentProjectState = null;
     clearAssetsList();
     renderEditGraph([]);
     renderRendersList([]);
     renderNotesSummary({ pending: 0, list: [] });
+    clearSourcePreview();
     setChatEnabled(false);
     return;
   }
@@ -297,14 +324,31 @@ function showEditDetail(e) {
   $('#edit-detail-author').textContent = e.author || '—';
   $('#edit-detail-id').textContent = e.edit_id ? e.edit_id.slice(0, 12) + '…' : '—';
 
-  // Build a readable payload summary
+  // Build a readable payload summary (round-4 B6: stacked key/value cards,
+  // truncated long hashes with a copy affordance instead of a debug dump).
   const payloadEntries = [];
   if (e.payload && typeof e.payload === 'object') {
     for (const [k, v] of Object.entries(e.payload)) {
       if (k === 'edit_id' || k === 'parent_id' || k === 'author' || k === 'timestamp' || k === 'status') continue;
+      let raw = JSON.stringify(v, null, 0);
+      const isLong = raw.length > 60;
+      const shown = isLong ? raw.slice(0, 56) + '…' : raw;
+      const valEl = el('span', { class: 'edit-detail-val' }, [shown]);
+      if (isLong) {
+        valEl.appendChild(el('button', {
+          class: 'copy-hash',
+          type: 'button',
+          title: 'Copy full value',
+          'aria-label': `Copy ${k}`,
+        }, ['copy']));
+        valEl.querySelector('.copy-hash').addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          try { navigator.clipboard.writeText(raw); showToast('Copied to clipboard', 'success'); } catch {}
+        });
+      }
       payloadEntries.push(el('div', { class: 'edit-detail-field' }, [
         el('span', { class: 'edit-detail-key' }, [k]),
-        el('span', { class: 'edit-detail-val' }, [JSON.stringify(v, null, 0).slice(0, 120)]),
+        valEl,
       ]));
     }
   }
@@ -754,20 +798,36 @@ function refreshSendGate() {
 function setChatEnabled(enabled) {
   chatBaseEnabled = !!enabled;
   const input = $('#chat-input');
-  const btnStop = $('#btn-stop');
-  const btnTopbarStop = $('#btn-topbar-stop');
   refreshSendGate();
-  if (btnStop) {
-    if (btnStop.classList && typeof btnStop.classList.toggle === 'function') {
-      btnStop.classList.toggle('hidden', enabled);
-    }
-  }
-  if (btnTopbarStop) {
-    if (btnTopbarStop.classList && typeof btnTopbarStop.classList.toggle === 'function') {
-      btnTopbarStop.classList.toggle('hidden', enabled);
-    }
-  }
+  // Stop buttons are owned by setTurnActive (round-4 B5): they must only
+  // appear while a turn is running, not merely because chat is disabled.
   if (enabled && input && !input.disabled) input.focus();
+}
+
+// Round-5 C4: project-dependent controls (render encoder/buttons, LLM selects)
+// must reflect whether a project exists, not just guard on click.
+function refreshProjectDependentControls() {
+  const hasProject = !!state.currentProjectId;
+  const encoderSel = $('#render-encoder-select');
+  const proxyBtn = $('#btn-render-proxy');
+  const finalBtn = $('#btn-render-final');
+  if (encoderSel) {
+    encoderSel.disabled = !hasProject;
+    encoderSel.title = hasProject ? '' : 'Select a project first';
+  }
+  for (const btn of [proxyBtn, finalBtn]) {
+    if (!btn) continue;
+    btn.disabled = !hasProject;
+    btn.title = hasProject ? '' : 'Select a project first';
+  }
+  if (llmProviderSelect) {
+    llmProviderSelect.disabled = !hasProject;
+    llmProviderSelect.title = hasProject ? '' : 'Select a project first';
+  }
+  if (llmModelSelect) {
+    llmModelSelect.disabled = !hasProject;
+    llmModelSelect.title = hasProject ? '' : 'Select a project first';
+  }
 }
 
 function cancelTurn() {
@@ -804,6 +864,7 @@ function sendText(text) {
   if (sendChatMessage(text)) {
     appendUserMessage(text);
     if (state.chatStatus) state.chatStatus.send();
+    setTurnActive(true);
   } else {
     setChatEnabled(true);
     scheduleReconnect();
@@ -1412,6 +1473,7 @@ async function boot() {
       setReviewConnStatus();
     }
   } else {
+    refreshProjectDependentControls();
     setChatEnabled(false);
     setWsState('disconnected');
   }

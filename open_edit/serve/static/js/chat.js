@@ -21,12 +21,30 @@ export function clearChatLog() {
   log.innerHTML = '';
   // If there are no projects, the user can't chat — show a hint with
   // the recovery command (v1.4 P0-1: "no projects found" must not be
-  // an opaque empty state). Otherwise the generic placeholder.
+  // an opaque empty state).
   if (state.projects && state.projects.length === 0) {
     log.appendChild(el('div', { class: 'empty-state' }, [
       'No projects yet. Run ',
       el('code', {}, ['open_edit init <root>/<name>']),
       ' in a terminal, then click Refresh to refresh.',
+    ]));
+  } else if (state.currentProjectId) {
+    // A project is selected — welcome copy must reflect that, not the
+    // onboarding state (round-4 B2: "Select a project" while hh was
+    // selected undermined trust and inflated the welcome block).
+    const proj = (state.projects || []).find((p) => p.id === state.currentProjectId);
+    const name = proj ? proj.name : state.currentProjectId;
+    log.appendChild(el('div', { class: 'empty-state' }, [
+      el('div', { class: 'welcome-title' }, [`Ready to edit ${name}`]),
+      el('div', { class: 'welcome-sub' }, [
+        'Ask your AI video editor to cut, trim, overlay, or render — edits apply to this project.',
+      ]),
+      el('div', { class: 'prompt-chips-container' }, [
+        el('div', { class: 'prompt-chip', 'data-prompt': 'Cut dead air and silent pauses from the video' }, 'Cut silences'),
+        el('div', { class: 'prompt-chip', 'data-prompt': 'Add lower-third title overlay at start' }, 'Add lower-third'),
+        el('div', { class: 'prompt-chip', 'data-prompt': 'Normalize audio levels to -16dBFS' }, 'Normalize audio'),
+        el('div', { class: 'prompt-chip', 'data-prompt': 'Render final 1080p MP4' }, 'Render final video'),
+      ]),
     ]));
   } else {
     log.appendChild(el('div', { class: 'empty-state' }, ['Select a project to start chatting.']));
@@ -297,7 +315,21 @@ export function appendErrorMessage(message) {
   scrollChatToBottom();
 }
 
+let _turnActive = false;
+
+// Show/hide the Stop (interrupt) affordances. Stop must only appear while a
+// turn is actually running — never on the idle or no-project states
+// (round-4 B5).
+export function setTurnActive(active) {
+  _turnActive = !!active;
+  const btnStop = $('#btn-stop');
+  const btnTopbarStop = $('#btn-topbar-stop');
+  if (btnStop) btnStop.classList.toggle('hidden', !_turnActive);
+  if (btnTopbarStop) btnTopbarStop.classList.toggle('hidden', !_turnActive);
+}
+
 export function markTurnDone() {
+  setTurnActive(false);
   // If the assistant message has no text content (only tool cards were
   // emitted), remove the empty bubble.
   if (state.pendingAssistantMsg && state.pendingAssistantMsg.textContent.trim() === '') {

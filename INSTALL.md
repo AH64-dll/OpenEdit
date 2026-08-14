@@ -10,17 +10,65 @@ You also need a separate **edit project** directory (created with
 
 More MCP detail: [`docs/MCP.md`](docs/MCP.md).
 
+## Option 0 — let your agent install it
+
+The fastest path is to paste one of two prompts and let your agent do the
+work. The [install prompt](docs/agent-install.md) clones the repo, installs
+the package, creates an edit project, and verifies everything end to end.
+The [configure prompt](docs/agent-configure.md) then registers `open-edit`
+as an MCP server in your host (Cursor, Claude Code, OpenCode, or another MCP
+client) and reports the exact paths it used. Prefer the manual route? The
+one-command installers `install.sh` / `install.ps1` are the fastest manual
+path.
+
 ---
 
-## Prerequisites
+## Downloads
 
-| Tool | Linux | Windows | Required for |
-|---|---|---|---|
-| Git | yes | yes | clone |
-| Python 3.11+ | yes | yes | MCP server |
-| ffmpeg / ffprobe | recommended | recommended | media probe, overlays |
-| melt (MLT) | recommended | recommended | proxy/final render |
-| Node.js 24 (optional) | optional | optional | Remotion compositions |
+| Installer | One command |
+|---|---|
+| pip (Python package) | `pip install open-edit` |
+| Linux / macOS | `curl -fsSL https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.sh \| bash` |
+| Windows (PowerShell) | `irm https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.ps1 \| iex` |
+
+Source archives: [v1.3.1 zip](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.zip) · [v1.3.1 tar.gz](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.tar.gz)
+
+Or let your agent install it: [`docs/agent-install.md`](docs/agent-install.md), [`docs/agent-configure.md`](docs/agent-configure.md)
+
+---
+
+## Runtime requirements
+
+Both installers provision or check the full render stack and print a
+**runtime readiness** summary at the end (ffmpeg / melt / node / hyperframes /
+chrome → READY or manual steps). Nothing needs sudo.
+
+| Tool | Linux | Windows | Required for | Installed by |
+|---|---|---|---|---|
+| Git | yes | yes | clone | manual (prerequisite) |
+| Python 3.11+ | yes | yes | MCP server | manual (prerequisite) |
+| Node.js >= 22 | auto-installed if missing | winget / user-local zip | HyperFrames overlay engine (`npm install`) | install.sh / install.ps1 |
+| hyperframes 0.7.65 | `npm install` in repo | same | HTML/CSS/JS overlay + logo/motion rendering | install.sh / install.ps1 |
+| ffmpeg / ffprobe | detected; manual commands printed | winget `Gyan.FFmpeg` | media probe, proxy, overlay burn-in, final encode | installers detect / provision |
+| melt (MLT) | detected; manual commands printed | no packaged install — manual/WSL (see below) | base-video timeline render | installers detect / provision |
+| Chrome/Chromium | detected (common paths) | detected (common paths) | headless capture for HyperFrames | probe; fallback `npx @puppeteer/browsers install chrome` |
+
+**Windows melt note:** there is currently **no one-command melt install on
+Windows** — no winget or chocolatey package exists, and official MLT builds
+are source-only (github.com/mltframework/mlt/releases). The installer
+detects melt and, if missing, prints a warning. Options for Windows users
+who need video-clip timelines: install MLT inside WSL (`apt install melt`)
+and call it from there, or build MLT yourself. Overlay/motion-graphics-only
+renders (HyperFrames) do not require melt.
+
+**GPU (NVENC) encode:** `trigger_render` with `encoder=gpu` probes
+NVENC → AMF → QSV → VAAPI and falls back to CPU `libx264` when no GPU
+encoder is available. Set `OPEN_EDIT_RENDER_BACKEND=cpu` to force software
+encoding.
+
+The overlay engine is **HyperFrames** (HTML/CSS/JS motion graphics, pinned
+`hyperframes@0.7.65` in `package.json`) — it ships inside the repo, so
+`npm install` inside the clone is all that is needed. Remotion is legacy.
 
 On Windows, `run_script` defaults to unsandboxed `dev` mode. Moviepy
 `generate_visual_for_segment` is unsupported on Windows. The Rust bwrap
@@ -35,6 +83,7 @@ in code (not separate trees):
 | Remotion CLI | `node_modules/.bin/remotion` | prefers `remotion.cmd` + `shell` spawn |
 | Sandbox default | `bwrap` when available | `dev` subprocess |
 | GPU encode | NVENC / VAAPI / QSV when present | NVENC / AMF / QSV when present |
+| Render runtime | installers check ffmpeg/melt/chrome, auto-install Node + npm deps | installers check ffmpeg/melt/chrome, auto-install Node + npm deps |
 
 Shared fixes (final High-quality encode, long-render timeouts, MCP timeline
 ops, preview/hash alignment, melt base-track + ffmpeg overlay burn-in) apply
@@ -198,6 +247,7 @@ cd OpenEdit
 git pull
 source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
 pip install -e ".[mcp]"
+npm install --no-audit --no-fund   # refresh the HyperFrames overlay engine deps
 ```
 
 Reload MCP in Cursor.

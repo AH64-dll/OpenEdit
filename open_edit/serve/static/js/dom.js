@@ -103,17 +103,81 @@ export function fmtTime(iso) {
   } catch { return String(iso); }
 }
 
+let _modalOpener = null;
+
+// Round-5 C3: modal focus containment. showModal saves the opener, focuses the
+// first enabled control, and traps Tab inside the dialog; hideModal restores
+// focus to the opener and removes the trap.
+function _modalTabbables(node) {
+  if (!node) return [];
+  return [...node.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+    'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter((el) => {
+    try {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && (typeof getComputedStyle === 'undefined' || getComputedStyle(el).visibility !== 'hidden');
+    } catch { return false; }
+  });
+}
+
+function _trapModalFocus(node, ev) {
+  if (ev.key !== 'Tab') return;
+  const tabbables = _modalTabbables(node);
+  if (!tabbables.length) return;
+  const first = tabbables[0];
+  const last = tabbables[tabbables.length - 1];
+  if (ev.shiftKey && document.activeElement === first) {
+    ev.preventDefault();
+    last.focus();
+  } else if (!ev.shiftKey && document.activeElement === last) {
+    ev.preventDefault();
+    first.focus();
+  }
+}
+
 export function showModal(id) {
   const node = $('#' + id);
-  if (node) node.classList.remove('hidden');
+  if (!node) return;
+  if (node.classList && typeof node.classList.contains === 'function' && !node.classList.contains('hidden')) return;
+  // Round-5 C3 focus containment is progressive enhancement: never let the
+  // trap wiring break modal open in constrained harnesses/mocks.
+  try {
+    if (node.classList) node.classList.remove('hidden');
+    if (document.activeElement && document.activeElement !== document.body) _modalOpener = document.activeElement;
+    if (node.setAttribute) node.setAttribute('aria-modal', 'true');
+    if (typeof node.querySelectorAll === 'function') {
+      const first = _modalTabbables(node)[0];
+      if (first && typeof first.focus === 'function') first.focus();
+      node._trapHandler = (ev) => _trapModalFocus(node, ev);
+      document.addEventListener('keydown', node._trapHandler, true);
+    }
+  } catch (e) {
+    if (node.classList) node.classList.remove('hidden');
+  }
 }
 export function hideModal(id) {
   const node = $('#' + id);
-  if (node) node.classList.add('hidden');
+  if (!node) return;
+  node.classList.add('hidden');
+  if (node._trapHandler) {
+    document.removeEventListener('keydown', node._trapHandler, true);
+    node._trapHandler = null;
+  }
   stopModalMedia(id);
+  if (_modalOpener && _modalOpener.isConnected) _modalOpener.focus();
+  _modalOpener = null;
 }
 export function hideAllModals() {
-  $$('.modal').forEach(m => { m.classList.add('hidden'); stopModalMedia(m.id); });
+  $$('.modal').forEach(m => {
+    m.classList.add('hidden');
+    if (m._trapHandler) {
+      document.removeEventListener('keydown', m._trapHandler, true);
+      m._trapHandler = null;
+    }
+    stopModalMedia(m.id);
+  });
+  _modalOpener = null;
 }
 export function stopModalMedia(id) {
   if (id) {
