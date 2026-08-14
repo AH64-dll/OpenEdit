@@ -42,13 +42,19 @@ def _probe_media(path: str) -> dict:
     if not src.exists():
         raise FileNotFoundError(path)
 
-    fmt_result = subprocess.run(
-        [
-            "ffprobe", "-v", "error", "-show_format", "-show_streams",
-            "-of", "json", str(src),
-        ],
-        capture_output=True, text=True, check=True,
-    )
+    try:
+        fmt_result = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-show_format", "-show_streams",
+                "-of", "json", str(src),
+            ],
+            capture_output=True, text=True, check=True,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError("FFmpeg/ffprobe is missing from PATH. Please install it.") from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"ffprobe failed: {e.stderr.strip() or e.stdout.strip()}") from e
+
     info = json.loads(fmt_result.stdout)
     fmt = info.get("format", {})
     streams = info.get("streams", [])
@@ -251,37 +257,46 @@ class AssetStore:
             asset_hash = _hash_file(src)
             dest = self._cas_path(asset_hash)
             dest.parent.mkdir(parents=True, exist_ok=True)
+            
+            copied = False
             if not dest.exists():
                 shutil.copy2(src, dest)
-            media_info = _probe_media(str(src))
-            alignment = (
-                transcribe(src) if (do_transcribe and media_info.get("has_audio", False)) else []
-            )
-            asset = Asset(
-                asset_hash=asset_hash,
-                original_path=str(src),
-                stored_path=str(dest),
-                type=media_info["type"],
-                duration_sec=media_info["duration_sec"],
-                fps=media_info["fps"],
-                width=media_info["width"],
-                height=media_info["height"],
-                codec=media_info["codec"],
-                has_audio=media_info.get("has_audio", False),
-                pix_fmt=media_info.get("pix_fmt"),
-                has_alpha=media_info.get("has_alpha", False),
-                alignment=alignment,
-                license=license,
-                attribution=attribution,
-                content_hash=asset_hash,
-                provider=provider,
-                source_url=source_url,
-                source_page_url=source_page_url,
-            )
-            sidecar = self._sidecar_path(asset_hash)
-            sidecar.write_text(asset.model_dump_json(indent=2))
-            _maybe_enqueue_source_proxy(self.assets_dir, asset)
-            assets.append(asset)
+                copied = True
+                
+            try:
+                media_info = _probe_media(str(src))
+                alignment = (
+                    transcribe(src) if (do_transcribe and media_info.get("has_audio", False)) else []
+                )
+                asset = Asset(
+                    asset_hash=asset_hash,
+                    original_path=str(src),
+                    stored_path=str(dest),
+                    type=media_info["type"],
+                    duration_sec=media_info["duration_sec"],
+                    fps=media_info["fps"],
+                    width=media_info["width"],
+                    height=media_info["height"],
+                    codec=media_info["codec"],
+                    has_audio=media_info.get("has_audio", False),
+                    pix_fmt=media_info.get("pix_fmt"),
+                    has_alpha=media_info.get("has_alpha", False),
+                    alignment=alignment,
+                    license=license,
+                    attribution=attribution,
+                    content_hash=asset_hash,
+                    provider=provider,
+                    source_url=source_url,
+                    source_page_url=source_page_url,
+                )
+                sidecar = self._sidecar_path(asset_hash)
+                sidecar.write_text(asset.model_dump_json(indent=2))
+                _maybe_enqueue_source_proxy(self.assets_dir, asset)
+                assets.append(asset)
+            except Exception:
+                if copied:
+                    dest.unlink(missing_ok=True)
+                raise
         return assets
 
     def get(self, asset_hash: str) -> Optional[Asset]:
