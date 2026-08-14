@@ -5,9 +5,13 @@ import os
 
 
 def is_review_only() -> bool:
-    """True when the UI is a harness-driven review studio (MCP plugin workflow)."""
-    raw = (os.environ.get("OPEN_EDIT_REVIEW_ONLY") or "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    """True when the UI is a harness-driven review studio (MCP plugin workflow).
+
+    Defaults ON (MCP-first). Set ``OPEN_EDIT_REVIEW_ONLY=0`` or pass
+    ``open_edit serve --with-agent`` to enable the built-in chat / provider UI.
+    """
+    raw = (os.environ.get("OPEN_EDIT_REVIEW_ONLY") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def auto_proxy_enabled() -> bool:

@@ -285,6 +285,50 @@ class TestNotesStore(unittest.TestCase):
         notes = store.list_all("p1")
         self.assertEqual(notes[0].commit_token, "token_x")
 
+    def test_update_text_and_audio_anchor(self) -> None:
+        store = NotesStore(self.tmp_path / "notes.db")
+        note = ReviewNote(
+            project_id="p1",
+            anchor=TimestampAnchor(t_start=1.0, t_end=1.0),
+            text="old",
+            source=NoteSource.typed,
+            status=NoteStatus.pending,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        store.append(note)
+        store.update(
+            note.note_id,
+            text="new text",
+            anchor=TimestampAnchor(
+                t_start=2.5,
+                t_end=3.0,
+                track_kind="audio",
+                track_id="A1",
+            ),
+        )
+        got = store.get(note.note_id)
+        self.assertIsNotNone(got)
+        assert got is not None
+        self.assertEqual(got.text, "new text")
+        self.assertEqual(got.anchor.t_start, 2.5)
+        self.assertEqual(got.anchor.track_kind, "audio")
+        self.assertEqual(got.anchor.track_id, "A1")
+
+    def test_delete_note(self) -> None:
+        store = NotesStore(self.tmp_path / "notes.db")
+        note = ReviewNote(
+            project_id="p1",
+            anchor=TimestampAnchor(t_start=0.0, t_end=1.0),
+            text="bye",
+            source=NoteSource.typed,
+            status=NoteStatus.pending,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        store.append(note)
+        self.assertEqual(store.delete([note.note_id]), 1)
+        self.assertIsNone(store.get(note.note_id))
+        self.assertEqual(store.list_all("p1"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

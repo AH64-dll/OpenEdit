@@ -22,6 +22,7 @@ exploring `open_edit/**` source.
 | Asset catalog & effects | [`asset_catalog_guide.md`](asset_catalog_guide.md) |
 | Tool surface (long) | [`tool_surface.md`](tool_surface.md) |
 | Style memory | [`style-memory.md`](style-memory.md) |
+| Review notes | [`review-notes.md`](review-notes.md) |
 | Legacy Remotion migration | [`remotion_motion.md`](remotion_motion.md) |
 | Native HyperFrames route | [`hyperframes_native.md`](hyperframes_native.md) |
 | Free-form / effects | [`freeform_and_effects.md`](freeform_and_effects.md) |
@@ -31,9 +32,13 @@ exploring `open_edit/**` source.
 
 1. **Filesystem:** read this directory (`OPEN_EDIT_SKILLS_DIR` overrides path).
 2. **MCP resources:** `open-edit://skills/open-edit-mcp`,
-   `open-edit://skills/open-edit-mcp-reference`, etc.
-3. **MCP prompts:** `open-edit-playbook`, `open-edit-reference`.
-4. **MCP instructions:** short playbook summary is sent on initialize.
+   `open-edit://skills/review-notes`, etc.
+3. **MCP prompts:** `open-edit-playbook`, `open-edit-reference`,
+   `open-edit-review-notes`, `open-edit-style-memory`, …
+4. **MCP instructions (mandatory on connect):** the server embeds
+   `open-edit-mcp`, `tool_surface`, `edit-planning`, `review-notes`, and
+   `style-memory` into initialize `instructions` so harnesses do not need to
+   explore the repository.
 
 Python helper: `open_edit.mcp.skills.load_skill("open-edit-mcp")`.
 

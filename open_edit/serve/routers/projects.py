@@ -32,6 +32,17 @@ class CreateNoteRequest(BaseModel):
     t_start: float
     t_end: float | None = None
     source: str = "typed"
+    track_kind: str = "any"  # "video" | "audio" | "any"
+    track_id: str | None = None
+
+
+class UpdateNoteRequest(BaseModel):
+    text: str | None = None
+    t_start: float | None = None
+    t_end: float | None = None
+    track_kind: str | None = None
+    track_id: str | None = None
+    status: str | None = None
 
 
 async def _require_project(project_id: str) -> projects_mod.ProjectState:
@@ -40,6 +51,28 @@ async def _require_project(project_id: str) -> projects_mod.ProjectState:
         return await projects_mod.get_project_state(project_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+def _notes_store_for(project_path: Path):
+    from open_edit.storage.notes import NotesStore
+
+    return NotesStore(project_path / "notes.db")
+
+
+def _canonical_note_project_id(project_id: str, project_path: Path) -> str:
+    db_path = project_path / ".open_edit" / "edit_graph.db"
+    if db_path.exists():
+        try:
+            from open_edit.storage.edit_graph import EditGraphStore
+            return EditGraphStore(db_path).project_id
+        except Exception:
+            pass
+    return project_id
+
+
+def _normalize_track_kind(raw: str | None) -> str:
+    kind = (raw or "any").strip().lower()
+    return kind if kind in ("video", "audio", "any") else "any"
 
 
 @router.get("/api/projects")
@@ -169,29 +202,27 @@ async def post_project_note(project_id: str, req: CreateNoteRequest) -> JSONResp
     t_end = float(req.t_end) if req.t_end is not None else t_start
     if t_end < t_start:
         t_end = t_start
+    track_kind = _normalize_track_kind(req.track_kind)
+    track_id = (req.track_id or "").strip() or None
 
     from open_edit.storage.notes import (
         NoteSource,
-        NotesStore,
         NoteStatus,
         ReviewNote,
         TimestampAnchor,
     )
 
-    notes_db = project_path / "notes.db"
-    store = NotesStore(notes_db)
-    db_path = project_path / ".open_edit" / "edit_graph.db"
-    note_project_id = project_id
-    if db_path.exists():
-        try:
-            from open_edit.storage.edit_graph import EditGraphStore
-            note_project_id = EditGraphStore(db_path).project_id
-        except Exception:
-            pass
+    store = _notes_store_for(project_path)
+    note_project_id = _canonical_note_project_id(project_id, project_path)
     note = ReviewNote(
         note_id=new_id(),
         project_id=note_project_id,
-        anchor=TimestampAnchor(t_start=t_start, t_end=t_end),
+        anchor=TimestampAnchor(
+            t_start=t_start,
+            t_end=t_end,
+            track_kind=track_kind,  # type: ignore[arg-type]
+            track_id=track_id,
+        ),
         text=text,
         source=NoteSource.typed if req.source == "typed" else NoteSource.typed,
         status=NoteStatus.pending,
@@ -204,7 +235,76 @@ async def post_project_note(project_id: str, req: CreateNoteRequest) -> JSONResp
         "t_end": t_end,
         "text": text,
         "status": note.status.value,
+        "track_kind": track_kind,
+        "track_id": track_id,
     })
+
+
+@router.patch("/api/projects/{project_id}/notes/{note_id}")
+async def patch_project_note(
+    project_id: str, note_id: str, req: UpdateNoteRequest
+) -> JSONResponse:
+    """Edit an existing review note (text / time / track target / status)."""
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+    from open_edit.storage.notes import NoteStatus, TimestampAnchor
+
+    store = _notes_store_for(project_path)
+    existing = store.get(note_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="note not found")
+
+    text = existing.text
+    if req.text is not None:
+        text = req.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="text is required")
+
+    status = existing.status
+    if req.status is not None:
+        try:
+            status = NoteStatus(req.status)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid status") from exc
+
+    anchor = existing.anchor
+    if getattr(anchor, "anchor_type", None) == "timestamp" or hasattr(anchor, "t_start"):
+        t_start = float(req.t_start) if req.t_start is not None else float(anchor.t_start)
+        t_end = float(req.t_end) if req.t_end is not None else float(getattr(anchor, "t_end", t_start))
+        if t_end < t_start:
+            t_end = t_start
+        track_kind = _normalize_track_kind(
+            req.track_kind if req.track_kind is not None else getattr(anchor, "track_kind", "any")
+        )
+        track_id = (
+            (req.track_id.strip() or None)
+            if req.track_id is not None
+            else getattr(anchor, "track_id", None)
+        )
+        anchor = TimestampAnchor(
+            t_start=max(0.0, t_start),
+            t_end=t_end,
+            track_kind=track_kind,  # type: ignore[arg-type]
+            track_id=track_id,
+        )
+
+    store.update(note_id, text=text, status=status, anchor=anchor)
+    updated = store.get(note_id)
+    info = projects_mod._note_to_info(updated) if updated else None
+    return JSONResponse(info.model_dump() if info else {"note_id": note_id})
+
+
+@router.delete("/api/projects/{project_id}/notes/{note_id}", status_code=200)
+async def delete_project_note(project_id: str, note_id: str) -> JSONResponse:
+    """Permanently delete a review note."""
+    state = await _require_project(project_id)
+    project_path = Path(state.path)
+    store = _notes_store_for(project_path)
+    existing = store.get(note_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="note not found")
+    store.delete([note_id])
+    return JSONResponse({"ok": True, "note_id": note_id})
 
 
 @router.get("/api/projects/{project_id}/thumbnail")

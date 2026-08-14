@@ -37,6 +37,11 @@ class TimestampAnchor(BaseModel):
     anchor_type: Literal["timestamp"] = "timestamp"
     t_start: float
     t_end: float
+    # Optional media targeting for review UI / agent context. Notes remain
+    # actionable for either audio or visual; this only records where the
+    # reviewer clicked. Default "any" preserves legacy notes.
+    track_kind: Literal["video", "audio", "any"] = "any"
+    track_id: Optional[str] = None
 
 
 class RegionAnchor(BaseModel):
@@ -47,6 +52,8 @@ class RegionAnchor(BaseModel):
     h: float
     t_start: float
     t_end: float
+    track_kind: Literal["video", "audio", "any"] = "any"
+    track_id: Optional[str] = None
 
 
 class OpAnchor(BaseModel):
@@ -224,12 +231,21 @@ class NotesStore:
             )
         return len(rows)
 
+    def get(self, note_id: str) -> Optional[ReviewNote]:
+        """Return one note by id, or None."""
+        with open_conn(self.db_path) as con:
+            row = con.execute(
+                "SELECT * FROM notes WHERE note_id = ?",
+                (note_id,),
+            ).fetchone()
+        return self._row_to_note(row) if row is not None else None
+
     def update(self, note_id: str, **fields) -> None:
         """Update mutable fields on a note.
 
-        Accepts only the Pydantic-validated set ``{text, status}``; any other
-        kwarg raises ``ValidationError``. A missing ``note_id`` is a no-op
-        (callers should look up first if they need to know the result).
+        Accepts the Pydantic-validated set ``{text, status, anchor}``; any
+        other kwarg raises ``ValidationError``. A missing ``note_id`` is a
+        no-op (callers should look up first if they need to know the result).
         """
         payload = _NoteUpdate.model_validate(fields)
         sets: list[str] = []
@@ -240,6 +256,11 @@ class NotesStore:
         if payload.status is not None:
             sets.append("status = ?")
             values.append(payload.status.value)
+        if payload.anchor is not None:
+            sets.append("anchor_type = ?")
+            values.append(payload.anchor.anchor_type)
+            sets.append("anchor = ?")
+            values.append(payload.anchor.model_dump_json())
         if not sets:
             return
         values.append(note_id)
@@ -249,6 +270,17 @@ class NotesStore:
                 tuple(values),
             )
 
+    def delete(self, note_ids: list[str]) -> int:
+        """Permanently remove notes by id. Returns number of ids requested."""
+        if not note_ids:
+            return 0
+        with open_conn(self.db_path) as con:
+            con.executemany(
+                "DELETE FROM notes WHERE note_id = ?",
+                [(n,) for n in note_ids],
+            )
+        return len(note_ids)
+
 
 class _NoteUpdate(BaseModel):
     """Pydantic model for the allowed kwargs of ``NotesStore.update``."""
@@ -257,3 +289,4 @@ class _NoteUpdate(BaseModel):
 
     text: Optional[str] = None
     status: Optional[NoteStatus] = None
+    anchor: Optional[NoteAnchor] = None

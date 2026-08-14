@@ -218,7 +218,11 @@ def test_harness_skills_loadable() -> None:
     ref = load_skill("open-edit-mcp-reference")
     assert "add_clip" in ref
     assert "query_project" in mcp_instructions()
+    assert "get_pending_notes" in mcp_instructions()
+    assert "Skill: review-notes" in mcp_instructions()
     assert stem_from_uri(resource_uri("open-edit-mcp")) == "open-edit-mcp"
+    assert load_skill("review-notes")
+    assert "track_kind" in load_skill("review-notes")
 
 
 def test_mcp_playbook_distinguishes_proxy_and_preview_chunks() -> None:

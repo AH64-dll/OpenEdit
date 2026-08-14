@@ -22,10 +22,12 @@ SKILL_FILES: dict[str, str] = {
     "qc-standards": "qc-standards.md",
     "freeform_and_effects": "freeform_and_effects.md",
     "style-memory": "style-memory.md",
+    "review-notes": "review-notes.md",
+    "asset_catalog_guide": "asset_catalog_guide.md",
     "README": "README.md",
 }
 
-# Exposed over MCP resources / prompts (keep the set small for hosts).
+# Exposed over MCP resources / prompts (keep the set useful for hosts).
 MCP_SKILL_STEMS: tuple[str, ...] = (
     "open-edit-mcp",
     "open-edit-mcp-reference",
@@ -33,6 +35,20 @@ MCP_SKILL_STEMS: tuple[str, ...] = (
     "edit-planning",
     "remotion_motion",
     "hyperframes_native",
+    "style-memory",
+    "review-notes",
+    "qc-standards",
+    "freeform_and_effects",
+    "asset_catalog_guide",
+)
+
+# Stems embedded into MCP initialize `instructions` so any harness that
+# honors server instructions gets them without exploring the repo.
+MANDATORY_SKILL_STEMS: tuple[str, ...] = (
+    "open-edit-mcp",
+    "tool_surface",
+    "edit-planning",
+    "review-notes",
     "style-memory",
 )
 
@@ -120,23 +136,38 @@ def stem_from_uri(uri: str) -> str | None:
     return stem if stem in SKILL_FILES else None
 
 
-@lru_cache(maxsize=1)
-def mcp_instructions() -> str:
-    """Short instructions injected on MCP initialize for any harness."""
-    try:
-        body = load_skill("open-edit-mcp")
-    except FileNotFoundError:
-        return _FALLBACK_INSTRUCTIONS
-    # Drop YAML frontmatter if present to keep initialize payload lean-ish
+def _strip_frontmatter(body: str) -> str:
     if body.startswith("---"):
         end = body.find("\n---", 3)
         if end != -1:
-            body = body[end + 4 :].lstrip("\n")
-    return (
-        "Open Edit MCP agent playbook (follow this; do not explore source "
-        "to rediscover tools):\n\n"
-        + body
+            return body[end + 4 :].lstrip("\n")
+    return body
+
+
+@lru_cache(maxsize=1)
+def mcp_instructions() -> str:
+    """Mandatory skill pack injected on MCP initialize for any harness."""
+    parts: list[str] = [
+        "Open Edit MCP — mandatory skills (follow these; do not explore "
+        "source to rediscover tools or workflows):\n",
+    ]
+    loaded = 0
+    for stem in MANDATORY_SKILL_STEMS:
+        try:
+            body = _strip_frontmatter(load_skill(stem))
+        except FileNotFoundError:
+            continue
+        parts.append(f"\n## Skill: {stem}\n\n{body.strip()}\n")
+        loaded += 1
+    if loaded == 0:
+        return _FALLBACK_INSTRUCTIONS
+    parts.append(
+        "\nAdditional skills are available as MCP resources "
+        f"(`{RESOURCE_URI_PREFIX}*`) and prompts "
+        "(open-edit-playbook, open-edit-reference, open-edit-style-memory, "
+        "open-edit-review-notes). Prefer tools over reading the repo.\n"
     )
+    return "".join(parts)
 
 
 _FALLBACK_INSTRUCTIONS = """\
@@ -145,5 +176,6 @@ get_render_job, cancel_render_job. Prefer tools over exploring source.
 Priority: query → edit → run_script (only if needed) → trigger_render (proxy then final).
 Silence: edit_project generate=silence_cuts — never ffmpeg silencedetect.
 Ingest: edit_project operation=ingest_local with absolute paths.
+Notes: query_project get_pending_notes; honor track_kind hints but fix audio or video as asked.
 Project path is pinned at server start; never pass project_path as an argument.
 """

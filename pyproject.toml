@@ -65,6 +65,8 @@ packages = ["open_edit"]
 "open_edit/harness_skills/qc-standards.md" = "open_edit/harness_skills/qc-standards.md"
 "open_edit/harness_skills/freeform_and_effects.md" = "open_edit/harness_skills/freeform_and_effects.md"
 "open_edit/harness_skills/style-memory.md" = "open_edit/harness_skills/style-memory.md"
+"open_edit/harness_skills/review-notes.md" = "open_edit/harness_skills/review-notes.md"
+"open_edit/harness_skills/asset_catalog_guide.md" = "open_edit/harness_skills/asset_catalog_guide.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

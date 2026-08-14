@@ -260,21 +260,20 @@ function renderEditGraph(edits) {
   if (!list) return;
   list.innerHTML = '';
   if (!edits.length) {
-    list.appendChild(el('div', { class: 'empty-state' }, ['No edits yet.', el('br'), 'Ask the agent to do something.']));
+    list.appendChild(el('div', { class: 'empty-state' }, ['No edits yet.']));
     hideEditDetail();
     return;
   }
-  // Show most recent first.
-  for (const e of [...edits].reverse().slice(0, 50)) {
+  // Show most recent first — keep the rail short.
+  for (const e of [...edits].reverse().slice(0, 24)) {
     const card = el('div', {
       class: 'edit-card' + (e.edit_id === selectedEditId ? ' edit-card-selected' : ''),
     }, [
       el('div', { class: 'edit-card-header' }, [
         el('span', { class: 'edit-kind' }, [e.kind]),
         e.status ? el('span', { class: 'edit-status edit-status-' + e.status }, [e.status]) : null,
-        e.author ? el('span', { class: 'edit-author' }, [e.author]) : null,
       ]),
-      el('div', { class: 'edit-summary' }, [e.summary || '—']),
+      el('div', { class: 'edit-summary' }, [(e.summary || '—').slice(0, 72)]),
     ]);
     card.addEventListener('click', () => selectEdit(e));
     list.appendChild(card);
@@ -456,35 +455,30 @@ function renderRendersList(renders) {
   }
   const active = renders.some(r => r.status === 'queued' || r.status === 'running');
   setRenderButtonsBusy(active, active ? 'Rendering…' : null);
-  // Newest first.
-  for (const r of [...renders].reverse()) {
+  // Newest first — keep the rail concise (latest few only).
+  for (const r of [...renders].reverse().slice(0, 8)) {
     const name = (r.path || '').split('/').pop() || r.id?.slice(0, 8) || 'render';
-    const modeLabel = r.mode === 'final'
-      ? 'Final export · 1080p'
-      : (r.mode === 'proxy' ? 'Review artifact · 640×360' : r.mode || 'proxy');
+    const modeLabel = r.mode === 'final' ? 'Final' : (r.mode === 'proxy' ? 'Proxy' : r.mode || 'proxy');
     const status = r.status || 'succeeded';
-    const statusLabel = status === 'running' ? 'Rendering…'
+    const statusLabel = status === 'running' ? '…'
       : status === 'queued' ? 'Queued'
-      : status === 'failed' ? `Failed: ${r.error || 'error'}`
-      : status === 'succeeded' ? 'Ready'
+      : status === 'failed' ? 'Failed'
+      : status === 'succeeded' ? 'OK'
       : status;
     const item = el('div', { class: `render-card render-status-${status}` }, [
       el('div', { class: 'render-thumb' }, [icon(status === 'running' || status === 'queued' ? 'hourglass' : 'film')]),
       el('div', { class: 'render-meta' }, [
-        el('div', { class: 'render-name' }, [name]),
+        el('div', { class: 'render-name', title: name }, [name]),
         el('div', { class: 'render-sub' }, [
-          modeLabel,
-          ' · ',
-          statusLabel,
+          `${modeLabel} · ${statusLabel}`,
           r.size_bytes ? ` · ${fmtBytes(r.size_bytes)}` : '',
-          r.timestamp ? ` · ${fmtTime(r.timestamp)}` : '',
-        ]),
+        ].join('')),
       ]),
     ]);
     item.addEventListener('click', () => {
       if (status !== 'succeeded') {
         showToast(status === 'running' || status === 'queued'
-          ? 'Render still in progress — check back in a few minutes.'
+          ? 'Render still in progress.'
           : (r.error || 'Render not available'), 'info');
         return;
       }
@@ -544,106 +538,70 @@ function openNotesModal() {
     list.appendChild(el('div', { class: 'empty-state' }, ['No notes yet.']));
   } else {
     for (const n of notes.list) {
+      const trackLabel = n.track_kind && n.track_kind !== 'any' ? ` · ${n.track_kind}` : '';
+      const editBtn = el('button', { class: 'btn btn-ghost btn-xs', type: 'button' }, ['Edit']);
+      const delBtn = el('button', { class: 'btn btn-ghost btn-xs', type: 'button' }, ['Delete']);
+      editBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        await editNoteInteractive(n);
+      });
+      delBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        await deleteNoteInteractive(n);
+      });
       list.appendChild(el('div', { class: 'note-item' }, [
         el('div', { class: 'note-ts' }, [
-          // Note timestamps are playhead anchors (seconds in the timeline), so
-          // show them as timecodes — not as wall-clock dates.
-          `[${formatTimecode(Number(n.timestamp) || 0)}] · ${n.source} · ${n.status}`,
+          `[${formatTimecode(Number(n.timestamp) || 0)}]${trackLabel} · ${n.status}`,
         ]),
         el('div', { class: 'note-text' }, [n.text]),
+        el('div', { class: 'note-actions' }, [editBtn, delBtn]),
       ]));
     }
   }
   showModal('modal-notes');
 }
 
-// ----------------------------------------------------------
-// Settings modal (BYOK & Runtime Discovery)
-// ----------------------------------------------------------
-async function openSettingsModal() {
-  const rList = $('#settings-runtimes-list');
-  if (rList) rList.textContent = 'Scanning PATH & GUI directories…';
-
-  showModal('modal-settings');
-
-  // Review-only mode gates these endpoints (404 by design); don't fetch them.
-  if (document.body.classList.contains('review-only-mode')) {
-    if (rList) {
-      rList.innerHTML = '';
-      rList.appendChild(el('div', { class: 'note-item muted small' }, [
-        'Review mode: agent runtimes & API keys are managed by the agent harness. ' +
-        'Start the server without --review-only to configure them here.',
-      ]));
-    }
+async function editNoteInteractive(note) {
+  if (!state.currentProjectId || !note?.id) return;
+  const next = prompt('Edit note:', note.text || '');
+  if (next == null) return;
+  const text = next.trim();
+  if (!text) {
+    showToast('Note text required', 'error');
     return;
   }
-
   try {
-    const [rRes, kRes] = await Promise.all([
-      fetch('/api/runtimes').then(r => r.json()),
-      fetch('/api/settings/keys').then(r => r.json()),
-    ]);
-
-    if (rList && rRes.runtimes) {
-      rList.innerHTML = '';
-      for (const rt of rRes.runtimes) {
-        const statusBadge = rt.installed
-          ? el('span', { class: 'dep-status dep-status-ok' }, [icon('check'), 'Installed'])
-          : el('span', { class: 'dep-status dep-status-missing' }, ['Not detected']);
-        const pathText = rt.binary_path ? ` (${rt.binary_path})` : '';
-        rList.appendChild(el('div', { class: 'note-item' }, [
-          el('div', { style: 'display:flex; justify-content:space-between;' }, [
-            el('strong', {}, [rt.name]),
-            statusBadge,
-          ]),
-          rt.binary_path ? el('div', { class: 'muted small' }, [pathText]) : null,
-        ]));
-      }
-    }
-
-    if (kRes) {
-      ['anthropic', 'openai', 'opencode', 'antigravity'].forEach(p => {
-        const inp = $(`#key-${p}`);
-        if (inp && kRes[p]) {
-          inp.placeholder = kRes[p].has_key
-            ? `Active (${kRes[p].source}): ${kRes[p].masked_key}`
-            : `Enter ${p} API key…`;
-          inp.value = '';
-        }
-      });
-    }
+    await api.updateNote(state.currentProjectId, note.id, { text });
+    showToast('Note updated', 'success');
+    await loadProjectState();
+    openNotesModal();
   } catch (err) {
-    showToast(`Failed to load settings: ${err.message}`, 'error');
+    showToast(`Edit failed: ${err.message}`, 'error');
   }
 }
 
+async function deleteNoteInteractive(note) {
+  if (!state.currentProjectId || !note?.id) return;
+  if (!confirm('Delete this note?')) return;
+  try {
+    await api.deleteNote(state.currentProjectId, note.id);
+    showToast('Note deleted', 'success');
+    await loadProjectState();
+    openNotesModal();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+// ----------------------------------------------------------
+// Settings modal — MCP-first (no BYOK / provider config in UI)
+// ----------------------------------------------------------
+async function openSettingsModal() {
+  showModal('modal-settings');
+}
+
 async function saveSettingsKeys() {
-  const providers = ['anthropic', 'openai', 'opencode', 'antigravity'];
-  let savedCount = 0;
-  for (const p of providers) {
-    const val = $(`#key-${p}`)?.value.trim();
-    if (val) {
-      try {
-        const r = await fetch('/api/settings/keys', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: p, key: val }),
-        });
-        if (!r.ok) {
-          const body = await r.json().catch(() => ({}));
-          throw new Error(body.detail || `HTTP ${r.status}`);
-        }
-        savedCount++;
-      } catch (err) {
-        showToast(`Failed to save ${p} key: ${err.message}`, 'error');
-      }
-    }
-  }
-  if (savedCount > 0) {
-    showToast(`Saved ${savedCount} API key${savedCount === 1 ? '' : 's'} to ~/.open_edit/keys.json`, 'success');
-    await loadLLMConfig();
-  }
-  hideModal('modal-settings');
+  showToast('API keys are not configured in this UI — use your MCP harness.', 'info');
 }
 
 // ----------------------------------------------------------
@@ -678,10 +636,9 @@ const COMMANDS = [
   { id: 'refresh-projects', title: 'Refresh Projects List', icon: 'refresh', action: () => refreshProjects() },
   { id: 'render-proxy', title: 'Render review artifact (640×360)', icon: 'film', action: () => triggerRender('proxy') },
   { id: 'render-final', title: 'Render Final Video (1080p)', icon: 'video', action: () => triggerRender('final') },
-  { id: 'open-settings', title: 'Open Settings & API Keys', icon: 'settings', action: () => openSettingsModal() },
+  { id: 'open-settings', title: 'About MCP (no API keys in UI)', icon: 'settings', action: () => openSettingsModal() },
   { id: 'toggle-theme', title: 'Toggle Light / Dark Mode', icon: 'moon', action: () => toggleTheme() },
   { id: 'upload-assets', title: 'Upload Media Files', icon: 'upload', action: () => $('#file-input')?.click() },
-  { id: 'clear-chat', title: 'Clear Chat Log', icon: 'trash', action: () => clearChatLog() },
 ];
 
 let activeCmdIndex = 0;
@@ -1101,7 +1058,8 @@ function bindEvents() {
   $('#btn-render-final').addEventListener('click', () => triggerRender('final'));
   $('#btn-refresh-renders').addEventListener('click', refreshRendersList);
   $('#btn-copy-timecode')?.addEventListener('click', copyPlayheadTimecode);
-  $('#btn-add-note-playhead')?.addEventListener('click', addNoteAtPlayhead);
+  $('#btn-add-note-playhead')?.addEventListener('click', () => addNoteAtPlayhead({ track_kind: 'any' }));
+  $('#btn-add-note-audio')?.addEventListener('click', () => addNoteAtPlayhead({ track_kind: 'audio' }));
 
   const previewPlayer = $('#preview-player');
   if (previewPlayer) {
@@ -1122,8 +1080,8 @@ function bindEvents() {
 
   // Notes & Settings & Theme & Cmd+K
   $('#btn-show-notes').addEventListener('click', openNotesModal);
-  $('#btn-settings').addEventListener('click', openSettingsModal);
-  $('#btn-save-settings-keys').addEventListener('click', saveSettingsKeys);
+  $('#btn-settings')?.addEventListener('click', openSettingsModal);
+  $('#btn-save-settings-keys')?.addEventListener('click', saveSettingsKeys);
   $('#btn-toggle-theme')?.addEventListener('click', toggleTheme);
   $('#btn-cmd-k')?.addEventListener('click', openCmdPalette);
 
@@ -1839,17 +1797,25 @@ async function copyPlayheadTimecode() {
   }
 }
 
-async function addNoteAtPlayhead() {
+async function addNoteAtPlayhead(opts = {}) {
   if (!state.currentProjectId) return;
-  const text = prompt('Note for the agent at this time:', '');
+  const trackKind = opts.track_kind || 'any';
+  const trackId = opts.track_id || null;
+  const where = trackKind === 'audio' ? ' (audio)' : (trackKind === 'video' ? ' (video)' : '');
+  const text = prompt(`Note for the agent at this time${where}:`, '');
   if (!text || !text.trim()) return;
   try {
     await api.createNote(state.currentProjectId, {
       text: text.trim(),
       t_start: state.playheadSec,
       t_end: state.playheadSec,
+      track_kind: trackKind,
+      track_id: trackId,
     });
-    showToast('Note added at playhead', 'success');
+    showToast(
+      trackKind === 'audio' ? 'Audio note added' : 'Note added at playhead',
+      'success',
+    );
     await loadProjectState();
   } catch (err) {
     showToast(`Note failed: ${err.message}`, 'error');
@@ -1960,7 +1926,27 @@ export function renderTimeline(timelineData, context = {}) {
     labelsCol.appendChild(labelRow);
 
     // Track row
-    const trackRow = el('div', { class: 'timeline-track-row', style: `width:${totalWidth}px` });
+    const trackRow = el('div', {
+      class: `timeline-track-row${track.kind === 'audio' ? ' audio-track' : ''}`,
+      style: `width:${totalWidth}px`,
+      'data-track-id': track.track_id || '',
+      'data-track-kind': track.kind || 'video',
+      title: track.kind === 'audio'
+        ? 'Double-click to add an audio review note at playhead'
+        : '',
+    });
+    if (track.kind === 'audio') {
+      trackRow.addEventListener('dblclick', (evt) => {
+        evt.stopPropagation();
+        const col = $('#timeline-ruler-col');
+        const sec = timelineSecFromEvent(evt, col || trackRow);
+        seekToSec(sec);
+        addNoteAtPlayhead({
+          track_kind: 'audio',
+          track_id: track.track_id || null,
+        });
+      });
+    }
 
     // Clips
     (track.clips ?? []).forEach((clip) => {
@@ -2008,9 +1994,13 @@ export function renderTimeline(timelineData, context = {}) {
     tracksArea.appendChild(trackRow);
   });
 
-  // Edit op markers (first track row only)
-  const markerRow = tracksArea.querySelector('.timeline-track-row');
-  if (markerRow) {
+  // Note markers — prefer the matching track kind when known
+  const trackRows = [...tracksArea.querySelectorAll('.timeline-track-row')];
+  const firstRow = trackRows[0];
+  const audioRow = trackRows.find((row) => row.dataset.trackKind === 'audio') || firstRow;
+  const videoRow = trackRows.find((row) => row.dataset.trackKind !== 'audio') || firstRow;
+
+  if (firstRow) {
     for (const edit of tlEditMarkers) {
       const pos = opPositionSec(edit);
       if (pos == null) continue;
@@ -2026,22 +2016,25 @@ export function renderTimeline(timelineData, context = {}) {
         const editsTab = document.querySelector('.panel-tabs .tab[data-tab="edits"]');
         editsTab?.click();
       });
-      markerRow.appendChild(marker);
+      firstRow.appendChild(marker);
     }
     for (const note of tlNoteMarkers) {
       if (note.status && note.status !== 'pending') continue;
       const pos = Number(note.timestamp) || 0;
+      const kind = note.track_kind || 'any';
+      const host = kind === 'audio' ? audioRow : (kind === 'video' ? videoRow : firstRow);
+      if (!host) continue;
       const marker = el('div', {
-        class: 'timeline-note-marker',
+        class: `timeline-note-marker${kind === 'audio' ? ' audio-note' : ''}`,
         style: `left:${secToPx(pos)}px`,
-        title: `Note @ ${formatTimecode(pos)}: ${note.text || ''}`,
+        title: `Note${kind !== 'any' ? ` (${kind})` : ''} @ ${formatTimecode(pos)}: ${note.text || ''}`,
       });
       marker.addEventListener('click', (evt) => {
         evt.stopPropagation();
         seekToSec(pos);
         openNotesModal();
       });
-      markerRow.appendChild(marker);
+      host.appendChild(marker);
     }
   }
 

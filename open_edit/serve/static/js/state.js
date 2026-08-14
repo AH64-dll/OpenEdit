@@ -155,6 +155,8 @@ export function normalizeNotes(rawState) {
         source: n.source || 'agent',
         text: n.text || '',
         status: n.status || 'pending',
+        track_kind: n.track_kind || 'any',
+        track_id: n.track_id || null,
       })),
     };
   }
