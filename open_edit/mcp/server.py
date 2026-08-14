@@ -158,6 +158,25 @@ def build_server(project_path: Path):
                     "(get_style_profile, capture_style_hint, pins)."
                 ),
             ),
+            Prompt(
+                name="open-edit-review-notes",
+                description=(
+                    "Read/act on timeline review notes (including audio-targeted "
+                    "notes). Prefer get_pending_notes over exploring source."
+                ),
+            ),
+            Prompt(
+                name="open-edit-tool-surface",
+                description=(
+                    "4-pillar tool surface reference (query/edit/run_script/render)."
+                ),
+            ),
+            Prompt(
+                name="open-edit-edit-planning",
+                description=(
+                    "Edit planning playbook: silence, music, SFX, narrative order."
+                ),
+            ),
         ]
 
     @server.get_prompt()
@@ -167,6 +186,9 @@ def build_server(project_path: Path):
             "open-edit-playbook": "open-edit-mcp",
             "open-edit-reference": "open-edit-mcp-reference",
             "open-edit-style-memory": "style-memory",
+            "open-edit-review-notes": "review-notes",
+            "open-edit-tool-surface": "tool_surface",
+            "open-edit-edit-planning": "edit-planning",
         }
         stem = stem_map.get(name)
         if stem is None:

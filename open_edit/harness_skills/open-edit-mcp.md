@@ -86,10 +86,16 @@ names for the active operation. Never scan the repository to rediscover tools.
 
 - `query_project list_assets`
 - `query_project get_transcript_packed`
-- `query_project get_pending_notes`
+- `query_project get_pending_notes` (see also skill `review-notes`)
 - `query_project get_style_profile`
 - `query_project analyze_narrative`
 - `query_project search_assets`
+
+## Review notes
+
+Users place notes on the timeline (including audio-targeted notes). Always
+call `get_pending_notes` before guessing. Honor `anchor.track_kind` as a hint,
+but fix audio **or** picture from the same note when the text asks for it.
 
 ## Common edits
 

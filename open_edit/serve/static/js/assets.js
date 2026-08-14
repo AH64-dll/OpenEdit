@@ -34,16 +34,14 @@ export function renderAssets(assets, { onAddToTimeline } = {}) {
       ev.stopPropagation();
       if (typeof onAddToTimeline === 'function') onAddToTimeline(a);
     });
+    const dur = fmtDuration(a.duration_s);
+    const res = (a.width && a.height) ? `${a.width}×${a.height}` : '';
+    const sub = [dur, res].filter(Boolean).join(' · ');
     const card = el('div', { class: 'asset-card' }, [
       el('div', { class: 'asset-icon' }, [makeIcon(icon)]),
       el('div', { class: 'asset-meta' }, [
-        el('div', { class: 'asset-filename' }, [a.filename]),
-        el('div', { class: 'asset-sub' }, [
-          `${fmtDuration(a.duration_s)}`,
-          a.width && a.height ? ` · ${a.width}×${a.height}` : '',
-          a.codec ? ` · ${a.codec}` : '',
-          a.has_audio ? ' · audio' : '',
-        ].filter(Boolean).join('')),
+        el('div', { class: 'asset-filename', title: a.filename }, [a.filename]),
+        sub ? el('div', { class: 'asset-sub' }, [sub]) : null,
       ]),
       addBtn,
     ]);

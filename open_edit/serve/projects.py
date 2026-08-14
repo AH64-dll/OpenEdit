@@ -120,6 +120,8 @@ class ReviewNoteInfo(BaseModel):
     source: str  # "agent" | "user" | "system"
     text: str
     status: str  # "pending" | "resolved" | ...
+    track_kind: str = "any"  # "video" | "audio" | "any"
+    track_id: str | None = None
 
 
 class TimelineSummary(BaseModel):
@@ -251,6 +253,8 @@ def _note_to_info(note) -> ReviewNoteInfo:
     # We extract t_start as the timestamp.
     ts = 0.0
     t_end: float | None = None
+    track_kind = "any"
+    track_id: str | None = None
     try:
         anchor = note.anchor
         if hasattr(anchor, "model_dump"):
@@ -263,6 +267,9 @@ def _note_to_info(note) -> ReviewNoteInfo:
             ts = float(anchor_data.get("t_start", 0.0))
             if anchor_data.get("t_end") is not None:
                 t_end = float(anchor_data.get("t_end"))
+            track_kind = str(anchor_data.get("track_kind") or "any")
+            raw_track = anchor_data.get("track_id")
+            track_id = str(raw_track) if raw_track else None
     except Exception:
         pass
     return ReviewNoteInfo(
@@ -272,6 +279,8 @@ def _note_to_info(note) -> ReviewNoteInfo:
         source=str(note.source.value if hasattr(note.source, "value") else note.source),
         text=note.text or "",
         status=str(note.status.value if hasattr(note.status, "value") else note.status),
+        track_kind=track_kind if track_kind in ("video", "audio", "any") else "any",
+        track_id=track_id,
     )
 
 

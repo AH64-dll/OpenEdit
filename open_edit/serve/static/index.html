@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=20260807-merge-phi-ds">
+  <link rel="stylesheet" href="/style.css?v=20260814-notes-mcp">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%2228%22%20height%3D%2219%22%20rx%3D%224%22%20fill%3D%22%232779c3%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%2210%22%20width%3D%2218%22%20height%3D%229%22%20rx%3D%221.5%22%20fill%3D%22%230b1015%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2227%22%20width%3D%2212%22%20height%3D%223%22%20rx%3D%221.5%22%20fill%3D%22%23182027%22%2F%3E%3C%2Fsvg%3E">
 </head>
 <body class="has-timeline">
@@ -53,7 +53,7 @@
         <span class="pulse" aria-hidden="true"></span>
         <span id="mode-label" data-review-label="Review · MCP" data-agent-label="Agent · built-in">Review · MCP</span>
       </span>
-      <div class="topbar-provider agent-only">
+      <div class="topbar-provider agent-only" hidden>
         <label class="topbar-label" for="llm-provider-select">Provider</label>
         <select id="llm-provider-select" class="topbar-select" disabled>
           <option value="">—</option>
@@ -75,7 +75,7 @@
       <button id="btn-toggle-theme" class="btn btn-ghost btn-xs" title="Toggle Light/Dark Theme" data-od-id="btn-toggle-theme"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 0 1 11.21 3 7 7 0 0 0 12 19a9 9 0 0 0 9-6.21zM12 2a1 1 0 0 1 1 1v2a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm8.05 10.05a1 1 0 0 1-.05 2h-2a1 1 0 0 1 0-2h2zm-16 0a1 1 0 0 1 0 2H4a1 1 0 0 1 0-2h.05zM12 5.5a1 1 0 0 1 1 1V8a1 1 0 0 1-2 0V6.5a1 1 0 0 1 1-1z"/></svg></button>
       <button id="btn-toggle-left-panel" class="btn btn-ghost btn-xs review-only" title="Toggle assets panel" data-od-id="btn-toggle-left-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 6h9v12H4zm12 0h2v12h-2z"/></svg></button>
       <button id="btn-toggle-right-panel" class="btn btn-ghost btn-xs review-only" title="Toggle renders panel" data-od-id="btn-toggle-right-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 6h9v12H4zm12 0h2v12h-2z"/></svg></button>
-      <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" title="Settings & API Keys" data-od-id="btn-settings"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M19.14 12.94a6.5 6.5 0 0 0 0-2l2-1.5a.5.5 0 0 0 .12-.65l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.2.9a6.5 6.5 0 0 0-1.5-1l-.3-2.2a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.3 2.2a6.5 6.5 0 0 0-1.5 1l-2.2-.9a.5.5 0 0 0-.65.2l-1.9 3.2a.5.5 0 0 0 .12.65l2 1.5a6.5 6.5 0 0 0 0 2l-2 1.5a.5.5 0 0 0-.12.65l1.9 3.2a.5.5 0 0 0 .6.2l2.2-.9a6.5 6.5 0 0 0 1.5 1l.3 2.2a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.3-2.2a6.5 6.5 0 0 0 1.5-1l2.2.9a.5.5 0 0 0 .65-.2l1.9-3.2a.5.5 0 0 0-.12-.65zM12 15.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg> Settings</button>
+      <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" hidden title="Settings & API Keys" data-od-id="btn-settings"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M19.14 12.94a6.5 6.5 0 0 0 0-2l2-1.5a.5.5 0 0 0 .12-.65l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.2.9a6.5 6.5 0 0 0-1.5-1l-.3-2.2a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.3 2.2a6.5 6.5 0 0 0-1.5 1l-2.2-.9a.5.5 0 0 0-.65.2l-1.9 3.2a.5.5 0 0 0 .12.65l2 1.5a6.5 6.5 0 0 0 0 2l-2 1.5a.5.5 0 0 0-.12.65l1.9 3.2a.5.5 0 0 0 .6.2l2.2-.9a6.5 6.5 0 0 0 1.5 1l.3 2.2a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.3-2.2a6.5 6.5 0 0 0 1.5-1l2.2.9a.5.5 0 0 0 .65-.2l1.9-3.2a.5.5 0 0 0-.12-.65zM12 15.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg> Settings</button>
       <button id="btn-topbar-stop" class="btn btn-secondary hidden agent-only" title="Interrupt request" data-od-id="btn-topbar-stop"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop</button>
       <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets" aria-label="Toggle assets" data-od-id="btn-left-panel"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders" aria-label="Toggle renders" data-od-id="btn-right-panel"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
@@ -145,9 +145,7 @@
           <div class="preview-media">
             <video id="preview-player" class="preview-player" controls playsinline></video>
           </div>
-          <div id="preview-empty" class="empty-state preview-empty">
-            Render a review artifact (`mode=proxy`) to review the full cut.
-          </div>
+          <div id="preview-empty" class="empty-state preview-empty" hidden aria-hidden="true"></div>
         </div>
         <div class="transport" role="group" aria-label="Preview transport">
           <button id="btn-skip-back" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-back" title="Skip back 5 seconds" aria-label="Skip back 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 6v12"/><path d="M8 9v6l-5-3z" fill="currentColor" stroke="none"/></svg></button>
@@ -244,7 +242,8 @@
         <span class="timeline-timecode" id="timeline-timecode-label">00:00.00</span>
         <span class="timeline-zoom-label" id="timeline-duration-label">—</span>
         <button id="btn-copy-timecode" class="btn btn-ghost btn-xs" title="Copy playhead time for agent" data-od-id="btn-copy-timecode">Copy time</button>
-        <button id="btn-add-note-playhead" class="btn btn-ghost btn-xs" title="Add review note at playhead" data-od-id="btn-add-note-playhead">Note here</button>
+        <button id="btn-add-note-playhead" class="btn btn-ghost btn-xs" title="Add review note at playhead" data-od-id="btn-add-note-playhead">Note</button>
+        <button id="btn-add-note-audio" class="btn btn-ghost btn-xs" title="Add review note on audio at playhead" data-od-id="btn-add-note-audio">Audio note</button>
         <button id="btn-timeline-zoom-in"  class="btn btn-ghost btn-xs" title="Zoom in" data-od-id="btn-timeline-zoom-in">+</button>
         <button id="btn-timeline-zoom-out" class="btn btn-ghost btn-xs" title="Zoom out" data-od-id="btn-timeline-zoom-out">-</button>
         <button id="btn-timeline-fit"      class="btn btn-ghost btn-xs" title="Fit to window" data-od-id="btn-timeline-fit">Fit</button>
@@ -322,37 +321,14 @@
   <div id="modal-settings" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop"></div>
     <div class="modal-card modal-card-wide">
-      <h3>Settings &amp; API Keys</h3>
-
-      <div class="settings-block">
-        <h4>Detected Local Agent Runtimes</h4>
-        <div id="settings-runtimes-list" class="muted small settings-runtimes-list">Loading runtimes…</div>
-      </div>
-
-      <div class="settings-block">
-        <h4>API Key Configuration (BYOK)</h4>
-        <form id="settings-keys-form" class="settings-keys" onsubmit="return false">
-          <div class="settings-key-field">
-            <label class="small muted" for="key-anthropic">Anthropic API Key</label>
-            <input type="password" id="key-anthropic" class="text-input" placeholder="sk-ant-..." autocomplete="off">
-          </div>
-          <div class="settings-key-field">
-            <label class="small muted" for="key-openai">OpenAI API Key</label>
-            <input type="password" id="key-openai" class="text-input" placeholder="sk-proj-..." autocomplete="off">
-          </div>
-          <div class="settings-key-field">
-            <label class="small muted" for="key-opencode">OpenCode Key <span class="muted">(binary manages own auth)</span></label>
-            <input type="password" id="key-opencode" class="text-input" placeholder="sk-..." autocomplete="off">
-          </div>
-          <div class="settings-key-field">
-            <label class="small muted" for="key-antigravity">Antigravity / Google Key <span class="muted">(binary manages own auth)</span></label>
-            <input type="password" id="key-antigravity" class="text-input" placeholder="key..." autocomplete="off">
-          </div>
-          <div class="modal-actions settings-keys-actions">
-            <button class="btn btn-ghost" data-modal-close>Cancel</button>
-            <button id="btn-save-settings-keys" class="btn btn-primary" data-od-id="btn-save-settings-keys">Save Keys</button>
-          </div>
-        </form>
+      <h3>Open Edit is MCP-first</h3>
+      <p class="muted small">
+        Provider and API keys are not configured in this UI. Connect an MCP harness
+        (Cursor, Claude, etc.) to <code>open-edit-mcp</code> / <code>open_edit mcp</code>.
+        Skills load automatically on connect.
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-modal-close>Close</button>
       </div>
     </div>
   </div>
@@ -360,6 +336,6 @@
   <!-- =================== Toast =================== -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="/app.js?v=20260807-merge-phi-ds"></script>
+  <script type="module" src="/app.js?v=20260814-notes-mcp"></script>
 </body>
 </html>

@@ -104,13 +104,41 @@ export const api = {
     return `/api/projects/${encodeURIComponent(projectId)}/renders/${encodeURIComponent(renderId)}/file`;
   },
 
-  async createNote(projectId, { text, t_start, t_end }) {
+  async createNote(projectId, { text, t_start, t_end, track_kind, track_id }) {
     const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/notes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, t_start, t_end }),
+      body: JSON.stringify({
+        text,
+        t_start,
+        t_end,
+        track_kind: track_kind || 'any',
+        track_id: track_id || null,
+      }),
     });
     if (!r.ok) throw await _extractError(r, 'createNote');
+    return r.json();
+  },
+
+  async updateNote(projectId, noteId, fields) {
+    const r = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/notes/${encodeURIComponent(noteId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields || {}),
+      },
+    );
+    if (!r.ok) throw await _extractError(r, 'updateNote');
+    return r.json();
+  },
+
+  async deleteNote(projectId, noteId) {
+    const r = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/notes/${encodeURIComponent(noteId)}`,
+      { method: 'DELETE' },
+    );
+    if (!r.ok) throw await _extractError(r, 'deleteNote');
     return r.json();
   },
 

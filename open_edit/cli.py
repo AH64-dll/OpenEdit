@@ -607,8 +607,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
     # if no token was supplied, auth stays off.
     if getattr(args, "token", None):
         os.environ["OPEN_EDIT_TOKEN"] = args.token
-    if getattr(args, "review_only", False):
-        os.environ["OPEN_EDIT_REVIEW_ONLY"] = "1"
+    # MCP-first default: review-only unless --with-agent cleared the flag.
+    os.environ["OPEN_EDIT_REVIEW_ONLY"] = (
+        "1" if getattr(args, "review_only", True) else "0"
+    )
 
     uvicorn.run(
         "open_edit.serve.app:app",
@@ -821,10 +823,19 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument(
         "--review-only",
         action="store_true",
-        default=False,
+        default=True,
         help=(
-            "Review studio mode: preview UI + timeline without built-in "
-            "LLM chat or provider config (use with external MCP harness)."
+            "Review studio mode (default): preview UI + timeline without "
+            "built-in LLM chat or provider config (use with external MCP harness)."
+        ),
+    )
+    p_serve.add_argument(
+        "--with-agent",
+        dest="review_only",
+        action="store_false",
+        help=(
+            "Enable built-in agent chat / provider UI (disables review-only). "
+            "Not needed when using Open Edit as an MCP server."
         ),
     )
     p_serve.set_defaults(func=cmd_serve)

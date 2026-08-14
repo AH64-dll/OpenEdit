@@ -1,7 +1,6 @@
 """Tests for review-only UI mode and UI config API."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -13,13 +12,17 @@ from open_edit.serve.review_mode import auto_proxy_enabled, is_review_only
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.delenv("OPEN_EDIT_REVIEW_ONLY", raising=False)
+    # Explicit full mode for tests that expect agent endpoints.
+    monkeypatch.setenv("OPEN_EDIT_REVIEW_ONLY", "0")
     monkeypatch.delenv("OPEN_EDIT_AUTO_PROXY", raising=False)
     return TestClient(app_mod.app)
 
 
 def test_review_mode_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    # MCP-first: unset env defaults to review-only.
     monkeypatch.delenv("OPEN_EDIT_REVIEW_ONLY", raising=False)
+    assert is_review_only() is True
+    monkeypatch.setenv("OPEN_EDIT_REVIEW_ONLY", "0")
     assert is_review_only() is False
     monkeypatch.setenv("OPEN_EDIT_REVIEW_ONLY", "1")
     assert is_review_only() is True

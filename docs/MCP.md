@@ -213,16 +213,16 @@ harness — without any built-in LLM providers in Open Edit.
 # Terminal 1 — MCP (Cursor spawns this automatically from mcp.json)
 open-edit-mcp --project /absolute/path/to/project
 
-# Terminal 2 — review UI
-open_edit serve --review-only --port 8000
+# Terminal 2 — review UI (review-only is the default; --review-only is optional)
+open_edit serve --port 8000
 ```
 
 Open `http://127.0.0.1:8000`, select the same project, then:
 
 1. **Render review artifact** (640×360, fast) — review the full cut in the center player.
 2. Scrub the timeline, **Copy time** (`[MM:SS.ms]`) for Cursor chat, or
-   **Note here** to write a pending note the agent reads via
-   `query_project` → `get_pending_notes`.
+   **Note** / **Audio note** to write a pending note the agent reads via
+   `query_project` → `get_pending_notes`. Edit or delete notes from the Notes modal.
 3. Revert unwanted ops in the **Edit graph** panel (or click orange markers
    on the timeline).
 4. **Render final** (1080p) when satisfied.
@@ -373,6 +373,7 @@ Canonical playbooks live in the repo **`skills/`** folder — not Cursor-only:
 | File | Role |
 |---|---|
 | [`skills/open-edit-mcp.md`](../skills/open-edit-mcp.md) | **Start here** — tools, when to use, recipes |
+| [`skills/review-notes.md`](../skills/review-notes.md) | Timeline notes (edit/delete/audio) |
 | [`skills/open-edit-mcp-reference.md`](../skills/open-edit-mcp-reference.md) | IR / `run_script` |
 | [`skills/README.md`](../skills/README.md) | Full skill index |
 
@@ -382,19 +383,27 @@ installed wheels). Override search path with `OPEN_EDIT_SKILLS_DIR`.
 ### How hosts load them
 
 1. **Filesystem** — read `skills/open-edit-mcp.md`
-2. **MCP initialize `instructions`** — playbook text is sent to the client
-3. **MCP resources** — `open-edit://skills/open-edit-mcp`, `…/open-edit-mcp-reference`, …
-4. **MCP prompts** — `open-edit-playbook`, `open-edit-reference`
+2. **MCP initialize `instructions` (mandatory)** — embeds `open-edit-mcp`,
+   `tool_surface`, `edit-planning`, `review-notes`, and `style-memory` so
+   harnesses do not explore the repository to rediscover workflows
+3. **MCP resources** — `open-edit://skills/open-edit-mcp`, `…/review-notes`, …
+4. **MCP prompts** — `open-edit-playbook`, `open-edit-reference`,
+   `open-edit-review-notes`, `open-edit-style-memory`, …
 5. **Python** — `from open_edit.mcp.skills import load_skill`
 
 Cursor also has a thin pointer under `.cursor/skills/open-edit-mcp/` that
 redirects to the same project files.
+
+Review Studio UI (`open_edit serve`, review-only by default) is the human
+preview/notes surface for MCP. Use `--with-agent` only if you need the
+built-in chat UI. Provider/API-key fields are not part of the MCP-first UI.
 
 Longer planning docs:
 
 - [`skills/tool_surface.md`](../skills/tool_surface.md)
 - [`skills/edit-planning.md`](../skills/edit-planning.md)
 - [`skills/remotion_motion.md`](../skills/remotion_motion.md)
+- [`skills/style-memory.md`](../skills/style-memory.md)
 
 ## Security notes
 
