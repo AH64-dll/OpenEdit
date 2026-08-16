@@ -450,7 +450,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         else:
             print(f"QC: {'PASS' if qc_report['passed'] else 'FAIL'}")
         for c in qc_report["checks"]:
-            mark = "✓" if c["passed"] else "✗"
+            mark = "PASS" if c["passed"] else "FAIL"
             print(f"  [{mark}] {c['name']}: {c['detail']}")
         return 0 if qc_report["passed"] else 1
     else:
