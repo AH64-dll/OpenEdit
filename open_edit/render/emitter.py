@@ -51,6 +51,7 @@ def _emit_audio_micro_fade(
     fps_num: int,
     fps_den: int,
     micro_fade_dur_sec: float = 0.030,
+    clip_in_sec: float = 0.0,
 ) -> None:
     """Inject 30ms audio micro-fade-in and fade-out filter into clip entry.
 
@@ -61,11 +62,12 @@ def _emit_audio_micro_fade(
     if clip_dur_sec < 0.060:
         fade_dur = clip_dur_sec / 2.0
 
+    clip_in_frame = int(round(clip_in_sec * fps_num / fps_den))
     clip_end_frame = int(round(clip_dur_sec * fps_num / fps_den))
 
     if clip_end_frame == 0:
         # 1-frame clip: preserve full volume 1.0 (not muted)
-        deduped = [(0, 1.0)]
+        deduped = [(clip_in_frame + 0, 1.0)]
     else:
         fade_in_end_frame = int(round(fade_dur * fps_num / fps_den))
         fade_out_start_frame = int(round((clip_dur_sec - fade_dur) * fps_num / fps_den))
@@ -81,16 +83,16 @@ def _emit_audio_micro_fade(
         kf_dict: dict[int, float] = {}
 
         # 1. Start frame (0) is 0.0 for multi-frame clips
-        kf_dict[0] = 0.0
+        kf_dict[clip_in_frame + 0] = 0.0
 
         # 2. Fade peak frames set to 1.0 (peak volume takes priority)
-        kf_dict[fade_in_end_frame] = 1.0
-        kf_dict[fade_out_start_frame] = 1.0
+        kf_dict[clip_in_frame + fade_in_end_frame] = 1.0
+        kf_dict[clip_in_frame + fade_out_start_frame] = 1.0
 
         # 3. Clip end frame set to 0.0 ONLY if it occurs strictly after start (0) AND after all fade peak frames
         max_peak_frame = max(fade_in_end_frame, fade_out_start_frame)
         if clip_end_frame > 0 and clip_end_frame > max_peak_frame:
-            kf_dict[clip_end_frame] = 0.0
+            kf_dict[clip_in_frame + clip_end_frame] = 0.0
 
         deduped = [(f, kf_dict[f]) for f in sorted(kf_dict.keys())]
 
@@ -307,6 +309,7 @@ def emit_timeline(
                     fps_num,
                     fps_den,
                     config.micro_fade_duration_sec,
+                    clip_in_sec=clip.in_point_sec,
                 )
             for effect in clip.effects:
                 if effect.effect_type.startswith("transition_"):
