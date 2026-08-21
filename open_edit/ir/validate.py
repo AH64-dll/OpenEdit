@@ -250,6 +250,8 @@ def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
     clips: set[str] = set()
     effects: set[str] = set()
     for op in ops:
+        if op.status != "applied":
+            continue
         if isinstance(op, AddClipOp):
             clips.add(op.clip_id)
         elif isinstance(op, RemoveClipOp):
