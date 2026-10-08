@@ -80,6 +80,8 @@ body[data-workspace=graphics] #timeline-inspector { display:none; }
 .studio-animation { margin-top:18px; padding-top:12px; border-top:1px solid var(--border); }
 .studio-animation > label { display:flex; align-items:center; gap:8px; }
 .panel-tabs { overflow-x:auto; flex-shrink:0; }
+.panel-tabs { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+body[data-workspace=review] #clip-inspector, body[data-workspace=code] #timeline-inspector { display:none; }
 .caption-editor { padding:12px; overflow:auto; }
 .caption-actions { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
 .caption-list { display:flex; flex-direction:column; gap:6px; max-height:220px; overflow:auto; margin:12px 0; }
@@ -90,6 +92,17 @@ body[data-workspace=graphics] #timeline-inspector { display:none; }
 .caption-timeline-row { position:relative; height:34px; border-top:1px solid var(--border); }
 .caption-timeline-row button { position:absolute; height:26px; top:4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; background:#5e487e; color:white; }
 .preview-media { position:relative; }
+.media-mark-overlay { position:absolute; touch-action:none; }
+.media-mark-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:8px 16px; border-top:1px solid var(--border); }
+.media-mark-toolbar select { max-width:180px; }
+.quality-check-form { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 16px 8px; font-size:11px; }
+.quality-check-form input { width:70px; min-width:0; }
+#quality-check-dialog { width:min(1100px,calc(100vw - 24px)); color:var(--text); background:var(--bg-surface); border:1px solid var(--border); border-radius:10px; }
+#quality-check-dialog video { width:100%; max-height:75dvh; }
+#quality-check-dialog::backdrop { background:#030912bb; }
+#media-marks-inspector summary { cursor:pointer; font-weight:600; }
+#media-mark-properties textarea { max-height:160px; }
+body[data-workspace=graphics] #media-marks-inspector { display:none; }
 .caption-live-overlay { position:absolute; pointer-events:none; }
 .caption-live-overlay img { position:absolute; width:100%; height:100%; inset:0; }
 .studio-animation > select { width:100%; margin:8px 0; }

@@ -180,6 +180,7 @@ class IR:
     def add_transition(
         self, clip_a_id: str, clip_b_id: str, transition_type: str, duration_sec: float,
         originating_note_id: str | None = None,
+        *, layout: str = 'legacy',
     ) -> None:
         op = AddTransitionOp(
             edit_id=new_id(),
@@ -189,6 +190,7 @@ class IR:
             clip_b_id=clip_b_id,
             transition_type=transition_type,
             duration_sec=duration_sec,
+            layout=layout,
             originating_note_id=self._note_id(originating_note_id),
         )
         self._ops.append(op)

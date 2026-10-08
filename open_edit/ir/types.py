@@ -84,6 +84,20 @@ class Timeline(BaseModel):
     duration_sec: float = 0.0
     graphics_documents: dict[str, dict[str, Any]] = Field(default_factory=dict)
     captions: dict[str, CaptionCue] = Field(default_factory=dict)
+    visual_transitions: list[VisualTransition] = Field(default_factory=list)
+
+
+class VisualTransition(BaseModel):
+    transition_id: str
+    kind: Literal['dissolve', 'wipe', 'fade', 'luma', 'cut']
+    clip_a: Clip
+    clip_b: Clip
+    track_effects: list[Effect] = Field(default_factory=list)
+    z_index: int = 0
+    duration_sec: float
+    position_sec: float
+    in_point_sec: float = 0
+    visible_duration_sec: float
 
 
 class RemotionComposition(BaseModel):
@@ -262,6 +276,8 @@ class AddTransitionOp(Operation):
     clip_b_id: str
     transition_type: Literal["luma", "dissolve", "wipe", "fade", "cut"]
     duration_sec: float
+    # Old edit graphs retain their original replay geometry.
+    layout: Literal['legacy', 'centered'] = 'legacy'
 
 
 class RemoveTransitionOp(Operation):

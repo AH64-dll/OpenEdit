@@ -168,6 +168,34 @@ local regression at that checkpoint passed: 1632 tests, 18 MLT skips, 8 browser
 tests deselected. Full new browser interaction and reviewed UI acceptance remain
 pending; the library is now visible by default when using external MCP too.
 
+Media/transition/range-check checkpoint: video preview annotations support
+arrows, boxes, freehand, pins and notes with editable points, timing, color,
+visibility and locks. Region selection remains separate. Manual and AI marks
+share durable history and context. Explicit conversion creates an independent
+editable JSX graphics document; keeping/deleting the mark does not affect the
+graphic. Real compiler round-trips passed for every mark type.
+
+New visual transitions retain the original trims and cut; their boundary
+frames freeze where no extra trimmed footage is available. Type, duration,
+bypass and removal are editable. Existing transition operations retain legacy
+replay semantics. Cached alpha transitions respect effects, layering and
+selected-range offsets. Actual FFmpeg crossfade/wipe pixel checks pass;
+actual MLT transition acceptance is added to CI. Audio uses its own fades.
+
+Full-quality range checks now use original media and immutable source snapshots,
+at project geometry/FPS, and remain in the project cache. The UI presents the
+verified check and explicitly marks it outdated after later edits. Local export
+API checks pass (21 checks). The clip inspector now exposes timing alongside
+its effects; advanced source controls stay in Code. Library tabs fit the panel.
+
+At 3ead7c3, all three compiler/platform jobs passed, including Windows cleanup,
+caption/font rasterization and audio parameter validation. Full local regression
+passed with 1640 tests, 18 MLT-dependent skips and 9 browser tests deselected.
+Actual immutable MLT range export and interactive/export graphics parity passed.
+Browser CI exposed a timeline repaint race in the test and an ignored EQ in
+MLT; the repaint wait is corrected and detailed EQ renderer diagnostics are
+added. These remain pending current runtime acceptance.
+
 Still required: request-revert browser acceptance, complete timeline
 interaction and track controls, effect-stack editing, keyframe/curve UI, audio
 waveforms and controls, caption/style/font editing, full media-canvas marks,

@@ -66,6 +66,9 @@ def derive_timeline(project: Project, strict: bool = False) -> Timeline:
         if end > max_end:
             max_end = end
     timeline.duration_sec = max(max_end, max((c.end_sec for c in timeline.captions.values() if c.enabled), default=0))
+    from open_edit.ir.visual_transitions import resolve_transitions
+
+    timeline.visual_transitions = resolve_transitions(timeline)
     if strict:
         from open_edit.ir.validate import TimelineValidationError, validate_timeline
         errs = validate_timeline(timeline)

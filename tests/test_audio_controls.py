@@ -162,6 +162,10 @@ def test_actual_mlt_gain_fades_pan_and_eq(tmp_path, monkeypatch):
     base = derive_timeline(Project(name="audio", edit_graph=store.load_all()))
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
+    artifacts = Path('tests/browser/artifacts')
+    artifacts.mkdir(parents=True, exist_ok=True)
+    query = subprocess.run(['melt', '-query', 'filter=avfilter.equalizer'], capture_output=True, env=os.environ)
+    (artifacts / 'audio-eq-service.log').write_bytes(query.stdout + query.stderr)
 
     def render(kind=None, params=None):
         timeline = base.model_copy(deep=True)
@@ -200,6 +204,8 @@ def test_actual_mlt_gain_fades_pan_and_eq(tmp_path, monkeypatch):
             env=os.environ,
         )
         assert result.returncode == 0, result.stderr.decode(errors="replace")
+        (artifacts / f'audio-{kind or "base"}.log').write_bytes(result.stdout + result.stderr)
+        (artifacts / f'audio-{kind or "base"}.mlt').write_text(xml.read_text())
         return out
 
     def rms(path, start=0.8, duration=0.15):

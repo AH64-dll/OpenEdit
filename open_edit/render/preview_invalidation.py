@@ -146,6 +146,11 @@ def slice_timeline(
     updated = timeline.model_copy(deep=True)
     start_sec = _frames_to_seconds(render_start_frame, fps_num, fps_den)
     end_sec = _frames_to_seconds(render_end_frame, fps_num, fps_den)
+    updated.visual_transitions = [t.model_copy(update={
+        'position_sec': max(t.position_sec, start_sec) - start_sec,
+        'in_point_sec': t.in_point_sec + max(0, start_sec - t.position_sec),
+        'visible_duration_sec': min(t.position_sec + t.visible_duration_sec, end_sec) - max(t.position_sec, start_sec),
+    }) for t in updated.visual_transitions if plane != 'audio' and t.position_sec < end_sec and t.position_sec + t.visible_duration_sec > start_sec]
     updated.captions = {id: cue.model_copy(update={'start_sec': max(cue.start_sec, start_sec) - start_sec,
         'end_sec': min(cue.end_sec, end_sec) - start_sec}) for id, cue in updated.captions.items()
         if plane != 'audio' and cue.start_sec < end_sec and cue.end_sec > start_sec}

@@ -30,6 +30,29 @@ class ExportRequest(BaseModel):
     settings: ExportSettings
 
 
+class QualityCheckRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    expected_revision: StrictInt = Field(ge=0)
+    start_sec: float = Field(ge=0, allow_inf_nan=False)
+    end_sec: float = Field(gt=0, allow_inf_nan=False)
+
+
+@router.post('/api/projects/{project_id}/preview/check', status_code=202)
+async def check_range(project_id: str, request: QualityCheckRequest):
+    """Use original media and a frozen revision; keep the check in project cache."""
+    state = await _require_project(project_id)
+    root = Path(state.path)
+    defaults = await run_in_threadpool(export_defaults, root)
+    try:
+        settings = ExportSettings.model_validate({**defaults['settings'],
+            'folder': str(root / '.open_edit/cache/checks'), 'filename': 'Quality check',
+            'range_mode': 'range', 'start_sec': request.start_sec, 'end_sec': request.end_sec,
+            'quality': 'high', 'encoder': 'auto'})
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return await post_export(project_id, ExportRequest(expected_revision=request.expected_revision, settings=settings))
+
+
 @router.get("/api/projects/{project_id}/export/settings")
 async def get_settings(project_id: str):
     state = await _require_project(project_id)

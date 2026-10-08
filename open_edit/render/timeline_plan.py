@@ -101,8 +101,12 @@ def build_render_plan(
     )
     video_overlays = _video_track_overlay_clips(timeline, asset_paths, store=store,
         profile=frame_profile or remotion_profile_for_mode(mode))
+    from open_edit.render.visual_transitions import transition_overlay
+
+    transitions = [transition_overlay(spec, asset_paths, store.assets_dir.parent / 'cache/transitions',
+        frame_profile or remotion_profile_for_mode(mode)) for spec in timeline.visual_transitions]
     overlay_clips = sorted(
-        remotion_overlays + frame_overlays + video_overlays,
+        remotion_overlays + frame_overlays + video_overlays + transitions,
         key=lambda o: o.z_index,
     )
     if timeline.captions:
@@ -165,6 +169,10 @@ def _resolve_asset_paths_with_diagnostics(
     enqueue_missing_proxies: bool,
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     hashes: list[str] = []
+    for spec in timeline.visual_transitions:
+        for clip in (spec.clip_a, spec.clip_b):
+            if clip.asset_hash not in hashes:
+                hashes.append(clip.asset_hash)
     for op in ops:
         if isinstance(op, AddClipOp) and op.asset_hash not in hashes:
             hashes.append(op.asset_hash)
@@ -347,8 +355,8 @@ def _video_track_overlay_clips(
         visible = track.model_copy(deep=True, update={'clips': [c for c in track.clips if not c.hidden]})
         if not visible.clips:
             continue
-        audio_effects = {'volume', 'gain', 'panner', 'eq', 'sfx', 'music_bed'}
-        needs_effect_pass = any(e.enabled and e.effect_type not in audio_effects
+        audio_effects = {'volume', 'gain', 'panner', 'eq', 'sfx', 'music_bed', 'audio_fade_in', 'audio_fade_out'}
+        needs_effect_pass = any(e.enabled and e.effect_type not in audio_effects and not e.effect_type.startswith('transition_')
                                for e in [*track.effects, *[e for c in visible.clips for e in c.effects]])
         filtered = None
         if needs_effect_pass:

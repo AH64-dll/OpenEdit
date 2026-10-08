@@ -188,7 +188,7 @@ const { chromium } = require('playwright-core');
     await page.locator('#workspace-review').click();
     await page.locator('.timeline-clip').first().click();
     await page.waitForFunction(() => document.querySelector('#right-panel').classList.contains('open'));
-    assert.ok(await page.locator('#authoring-properties').isVisible());
+    assert.ok(await page.locator('#timeline-inspector').isVisible());
     await page.screenshot({ path:path.join(__dirname, 'artifacts/workspace-mobile-inspector.png'), fullPage:true });
     await page.locator('#btn-right-panel').click();
     await page.locator('#project-select').selectOption('');

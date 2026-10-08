@@ -254,6 +254,34 @@ function renderInspector() {
     maxlength: 256
   });
   props.append(name.wrap);
+  if (owner.kind === 'clip') {
+    const start = input('Start (seconds)', target.position_sec, {
+        type: 'number',
+        min: 0,
+        step: 'any'
+      }),
+      sourceIn = input('Source in (seconds)', target.in_point_sec, {
+        type: 'number',
+        min: 0,
+        step: 'any'
+      }),
+      sourceOut = input('Source out (seconds)', target.out_point_sec, {
+        type: 'number',
+        min: 0,
+        step: 'any'
+      });
+    props.append(start.wrap, sourceIn.wrap, sourceOut.wrap, button('Apply timing', () => commit([{
+      kind: 'trim_clip',
+      clip_id: target.clip_id,
+      new_in_point_sec: Number(sourceIn.field.value),
+      new_out_point_sec: Number(sourceOut.field.value)
+    }, {
+      kind: 'move_clip',
+      clip_id: target.clip_id,
+      new_track_id: target.track_id,
+      new_position_sec: Number(start.field.value)
+    }], 'Edit clip timing'), disabled));
+  }
   const flags = {};
   for (const key of ['locked', 'muted', 'hidden']) {
     const f = input(key[0].toUpperCase() + key.slice(1), '', {
@@ -326,6 +354,32 @@ function renderInspector() {
     }], 'Remove track'), disabled || target.clips.length > 0 || target.effects.length > 0));
   }
   inspector.append(actions);
+  if (owner.kind === 'clip' && target.track_kind === 'video' && !target.document_id) {
+    const next = tracks().find(t => t.track_id === target.track_id)?.clips.find(c => c.clip_id !== target.clip_id && !c.document_id && Math.abs(c.position_sec - target.position_sec - target.out_point_sec + target.in_point_sec) < .000001);
+    if (next && !target.effects.some(e => e.params.layout === 'centered')) {
+      const kind = node('select', undefined, {
+        'aria-label': 'New visual transition'
+      });
+      for (const value of ['dissolve', 'wipe', 'cut']) kind.append(node('option', value, {
+        value
+      }));
+      const duration = input('Transition duration (seconds)', Math.min(.5, target.out_point_sec - target.in_point_sec, next.out_point_sec - next.in_point_sec), {
+        type: 'number',
+        min: .01,
+        max: 30,
+        step: 'any'
+      });
+      inspector.append(kind, duration.wrap, button('Add visual transition', () => commit([{
+        kind: 'add_transition',
+        edit_id: uid('cut'),
+        clip_a_id: target.clip_id,
+        clip_b_id: next.clip_id,
+        transition_type: kind.value,
+        duration_sec: Number(duration.field.value),
+        layout: 'centered'
+      }], 'Add visual transition'), disabled || isLocked(next)));
+    }
+  }
   const add = node('select', undefined, {
     'aria-label': 'Add effect'
   });
@@ -360,6 +414,40 @@ function renderEffect(effect, index, count, disabled) {
   box.open = true;
   box.append(node('summary', `${index + 1}. ${effect.effect_type}${effect.enabled === false ? ' · bypassed' : ''}`));
   if (effect.effect_type.startsWith('transition_')) {
+    if (effect.params.layout === 'centered') {
+      const type = node('select', undefined, {
+        'aria-label': 'Visual transition type'
+      });
+      for (const value of ['dissolve', 'wipe', 'fade', 'luma', 'cut']) type.append(node('option', value, {
+        value
+      }));
+      type.value = effect.effect_type.slice('transition_'.length);
+      const duration = input('Duration (seconds)', effect.params.duration_sec, {
+        type: 'number',
+        min: .01,
+        max: 30,
+        step: 'any'
+      });
+      box.append(type, duration.wrap, button('Update transition', () => commit([{
+        kind: 'set_transition_property',
+        transition_id: effect.effect_id,
+        prop_name: 'type',
+        value: type.value
+      }, {
+        kind: 'set_transition_property',
+        transition_id: effect.effect_id,
+        prop_name: 'duration_sec',
+        value: duration.field.value
+      }], 'Edit visual transition'), disabled), button(effect.enabled === false ? 'Enable transition' : 'Bypass transition', () => commit([{
+        kind: 'set_transition_property',
+        transition_id: effect.effect_id,
+        prop_name: 'enabled',
+        value: String(effect.enabled === false)
+      }], 'Toggle visual transition'), disabled));
+      box.append(node('p', 'Keeps the cut and trims. Boundary frames freeze through the blend; audio keeps its own fades.', {
+        class: 'muted small'
+      }));
+    }
     box.append(node('p', 'Transition between clips', {
       class: 'muted small'
     }), button('Remove transition', () => commit([{

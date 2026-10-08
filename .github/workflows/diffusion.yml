@@ -54,6 +54,7 @@ jobs:
       - run: pytest tests/test_export_service.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_captions.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_audio_controls.py -m "not browser" --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_media_marks.py tests/test_visual_transitions.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py tests/test_action_history.py tests/test_editing_setup.py --timeout=40 --timeout-method=thread
       - if: matrix.os != 'ubuntu-latest'
         run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
@@ -90,6 +91,9 @@ jobs:
       - run: pytest tests/test_studio_graphics.py -m browser --timeout=240 --timeout-method=thread
       - run: pytest tests/test_export_service.py -m browser --timeout=240 --timeout-method=thread
       - run: pytest tests/test_audio_controls.py -m browser --timeout=240 --timeout-method=thread
+        if: success() || failure()
+      - run: pytest tests/test_visual_transitions.py -m browser --timeout=240 --timeout-method=thread
+        if: success() || failure()
       - name: Install independent legacy Remotion compatibility
         run: open_edit setup legacy-remotion
       - name: Actual optional Remotion TSX and frame-pull compatibility
@@ -98,6 +102,7 @@ jobs:
           export OPEN_EDIT_REMOTION_CHROME_BIN="$OPEN_EDIT_REMOTION_BROWSER"
           pytest tests/test_legacy_remotion_browser.py -m browser --timeout=240 --timeout-method=thread
       - run: node tests/browser/authoring.cjs
+        if: success() || failure()
       - run: node tests/browser/studio.cjs
         if: success() || failure()
       - run: pytest tests/test_diffusion_timing.py --timeout=60 --timeout-method=thread

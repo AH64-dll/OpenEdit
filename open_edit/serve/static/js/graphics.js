@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { studio, loadStudio, studioRequest, commitStudio, studioObject, selectObjects, selectMarks } from './studio-state.js';
 import { inverse, transformPoint, localDelta, insidePolygon, bounds, selectionRoots, layerLocked, annotationPoints, alignmentOffsets } from './studio-geometry.js';
 import { keyframeEdits } from './keyframes.js';
+import { convertMark } from './media-marks.js';
 
 const el = id => document.getElementById(`graphics-${id}`);
 const panel = el('panel'), source = el('source'), canvas = el('canvas'), live = el('live');
@@ -295,6 +296,7 @@ el('mark-properties').addEventListener('submit', safe(async event => {
   if (current) await commitStudio([{ kind: 'annotation', object_id: current.object_id, data: { ...current.data, text: f.elements.text.value, scope: f.elements.scope.value, anchor_sec: Number(f.elements.anchor_sec.value), end_sec: f.elements.end_sec.value === '' ? null : Number(f.elements.end_sec.value) } }], 'Edit AI mark');
 }));
 el('delete-mark').addEventListener('click', safe(async () => { const current = mark(); if (current) await commitStudio([{ kind: 'annotation', object_id: current.object_id, data: null }], 'Delete AI mark'); selectMarks([]); }));
+el('convert-mark').addEventListener('click', safe(() => convertMark(mark())));
 el('seek').addEventListener('input', safe(event => { playing = false; return seek(event.target.value); }));
 el('play').addEventListener('click', () => {
   const token = ++playGeneration; playing = !playing; if (!playing) return; if (time >= (draft?.data.duration_sec || 3) - .05) time = 0; let last = performance.now();

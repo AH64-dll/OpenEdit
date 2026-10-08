@@ -337,7 +337,8 @@ def emit_timeline(
                 if not effect.enabled:
                     continue
                 if effect.effect_type.startswith("transition_"):
-                    _emit_transition(entry, effect)
+                    if effect.params.get('layout') != 'centered':
+                        _emit_transition(entry, effect)
                 else:
                     _emit_filter(entry, effect, fps_num, fps_den, clip_in=clip.in_point_sec, clip_duration=clip_dur)
             current_pos = clip.position_sec + clip_dur

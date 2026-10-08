@@ -237,6 +237,17 @@ async def test_export_http_captures_revision_and_verified_file_actions(project, 
             json={"expected_revision": 0, "settings": defaults["settings"]},
         )
         assert rejected.status_code == 409
+        check = await client.post('/api/projects/p/preview/check', json={
+            'expected_revision': store.graph_revision(), 'start_sec': .25, 'end_sec': .75})
+        assert check.status_code == 202, check.text
+        checked = await DEFAULT_RENDER_JOB_SERVICE.wait(root, check.json()['job_id'])
+        options = checked.params['export']['settings']
+        assert checked.status == 'succeeded' and options['folder'] == str(root / '.open_edit/cache/checks')
+        assert (options['width'],options['height'],options['fps_num']) == (320,180,24)
+        assert options['range_mode'] == 'range' and options['quality'] == 'high'
+        invalid = await client.post('/api/projects/p/preview/check', json={
+            'expected_revision': store.graph_revision(), 'start_sec': .75, 'end_sec': .25})
+        assert invalid.status_code == 400
 
 
 @pytest.mark.browser
