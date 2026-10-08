@@ -237,7 +237,7 @@ async def test_llm_stream_openai_surfaces_clean_error(
         monkeypatch.setitem(sys.modules, "openai", fake_openai)
     else:
         # Ensure the real openai (if installed) isn't picked up.
-        monkeypatch.delitem(sys.modules, "openai", raising=False)
+        monkeypatch.setitem(sys.modules, "openai", None)
     events: list[StreamEvent] = []
     async for ev in agent_mod.stream_chat(
         messages=[{"role": "user", "content": "hi"}],
