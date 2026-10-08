@@ -700,7 +700,7 @@ const COMMANDS = [
   { id: 'new-project', title: 'Create New Project', icon: 'plus', action: () => $('#btn-new-project')?.click() },
   { id: 'refresh-projects', title: 'Refresh Projects List', icon: 'refresh', action: () => refreshProjects() },
   { id: 'render-proxy', title: 'Render review artifact (640×360)', icon: 'film', action: () => triggerRender('proxy') },
-  { id: 'render-final', title: 'Render Final Video (1080p)', icon: 'video', action: () => triggerRender('final') },
+  { id: 'render-final', title: 'Export video…', icon: 'video', action: () => triggerRender('final') },
   { id: 'open-settings', title: 'About MCP (no API keys in UI)', icon: 'settings', action: () => openSettingsModal() },
   { id: 'toggle-theme', title: 'Toggle Light / Dark Mode', icon: 'moon', action: () => toggleTheme() },
   { id: 'upload-assets', title: 'Upload Media Files', icon: 'upload', action: () => $('#file-input')?.click() },
@@ -956,18 +956,14 @@ async function triggerRender(mode) {
     showToast('Select or create a project first.', 'error');
     return;
   }
+  if (mode === 'final') {
+    try { await (await import('./js/export-ui.js')).openExportDialog(); }
+    catch (error) { showToast(error.message,'error'); }
+    return;
+  }
   if (mode === 'proxy' && state.autoPreview && state.capabilities?.timeline) { observePreview(true); return; }
   const encoderSel = $('#render-encoder-select');
   const encoder = ['cpu', 'gpu'].includes(encoderSel?.value) ? encoderSel.value : 'auto';
-  if (mode === 'final') {
-    const stale = await isProxyStale();
-    if (stale) {
-      const ok = confirm(
-        'No proxy render matches the current edit graph. Render a proxy first to review, or continue with final anyway?',
-      );
-      if (!ok) return;
-    }
-  }
   showToast(`Rendering ${mode} on ${encoder.toUpperCase()}…`, 'info');
   setRenderButtonsBusy(true, 'Rendering…');
   if (mode === 'proxy') state.proxyRenderInFlight = true;

@@ -113,6 +113,7 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
                   request_id: str | None = None, label: str | None = None,
                   _status_changes: dict | None = None, _reverted_targets: list[str] | None = None,
                   _preview: bool = False) -> dict:
+    project_path=Path(project_path)
     from pydantic import TypeAdapter
 
     from open_edit.ir.types import (

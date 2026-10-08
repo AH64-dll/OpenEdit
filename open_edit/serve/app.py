@@ -41,7 +41,17 @@ from .diagnostics import collect_diagnostics
 from .diagnostics import get_health as _collect_health
 from .extensions import agent as chat_mod
 from .logging_setup import CorrelationIdMiddleware, setup_logging
-from .routers import assets, authoring, config, ops, preview_chunks, projects, renders, studio
+from .routers import (
+    assets,
+    authoring,
+    config,
+    exports,
+    ops,
+    preview_chunks,
+    projects,
+    renders,
+    studio,
+)
 
 
 @asynccontextmanager
@@ -142,6 +152,7 @@ async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse
 
 app.include_router(projects.router)
 app.include_router(renders.router)
+app.include_router(exports.router)
 app.include_router(preview_chunks.router)
 app.include_router(ops.router)
 app.include_router(config.router)

@@ -1,7 +1,9 @@
 // MIT host over the pinned, unchanged MPL runtime, reconciler, and encoder.
-import { createRuntimeWorld, FrameRate, RenderSurface, Mode, Library, Fonts, FramePromises, resetCamera } from '@diffusionstudio/runtime';
+import { createRuntimeWorld, FrameRate, RenderSurface, Mode, Library, Fonts, FramePromises, resetCamera, Time, Computed, store, assetSystem, playbackSystem, motionSystem } from '@diffusionstudio/runtime';
 import { mount } from '@diffusionstudio/reconciler';
 import { createImageEncoder } from '@diffusionstudio/encoder';
+import { captureScene, normalizeSceneTransform, resolverSystem } from './vendor/encoder/src/encoder';
+import { settleGeometry } from './settle-geometry';
 
 let world: any;
 let mounted: any;
@@ -29,6 +31,13 @@ let mounted: any;
   },
   async frame(index: number) {
     const encoder = await createImageEncoder(world, { frames: [index] });
+    // Resolve nested group bounds for this exact frame before the encoder's
+    // unchanged systems pass, so first-frame export and interactive seek agree.
+    const scene=captureScene(world), computed=store(world,Computed), fps=world.get(FrameRate).value;
+    computed.localTime[scene.id()]=index; computed.localTimeInSeconds[scene.id()]=index/fps;
+    const time=world.get(Time);world.set(Time,{delta:1000/fps,now:time.now+1000/fps});
+    assetSystem(world);playbackSystem(world);await resolverSystem(world);motionSystem(world);
+    normalizeSceneTransform(world,scene.id());settleGeometry(world,scene);
     const result = await encoder.render();
     if (result.type !== 'success') throw new Error(result.type === 'error' ? result.error.message : 'Capture cancelled');
     // Bounded to one frame per host round trip; no movie-sized JS/base64 buffer.

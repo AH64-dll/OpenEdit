@@ -51,6 +51,7 @@ jobs:
       - run: pytest tests/test_request_history.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_timeline_controls.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_graphics_animation.py tests/test_asset_visuals.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_export_service.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py tests/test_action_history.py tests/test_editing_setup.py --timeout=40 --timeout-method=thread
       - if: matrix.os != 'ubuntu-latest'
         run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
@@ -85,6 +86,7 @@ jobs:
       - run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
       - run: pytest tests/test_diffusion_graphics.py -m browser --timeout=240 --timeout-method=thread
       - run: pytest tests/test_studio_graphics.py -m browser --timeout=240 --timeout-method=thread
+      - run: pytest tests/test_export_service.py -m browser --timeout=240 --timeout-method=thread
       - name: Install independent legacy Remotion compatibility
         run: open_edit setup legacy-remotion
       - name: Actual optional Remotion TSX and frame-pull compatibility

@@ -454,7 +454,7 @@ class RenderJobService:
                 current = self.get(project_path, job_id)
                 if current is not None and current.status in ("cancelling", "cancelled"):
                     raise asyncio.CancelledError
-                if initial.mode not in ("preview-chunks", "graphics"):
+                if initial.mode not in ("preview-chunks", "graphics") and not (initial.params or {}).get('export'):
                     result = await self._attach_qc(result, project_path)
                 self._update(
                     project_path, job_id, "succeeded",
@@ -628,7 +628,9 @@ class RenderJobService:
         """Run an isolated render worker and consume its JSON result."""
         job = self.get(project_path, job_id)
         params = (job.params if job is not None else None) or {}
-        if mode == 'graphics':
+        if mode=='final' and params.get('export'):
+            command=[sys.executable,'-m','open_edit.kernel.export_worker','--project',str(project_path),'--job-id',job_id]
+        elif mode == 'graphics':
             command = [sys.executable, '-m', 'open_edit.integrations.diffusion.render_job',
                        '--project', str(project_path), '--job-id', job_id]
         elif mode == "overlay":
@@ -646,7 +648,7 @@ class RenderJobService:
                 sys.executable, "-m", "open_edit.cli", "render",
                 "--mode", mode, "--json",
             ]
-        if mode not in ("overlay", "preview-chunks", "graphics"):
+        if mode not in ("overlay", "preview-chunks", "graphics") and not params.get('export'):
             for key, flag in (("profile", "--profile"), ("quality", "--quality"),
                               ("crf", "--crf"), ("vb", "--vb"), ("preset", "--preset"),
                               ("scale", "--scale"), ("codec", "--codec")):

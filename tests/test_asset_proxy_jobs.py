@@ -1,6 +1,7 @@
 """Tests for durable host-side source-proxy jobs."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import threading
 from pathlib import Path
@@ -72,8 +73,10 @@ async def test_proxy_job_coalesces_same_asset_and_profile(tmp_path: Path) -> Non
     service = AssetProxyJobService(max_concurrency=1)
     asset_hash = seed_high_res_asset(tmp_path)
     release = threading.Event()
+    started = threading.Event()
 
     def generate(*args, **kwargs):
+        started.set()
         assert release.wait(5)
         return proxy_result(asset_hash)
 
@@ -82,9 +85,12 @@ async def test_proxy_job_coalesces_same_asset_and_profile(tmp_path: Path) -> Non
         side_effect=generate,
     ):
         first = service.enqueue("project", tmp_path, asset_hash)
-        second = service.enqueue("project", tmp_path, asset_hash)
-        assert second.job_id == first.job_id
-        release.set()
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            second = await asyncio.wait_for(asyncio.to_thread(service.enqueue,"project",tmp_path,asset_hash),1)
+            assert second.job_id == first.job_id
+        finally:
+            release.set()
         assert (await service.wait(tmp_path, first.job_id)).status == "succeeded"
 
 

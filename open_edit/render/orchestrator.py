@@ -24,7 +24,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from open_edit.ir.types import Project
+from open_edit.ir.types import Project, Timeline
 from open_edit.render.cache import RenderCache, canonical_json_hash, render_cache_key
 from open_edit.render.cuda_fastpath import (
     run_cuda_fastpath,
@@ -407,6 +407,7 @@ def render_project(
     nice_level: int = 10,
     encoder_backend: str | None = None,
     emission_profile: EmissionProfile | None = None,
+    timeline_override: Timeline | None = None,
 ) -> RenderResult:
     """Render a project to an MP4.
 
@@ -460,7 +461,7 @@ def render_project(
     project.edit_graph = list(applied_ops)
     derive_t0 = time.monotonic()
     try:
-        timeline = derive_or_load_timeline(project, store, strict=True)
+        timeline = timeline_override.model_copy(deep=True) if timeline_override is not None else derive_or_load_timeline(project, store, strict=True)
     except Exception as exc:
         recorder.record(
             "derive_timeline",

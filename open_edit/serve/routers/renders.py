@@ -187,6 +187,10 @@ async def get_render_file(project_id: str, render_id: str) -> FileResponse:
     """Stream a rendered MP4 for in-browser preview (HTTP Range supported)."""
     state = await _require_project(project_id)
     project_path = Path(state.path)
+    job=DEFAULT_RENDER_JOB_SERVICE.get(project_path,render_id)
+    if job and (job.result or {}).get('export_verification',{}).get('passed'):
+        from .exports import get_export_file
+        return await get_export_file(project_id,render_id)
     mp4_path = _resolve_render_mp4(project_path, render_id)
     if mp4_path is None:
         raise HTTPException(status_code=404, detail=f"render not found: {render_id}")

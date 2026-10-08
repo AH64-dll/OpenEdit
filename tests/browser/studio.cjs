@@ -190,6 +190,23 @@ async function parity(browser) {
     await page.reload();await page.locator('#workspace-graphics').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('Manually editable title') && document.querySelector('#graphics-source').value.includes('fontSize={64}'));
     assert.equal((await api('/studio?kind=annotation')).objects[0].data.text,'Move this title along this arrow');
+    // Export opens settings and produces a verified local file from this revision.
+    await page.locator('#btn-render-final').click();
+    await page.locator('#export-dialog').waitFor({state:'visible'});
+    const outputFolder=path.join(root,'Local Desktop');
+    await page.locator('#export-form [name=folder]').fill(outputFolder);
+    await page.locator('#export-form [name=filename]').fill('Browser final');
+    await page.locator('#export-form [name=encoder]').selectOption('cpu');
+    await page.screenshot({path:path.join(artifacts,'studio-export-settings.png'),fullPage:true});
+    await page.locator('#export-submit').click();
+    await page.waitForFunction(()=>document.querySelector('#export-status').textContent==='Export verified and saved.',null,{timeout:120000});
+    const output=path.join(outputFolder,'Browser final.mp4');assert.ok(fs.statSync(output).size>1000);
+    assert.equal(await page.locator('#export-result').getByRole('button',{name:'Open folder'}).count(),1);
+    const probe=spawnSync('ffprobe',['-v','error','-show_streams','-of','json',output],{encoding:'utf8'});
+    assert.equal(probe.status,0,probe.stderr);const video=JSON.parse(probe.stdout).streams.find(s=>s.codec_type==='video');
+    assert.equal(video.width,640);assert.equal(video.height,360);
+    fs.writeFileSync(path.join(artifacts,'studio-browser-export.json'),JSON.stringify({output,video},null,2));
+    await page.locator('#export-dialog').getByRole('button',{name:'Close export settings'}).click();
     await page.setViewportSize({width:390,height:844});await page.locator('#graphics-panel').scrollIntoViewIfNeeded();
     assert.ok((await page.locator('#graphics-canvas').boundingBox()).width>250);
     await page.screenshot({path:path.join(artifacts,'studio-editable-mobile.png'),fullPage:true}); assert.deepEqual(errors,[]);

@@ -7,6 +7,7 @@ import {
 } from '@diffusionstudio/runtime';
 import { mount, getRuntimeDocument } from '@diffusionstudio/reconciler';
 import { captureScene, normalizeSceneTransform, resolverSystem, warmupAssets } from './vendor/encoder/src/encoder';
+import { settleGeometry } from './settle-geometry';
 
 let fontReady: Promise<void> | undefined;
 // The source compiler deliberately removes authored `id` props. Source is the
@@ -95,6 +96,7 @@ class Editor {
           computed.positionY[entity.id()] += delta[1];
         }
       }
+      settleGeometry(world,this.scene);
       transformSystem(world); renderSystem(world);
       return this.geometry();
     };

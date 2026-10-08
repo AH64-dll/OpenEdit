@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from fractions import Fraction
 from typing import Literal
 
 from pydantic import BaseModel, field_validator
@@ -158,7 +159,15 @@ def profile_with_quality(
     for key in ("crf", "vb", "preset", "scale", "codec", "ab"):
         if overrides and overrides.get(key) is not None:
             update[key] = overrides[key]
-    return profile.model_copy(update=update)
+    geometry={k:overrides[k] for k in ('width','height','frame_rate_num','frame_rate_den') if overrides and overrides.get(k) is not None}
+    if geometry:
+        update.update(geometry)
+        values={**profile.model_dump(),**update}
+        w,h,n,d=(values[k] for k in ('width','height','frame_rate_num','frame_rate_den'))
+        if any(type(v) is not int for v in (w,h,n,d)) or w<16 or h<16 or max(w,h)>7680 or w%2 or h%2 or n<=0 or d<=0 or not 1<=n/d<=120:
+            raise ValueError('Custom export requires even dimensions from 16 to 7680 and frame rate from 1 to 120')
+        update['name']=f'{profile.name}:custom:{w}x{h}@{n}/{d}'
+    return RenderProfile.model_validate({**profile.model_dump(),**update})
 
 
 def resolve_encoder_args(profile: RenderProfile, backend: str | None = None) -> EncoderSpec:
@@ -217,6 +226,7 @@ def profile_to_mlt_args(
 ) -> list[str]:
     spec = resolve_encoder_args(profile, backend)
     ab = profile.ab or ("320k" if mode == "final" else "96k")
+    aspect=Fraction(profile.width,profile.height)
     args = [
         f"s={profile.width}x{profile.height}",
         f"frame_rate_num={profile.frame_rate_num}",
@@ -224,8 +234,8 @@ def profile_to_mlt_args(
         "progressive=1",
         "sample_aspect_num=1",
         "sample_aspect_den=1",
-        "display_aspect_num=16",
-        "display_aspect_den=9",
+        f"display_aspect_num={aspect.numerator}",
+        f"display_aspect_den={aspect.denominator}",
         "colorspace=709",
         f"vcodec={spec.vcodec}",
         f"acodec={profile.acodec}",

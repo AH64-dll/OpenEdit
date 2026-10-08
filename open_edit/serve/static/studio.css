@@ -85,3 +85,20 @@ body[data-workspace=graphics] #timeline-inspector { display:none; }
 .keyframe-row { margin:8px 0; font-size:11px; }
 .keyframe-row summary { cursor:pointer; padding:6px; background:var(--bg-elev); }
 .bezier-editor { width:100%; grid-column:1/-1; border:1px solid var(--border); background:var(--bg-elev); touch-action:none; cursor:crosshair; }
+
+#export-dialog { color:var(--text); background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; width:min(860px,calc(100vw - 24px)); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; }
+#export-dialog::backdrop { background:#030912b8; }
+.export-header,.export-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.export-header h2 { margin:0; }
+.export-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.export-grid fieldset { min-width:0; border:1px solid var(--border); border-radius:8px; padding:14px; display:grid; grid-template-columns:1fr 1fr; align-content:start; gap:12px; }
+.export-grid legend { padding:0 6px; font-weight:600; }
+.export-grid label { display:flex; flex-direction:column; gap:6px; font-size:12px; }
+.export-grid input,.export-grid select { min-width:0; width:100%; padding:8px; color:inherit; background:var(--bg-elev); border:1px solid var(--border); border-radius:5px; }
+.export-grid input[type=checkbox] { width:18px; height:18px; }
+.export-grid fieldset:first-child label,.export-grid p { grid-column:1/-1; }
+.export-summary { padding:12px 0; border-bottom:1px solid var(--border); }
+.export-path { overflow-wrap:anywhere; }
+.export-error { color:#ff9292; }
+#export-result .btn { margin-right:8px; }
+@media(max-width:650px) { .export-grid { grid-template-columns:1fr; } #export-dialog { padding:16px; } }

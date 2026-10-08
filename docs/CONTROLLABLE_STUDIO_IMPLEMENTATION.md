@@ -127,6 +127,25 @@ filmstrip images and bounded waveform envelopes, reused without another decode;
 visible timeline clips request them lazily. Focused compiler/source/cache checks
 passed (55 tests); complete regression and browser acceptance are in progress.
 
+Export checkpoint: Export opens a configurable settings dialog with project
+presets/custom dimensions and rational FPS, filename/folder, full/range,
+container/codec, quality/CRF/bitrate, speed/encoder and audio settings. Export jobs
+capture the database and immutable media before rendering; later edits cannot
+alter that revision. Destination files undergo metadata and complete decode
+checks before atomic publication under a unique name, with a visible path and
+Play/Open folder actions. Desktop defaults respect Windows redirection and XDG.
+Actual FFmpeg publication and snapshot/API tests passed locally (39 focused
+checks). Real MLT range export and complete browser export acceptance are added
+to CI and remain pending. Caption inclusion becomes effective with S11.
+
+At 0966551, current Python regression/package CI and Linux/macOS compiler jobs
+passed. Actual upper-layer MLT rendering, effect bypass, trim offsets and audio
+controls passed. Browser acceptance identified string-root asset validation and
+seek-dependent nested bounds; this checkpoint normalizes paths and settles
+geometry before both interactive and checked rendering. Browser proof is still
+pending. Queue and encoder advisory locks are separate, preserving immediate
+coalescing while a proxy encoder is running; 61 focused preview/job checks passed.
+
 Still required: request-revert browser acceptance, complete timeline
 interaction and track controls, effect-stack editing, keyframe/curve UI, audio
 waveforms and controls, caption/style/font editing, full media-canvas marks,
