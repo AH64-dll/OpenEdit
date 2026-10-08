@@ -178,4 +178,8 @@ window.addEventListener('openedit:snapshot', () => {
 window.addEventListener('openedit:inspect-clip', event => {
   const item = current()?.elements?.find(c => decodeURIComponent(c.id.slice(2)) === event.detail.clipId);
   if (item) { clips.value = item.source_id; selectClip(); }
+  else {
+    clips.value = ''; controls();
+    message('This clip is outside the inspector view. Use Code or MCP to edit it.');
+  }
 });

@@ -18,7 +18,7 @@ const { chromium } = require('playwright-core');
     env: { ...process.env, OPEN_EDIT_PROJECTS_ROOT: root, OPEN_EDIT_SOURCE_PROXY_AUTO: '0' },
     stdio: ['ignore', log, log],
   });
-  let browser;
+  let browser, page;
   try {
     let ready = false;
     for (let i = 0; i < 100; i++) {
@@ -33,7 +33,7 @@ const { chromium } = require('playwright-core');
     const id = projects[0].id;
     const endpoint = `${base}/api/projects/${encodeURIComponent(id)}/authoring`;
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const errors = [], requests = [], cancellations = [];
     page.on('request', request => { requests.push(request.url()); if (request.method() === 'POST' && request.url().endsWith('/cancel')) cancellations.push(request.url()); });
     page.on('pageerror', error => errors.push(error.message));
@@ -45,6 +45,10 @@ const { chromium } = require('playwright-core');
     assert.ok(!requests.some(url => /\/(chat|ws)\.js|llm-config|\/api\/runtimes/.test(url)), 'Agent extension loaded in review mode');
     const timelineBounds = await page.locator('#timeline-panel').boundingBox();
     assert.ok(timelineBounds && timelineBounds.y + timelineBounds.height <= 1001, 'Timeline is outside the desktop workspace');
+    const barBounds = await page.locator('.workspace-bar').boundingBox();
+    assert.ok(barBounds.y < 100 && barBounds.height < 80, 'Workspace bar consumed the editing area');
+    const playerBounds = await page.locator('#preview-player').boundingBox();
+    assert.ok(playerBounds.height > 300 && playerBounds.y < 200, 'Preview stage is cropped');
     const manifest = await (await fetch(`${base}/api/projects/${id}/preview-chunks`)).json();
     assert.ok(manifest.manifest.chunks.length >= 2);
     await page.locator('#preview-seek').evaluate(input => { input.value = '1.25'; input.dispatchEvent(new Event('input', {bubbles:true})); });
@@ -52,6 +56,12 @@ const { chromium } = require('playwright-core');
     await page.waitForFunction(() => Math.abs(window.OpenEdit.state.playheadSec - 1.25) < .1);
     await page.locator('#preview-seek').evaluate(input => { input.value = '0'; input.dispatchEvent(new Event('input', {bubbles:true})); });
     await page.waitForFunction(() => window.OpenEdit.state.previewChunkStart === 0 && document.querySelector('#preview-player').readyState >= 2);
+    await page.waitForFunction(() => !document.querySelector('#history-undo').disabled);
+    await page.locator('#history-undo').click();
+    await page.waitForFunction(() => document.querySelector('#preview-freshness').textContent === 'No clips');
+    assert.equal(await page.locator('#preview-player').getAttribute('src'), null);
+    await page.locator('#history-redo').click();
+    await page.waitForFunction(() => document.querySelector('#preview-freshness').textContent === 'Current', null, {timeout:120000});
     await page.locator('#btn-setup').click();
     await page.waitForFunction(() => document.querySelector('#setup-checks').textContent.includes('Timeline preview and export'));
     await page.locator('#modal-setup [data-modal-close]').last().click();
@@ -80,7 +90,7 @@ const { chromium } = require('playwright-core');
     const retained = await page.locator('#preview-player').getAttribute('src');
     assert.ok(retained.includes('/preview-chunks/files/'), 'Last good preview was lost during update');
     await page.locator('#history-undo').click();
-    await page.waitForFunction(() => document.querySelector('#authoring-source').value.includes('start={0}'));
+    await page.waitForFunction(expected => document.querySelector('#authoring-source').value === expected, '// Browser-authored draft\n' + initial);
     await page.waitForFunction(() => document.querySelector('#preview-freshness').textContent !== 'Current');
     await page.unroute('**/render_jobs/*');
     assert.ok(cancellations.length, 'Obsolete preview was not cancelled');
@@ -168,8 +178,34 @@ const { chromium } = require('playwright-core');
     assert.ok((await graphics.boundingBox()).width > 250);
     assert.equal(await page.locator('#right-panel').isVisible(), false);
     await page.screenshot({ path: path.join(__dirname, 'artifacts/graphics-mobile-conflict.png'), fullPage: true });
+    await page.locator('#workspace-review').click();
+    await page.locator('.timeline-clip').first().click();
+    await page.waitForFunction(() => document.querySelector('#right-panel').classList.contains('open'));
+    assert.ok(await page.locator('#authoring-properties').isVisible());
+    await page.screenshot({ path:path.join(__dirname, 'artifacts/workspace-mobile-inspector.png'), fullPage:true });
+    await page.locator('#btn-right-panel').click();
+    await page.locator('#project-select').selectOption('');
+    await page.waitForFunction(() => !window.OpenEdit.state.currentProjectId && !document.querySelector('#preview-player').getAttribute('src'));
+    assert.ok(await page.locator('#history-undo').isDisabled());
+    await page.locator('#project-select').selectOption(id);
+    await page.waitForFunction(() => document.querySelector('#preview-freshness').textContent === 'Current', null, {timeout:120000});
+    await page.screenshot({ path:path.join(__dirname, 'artifacts/workspace-mobile-review.png'), fullPage:true });
     assert.deepEqual(errors, []);
     console.log('Browser media/graphics source, canvas drag, QC preview, IR commit, stale conflicts and responsive captures passed');
+  } catch (error) {
+    const artifacts = path.join(__dirname, 'artifacts'); fs.mkdirSync(artifacts, {recursive:true});
+    fs.copyFileSync(path.join(root, 'server.log'), path.join(artifacts, 'workspace-server.log'));
+    if (page) {
+      await page.screenshot({path:path.join(artifacts,'workspace-failure.png'),fullPage:true}).catch(() => {});
+      fs.writeFileSync(path.join(artifacts,'workspace-failure.json'), JSON.stringify(await page.evaluate(() => ({
+        history:document.querySelector('#history-status')?.textContent,
+        sourceStatus:document.querySelector('#authoring-status')?.textContent,
+        source:document.querySelector('#authoring-source')?.value,
+        preview:document.querySelector('#preview-freshness')?.outerHTML,
+        project:window.OpenEdit.state.currentProjectState,
+      })),null,2));
+    }
+    throw error;
   } finally {
     if (browser) await browser.close();
     server.kill();

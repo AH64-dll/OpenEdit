@@ -80,6 +80,13 @@ jobs:
       - run: npx --prefix tests/browser playwright-core install --with-deps chromium
       - run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
       - run: pytest tests/test_diffusion_graphics.py -m browser --timeout=240 --timeout-method=thread
+      - name: Install independent legacy Remotion compatibility
+        run: open_edit setup legacy-remotion
+      - name: Actual optional Remotion TSX and frame-pull compatibility
+        run: |
+          export OPEN_EDIT_REMOTION_BROWSER="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
+          export OPEN_EDIT_REMOTION_CHROME_BIN="$OPEN_EDIT_REMOTION_BROWSER"
+          pytest tests/test_legacy_remotion_browser.py -m browser --timeout=240 --timeout-method=thread
       - run: node tests/browser/authoring.cjs
       - run: pytest tests/test_diffusion_timing.py --timeout=60 --timeout-method=thread
       - run: python tools/benchmark_diffusion.py --render > tests/browser/artifacts/benchmark.json
@@ -97,13 +104,6 @@ jobs:
         run: |
           export HYPERFRAMES_BROWSER_PATH="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
           pytest tests/test_html_overlay.py -m browser --timeout=180 --timeout-method=thread
-      - name: Install independent legacy Remotion compatibility
-        run: open_edit setup legacy-remotion
-      - name: Actual optional Remotion TSX and frame-pull compatibility
-        run: |
-          export OPEN_EDIT_REMOTION_BROWSER="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
-          export OPEN_EDIT_REMOTION_CHROME_BIN="$OPEN_EDIT_REMOTION_BROWSER"
-          pytest tests/test_legacy_remotion_browser.py -m browser --timeout=240 --timeout-method=thread
       - uses: actions/upload-artifact@v4
         if: always()
         with:

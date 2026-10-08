@@ -44,7 +44,7 @@ async function refreshHistory() {
     const result = await response.json();
     if (id !== state.currentProjectId || request !== fetchId) return;
     history = result; paintHistory();
-  } catch { if (id === state.currentProjectId) { history = null; paintHistory(); } }
+  } catch { if (id === state.currentProjectId && request === fetchId) { history = null; paintHistory(); } }
 }
 
 async function stepHistory(direction) {
@@ -65,6 +65,7 @@ async function stepHistory(direction) {
   } catch (error) { showToast(error.message, 'warn'); }
   finally {
     pending = false;
+    paintHistory();
     if (id === state.currentProjectId) {
       window.dispatchEvent(new CustomEvent('openedit:graph-changed', { detail: { projectId: id } }));
       await refreshHistory();

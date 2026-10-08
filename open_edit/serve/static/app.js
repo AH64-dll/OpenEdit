@@ -249,7 +249,7 @@ async function paintProjectSnapshot(s) {
   } else {
     await refreshRendersList();
   }
-  if (projectId !== state.currentProjectId) return;
+  if (projectId !== state.currentProjectId || s.graph_revision !== state.currentProjectState?.graph_revision) return;
   const timeline = normalizeTimeline(s.timeline_full ?? s.timeline);
   const newDur = Number(timeline.duration_sec || 0);
   if (Math.abs(newDur - tlDurationSec) > 0.5) tlAutoFitPending = false;
