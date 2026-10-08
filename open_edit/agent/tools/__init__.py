@@ -9,7 +9,12 @@ from collections.abc import Callable
 
 from open_edit.agent.tools.pyagent_add_marker import add_marker
 from open_edit.agent.tools.pyagent_analyze_narrative import analyze_narrative
-from open_edit.agent.tools.pyagent_authoring import apply_authoring_edit, get_authoring_view
+from open_edit.agent.tools.pyagent_authoring import (
+    apply_authoring_edit,
+    commit_graphics,
+    get_authoring_view,
+    get_graphics_view,
+)
 from open_edit.agent.tools.pyagent_capture_style_hint import capture_style_hint
 from open_edit.agent.tools.pyagent_generate_remotion_composition import (
     generate_remotion_composition,
@@ -57,9 +62,11 @@ __all__ = [
     "auto_color_grade",
     "capture_style_hint",
     "change_clip_speed",
+    "commit_graphics",
     "generate_remotion_composition",
     "generate_visual_for_segment",
     "get_authoring_view",
+    "get_graphics_view",
     "get_pending_notes",
     "get_silence_gaps",
     "get_style_profile",
@@ -84,6 +91,8 @@ __all__ = [
 ]
 
 TOOL_TABLE: dict[str, Callable] = {
+    "commit_graphics": commit_graphics,
+    "get_graphics_view": get_graphics_view,
     "apply_authoring_edit": apply_authoring_edit,
     "get_authoring_view": get_authoring_view,
     # 20 re-exported tool functions (pyagent_*.py modules).
@@ -120,4 +129,3 @@ TOOL_TABLE: dict[str, Callable] = {
     "apply_silence_gaps": apply_silence_gaps,
     "auto_color_grade": auto_color_grade,
 }
-

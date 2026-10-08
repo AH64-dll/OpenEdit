@@ -83,7 +83,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS render_jobs (
     job_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
-    mode TEXT NOT NULL CHECK (mode IN ('proxy', 'final', 'overlay', 'preview-chunks')),
+    mode TEXT NOT NULL CHECK (mode IN ('proxy', 'final', 'overlay', 'preview-chunks', 'graphics')),
     status TEXT NOT NULL CHECK (status IN
       ('queued', 'running', 'cancelling', 'cancelled', 'succeeded', 'failed', 'orphaned')),
     created_at REAL NOT NULL,
@@ -159,6 +159,7 @@ class RenderJobService:
         if create_sql_text and (
             "overlay" not in create_sql_text
             or "preview-chunks" not in create_sql_text
+            or "graphics" not in create_sql_text
         ):
             con.execute("DROP INDEX IF EXISTS idx_render_jobs_project_created")
             con.execute("ALTER TABLE render_jobs RENAME TO render_jobs_legacy")
@@ -283,9 +284,9 @@ class RenderJobService:
         encoder_backend: str | None = None,
         params: dict | None = None,
     ) -> RenderJob:
-        if mode not in ("proxy", "final", "overlay", "preview-chunks"):
+        if mode not in ("proxy", "final", "overlay", "preview-chunks", "graphics"):
             raise ValueError(
-                "mode must be 'proxy', 'final', 'overlay', or 'preview-chunks'"
+                "mode must be 'proxy', 'final', 'overlay', 'preview-chunks', or 'graphics'"
             )
         revision, graph_hash, timeline_status = self._graph_fingerprint(project_path)
         if timeline_status == "invalid" and not allow_invalid_timeline:
@@ -298,6 +299,12 @@ class RenderJobService:
             )
         now = time.time()
         params = dict(params or {})
+        if mode == 'graphics':
+            from open_edit.integrations.diffusion.graphics import validate_params
+
+            params = validate_params(params)
+            if expected_revision is None:
+                raise RenderEnqueueError('Graphics preview requires expected_revision')
         if encoder_backend in ("gpu", "cpu"):
             # Persist the requested backend so resumed jobs retain it.
             params["encoder_backend"] = encoder_backend
@@ -403,7 +410,12 @@ class RenderJobService:
             if os.name == "posix":
                 os.killpg(proc.pid, signal.SIGTERM)
             else:
-                proc.terminate()
+                # Windows has no POSIX process groups; terminate the whole tree.
+                killer = await asyncio.create_subprocess_exec(
+                    'taskkill', '/PID', str(proc.pid), '/T', '/F',
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(killer.wait(), timeout=max(1.0, self.cancel_grace_s))
             await asyncio.wait_for(proc.wait(), timeout=self.cancel_grace_s)
             return
         except (TimeoutError, ProcessLookupError):
@@ -434,7 +446,7 @@ class RenderJobService:
                 current = self.get(project_path, job_id)
                 if current is not None and current.status in ("cancelling", "cancelled"):
                     raise asyncio.CancelledError
-                if initial.mode != "preview-chunks":
+                if initial.mode not in ("preview-chunks", "graphics"):
                     result = await self._attach_qc(result, project_path)
                 self._update(
                     project_path, job_id, "succeeded",
@@ -608,7 +620,10 @@ class RenderJobService:
         """Run an isolated render worker and consume its JSON result."""
         job = self.get(project_path, job_id)
         params = (job.params if job is not None else None) or {}
-        if mode == "overlay":
+        if mode == 'graphics':
+            command = [sys.executable, '-m', 'open_edit.integrations.diffusion.render_job',
+                       '--project', str(project_path), '--job-id', job_id]
+        elif mode == "overlay":
             command = [
                 sys.executable, "-m", "open_edit.kernel.render_overlay",
                 "--project", str(project_path),
@@ -623,7 +638,7 @@ class RenderJobService:
                 sys.executable, "-m", "open_edit.cli", "render",
                 "--mode", mode, "--json",
             ]
-        if mode not in ("overlay", "preview-chunks"):
+        if mode not in ("overlay", "preview-chunks", "graphics"):
             for key, flag in (("profile", "--profile"), ("quality", "--quality"),
                               ("crf", "--crf"), ("vb", "--vb"), ("preset", "--preset"),
                               ("scale", "--scale"), ("codec", "--codec")):
@@ -715,10 +730,13 @@ def public_job(job: RenderJob, *, include_details: bool = True) -> dict:
     data = asdict(job)
     if include_details:
         return data
+    if data.get('mode') == 'graphics':
+        params = data.get('params') or {}
+        data['params'] = {k: v for k, v in params.items() if k != 'source'}
     result = data.get("result")
     if isinstance(result, dict):
         data["result"] = {key: value for key, value in result.items() if key not in {
-            "stdout", "stderr", "diagnostics", "verification", "qc_report",
+            "stdout", "stderr", "diagnostics", "verification", "qc_report", "source", "elements",
         }}
     qc = data.get("qc_report")
     if isinstance(qc, dict):

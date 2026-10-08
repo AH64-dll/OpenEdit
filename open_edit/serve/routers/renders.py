@@ -34,6 +34,7 @@ class RenderRequest(BaseModel):
     preset: str | None = None
     scale: str | None = None
     codec: str | None = None
+    graphics: dict | None = None
 
 
 class RenderJobResponse(BaseModel):
@@ -57,10 +58,10 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     """Trigger a render in the background. Returns the job immediately."""
     _check_rate_limit(f"render:{project_id}", max_requests=5, window_sec=300)
     state = await _require_project(project_id)
-    if req.mode not in ("proxy", "final", "overlay", "preview-chunks"):
+    if req.mode not in ("proxy", "final", "overlay", "preview-chunks", "graphics"):
         raise HTTPException(
             status_code=400,
-            detail="mode must be 'proxy', 'final', 'overlay', or 'preview-chunks'",
+            detail="mode must be 'proxy', 'final', 'overlay', 'preview-chunks', or 'graphics'",
         )
 
     project_path = Path(state.path)
@@ -112,6 +113,13 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
         ("vb", req.vb), ("preset", req.preset), ("scale", req.scale), ("codec", codec),
     ) if v is not None}
     params.update(preview_params)
+    if req.mode == 'graphics':
+        from open_edit.integrations.diffusion.graphics import validate_params
+
+        try:
+            params = validate_params(req.graphics)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         job = DEFAULT_RENDER_JOB_SERVICE.enqueue(

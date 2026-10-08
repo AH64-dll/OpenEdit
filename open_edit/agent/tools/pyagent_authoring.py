@@ -28,3 +28,22 @@ def apply_authoring_edit(args: dict, project_path: str) -> dict:
         return _apply(project_path, expected_revision=args.get('expected_revision'), source=args.get('source'), edits=args.get('edits'))
     except GraphRevisionConflict as exc:
         return {'status': 'error', 'error_code': 'stale_revision', 'error': str(exc), 'expected_revision': exc.expected, 'graph_revision': exc.actual}
+
+
+@tool_result
+def get_graphics_view(args: dict, project_path: str) -> dict:
+    from open_edit.integrations.diffusion.graphics import get_graphics_view as get
+
+    _check_keys(args, {'clip_id', 'include_source'})
+    return get(project_path, **{k: v for k, v in args.items() if k != 'project_id'})
+
+
+@tool_result
+def commit_graphics(args: dict, project_path: str) -> dict:
+    from open_edit.integrations.diffusion.graphics import commit_graphics as commit
+
+    _check_keys(args, {'job_id', 'expected_revision', 'clip_id', 'track_id', 'position_sec'})
+    try:
+        return commit(project_path, **{k: v for k, v in args.items() if k != 'project_id'})
+    except GraphRevisionConflict as exc:
+        return {'status': 'error', 'error_code': 'stale_revision', 'error': str(exc), 'graph_revision': exc.actual}

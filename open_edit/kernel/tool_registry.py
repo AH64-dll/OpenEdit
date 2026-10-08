@@ -25,6 +25,7 @@ _QUERY_PROJECT_DESC = (
     " Use params.offset/limit for paged assets (default limit 50); follow next_offset."
     " Packed transcripts use word offset/limit (default 500, max 2000); follow next_offset."
     " get_authoring_view exports an optional Diffusion JSX media view; params.include_source=true returns source."
+    " get_graphics_view returns a revision-safe graphics view; params.clip_id selects a graphics clip."
 )
 
 _EDIT_PROJECT_DESC = (
@@ -36,6 +37,7 @@ _EDIT_PROJECT_DESC = (
     "auto_color_grade, apply_generated_ops. Prefer these timeline ops over "
     "run_script. "
     "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
+    "commit_graphics accepts a succeeded graphics job_id and expected_revision, then adds or replaces its clip after QC. "
     "Use ``generate`` for creative suggestions (SFX, music, visuals, "
     "remotion, silence_cuts) — review then commit via "
     "``operation=\"apply_generated_ops\"`` (or apply_silence_gaps for cuts). "
@@ -73,6 +75,8 @@ _TRIGGER_RENDER_DESC = (
     "seconds, media is video/audio/both, and priority is interactive or "
     "background. Returns job_id when wait=false, or the manifest-oriented "
     "result when wait=true."
+    " Mode graphics renders literal Diffusion JSX to CAS without editing the graph; supply graphics={source,duration_sec,fps}"
+    " and expected_revision, then edit_project operation=commit_graphics after reviewing the completed job."
 )
 
 _GET_RENDER_JOB_DESC = (
@@ -100,6 +104,7 @@ class QueryProjectArgs(BaseModel):
         "get_silence_gaps",
         "get_timeline_view",
         "get_authoring_view",
+        "get_graphics_view",
     ]
     params: dict = {}
 
@@ -132,7 +137,9 @@ class TriggerRenderArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid", title="trigger_render", description=_TRIGGER_RENDER_DESC
     )
-    mode: Literal["proxy", "final", "overlay", "preview-chunks"] = "proxy"
+    mode: Literal["proxy", "final", "overlay", "preview-chunks", "graphics"] = "proxy"
+    expected_revision: int | None = Field(default=None, ge=0)
+    graphics: dict | None = Field(default=None, description='Graphics source, duration_sec and fps; requires expected_revision.')
     encoder: Literal["gpu", "cpu"] | None = None
     wait: bool = False
     ranges: list[PreviewRange] = Field(default_factory=list)

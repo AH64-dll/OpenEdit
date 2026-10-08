@@ -29,6 +29,7 @@ _QUERY_ROUTING: dict[str, str] = {
     "get_silence_gaps": "get_silence_gaps",
     "get_timeline_view": "get_timeline_view",
     "get_authoring_view": "get_authoring_view",
+    "get_graphics_view": "get_graphics_view",
 }
 
 # Sub-command → TOOL_TABLE name for the edit pillar mode. Includes the
@@ -49,6 +50,7 @@ _EDIT_ROUTING: dict[str, str] = {
     "apply_silence_gaps": "apply_silence_gaps",
     "auto_color_grade": "auto_color_grade",
     "apply_authoring_edit": "apply_authoring_edit",
+    "commit_graphics": "commit_graphics",
 }
 
 # Generate kind → TOOL_TABLE name for the generate pillar mode.

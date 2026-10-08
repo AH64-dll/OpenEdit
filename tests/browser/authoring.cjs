@@ -69,6 +69,7 @@ const { chromium } = require('playwright-core');
     await page.locator('#authoring-reload').click();
     await page.waitForFunction(() => document.querySelector('#authoring-source').value.includes('start={5}'));
     assert.ok(!(await editor.inputValue()).includes('Keep my unsaved work'));
+    assert.notEqual(await editor.evaluate(el => getComputedStyle(el).color), await editor.evaluate(el => getComputedStyle(el).backgroundColor));
     await page.screenshot({ path: path.join(__dirname, 'artifacts/authoring-desktop.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(__dirname, 'artifacts/authoring-mobile.png'), fullPage: true });
