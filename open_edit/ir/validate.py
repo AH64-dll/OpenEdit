@@ -22,6 +22,7 @@ from open_edit.ir.types import (
     Project,
     RemoveClipOp,
     RemoveEffectOp,
+    RemoveGraphicsSourceOp,
     RemoveKeyframeOp,
     RemoveRemotionCompositionOp,
     RemoveTransitionOp,
@@ -30,6 +31,7 @@ from open_edit.ir.types import (
     SetAudioGainOp,
     SetClipSpeedRampOp,
     SetEffectParamOp,
+    SetGraphicsSourceOp,
     SetKeyframeOp,
     SetTransitionPropertyOp,
     SlipClipOp,
@@ -57,13 +59,7 @@ def _get_default_catalog() -> EffectCatalog:
 
 
 def _known_clip_ids(project: Project) -> set[str]:
-    known: set[str] = set()
-    for op in project.edit_graph:
-        if isinstance(op, AddClipOp) and op.status == "applied":
-            known.add(op.clip_id)
-        elif isinstance(op, RemoveClipOp) and op.status == "applied":
-            known.discard(op.clip_id)
-    return known
+    return _known_ids_from_ops(project.edit_graph)[0]
 
 
 def _known_effect_ids(project: Project) -> set[str]:
@@ -254,8 +250,11 @@ def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
     for op in ops:
         if op.status != "applied":
             continue
-        if isinstance(op, AddClipOp):
+        if isinstance(op, (AddClipOp, SetGraphicsSourceOp)):
             clips.add(op.clip_id)
+        elif isinstance(op, RemoveGraphicsSourceOp):
+            removed = {prior.clip_id for prior in ops if isinstance(prior, SetGraphicsSourceOp) and prior.document_id == op.document_id}
+            clips.difference_update(removed)
         elif isinstance(op, RemoveClipOp):
             clips.discard(op.clip_id)
         elif isinstance(op, SplitClipOp):

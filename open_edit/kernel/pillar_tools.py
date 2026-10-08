@@ -85,6 +85,13 @@ def _with_project_id(params: dict[str, Any], project_path: Path) -> dict[str, An
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch a query to one of the 6 read-only tools."""
+    if query in ('get_studio', 'get_editing_context'):
+        from open_edit.kernel.studio_service import get_editing_context, get_studio
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        try:
+            return (get_studio if query == 'get_studio' else get_editing_context)(project_path, **params)
+        except (TypeError, ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if query == 'get_history':
         from open_edit.kernel.edit_graph_service import open_store
         return {'status': 'ok', **open_store(project_path).history()}
@@ -97,6 +104,15 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
 
 def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch an edit operation to the corresponding tool."""
+    if operation == 'apply_studio_changes':
+        from open_edit.kernel.studio_service import commit_studio
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        try:
+            # The caller cannot disguise an AI write as a manual action.
+            values = {k: v for k, v in params.items() if k != 'author'}
+            return commit_studio(project_path, **values, author='ai')
+        except (TypeError, ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if operation in ('undo', 'redo'):
         from open_edit.kernel.edit_graph_service import open_store
         from open_edit.storage.edit_graph import GraphRevisionConflict

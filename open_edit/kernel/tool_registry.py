@@ -27,6 +27,8 @@ _QUERY_PROJECT_DESC = (
     " get_authoring_view exports an optional Diffusion JSX media view; params.include_source=true returns source."
     " get_history returns complete editing actions and the current Undo/Redo choices."
     " get_graphics_view returns a revision-safe graphics view; params.clip_id selects a graphics clip."
+    " get_studio lists durable editable documents and AI marks; params.kind/document object_id filter, include_source=true returns literal source and stable element IDs."
+    " get_editing_context returns selected_ids, document_id, annotation_ids and playhead_sec with source and structured timeline context. No frame screenshots are needed to adjust authored edits."
 )
 
 _EDIT_PROJECT_DESC = (
@@ -38,6 +40,9 @@ _EDIT_PROJECT_DESC = (
     "auto_color_grade, apply_generated_ops. Prefer these timeline ops over "
     "run_script. "
     "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
+    "apply_studio_changes atomically applies params={expected_revision,changes:[{kind,object_id,data}],ops:[],request_id,label}. "
+    "Use kind=document for editable graphics (data={source,clip_id,track_id,duration_sec,fps,label}); updating retains clip trims and effects. "
+    "Null data deletes an object. Annotations are AI instructions and never render. Respect document and layer locks; use one request_id for all writes in a request. "
     "commit_graphics accepts a succeeded graphics job_id and expected_revision, then adds or replaces its clip after QC. "
     "rewrite_graphics_source uses the pinned source writer for literal canvas property edits without committing a preview. "
     "retime_asset bakes source ranges/rates or explicit speed segments into checked CAS media without editing the graph. "
@@ -110,6 +115,8 @@ class QueryProjectArgs(BaseModel):
         "get_authoring_view",
         "get_graphics_view",
         "get_history",
+        "get_studio",
+        "get_editing_context",
     ]
     params: dict = {}
 

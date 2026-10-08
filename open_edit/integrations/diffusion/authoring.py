@@ -111,6 +111,10 @@ def _document(timeline, assets) -> _Document:
     for track in timeline.tracks:
         clips = []
         for clip in sorted(track.clips, key=lambda c: (c.position_sec, c.clip_id)):
+            if clip.document_id is not None:
+                # Source-backed graphics have their own editable documents;
+                # a media-JSX save must preserve them, not flatten/delete them.
+                continue
             if clip.clip_id in clip_ids:
                 raise ValueError('The timeline contains duplicate clip identities')
             clip_ids.add(clip.clip_id)
@@ -259,7 +263,7 @@ def apply_authoring_edit(project_path, *, expected_revision, source=None, edits=
         error = exc.errors()[0]
         raise ValueError(f'Invalid authoring field {error["loc"]}: {error["msg"]}') from exc
     records = _validate_target(target, before, timeline, assets)
-    old = {c.clip_id: c for t in timeline.tracks for c in t.clips}
+    old = {c.clip_id: c for t in timeline.tracks for c in t.clips if c.document_id is None}
     # Versioned CAS retiming leaves the legacy speed-op replay untouched. The
     # graph receives ordinary zero-based media only after frame/audio QC.
     from open_edit.integrations.diffusion.timing import bake_timing

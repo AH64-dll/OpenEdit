@@ -33,6 +33,7 @@ def render_bootstrap(
         "SetKeyframeOp", "RemoveKeyframeOp",
         "SlipClipOp", "RippleDeleteClipOp", "ChangeClipSpeedOp",
         "SplitClipOp", "ReplaceClipSourceOp", "SetClipSpeedRampOp",
+        "SetGraphicsSourceOp", "RemoveGraphicsSourceOp",
         "SetAudioGainOp", "NormalizeAudioOp",
         "GroupEditsOp", "UngroupEditsOp",
         "RawMltXmlOp", "FreeFormCodeOp",

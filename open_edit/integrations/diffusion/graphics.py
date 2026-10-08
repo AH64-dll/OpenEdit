@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import hashlib
 import json
 import math
@@ -95,9 +96,9 @@ def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
             proc.wait()
             _ACTIVE.process = None
         output.seek(0)
-        raw = output.read(1024 * 1024 + 1)
-        if len(raw) > 1024 * 1024:
-            raise ValueError('Graphics worker response exceeds 1 MiB')
+        raw = output.read(8 * 1024 * 1024 + 1)
+        if len(raw) > 8 * 1024 * 1024:
+            raise ValueError('Graphics worker response exceeds 8 MiB')
         try:
             result = json.loads(raw)
         except (ValueError, UnicodeError) as exc:
@@ -110,6 +111,40 @@ def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
 def inspect_source(source: str) -> dict:
     with tempfile.TemporaryDirectory(prefix='openedit-graphics-') as directory:
         return _worker({'source': source, 'validate_only': True}, Path(directory), timeout=20)['document']
+
+
+@functools.lru_cache(maxsize=1)
+def editor_bundle() -> bytes:
+    """Build the fixed trusted editor host, independently of project source."""
+    if not graphics_ready():
+        raise ValueError('Install the optional graphics compiler to use the live canvas')
+    result = subprocess.run([shutil.which('node'), str(browser_directory() / 'bundle-editor.cjs')],
+                            capture_output=True, timeout=30)
+    if result.returncode or not result.stdout or len(result.stdout) > 8 * 1024 * 1024:
+        raise ValueError('The interactive graphics runtime could not be built')
+    return result.stdout
+
+
+def compile_editor(project_path, *, source: str, expected_revision: int, edits: list | None = None) -> dict:
+    """Return only code produced by the literal compiler; never evaluate caller JS."""
+    from open_edit.kernel.edit_graph_service import open_store
+
+    store = open_store(Path(project_path))
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise ValueError('expected_revision must be a nonnegative integer')
+    actual = store.graph_revision()
+    if actual != expected_revision:
+        raise GraphRevisionConflict(expected_revision, actual)
+    validate_params({'source': source})
+    with tempfile.TemporaryDirectory(prefix='openedit-editor-') as directory:
+        result = _worker({'source': source, 'edits': edits or [], 'validate_only': True,
+                          'include_code': True}, Path(directory), timeout=20)
+    assets = graphics_asset_manifest(project_path, result['document']['assets'])
+    # A stale compilation cannot authorize a subsequent visual edit.
+    store.append_many([], expected_revision=expected_revision)
+    return {'status': 'ok', 'graph_revision': expected_revision, 'source': result['source'],
+            'code': result['code'], **result['document'],
+            'asset_manifest': [{k: v for k, v in asset.items() if k != 'file'} for asset in assets]}
 
 
 def _encode(command: list[str], *, timeout: int, scratch: Path | None = None) -> subprocess.CompletedProcess:
@@ -184,15 +219,13 @@ def _quality_check(path: Path, *, width: int, height: int, duration: float, fps:
             'duration_sec': info['duration_sec'], 'fps': fps}
 
 
-def materialize(project_path: str | Path, params: dict) -> dict:
-    """Render without mutating the graph; cache keys include source, assets and runtime."""
-    params = validate_params(params)
+def graphics_asset_manifest(project_path: str | Path, hashes: list[str]) -> list[dict]:
+    """Use identical image validation for the interactive host and export."""
     paths = ProjectPaths.for_project(project_path)
-    document = inspect_source(params['source'])
     assets = {a.asset_hash: a for a in list_assets_from_disk(paths.root)}
     manifest = []
     total_bytes, total_pixels = 0, 0
-    for hash_ in document['assets']:
+    for hash_ in hashes:
         asset = assets.get(hash_)
         if asset is None or asset.type != 'image':
             raise ValueError('Graphics image must reference an image in the pinned project CAS')
@@ -209,6 +242,15 @@ def materialize(project_path: str | Path, params: dict) -> dict:
         manifest.append({'id': hash_, 'type': 'IMAGE', 'path': hash_, 'source': hash_, 'createdAt': '',
                          'mimeType': mimetypes.guess_type(asset.original_path)[0] or 'image/png',
                          'width': asset.width, 'height': asset.height, 'file': str(cas_path)})
+    return manifest
+
+
+def materialize(project_path: str | Path, params: dict) -> dict:
+    """Render without mutating the graph; cache keys include source, assets and runtime."""
+    params = validate_params(params)
+    paths = ProjectPaths.for_project(project_path)
+    document = inspect_source(params['source'])
+    manifest = graphics_asset_manifest(project_path, document['assets'])
     version = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
     key = hashlib.sha256(json.dumps({'protocol': 1, **params, 'runtime': _runtime_digest(),
                                     'assets': document['assets'], 'ffmpeg': version}, sort_keys=True).encode()).hexdigest()
@@ -342,7 +384,12 @@ def get_graphics_view(project_path, *, clip_id='graphics', include_source=False)
     store, revision, timeline, assets = _snapshot(project_path)
     clip = next((c for t in timeline.tracks for c in t.clips if c.clip_id == clip_id), None)
     source = DEFAULT_SOURCE
-    if clip:
+    if clip and clip.document_id is not None:
+        document = timeline.graphics_documents.get(clip.document_id)
+        if document is None:
+            raise ValueError('Graphics document is missing')
+        source = document['source']
+    elif clip:
         asset = assets.get(clip.asset_hash)
         if asset is None or asset.provider != 'diffusion':
             raise ValueError('Selected clip is not a Diffusion graphics clip')

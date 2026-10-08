@@ -41,7 +41,7 @@ from .diagnostics import collect_diagnostics
 from .diagnostics import get_health as _collect_health
 from .extensions import agent as chat_mod
 from .logging_setup import CorrelationIdMiddleware, setup_logging
-from .routers import assets, authoring, config, ops, preview_chunks, projects, renders
+from .routers import assets, authoring, config, ops, preview_chunks, projects, renders, studio
 
 
 @asynccontextmanager
@@ -147,6 +147,7 @@ app.include_router(ops.router)
 app.include_router(config.router)
 app.include_router(assets.router)
 app.include_router(authoring.router)
+app.include_router(studio.router)
 app.include_router(chat_mod.router)
 
 

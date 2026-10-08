@@ -21,6 +21,7 @@ from open_edit.ir.ids import now_iso8601
 from open_edit.ir.types import OperationUnion, new_id
 from open_edit.storage import history as _history
 from open_edit.storage import ordering as _ordering
+from open_edit.storage import studio as _studio
 from open_edit.storage.commands import CommandStore
 from open_edit.storage.db import open_conn
 from open_edit.storage.timeline_cache import TimelineSnapshotStore
@@ -186,6 +187,9 @@ class EditGraphStore:
         expected_revision: int | None = None, sequence_num: int | None = None,
         authoring_view: tuple[str, str] | None = None,
         action_label: str | None = None,
+        studio_changes: list[dict] | None = None,
+        author: str = 'user', request_id: str | None = None,
+        receipt: dict | None = None,
     ) -> list[int]:
         """Append a batch in one transaction, or leave the graph unchanged.
 
@@ -195,6 +199,11 @@ class EditGraphStore:
         """
         from types import SimpleNamespace
 
+        changes = _studio.validate_changes(studio_changes or [])
+        if author not in ('user', 'ai'):
+            raise ValueError('Action author must be user or ai')
+        if request_id is not None and (not isinstance(request_id, str) or not request_id or len(request_id) > 128):
+            raise ValueError('Request ID must be a nonempty string of at most 128 characters')
         project_id = self.project_id
         sequences: list[int] = []
         with _APPEND_LOCK, self._conn() as conn:
@@ -202,10 +211,14 @@ class EditGraphStore:
             current_revision = self._revision_in(conn)
             if expected_revision is not None and current_revision != expected_revision:
                 raise GraphRevisionConflict(expected_revision, current_revision)
-            if not ops:
+            object_changes = _studio.prepare(conn, changes)
+            if not ops and not object_changes:
                 self._save_authoring_source(conn, authoring_view)
+                if receipt is not None:
+                    receipt.update(graph_revision=current_revision, changed=False, changed_object_ids=[])
                 return []
             current_ops = self._load_all_in(conn)
+            _studio.check_operations(conn, ops, current_ops, object_changes)
             view = SimpleNamespace(
                 db_path=self.db_path, project_id=project_id,
                 load_all=lambda: current_ops,
@@ -237,9 +250,24 @@ class EditGraphStore:
                 current_ops.append(op)
                 sequences.append(next_sequence)
                 next_sequence += 1
+            if object_changes:
+                if not ops:
+                    self._check_and_bump_revision(conn, None)
+                _studio.apply(conn, object_changes, self._revision_in(conn))
             self._save_authoring_source(conn, authoring_view)
-            _history.record(conn, ops, action_label, current_revision)
+            _history.record(conn, ops, action_label, current_revision,
+                            object_changes=object_changes, author=author, request_id=request_id)
+            conn.execute('DELETE FROM timeline_snapshots')
+            if receipt is not None:
+                receipt.update(graph_revision=self._revision_in(conn), changed=True,
+                               changed_object_ids=[change['object_id'] for change in object_changes])
         return sequences
+
+    def studio_snapshot(self, kind: str | None = None) -> dict:
+        """Read editor objects and revision from one consistent snapshot."""
+        with self._conn() as conn:
+            conn.execute('BEGIN')
+            return {'graph_revision': self._revision_in(conn), 'objects': _studio.snapshot(conn, kind=kind)}
 
     def history(self) -> dict:
         with self._conn() as conn:

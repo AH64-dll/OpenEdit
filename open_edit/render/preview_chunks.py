@@ -480,7 +480,9 @@ def _content_fingerprint(
                 separators=(",", ":"),
             ).encode()
         ).hexdigest()
-    payload = {"assets": assets, "remotion": remotion}
+    from open_edit.render.studio_graphics import graphics_reference_fingerprint
+    payload = {"assets": assets, "remotion": remotion,
+               "studio": graphics_reference_fingerprint(timeline) if timeline is not None else ''}
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -732,7 +734,10 @@ def _slice_and_emit(
         fps_den=profile.frame_rate_den,
         plane=plane,  # type: ignore[arg-type]
     )
+    from open_edit.render.studio_graphics import materialize_graphics_documents
     from open_edit.render.timeline_plan import build_render_plan
+
+    sliced = materialize_graphics_documents(sliced, project_dir)
 
     plan = build_render_plan(
         sliced,

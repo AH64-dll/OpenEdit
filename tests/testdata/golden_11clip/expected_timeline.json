@@ -23,7 +23,8 @@
           "out_point_sec": 1.75,
           "position_sec": 0.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_2",
@@ -43,7 +44,8 @@
           "out_point_sec": 1.75,
           "position_sec": 2.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_3",
@@ -63,7 +65,8 @@
           "out_point_sec": 1.75,
           "position_sec": 4.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_4",
@@ -83,7 +86,8 @@
           "out_point_sec": 1.75,
           "position_sec": 6.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_5",
@@ -103,7 +107,8 @@
           "out_point_sec": 1.75,
           "position_sec": 8.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_6",
@@ -123,7 +128,8 @@
           "out_point_sec": 1.75,
           "position_sec": 10.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_7",
@@ -143,7 +149,8 @@
           "out_point_sec": 1.75,
           "position_sec": 12.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_8",
@@ -163,7 +170,8 @@
           "out_point_sec": 1.75,
           "position_sec": 14.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_9",
@@ -183,7 +191,8 @@
           "out_point_sec": 1.75,
           "position_sec": 16.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_10",
@@ -203,7 +212,8 @@
           "out_point_sec": 1.75,
           "position_sec": 18.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         },
         {
           "asset_hash": "clip_11",
@@ -213,12 +223,14 @@
           "out_point_sec": 2.0,
           "position_sec": 20.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null
         }
       ],
       "effects": [],
       "kind": "video",
       "track_id": "v1"
     }
-  ]
+  ],
+  "graphics_documents": {}
 }

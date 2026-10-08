@@ -18,7 +18,7 @@ process.on('SIGINT', () => cleanup().finally(() => process.exit(130)));
   const source = request.edits !== undefined ? await rewrite(request.source, request.edits, request.scratch) : request.source;
   const { document, code } = await compile(source);
   if (request.validate_only) {
-    process.stdout.write(JSON.stringify({ ok: true, document, source })); return;
+    process.stdout.write(JSON.stringify({ ok: true, document, source, ...(request.include_code ? { code } : {}) })); return;
   }
   const alias = {};
   for (const name of ['runtime', 'reconciler', 'encoder', 'assets', 'jsx']) alias[`@diffusionstudio/${name}`] = path.join(__dirname, 'vendor', name, 'src/index.ts');

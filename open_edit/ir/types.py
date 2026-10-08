@@ -36,6 +36,7 @@ class Clip(BaseModel):
     in_point_sec: float
     out_point_sec: float
     effects: list[Effect] = Field(default_factory=list)
+    document_id: str | None = None
 
 
 class Track(BaseModel):
@@ -70,6 +71,7 @@ class Timeline(BaseModel):
     overlays: list[HtmlOverlay] = Field(default_factory=list)
     remotion_compositions: list[RemotionComposition] = Field(default_factory=list)
     duration_sec: float = 0.0
+    graphics_documents: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class RemotionComposition(BaseModel):
@@ -361,6 +363,26 @@ class AddRemotionCompositionOp(Operation):
     clip_id: str = Field(default_factory=new_id)
 
 
+class SetGraphicsSourceOp(Operation):
+    """An editable composition; its checked CAS asset is derived at render time."""
+    kind: Literal['set_graphics_source'] = 'set_graphics_source'
+    document_id: str = Field(min_length=1, max_length=128)
+    clip_id: str = Field(min_length=1, max_length=128)
+    source: str = Field(min_length=1, max_length=512 * 1024)
+    duration_sec: float = Field(gt=0, le=60)
+    fps: int = Field(ge=1, le=60)
+    track_id: str = Field(default='graphics', min_length=1, max_length=128)
+    position_sec: float = Field(default=0, ge=0)
+    enabled: bool = True
+    label: str = Field(default='Graphics', max_length=256)
+    adopt_clip: bool = False
+
+
+class RemoveGraphicsSourceOp(Operation):
+    kind: Literal['remove_graphics_source'] = 'remove_graphics_source'
+    document_id: str = Field(min_length=1, max_length=128)
+
+
 class RemoveRemotionCompositionOp(Operation):
     """Remove a Remotion composition by ``composition_uid``."""
     kind: Literal["remove_remotion_composition"] = "remove_remotion_composition"
@@ -368,7 +390,7 @@ class RemoveRemotionCompositionOp(Operation):
 
 
 OperationUnion = Annotated[
-    AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp,
+    AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp | SetGraphicsSourceOp | RemoveGraphicsSourceOp,
     Field(discriminator="kind"),
 ]
 

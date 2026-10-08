@@ -483,6 +483,18 @@ def render_project(
         time.monotonic() - derive_t0,
         duration_sec=timeline.duration_sec,
     )
+    from open_edit.render.studio_graphics import (
+        graphics_reference_fingerprint,
+        materialize_graphics_documents,
+    )
+
+    try:
+        graphics_fingerprint = graphics_reference_fingerprint(timeline)
+        timeline = materialize_graphics_documents(timeline, project_dir)
+    except Exception as exc:
+        return _fail(mode=mode, profile=profile, output_path='', duration_sec=timeline.duration_sec,
+                     elapsed_sec=time.monotonic() - derive_t0, graph_hash='',
+                     error=str(exc), diagnostics={'stages': recorder.stages})
     frame_pull = frame_pull_gate(
         mode,
         project_dir,
@@ -514,7 +526,7 @@ def render_project(
         height=profile.height,
         fps=profile.frame_rate_num / max(profile.frame_rate_den, 1),
     )
-    content_fingerprint = f"{content_fingerprint}|hyperframes={hyperframes_fingerprint}"
+    content_fingerprint = f"{content_fingerprint}|hyperframes={hyperframes_fingerprint}|studio={graphics_fingerprint}"
     diagnostics = {
         "stages": recorder.stages,
         "profile": {

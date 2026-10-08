@@ -104,6 +104,7 @@
     <aside id="left-panel" class="panel panel-left" data-od-id="panel-left">
       <div class="panel-tabs">
         <button class="tab active" data-tab="assets">Assets</button>
+        <button class="tab" data-tab="layers">Layers</button>
         <button class="tab" data-tab="edits">History</button>
       </div>
 
@@ -124,6 +125,16 @@
         <div id="upload-progress" class="upload-progress hidden"></div>
       </div>
 
+      <div class="tab-content" data-tab="layers">
+        <div class="studio-library-toolbar">
+          <label>Composition <select id="graphics-document" aria-label="Graphics composition"></select></label>
+          <button id="graphics-new" class="btn btn-secondary btn-xs" type="button">New composition</button>
+        </div>
+        <div id="graphics-layers" class="studio-layer-list" role="list" aria-label="Editable layers"></div>
+        <details open class="studio-marks-list"><summary>AI marks <span class="muted small">· excluded from export</span></summary>
+          <div id="graphics-marks" role="list" aria-label="AI marks"></div>
+        </details>
+      </div>
       <div class="tab-content" data-tab="edits">
         <div id="history-list" class="history-list"><p class="muted small">Your edits will appear here.</p></div>
         <details class="operation-details"><summary>Operation details</summary>
@@ -191,16 +202,35 @@
           <button id="graphics-reload" class="btn btn-ghost btn-xs" type="button">Reload source</button>
           <button id="graphics-preview" class="btn btn-secondary btn-xs" type="button" disabled>Render preview</button>
           <button id="graphics-cancel" class="btn btn-ghost btn-xs" type="button" disabled>Cancel</button>
-          <button id="graphics-commit" class="btn btn-primary btn-xs" type="button" disabled>Add to timeline</button>
+          <button id="graphics-commit" class="btn btn-primary btn-xs" type="button" disabled>Save source</button>
         </div>
         <p id="graphics-status" role="status" aria-live="polite">Open the studio to create text and shapes.</p>
         <div class="graphics-workspace">
           <div class="graphics-visual">
+            <div class="studio-tools" role="toolbar" aria-label="Canvas tools">
+              <label>Tool <select id="graphics-tool" aria-label="Canvas tool">
+                <option value="select">Select / move</option><option value="arrow">AI arrow</option>
+                <option value="rectangle">AI box</option><option value="freehand">AI freehand</option>
+                <option value="note">AI note</option><option value="pin">AI pin</option>
+              </select></label>
+              <button id="graphics-add-text" class="btn btn-ghost btn-xs" type="button">+ Text</button>
+              <button id="graphics-add-rect" class="btn btn-ghost btn-xs" type="button">+ Shape</button>
+              <button id="graphics-group" class="btn btn-ghost btn-xs" type="button">Group</button>
+              <button id="graphics-duplicate" class="btn btn-ghost btn-xs" type="button">Duplicate</button>
+              <button id="graphics-delete" class="btn btn-ghost btn-xs" type="button">Delete</button>
+            </div>
             <div class="graphics-canvas-wrap">
-              <video id="graphics-video" muted loop playsinline aria-label="Rendered graphics preview"></video>
+              <canvas id="graphics-live" width="960" height="540" aria-label="Interactive graphics"></canvas>
+              <video id="graphics-video" muted loop playsinline hidden aria-label="Checked graphics preview"></video>
+              <svg id="graphics-guides" viewBox="0 0 960 540" aria-hidden="true"></svg>
               <canvas id="graphics-canvas" width="960" height="540" aria-label="Graphics canvas; select a layer and drag to move it"></canvas>
             </div>
-            <button id="graphics-play" class="btn btn-ghost btn-xs" type="button">Play / pause animation</button>
+            <div class="studio-canvas-transport">
+              <button id="graphics-play" class="btn btn-ghost btn-xs" type="button">Play / pause</button>
+              <input id="graphics-seek" type="range" min="0" max="3" step="0.033333" value="0" aria-label="Graphics playhead">
+              <output id="graphics-time">0.00 s</output>
+              <label><input id="graphics-checked" type="checkbox">Checked preview</label>
+            </div>
 
           </div>
           <details class="graphics-source-details"><summary>Edit graphics source</summary>
@@ -267,14 +297,43 @@
             <button id="authoring-apply-properties" class="btn btn-secondary btn-xs" type="submit" disabled>Apply clip</button>
           </form></section>
       <section id="graphics-inspector" class="panel-section inspector"><h3>Layer inspector</h3>
+            <p id="graphics-selection-status" class="muted small" role="status">Select an object or drag a selection box.</p>
             <label>Layer <select id="graphics-element" aria-label="Graphics layer"></select></label>
             <form id="graphics-properties" class="graphics-properties">
               <label>X <input name="x" type="number" step="any" value="0" required></label>
               <label>Y <input name="y" type="number" step="any" value="0" required></label>
               <label>Width <input name="width" type="number" min="1" max="1920" step="any" value="100" required></label>
               <label>Height <input name="height" type="number" min="1" max="1920" step="any" value="100" required></label>
+              <label>Rotation <input name="rotation" type="number" step="any" value="0"></label>
+              <label>Scale <input name="scale" type="number" min="0.001" max="100" step="any" value="1"></label>
+              <label>Opacity <input name="opacity" type="number" min="0" max="1" step="0.01" value="1"></label>
+              <label>Color <input name="color" value="#ffffff" maxlength="64"></label>
+              <label>Font size <input name="fontSize" type="number" min="1" max="1000" value="48"></label>
+              <label>Text <textarea name="text" rows="3" maxlength="10000" aria-label="Layer text"></textarea></label>
               <button class="btn btn-secondary btn-xs" type="submit">Update layer</button>
-            </form></section>
+            </form>
+            <div class="studio-layer-actions">
+              <label><input id="graphics-hidden" type="checkbox">Hidden</label>
+              <label><input id="graphics-locked" type="checkbox">Locked</label>
+              <button id="graphics-backward" class="btn btn-ghost btn-xs" type="button">Backward</button>
+              <button id="graphics-forward" class="btn btn-ghost btn-xs" type="button">Forward</button>
+              <label>Align <select id="graphics-align" aria-label="Align layers"><option value="">Choose…</option>
+                <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+                <option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option>
+                <option value="distribute-x">Distribute horizontally</option><option value="distribute-y">Distribute vertically</option>
+              </select></label>
+            </div>
+            <p class="muted small">Dragging shifts the whole motion path. Auto-key is off.</p>
+            <form id="graphics-mark-properties" hidden>
+              <h3>AI mark</h3>
+              <label>Instruction <textarea name="text" rows="3" maxlength="10000"></textarea></label>
+              <label>Scope <select name="scope"><option value="frame">This frame</option><option value="range">Time range</option><option value="object">Object</option></select></label>
+              <label>Start (s) <input name="anchor_sec" type="number" min="0" step="any"></label>
+              <label>End (s) <input name="end_sec" type="number" min="0" step="any"></label>
+              <button class="btn btn-secondary btn-xs" type="submit">Save mark</button>
+              <button id="graphics-delete-mark" class="btn btn-ghost btn-xs" type="button">Delete mark</button>
+            </form>
+      </section>
       <div class="panel-section section-block">
         <div class="panel-section-header panel-head">
           <span class="panel-title">Outputs</span>
@@ -420,5 +479,6 @@
   <script type="module" src="/js/authoring.js?v=20261008"></script>
   <script type="module" src="/js/graphics.js?v=20261008-workspace"></script>
   <script type="module" src="/js/workspace.js?v=20261008-workspace"></script>
+  <script type="module" src="/js/studio-shell.js?v=20261008"></script>
 </body>
 </html>

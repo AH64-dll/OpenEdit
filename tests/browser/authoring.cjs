@@ -137,6 +137,8 @@ const { chromium } = require('playwright-core');
     await graphics.fill((await graphics.inputValue()).replace('Your title', 'OpenEdit graphics').replace('</scene>',
       '<group id="group-contract" x={10} y={10} hidden><rect id="group-child" width={30} height={20}/></group></scene>'));
     await page.locator('#graphics-duration').fill('0.5');
+    await page.locator('#graphics-commit').click();
+    await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.includes('Saved editable source'));
     await page.locator('#graphics-preview').click();
     await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.includes('passed quality'), null, { timeout: 120000 });
     await page.waitForFunction(() => document.querySelector('#graphics-video').readyState >= 2);
@@ -144,12 +146,13 @@ const { chromium } = require('playwright-core');
     assert.ok(await page.locator('#graphics-properties input[name=width]').isDisabled());
     await page.locator('#graphics-properties input[name=x]').fill('15');
     await page.locator('#graphics-properties button').click();
-    await page.waitForFunction(() => document.querySelector('#graphics-source').value.includes('id="group-contract" x={15}'));
+    await page.waitForFunction(() => /id="group-contract"\s+x=\{15\}/.test(document.querySelector('#graphics-source').value));
     await page.locator('#graphics-element').selectOption('title');
     await page.locator('#graphics-properties input[name=x]').fill('125');
     await page.locator('#graphics-properties button').click();
     await page.waitForFunction(() => document.querySelector('#graphics-source').value.includes('x={125}'));
-    assert.ok(await page.locator('#graphics-commit').isDisabled());
+    assert.ok(!(await page.locator('#graphics-commit').isDisabled()));
+    await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.startsWith('Saved editable'));
     const bounds = await page.locator('#graphics-canvas').boundingBox();
     // Move the text by 30 scene pixels using the actual canvas pointer path.
     const sx = bounds.width / 960, sy = bounds.height / 540;
@@ -160,8 +163,6 @@ const { chromium } = require('playwright-core');
     await page.waitForFunction(() => document.querySelector('#graphics-source').value.includes('x={155}') && document.querySelector('#graphics-source').value.includes('y={375}'));
     await page.locator('#graphics-preview').click();
     await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.includes('passed quality'), null, { timeout: 120000 });
-    await page.locator('#graphics-commit').click();
-    await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.includes('Graphics saved'));
     const savedGraphics = await (await fetch(`${base}/api/projects/${encodeURIComponent(id)}/graphics`)).json();
     assert.ok(savedGraphics.existing);
     assert.ok(savedGraphics.source.includes('OpenEdit graphics'));
@@ -170,8 +171,10 @@ const { chromium } = require('playwright-core');
     await page.screenshot({ path: path.join(__dirname, 'artifacts/graphics-desktop.png'), fullPage: true });
     await graphics.fill('// Keep this graphics draft\n' + savedGraphics.source);
     const latest = await (await fetch(`${endpoint}?include_source=true`)).json();
-    const external = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-      expected_revision: latest.graph_revision, edits: [{ kind: 'set', source: 'index.tsx:c-hero', props: { start: 6 } }],
+    const objects = await (await fetch(`${base}/api/projects/${encodeURIComponent(id)}/studio?include_source=true`)).json();
+    const doc = objects.objects.find(o=>o.kind === 'document');
+    const external = await fetch(`${base}/api/projects/${encodeURIComponent(id)}/studio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      expected_revision: latest.graph_revision, changes: [{kind:'document',object_id:doc.object_id,data:{...doc.data,source:doc.data.source.replace('OpenEdit graphics','External title')}}],
     }) });
     assert.ok(external.ok, await external.text());
     await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.includes('Project changed'));

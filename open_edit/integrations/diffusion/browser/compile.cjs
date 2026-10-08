@@ -2,7 +2,6 @@
 const babel = require('@babel/core');
 const esbuild = require('esbuild');
 const path = require('node:path');
-const fs = require('node:fs/promises');
 const solid = require('babel-preset-solid');
 function upstream(name) {
   const module = { exports: {} };
@@ -101,6 +100,9 @@ function parse(source) {
     for (const child of node.children) {
       if (child.type === 'JSXText') {
         if (child.value.trim() && tag !== 'text') throw new Error('Only text elements can contain text');
+        if (tag === 'text') entry.text = (entry.text || '') + child.value;
+      } else if (tag === 'text' && child.type === 'JSXExpressionContainer' && child.expression.type === 'StringLiteral') {
+        entry.text = (entry.text || '') + child.expression.value;
       } else if (child.type === 'JSXExpressionContainer' && child.expression.type === 'JSXEmptyExpression') continue;
       else visit(child, tag, depth + 1, values.id);
     }
@@ -122,24 +124,6 @@ async function compile(source) {
   return { document, code: compiled.code };
 }
 async function rewrite(source, edits, scratch) {
-  const before = parse(source);
-  const elements = new Map(before.elements.map(e => [e.id, e]));
-  if (!Array.isArray(edits) || edits.length > 1000) throw new Error('Graphics edits must be a bounded list');
-  for (const edit of edits) {
-    const id = typeof edit?.source === 'string' ? edit.source.replace(/^index\.tsx:/, '') : '';
-    const entry = elements.get(id);
-    if (!entry || edit.source !== `index.tsx:${id}` || edit.kind !== 'set' || Object.keys(edit).some(k => !['kind', 'source', 'props'].includes(k))) throw new Error('Graphics edits must set an existing stable source ID');
-    if (!edit.props || typeof edit.props !== 'object' || Array.isArray(edit.props)) throw new Error('Graphics edits require literal props');
-    for (const [key, value] of Object.entries(edit.props)) {
-      if (key === 'id' || !props[entry.tag].includes(key) || !['number', 'string', 'boolean'].includes(typeof value)) throw new Error('Unsupported graphics property edit');
-    }
-  }
-  if (!edits.length) return source;
-  await fs.writeFile(path.join(scratch, 'index.tsx'), source, 'utf8');
-  const result = await upstream('edit').applyEdits({ dir: scratch }, edits);
-  if (result.error || result.skipped.length) throw new Error(result.error || 'Graphics source edit could not be applied');
-  const rewritten = await fs.readFile(path.join(scratch, 'index.tsx'), 'utf8');
-  parse(rewritten);
-  return rewritten;
+  return require('./source-edit.cjs').editSource(source, edits, parse);
 }
 module.exports = { parse, compile, rewrite };

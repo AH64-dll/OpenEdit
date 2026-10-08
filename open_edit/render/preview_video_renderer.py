@@ -54,6 +54,9 @@ class HostPreviewVideoRenderer:
         if not isinstance(timeline, Timeline):
             raise TypeError("preview video request requires a Timeline")
 
+        from open_edit.render.studio_graphics import materialize_graphics_documents
+        timeline = materialize_graphics_documents(timeline, self.project_path)
+
         composition_uids = tuple(request.get("composition_uids") or ())
         if timeline.remotion_compositions:
             force_uids = composition_uids or tuple(

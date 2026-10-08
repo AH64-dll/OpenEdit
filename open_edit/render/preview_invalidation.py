@@ -204,6 +204,7 @@ def _slice_tracks(
         clips = [
             sliced
             for clip in track.clips
+            if not (plane == 'audio' and clip.document_id is not None)
             if (sliced := _slice_clip(
                 clip,
                 render_start_frame=render_start_frame,
