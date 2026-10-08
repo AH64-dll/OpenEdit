@@ -17,7 +17,7 @@ const common = ['id', 'x', 'y', 'width', 'height', 'rotation', 'scale', 'scaleX'
 const props = {
   stage: ['id'], scene: ['id', 'width', 'height', 'active', 'fill'],
   // Upstream groups have no box or fill of their own: they fit their children.
-  group: ['id', 'x', 'y', 'rotation', 'scale', 'scaleX', 'scaleY', 'opacity', 'start', 'end', 'hidden'],
+  group: ['id', 'x', 'y', 'rotation', 'scale', 'scaleX', 'scaleY', 'opacity', 'start', 'end', 'hidden', 'transition'],
   rect: [...common, 'clipPath'],
   text: [...common, 'color', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textBaseline'],
   image: [...common, 'src', 'fit'], sequence: ['id'],

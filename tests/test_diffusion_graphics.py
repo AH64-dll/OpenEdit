@@ -239,3 +239,47 @@ async def test_cancel_reaps_chromium_and_restart(graphics_project, graphics_work
     restarted = await service.wait(root, next_job.job_id)
     assert restarted.status == 'succeeded', restarted.error
     await service.shutdown()
+
+
+def test_concurrent_source_workers_do_not_cancel_each_other(graphics_worker):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    barrier = Barrier(2)
+
+    def compile_source(source):
+        barrier.wait(timeout=5)
+        return inspect_source(source)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        good = pool.submit(compile_source, DEFAULT_SOURCE)
+        bad = pool.submit(compile_source, 'export default function Nope(){throw Error("bad");}')
+        with pytest.raises(ValueError):
+            bad.result(timeout=30)
+        assert good.result(timeout=30)['scene']['width'] == 960
+
+
+def test_encoder_timeout_reaps_child_and_allows_restart(tmp_path, monkeypatch):
+    from open_edit.integrations.diffusion import graphics
+
+    if not shutil.which('ffmpeg'):
+        pytest.skip('FFmpeg required')
+    real_popen = subprocess.Popen
+    children = []
+
+    def launch(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        children.append(proc)
+        return proc
+
+    monkeypatch.setattr(graphics.subprocess, 'Popen', launch)
+    with pytest.raises(subprocess.TimeoutExpired):
+        graphics._encode(['ffmpeg', '-v', 'error', '-re', '-f', 'lavfi', '-i',
+                          'color=c=red:s=32x32:r=30', '-t', '60', '-f', 'null', '-'],
+                         timeout=0.1, scratch=tmp_path)
+    assert children[0].poll() is not None
+    assert json.loads((tmp_path / 'encoder-process.json').read_text())['encoder'] == children[0].pid
+    restarted = graphics._encode(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i',
+                                   'color=c=blue:s=32x32:r=30', '-t', '0.1', '-f', 'null', '-'],
+                                  timeout=10)
+    assert restarted.returncode == 0

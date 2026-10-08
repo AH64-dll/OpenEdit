@@ -44,11 +44,22 @@ repeat installation and cross-trait-generation queries have direct coverage.
 Groups derive their bounds from children; group box/fill props are rejected.
 Sequence children have explicit timing instead of implicit stacking.
 
-Before that follow-up, the full local Python regression passed **1,487 tests**,
-with **18 skipped** because `melt` is unavailable and **4 browser tests deselected**.
-A new complete run includes the reviewed dependency and asset contracts.
-Ruff passes. Final run totals, browser captures, package-install results and
-platform lifecycle checks will be recorded after the acceptance workflows finish.
+The complete local regression after review passed **1,501 tests**, with **18
+skipped** because `melt` is unavailable and **4 browser tests deselected**, in
+114.90 seconds. Subsequent encoder timeout/restart and concurrent compiler
+checks passed in the **67-test** focused graphics/authoring/timing suite.
+Ruff passes. A built wheel and source distribution contain all graphics/font/
+patch/provenance resources and exclude node_modules and bytecode. A fresh wheel
+installed outside the checkout exposes six tools and packaged skills with no
+optional worker installed. Its explicit offline optional setup installs locked
+dependencies, applies the exact upstream patch and runs both actual compilers.
+
+[Acceptance run 37750205677](https://github.com/AH64-dll/OpenEdit/actions/runs/37750205677)
+passed Linux browser/UI/timing/MLT replay and macOS compiler/browser/timing
+checks. Windows identified CRLF conversion of pinned patch bytes; Git attributes
+now preserve those sources as LF. Captured desktop graphics were reviewed;
+mobile review exposed legacy rail overlap, now covered by layout/visibility
+checks. Final acceptance is rerunning these fixes on all platforms.
 
 Local tests use Python 3.12.13, Node 24.18.0 and the full FFmpeg in
 `~/.local/bin` (the system FFmpeg lacks libx264). This execution sandbox blocks

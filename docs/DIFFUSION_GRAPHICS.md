@@ -82,12 +82,14 @@ The HTTP studio uses the same Python adapters and durable service:
 - One `stage`, one even-sized `scene` (16..1920 pixels per dimension).
 - `rect`, `text`, `image`, `group`, `sequence`, solid paints, position, size,
   scale, rotation, opacity, corner radius and explicit source/timeline times.
+  Groups derive bounds from their children and accept transform/opacity/timing
+  properties; paint a child rect instead of setting a group fill or size.
   Every element needs a unique stable ASCII ID. Times are numeric seconds.
 - Text uses `fontFamily="OpenEdit Sans"`; the font is bundled and no network
   font loading is allowed. Put plain literal text inside the text element.
 - Rectangular `clipPath` masks; fade/grow/shrink/slide/spin presets; numeric
   x/y/size/rotation/scale/opacity and color keyframes with supported easing.
-- Sequence-child transitions use a literal
+- Sequence children require explicit start/end timing. Their transitions use a literal
   `transition={{type:"dissolve",duration:0.4}}`; slide-from-left/right and
   fade-to-black/white are also mapped. Transition duration is at most 5 seconds.
 - Images use SHA-256 `asset://` references from this project's CAS. Unknown,

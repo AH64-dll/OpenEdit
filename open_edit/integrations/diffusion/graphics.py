@@ -11,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 from open_edit.ir.types import AddClipOp, ReplaceClipSourceOp, TrimClipOp
@@ -21,7 +22,8 @@ from open_edit.storage.paths import ProjectPaths
 UPSTREAM = 'fefcde9df7198466bd7cc9f3a9d7eae1575b5b12'
 GRAPHICS_FORMAT = 'diffusion-graphics-v1'
 MAX_FRAMES = 1800
-_ACTIVE: subprocess.Popen | None = None
+# HTTP source rewrites may run concurrently; cleanup belongs to its own thread.
+_ACTIVE = threading.local()
 
 
 def browser_directory() -> Path:
@@ -59,7 +61,7 @@ def validate_params(params: dict) -> dict:
 
 def stop_worker() -> None:
     """Also called by the standalone worker's SIGTERM handler."""
-    proc = _ACTIVE
+    proc = getattr(_ACTIVE, 'process', None)
     if proc is None:
         return
     if os.name == 'posix':
@@ -73,15 +75,14 @@ def stop_worker() -> None:
 
 
 def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
-    global _ACTIVE
     if not graphics_ready():
         raise ValueError('Graphics worker missing. Run python -m open_edit.integrations.diffusion.setup --graphics --chromium')
     request_path = scratch / 'request.json'
     request_path.write_text(json.dumps({**request, 'scratch': str(scratch)}), encoding='utf-8')
     with tempfile.TemporaryFile() as output:
-        _ACTIVE = subprocess.Popen([shutil.which('node'), str(browser_directory() / 'render.cjs'), str(request_path)],
+        _ACTIVE.process = subprocess.Popen([shutil.which('node'), str(browser_directory() / 'render.cjs'), str(request_path)],
                                    stdout=output, stderr=subprocess.DEVNULL, start_new_session=os.name == 'posix')
-        proc = _ACTIVE
+        proc = _ACTIVE.process
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
@@ -89,7 +90,7 @@ def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
         finally:
             stop_worker()
             proc.wait()
-            _ACTIVE = None
+            _ACTIVE.process = None
         output.seek(0)
         raw = output.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024:
@@ -106,6 +107,26 @@ def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
 def inspect_source(source: str) -> dict:
     with tempfile.TemporaryDirectory(prefix='openedit-graphics-') as directory:
         return _worker({'source': source, 'validate_only': True}, Path(directory), timeout=20)['document']
+
+
+def _encode(command: list[str], *, timeout: int, scratch: Path | None = None) -> subprocess.CompletedProcess:
+    """Track FFmpeg like Chromium so cancellation also reaches a separate session."""
+    with tempfile.TemporaryFile() as errors:
+        proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=errors,
+                                start_new_session=os.name == 'posix')
+        _ACTIVE.process = proc
+        try:
+            if scratch is not None:
+                record = scratch / 'encoder-process.json'
+                record.write_text(json.dumps({'encoder': proc.pid}))
+            proc.wait(timeout=timeout)
+        finally:
+            stop_worker()
+            proc.wait()
+            _ACTIVE.process = None
+        errors.seek(0, os.SEEK_END)
+        errors.seek(max(0, errors.tell() - 300))
+        return subprocess.CompletedProcess(command, proc.returncode, stderr=errors.read())
 
 
 def rewrite_graphics_source(project_path, *, source, edits, expected_revision) -> dict:
@@ -153,8 +174,7 @@ def _quality_check(path: Path, *, width: int, height: int, duration: float, fps:
         raise ValueError('Graphics QC failed: expected silent RGBA video with the scene dimensions')
     if abs(info['duration_sec'] - duration) > 1 / fps + 1e-6:
         raise ValueError('Graphics QC failed: output duration differs from requested frames')
-    check = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), '-f', 'null', '-'],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=60)
+    check = _encode(['ffmpeg', '-v', 'error', '-i', str(path), '-f', 'null', '-'], timeout=60)
     if check.returncode:
         raise ValueError('Graphics QC failed: output cannot be fully decoded')
     return {'passed': True, 'complete': True, 'alpha': True, 'audio': 'silent', 'width': width, 'height': height,
@@ -207,9 +227,9 @@ def materialize(project_path: str | Path, params: dict) -> dict:
         scratch = Path(directory)
         rendered = _worker({**params, 'assets': manifest, 'frames': round(params['duration_sec'] * params['fps'])}, scratch)
         output = scratch / 'graphics.mov'
-        ffmpeg = subprocess.run(['ffmpeg', '-y', '-v', 'error', '-framerate', str(params['fps']),
+        ffmpeg = _encode(['ffmpeg', '-y', '-v', 'error', '-framerate', str(params['fps']),
                                  '-i', str(scratch / 'frame-%06d.png'), '-an', '-c:v', 'qtrle',
-                                 '-pix_fmt', 'argb', str(output)], capture_output=True, timeout=90)
+                         '-pix_fmt', 'argb', str(output)], timeout=90, scratch=scratch)
         if ffmpeg.returncode:
             raise ValueError('Graphics encoding failed: ' + ffmpeg.stderr.decode(errors='replace')[-300:])
         scene = document['scene']
@@ -220,10 +240,10 @@ def materialize(project_path: str | Path, params: dict) -> dict:
                                                   source_url=f'openedit:graphics:{key}')
         preview = cache / f'{key}.webm'
         preview_temp = scratch / 'preview.webm'
-        encoded = subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', str(output), '-an',
+        encoded = _encode(['ffmpeg', '-y', '-v', 'error', '-i', str(output), '-an',
                                   '-c:v', 'libvpx-vp9', '-b:v', '1M', '-deadline', 'realtime',
                                   '-cpu-used', '6', '-pix_fmt', 'yuva420p', str(preview_temp)],
-                                 capture_output=True, timeout=90)
+                          timeout=90, scratch=scratch)
         if encoded.returncode:
             raise ValueError('Browser preview encoding failed; last good preview retained')
         preview_temp.replace(preview)
