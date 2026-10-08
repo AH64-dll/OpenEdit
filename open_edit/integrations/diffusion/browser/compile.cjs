@@ -3,6 +3,16 @@ const babel = require('@babel/core');
 const esbuild = require('esbuild');
 const path = require('node:path');
 const solid = require('babel-preset-solid');
+const namedEasing = { linear: 'linear', easeIn: 'cubicBezier(0.42,0,1,1)',
+  easeOut: 'cubicBezier(0,0,0.58,1)', easeInOut: 'cubicBezier(0.42,0,0.58,1)' };
+function normalizeEasing(value) {
+  if (Object.hasOwn(namedEasing,value)) return namedEasing[value];
+  const match = /^cubicBezier\(([^)]+)\)$/.exec(value);
+  const numbers = match?.[1].split(',').map(v=>Number(v.trim()));
+  if (!numbers || numbers.length!==4 || numbers.some(v=>!Number.isFinite(v)) ||
+      numbers[0]<0 || numbers[0]>1 || numbers[2]<0 || numbers[2]>1 || Math.abs(numbers[1])>4 || Math.abs(numbers[3])>4) throw new Error('Easing requires a named curve or bounded cubicBezier(x1,y1,x2,y2)');
+  return `cubicBezier(${numbers.join(',')})`;
+}
 function upstream(name) {
   const module = { exports: {} };
   const bundled = esbuild.buildSync({ entryPoints: [path.join(__dirname, '../worker/vendor/desktop', `${name}.ts`)],
@@ -95,7 +105,7 @@ function parse(source) {
     if (tag === 'animation' && !['fade', 'grow', 'shrink', 'slideLeft', 'slideRight', 'slideUp', 'slideDown', 'spin'].includes(values.type)) throw new Error('Unsupported animation preset');
     if (values.phase && !['in', 'out'].includes(values.phase)) throw new Error('Animation phase must be in or out');
     if (tag === 'keyframeTrack' && !['x', 'y', 'width', 'height', 'rotation', 'scale', 'opacity', 'color'].includes(values.property)) throw new Error('Unsupported keyframe property');
-    if (values.easing && !['linear', 'easeIn', 'easeOut', 'easeInOut'].includes(values.easing)) throw new Error('Unsupported easing');
+    if (values.easing) normalizeEasing(values.easing);
     const entry = { tag, ...values, parent_id: parentId }; elements.push(entry);
     for (const child of node.children) {
       if (child.type === 'JSXText') {
@@ -112,6 +122,20 @@ function parse(source) {
   if (root.tag !== 'stage' || elements.filter(e => e.tag === 'scene').length !== 1) throw new Error('Graphics requires one stage with one scene');
   const scene = elements.find(e => e.tag === 'scene');
   for (const key of ['width', 'height']) if (!Number.isInteger(scene[key]) || scene[key] < 16 || scene[key] > 1920 || scene[key] % 2) throw new Error('Scene dimensions must be even integers from 16 to 1920');
+  const tracks = new Set();
+  for (const track of elements.filter(e=>e.tag==='keyframeTrack')) {
+    const key = `${track.parent_id}:${track.property}`;
+    if (tracks.has(key)) throw new Error('A layer can have only one animation track per property');
+    tracks.add(key);
+    const times = new Set();
+    for (const frame of elements.filter(e=>e.parent_id===track.id)) {
+      if (typeof frame.time!=='number' || times.has(frame.time)) throw new Error('Keyframes need unique numeric times');
+      times.add(frame.time);
+      if (track.property==='color' ? typeof frame.value!=='string' || !/^#(?:[a-f0-9]{3}|[a-f0-9]{6})$/i.test(frame.value) : typeof frame.value!=='number') throw new Error('Keyframe values must match their property; colors use hex RGB');
+      if (track.property==='opacity' && (frame.value<0 || frame.value>1)) throw new Error('Animated opacity must be between 0 and 1');
+      if (['width','height','scale'].includes(track.property) && frame.value<0) throw new Error('Animated dimensions and scale must be nonnegative');
+    }
+  }
   return { scene, elements, assets: [...assets].sort() };
 }
 async function compile(source) {
@@ -126,4 +150,4 @@ async function compile(source) {
 async function rewrite(source, edits, scratch) {
   return require('./source-edit.cjs').editSource(source, edits, parse);
 }
-module.exports = { parse, compile, rewrite };
+module.exports = { parse, compile, rewrite, normalizeEasing };

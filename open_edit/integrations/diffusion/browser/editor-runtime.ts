@@ -105,19 +105,31 @@ class Editor {
 
   geometry() {
     const world = this.world, computed = store(world, Computed);
+    // Transform systems write derived SoA slots directly; these matrices are
+    // deliberately not attached traits, so entity.get(WorldTransform) is empty.
+    const transforms = store(world, WorldTransform);
+    const matrixFor = (entity: any) => {
+      if (entity === null || entity === undefined) return undefined;
+      const id = entity.id();
+      const matrix = Object.fromEntries(['a','b','c','d','e','f'].map(key => [key, transforms[key][id]]));
+      return Object.values(matrix).every(Number.isFinite) ? matrix : undefined;
+    };
     const result: any[] = [];
     // The authored tree order is also the paint order, including nested siblings.
     const visit = (node: any, ancestorsVisible: boolean) => {
-      const entity = node.entity, id = entity?.id(), matrix = entity?.get(WorldTransform);
+      const entity = node.entity, id = entity?.id(), matrix = matrixFor(entity);
       const authoredId = sourceId(entity);
       const visible = ancestorsVisible && !entity?.has(Hidden) && computed.visibility[id] > 0 && computed.opacity[id] > 0;
       if (authoredId && matrix && ['rect', 'text', 'image', 'group'].includes(node.tag)) {
         const width = computed.width[id], height = computed.height[id];
         const originX = computed.originX[id] || 0, originY = computed.originY[id] || 0;
         const point = (x: number, y: number) => [matrix.a * x + matrix.c * y + matrix.e, matrix.b * x + matrix.d * y + matrix.f];
-        const parent = getParentEntity(entity), parentMatrix = parent?.get(WorldTransform);
+        const parent = getParentEntity(entity), parentMatrix = matrixFor(parent);
         result.push({ id: authoredId, tag: node.tag, visible, width, height,
           x: computed.positionX[id], y: computed.positionY[id], matrix, parent_matrix: parentMatrix,
+          local_time_sec: computed.localTime[id] / this.fps,
+          origin_sec: (computed.origin[id] || 0) / this.fps, playback_rate: computed.playbackRate[id] || 1,
+          rotation: computed.rotation[id], scale: computed.scaleX[id], opacity: computed.opacity[id],
           corners: [[originX, originY], [originX + width, originY], [originX + width, originY + height], [originX, originY + height]].map(([x, y]) => point(x, y)),
         });
       }

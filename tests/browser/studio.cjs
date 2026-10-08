@@ -21,7 +21,7 @@ async function parity(browser) {
   const source = `export default function Graphics() { return <stage id="stage"><scene id="scene" width={320} height={180} active>
     <group id="outer" x={40} y={30} rotation={20}><group id="inner" x={20} y={10} scale={1.2}>
       <rect id="animated" x={0} y={0} width={60} height={40} fill="#dd3355" end={2}>
-        <keyframeTrack id="motion" property="x"><keyframe id="a" time={0} value={0}/><keyframe id="b" time={1} value={80}/></keyframeTrack>
+        <keyframeTrack id="motion" property="x"><keyframe id="a" time={0} value={0} easing="easeIn"/><keyframe id="b" time={1} value={80}/></keyframeTrack>
       </rect></group></group></scene></stage>; }`;
   const compiled = await compile(source), editorCode = await bundle('editor-runtime.ts'), exportCode = await bundle('runtime.ts');
   const page = await browser.newPage();
@@ -57,7 +57,9 @@ async function parity(browser) {
   result.maxDifference = result.interactive.reduce((max,v,i)=>Math.max(max,Math.abs(v-exported[i])),0);
   result.seekDifference = result.firstPixels.reduce((max,v,i)=>Math.max(max,Math.abs(v-result.seekBack[i])),0);
   // Geometry must use the same matrix which put the colored rectangle here.
+  fs.writeFileSync(path.join(artifacts,'studio-geometry.json'),JSON.stringify({first:result.first,later:result.later},null,2));
   const animated = result.later.find(g=>g.id==='animated'); assert.ok(animated, 'Missing source-ID geometry');
+  assert.ok(animated.x>24 && animated.x<27,'Named easing did not use the shared Bezier evaluator');
   const center = animated.corners.reduce((p,c)=>[p[0]+c[0]/4,p[1]+c[1]/4],[0,0]);
   const pixel = (Math.round(center[1])*320+Math.round(center[0]))*4;
   result.color = exported.slice(pixel,pixel+4);
@@ -132,6 +134,31 @@ async function parity(browser) {
     assert.equal(rejected.status,400);
     await page.locator('#graphics-locked').uncheck();
     await page.waitForFunction(()=>!document.querySelector('#graphics-properties [name=x]').disabled);
+    // Keyframes are real source children; auto-key is off until explicitly set.
+    const animation=page.locator('#graphics-animation');
+    assert.equal(await animation.getByRole('checkbox',{name:'Auto-key'}).isChecked(),false);
+    await animation.getByRole('combobox',{name:'Animated property'}).selectOption('x');
+    await animation.locator('form').first().locator('input[name=value]').fill('120');
+    await animation.getByRole('button',{name:'Add keyframe at playhead',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('keyframeTrack'));
+    await page.locator('#graphics-seek').fill('0.5');await page.locator('#graphics-seek').dispatchEvent('input');
+    await animation.locator('form').first().locator('input[name=value]').fill('160');
+    await animation.getByRole('button',{name:'Add keyframe at playhead',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelectorAll('#graphics-animation .keyframe-row').length===2);
+    await animation.locator('.keyframe-row').first().locator('summary').click();
+    await animation.locator('.keyframe-row').first().getByRole('combobox',{name:'Segment easing'}).selectOption('cubicBezier');
+    await animation.locator('.keyframe-row').first().getByRole('button',{name:'Update keyframe',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('cubicBezier'));
+    await animation.getByRole('checkbox',{name:'Auto-key'}).check();
+    await page.locator('#graphics-properties input[name=x]').fill('170');await page.locator('#graphics-properties [type=submit]').click();
+    await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('value={170}'));
+    await animation.getByRole('checkbox',{name:'Auto-key'}).uncheck();
+    await page.locator('#graphics-properties input[name=x]').fill('110');await page.locator('#graphics-properties [type=submit]').click();
+    await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('x={110}') && !document.querySelector('#graphics-commit').disabled);
+    const animatedDoc=(await api('/studio?include_source=true')).objects.find(o=>o.kind==='document').data;
+    const motion=animatedDoc.elements.find(e=>e.parent_id==='title' && e.tag==='keyframeTrack' && e.property==='x');
+    assert.deepEqual(animatedDoc.elements.filter(e=>e.parent_id===motion.id).map(e=>e.value),[130,180]);
+    await page.screenshot({path:path.join(artifacts,'studio-animation.png'),fullPage:true});
     await page.locator('#graphics-tool').selectOption('arrow');
     const box=await page.locator('#graphics-canvas').boundingBox();
     await page.mouse.move(box.x+box.width*.25,box.y+box.height*.3);await page.mouse.down();await page.mouse.move(box.x+box.width*.6,box.y+box.height*.6);await page.mouse.up();

@@ -2,6 +2,7 @@
 import { state } from './state.js';
 import { studio, loadStudio, studioRequest, commitStudio, studioObject, selectObjects, selectMarks } from './studio-state.js';
 import { inverse, transformPoint, localDelta, insidePolygon, bounds, selectionRoots, layerLocked, annotationPoints, alignmentOffsets } from './studio-geometry.js';
+import { keyframeEdits } from './keyframes.js';
 
 const el = id => document.getElementById(`graphics-${id}`);
 const panel = el('panel'), source = el('source'), canvas = el('canvas'), live = el('live');
@@ -47,7 +48,8 @@ function inspector() {
   const selected = item(); select.value = selected?.id || '';
   if (selected) {
     const defaults = { x: 0, y: 0, width: 100, height: 60, rotation: 0, scale: 1, opacity: 1, color: '#ffffff', fontSize: 48, text: '' };
-    for (const [key, fallback] of Object.entries(defaults)) form.elements[key].value = selected[key] ?? (key === 'color' ? selected.fill : undefined) ?? fallback;
+    const values = studio.autoKey ? {...selected,...geometry.find(g=>g.id===selected.id)} : selected;
+    for (const [key, fallback] of Object.entries(defaults)) form.elements[key].value = values[key] ?? (key === 'color' ? selected.fill : undefined) ?? fallback;
     el('hidden').checked = !!selected.hidden; el('locked').checked = locked(selected.id);
   }
   const current = mark(), f = el('mark-properties'); f.hidden = !current;
@@ -130,7 +132,10 @@ async function seek(value, offsets = {}) {
   el('seek').value = time; el('time').textContent = `${time.toFixed(2)} s`; state.playheadSec = time + (draft?.data.position_sec || 0);
   window.dispatchEvent(new CustomEvent('openedit:studio-playhead'));
   const current = renderer, token = generation;
-  if (current) { const result = await current.frame(time, {}, offsets); if (token !== generation || current !== renderer) return; geometry = result; } drawGuides();
+  if (current) { const result = await current.frame(time, {}, offsets); if (token !== generation || current !== renderer) return; geometry = result; studio.geometry = result; }
+  window.dispatchEvent(new CustomEvent('openedit:studio-frame'));
+  if (studio.autoKey && !form.contains(document.activeElement) && !drag) inspector();
+  drawGuides();
 }
 function remember() {
   if (!draft) return;
@@ -192,8 +197,14 @@ async function rewrite(edits, label) {
   try { const result = await studioRequest('/studio/compile', { expected_revision: studio.revision, source: draft.data.source, edits }); await save({ ...draft.data, source: result.source }, label); }
   finally { busy = false; controls(); }
 }
-async function translations(offsets, label) {
-  await rewrite(Object.entries(offsets).map(([id, [dx, dy]]) => { const g = geometry.find(g => g.id === id), [x, y] = localDelta(g?.parent_matrix, dx, dy); return { kind: 'translate', source: `index.tsx:${id}`, dx: Math.round(x*1e6)/1e6, dy: Math.round(y*1e6)/1e6 }; }), label);
+async function translations(offsets, label, baseline = geometry) {
+  await rewrite(Object.entries(offsets).flatMap(([id, [dx, dy]]) => {
+    const g = baseline.find(g => g.id === id), [x, y] = localDelta(g?.parent_matrix, dx, dy);
+    const deltaX=Math.round(x*1e6)/1e6, deltaY=Math.round(y*1e6)/1e6;
+    const layer=elements().find(e=>e.id===id), localTime=Math.max(0,g?.local_time_sec ?? time);
+    if (studio.autoKey) return [...(deltaX?keyframeEdits(draft.data,id,'x',localTime,g.x+deltaX,'linear',layer.x || 0):[]), ...(deltaY?keyframeEdits(draft.data,id,'y',localTime,g.y+deltaY,'linear',layer.y || 0):[])];
+    return [{ kind: 'translate', source: `index.tsx:${id}`, dx: deltaX, dy: deltaY }];
+  }), label);
 }
 const pointer = event => { const rect = canvas.getBoundingClientRect(); return [(event.clientX - rect.left) * canvas.width / rect.width, (event.clientY - rect.top) * canvas.height / rect.height]; };
 canvas.addEventListener('pointerdown', event => {
@@ -223,7 +234,7 @@ canvas.addEventListener('pointerup', safe(async () => {
     selectObjects([...new Set([...ended.previous, ...ids])], draft.object_id); drawGuides();
   } else if (ended.mode === 'move') {
     const dx = ended.end[0] - ended.start[0], dy = ended.end[1] - ended.start[1];
-    if (Math.hypot(dx, dy) > .5) await translations(Object.fromEntries(ended.ids.map(id => [id, [dx, dy]])), 'Move graphics layers'); else await seek(time);
+    if (Math.hypot(dx, dy) > .5) await translations(Object.fromEntries(ended.ids.map(id => [id, [dx, dy]])), 'Move graphics layers', ended.originalGeometry); else await seek(time);
   } else {
     const anchor = geometry.find(g => g.id === studio.selectedIds[0]), local = anchor && inverse(anchor.matrix);
     const points = ['pin', 'note'].includes(ended.tool) ? [ended.points[0]] : ended.tool === 'freehand' ? ended.points : [ended.points[0], ended.points.at(-1)], id = uid('mark');
@@ -238,11 +249,17 @@ canvas.addEventListener('pointercancel', () => { drag = null; seek(time).catch(f
 select.addEventListener('change', () => selectObjects([select.value], draft?.object_id));
 form.addEventListener('submit', safe(async event => {
   event.preventDefault(); const selected = item(), edits = [];
+  const baseline=studio.autoKey?{...selected,...geometry.find(g=>g.id===selected.id)}:selected;
   for (const id of roots()) {
-    const layer = elements().find(e => e.id === id), props = {}, dx = Number(form.elements.x.value) - (selected.x || 0), dy = Number(form.elements.y.value) - (selected.y || 0);
-    if (dx || dy) edits.push({ kind: 'translate', source: `index.tsx:${id}`, dx, dy });
-    for (const name of ['width', 'height', 'rotation', 'scale', 'opacity', 'fontSize']) if (!form.elements[name].disabled && Number(form.elements[name].value) !== (selected[name] ?? ({ rotation: 0, scale: 1, opacity: 1, fontSize: 48 }[name]))) props[name] = Number(form.elements[name].value);
+    const layer = elements().find(e => e.id === id), props = {}, evaluated=geometry.find(g=>g.id===id), localTime=Math.max(0,evaluated?.local_time_sec ?? time);
+    const dx = Number(form.elements.x.value) - (baseline.x || 0), dy = Number(form.elements.y.value) - (baseline.y || 0);
+    if (dx || dy) {
+      if (studio.autoKey) { if(dx)edits.push(...keyframeEdits(draft.data,id,'x',localTime,(evaluated?.x ?? layer.x ?? 0)+dx,'linear',layer.x || 0)); if(dy)edits.push(...keyframeEdits(draft.data,id,'y',localTime,(evaluated?.y ?? layer.y ?? 0)+dy,'linear',layer.y || 0)); }
+      else edits.push({ kind: 'translate', source: `index.tsx:${id}`, dx, dy });
+    }
+    for (const name of ['width', 'height', 'rotation', 'scale', 'opacity', 'fontSize']) if (!form.elements[name].disabled && Number(form.elements[name].value) !== (baseline[name] ?? ({ rotation: 0, scale: 1, opacity: 1, fontSize: 48 }[name]))) props[name] = Number(form.elements[name].value);
     if (form.elements.color.value !== (selected.color ?? selected.fill ?? '#ffffff') && ['text', 'rect'].includes(layer.tag)) props[layer.tag === 'rect' ? 'fill' : 'color'] = form.elements.color.value;
+    if (studio.autoKey) for (const key of ['width','height','rotation','scale','opacity']) if(Object.hasOwn(props,key)) { edits.push(...keyframeEdits(draft.data,id,key,localTime,props[key],'linear',layer[key] ?? ({scale:1,opacity:1}[key] || 0))); delete props[key]; }
     if (Object.keys(props).length) edits.push({ kind: 'set', source: `index.tsx:${id}`, props });
     if (layer.tag === 'text' && form.elements.text.value !== selected.text) edits.push({ kind: 'text', source: `index.tsx:${id}`, text: form.elements.text.value });
   } if (edits.length) await rewrite(edits, 'Edit layer properties');
@@ -309,6 +326,7 @@ panel.addEventListener('toggle', () => { if (panel.open) safe(() => load())(); e
 window.addEventListener('openedit:studio-loaded', () => { if (!saving) safe(() => acceptSnapshot())(); });
 window.addEventListener('openedit:studio-selection', () => { layerLists(); drawGuides(); });
 window.addEventListener('openedit:studio-busy', controls);
+window.addEventListener('openedit:studio-autokey', inspector);
 document.addEventListener('keydown', safe(async event => {
   if (!panel.open || event.target.closest('input, textarea, select, [contenteditable=true]') || busy || studio.busy) return;
   if (event.key === 'Escape') { drag = null; selectObjects([], draft?.object_id); selectMarks([]); await seek(time); }

@@ -76,3 +76,12 @@
 .track-label-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
 body[data-workspace=graphics] #timeline-inspector { display:none; }
 @media(max-width:900px) { .timeline-responsive-inner { grid-template-columns:132px minmax(0,1fr); } }
+.clip-source-visual { position:absolute; inset:0; width:100%; height:100%; opacity:.32; pointer-events:none; }
+.studio-animation { margin-top:18px; padding-top:12px; border-top:1px solid var(--border); }
+.studio-animation > label { display:flex; align-items:center; gap:8px; }
+.studio-animation > select { width:100%; margin:8px 0; }
+.keyframe-rail { height:32px; position:relative; margin:12px 10px; background:linear-gradient(transparent 47%,#53697c 48%,#53697c 52%,transparent 53%); touch-action:none; }
+.keyframe-dot { position:absolute; top:4px; transform:translateX(-50%); background:var(--bg-surface); border:0; color:#73beff; cursor:ew-resize; touch-action:none; }
+.keyframe-row { margin:8px 0; font-size:11px; }
+.keyframe-row summary { cursor:pointer; padding:6px; background:var(--bg-elev); }
+.bezier-editor { width:100%; grid-column:1/-1; border:1px solid var(--border); background:var(--bg-elev); touch-action:none; cursor:crosshair; }

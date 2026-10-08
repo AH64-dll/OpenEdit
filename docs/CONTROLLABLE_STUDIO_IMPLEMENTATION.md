@@ -106,7 +106,26 @@ selection bug was fixed by reading stable Source metadata instead of removed
 runtime id props. New browser tests exercise actual drag/trim/effect controls;
 actual render acceptance checks trimmed upper media, effect bypass, hidden
 pictures and audio. These checks await the next CI run. Local compatibility
-regressions passed (234 tests, one MLT skip); the full rerun is in progress.
+regressions passed (234 tests, one MLT skip); the full rerun passed with 1592
+tests, 18 MLT skips and 7 browser tests deselected. Linux/macOS/Windows compiler
+jobs and Python 3.11/3.12 regression, wheel and installation jobs passed at
+8848db0. Actual source-backed MLT export passed; upper-layer pixel checks passed
+before an invalid test time argument stopped audio acceptance. That argument is
+corrected in the next checkpoint. Canvas interaction acceptance exposed direct
+matrix slots being read as attached traits; the interactive adapter now reads
+the same derived matrix store used by the renderer.
+
+Animation and media-visual checkpoint: source-backed keyframe tracks have
+add/update/delete/time movement, named easing and draggable/numeric Bezier
+handles, editable animation presets, and explicit auto-key off by default.
+Auto-key uses evaluated local time/coordinates, retains an initial base value,
+and ordinary translation preserves the complete motion path. Preview/export
+share the pinned runtime curve evaluator. Ambiguous tracks, duplicate times and
+invalid values/curves are rejected. Real browser acceptance now exercises these
+controls and checks eased pixel/geometry parity. Source assets get six cached
+filmstrip images and bounded waveform envelopes, reused without another decode;
+visible timeline clips request them lazily. Focused compiler/source/cache checks
+passed (55 tests); complete regression and browser acceptance are in progress.
 
 Still required: request-revert browser acceptance, complete timeline
 interaction and track controls, effect-stack editing, keyframe/curve UI, audio

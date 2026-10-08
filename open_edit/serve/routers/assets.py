@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from open_edit.ir.types import Asset
 from open_edit.kernel.asset_proxy_jobs import (
@@ -20,6 +22,32 @@ from .projects import _require_project
 router = APIRouter()
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+@router.get('/api/projects/{project_id}/assets/{asset_hash}/visuals')
+async def get_asset_visuals(project_id: str, asset_hash: str):
+    from open_edit.render.asset_visuals import asset_visuals
+
+    project = await _require_project(project_id)
+    try:
+        result = await run_in_threadpool(asset_visuals, Path(project.path), asset_hash)
+        return {**result, 'thumbnails': [{**t, 'url': f'/api/projects/{project_id}/assets/{asset_hash}/visuals/{i}'}
+                                        for i,t in enumerate(result['thumbnails'])]}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, subprocess.TimeoutExpired) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get('/api/projects/{project_id}/assets/{asset_hash}/visuals/{index}')
+async def get_asset_thumbnail(project_id: str, asset_hash: str, index: int):
+    if not _HASH_RE.fullmatch(asset_hash) or not 0 <= index < 6:
+        raise HTTPException(status_code=404, detail='Thumbnail not found')
+    project = await _require_project(project_id)
+    path = Path(project.path) / '.open_edit/cache/visuals' / asset_hash / f'thumb-{index}.jpg'
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail='Thumbnail not ready')
+    return FileResponse(path,media_type='image/jpeg',headers={'Cache-Control':'private, max-age=31536000, immutable'})
 
 
 class AssetProxyRequest(BaseModel):

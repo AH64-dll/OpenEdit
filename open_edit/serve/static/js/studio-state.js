@@ -2,7 +2,7 @@
 import { state } from './state.js';
 
 export const studio = { projectId: null, revision: null, objects: [], selectedIds: [],
-  documentId: null, selectedMarks: [], busy: false };
+  documentId: null, selectedMarks: [], busy: false, autoKey: false, geometry: [] };
 let serial = 0;
 const announce = name => {
   state.editingSelection = studio.projectId === state.currentProjectId && Number.isInteger(studio.revision)
@@ -29,6 +29,7 @@ export async function loadStudio() {
   if (token !== serial || projectId !== state.currentProjectId) return;
   if (studio.projectId !== projectId) {
     studio.selectedIds = []; studio.selectedMarks = []; studio.documentId = null;
+    studio.autoKey = false; studio.geometry = [];
   }
   Object.assign(studio, { projectId, revision: result.graph_revision, objects: result.objects });
   announce('loaded'); return result;

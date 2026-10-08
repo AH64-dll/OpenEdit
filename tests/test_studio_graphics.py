@@ -283,7 +283,7 @@ def test_upper_video_trim_effect_bypass_hidden_picture_and_audio(tmp_path, monke
         raw = subprocess.check_output(['ffmpeg','-v','error','-ss',str(time),'-i',str(path),'-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-'])
         return Image.frombytes('RGB',(320,180),raw).getpixel((160,90))
     def rms(path):
-        raw = subprocess.check_output(['ffmpeg','-v','error','-i',str(path),'-ss','.6','-t','.25','-vn','-ac','1','-f','f32le','-'])
+        raw = subprocess.check_output(['ffmpeg','-v','error','-i',str(path),'-ss','0.6','-t','0.25','-vn','-ac','1','-f','f32le','-'])
         values = array.array('f',raw)
         return (sum(v*v for v in values)/max(1,len(values)))**.5
     checked = render('effects')

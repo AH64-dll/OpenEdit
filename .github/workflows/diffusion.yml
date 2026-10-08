@@ -50,6 +50,7 @@ jobs:
       - run: pytest tests/test_studio_storage.py tests/test_studio_service.py tests/test_studio_source_writer.py tests/test_studio_graphics.py tests/test_studio_geometry.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_request_history.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_timeline_controls.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_graphics_animation.py tests/test_asset_visuals.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py tests/test_action_history.py tests/test_editing_setup.py --timeout=40 --timeout-method=thread
       - if: matrix.os != 'ubuntu-latest'
         run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
