@@ -205,3 +205,21 @@ def test_materialize_cache_hit_rewrites_preview_paths(graphics_project, monkeypa
     assert result['preview_path'] == str(cache / f'{key}.webm')
     assert result['output_path'] == str(graphics_project / '.open_edit' / 'assets' / hash_[:2] / hash_)
     assert json.loads((cache / 'last-good.json').read_text()) == {'content_key': key}
+
+
+def test_group_transition_is_allowed_only_inside_sequence(tmp_path):
+    source = '''export default function G(){return <stage id="root"><scene id="scene" width={320} height={180}>
+      <sequence id="cuts"><group id="card" end={1} transition={{type:"dissolve",duration:0.4}}>
+       <rect id="paint" width={40} height={40} fill="#ff0000"/>
+      </group></sequence></scene></stage>;}'''
+    document = _parse(source, tmp_path)
+    assert next(e for e in document['elements'] if e['id'] == 'card')['transition'] == {
+        'type': 'dissolve', 'duration': 0.4}
+    # Compiler rejection is part of the contract, not silent ignored paint.
+    from open_edit.integrations.diffusion.graphics import inspect_source
+
+    for bad in (source.replace('<sequence id="cuts">', '').replace('</sequence>', ''),
+                source.replace('id="card"', 'id="card" fill="#ffffff"'),
+                source.replace('id="card"', 'id="card" width={100}')):
+        with pytest.raises(ValueError):
+            inspect_source(bad)

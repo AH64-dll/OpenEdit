@@ -37,7 +37,7 @@ def apply_dependency_patches(directory: Path) -> list[str]:
 
 # sha256 of patches/koota+0.6.6.patch (upstream diffusionstudio/editor @ fefcde9d)
 # -> per-file anchored substitutions fixing Or queries across trait generations.
-_KOOTA_DECL = b'  let staticHasOr = false;\n  let staticOrMatched = false;\n'
+_KOOTA_DECL = b'\n  let staticHasOr = false;\n  let staticOrMatched = false;\n'
 _KOOTA_OR_OLD = b'    if (or !== 0 && (entityMask & or) === 0) return false;\n'
 _KOOTA_OR_NEW = (b'    if (or !== 0) {\n      staticHasOr = true;\n'
                  b'      if ((entityMask & or) !== 0) staticOrMatched = true;\n    }\n')

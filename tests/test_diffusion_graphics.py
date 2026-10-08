@@ -97,7 +97,7 @@ GOLDEN_SOURCE = '''export default function Golden() {
 
 @pytest.mark.browser
 @pytest.mark.asyncio
-async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project, graphics_worker):
+async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project, graphics_worker, monkeypatch):
     from open_edit.kernel.render_jobs import RenderJobService, public_job
     from open_edit.storage.edit_graph import GraphRevisionConflict
 
@@ -151,6 +151,22 @@ async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project
     assert updated.status == 'succeeded', updated.error
     assert not updated.result['cache_hit']
     assert updated.result['content_key'] != done.result['content_key']
+    if shutil.which('melt'):
+        from open_edit.render.orchestrator import render_project
+
+        monkeypatch.setenv('QT_QPA_PLATFORM', 'offscreen')
+        monkeypatch.setenv('SDL_VIDEODRIVER', 'dummy')
+        exported = render_project(project_id='graphics-project', project_dir=root,
+                                  workdir=root / 'renders', mode='proxy',
+                                  overrides={'scale': '320x180'}, force=True)
+        assert exported.ok, exported.error
+        raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', exported.output_path,
+                                       '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])
+        frame = Image.frombytes('RGB', (320, 180), raw)
+        red, green, blue = frame.getpixel((20, 20))
+        assert red > 220 and green < 25 and blue < 25
+        assert max(frame.getpixel((310, 170))) < 25
+        frame.save(artifacts / 'graphics-timeline-export.png')
     await service.shutdown()
 
 
