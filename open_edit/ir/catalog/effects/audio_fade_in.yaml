@@ -1,0 +1,12 @@
+name: audio_fade_in
+mlt_service: volume
+target_kind: [clip]
+params:
+  duration:
+    type: float
+    default: 0.5
+    range: [0.01, 60.0]
+    unit: seconds
+keyframe_params: []
+interp: []
+description: "Audio fade from silence to unity at the clip start. Clamped to its duration."

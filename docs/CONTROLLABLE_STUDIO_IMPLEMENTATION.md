@@ -146,6 +146,28 @@ geometry before both interactive and checked rendering. Browser proof is still
 pending. Queue and encoder advisory locks are separate, preserving immediate
 coalescing while a proxy encoder is running; 61 focused preview/job checks passed.
 
+Caption/audio checkpoint in progress: caption objects now compile to durable
+render operations, share manual/AI history and semantic request revert, and
+retain text, timing, visibility, locks and editable style properties. SRT
+interchange, clip-trim-aware transcript conversion, optional local transcription,
+project font import and reusable style editing are available. Cached transparent
+caption rasters are shared by preview chunks and final rendering; export can
+exclude captions. The caption editor includes timing/style changes and split/
+merge. Shared effect controls add parameter keyframes (including track effects)
+and clip audio fades. Stereo pan is translated to MLT's 0..1 balance range and
+EQ uses avfilter.equalizer's actual property names. Actual MLT audio tests are
+added to CI. Focused caption/history/preview regressions passed (78 checks),
+including real FFmpeg caption timing and imported font rasterization.
+
+At 4a4928d, interactive/export nested animation pixel parity and backwards seek
+determinism passed, as did actual immutable selected-range MLT export. Linux and
+macOS compiler/export tests passed. Windows identified unclosed SQLite backup
+handles and read-only fsync; both are corrected. Browser interaction advanced to
+an ambiguous test selector and subpixel rounding mismatch, also corrected. Full
+local regression at that checkpoint passed: 1632 tests, 18 MLT skips, 8 browser
+tests deselected. Full new browser interaction and reviewed UI acceptance remain
+pending; the library is now visible by default when using external MCP too.
+
 Still required: request-revert browser acceptance, complete timeline
 interaction and track controls, effect-stack editing, keyframe/curve UI, audio
 waveforms and controls, caption/style/font editing, full media-canvas marks,

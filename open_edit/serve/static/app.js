@@ -1444,7 +1444,7 @@ async function boot() {
     state.previewChunksEnabled = cfg.preview_chunks !== false;
     state.capabilities = cfg.capabilities || {};
     if (state.reviewOnly) {
-      document.body.classList.add('review-only-mode', 'panel-left-collapsed');
+      document.body.classList.add('review-only-mode');
     }
   } catch {
     state.reviewOnly = true;

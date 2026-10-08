@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
+from contextlib import closing
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal
@@ -187,8 +188,8 @@ def capture_export(root: Path, expected_revision: int, settings: ExportSettings)
     frozen_data.mkdir(parents=True)
     try:
         with (
-            sqlite3.connect(root / ".open_edit/edit_graph.db") as src,
-            sqlite3.connect(frozen_data / "edit_graph.db") as dst,
+            closing(sqlite3.connect(root / ".open_edit/edit_graph.db")) as src,
+            closing(sqlite3.connect(frozen_data / "edit_graph.db")) as dst,
         ):
             src.backup(dst)
         store = EditGraphStore(frozen_data / "edit_graph.db")
@@ -428,7 +429,7 @@ def publish_export(source: Path, settings: ExportSettings, duration: float) -> t
             duration,
             expected_audio=settings.audio and bool(_probe_media(str(source)).get("has_audio")),
         )
-        with temporary.open("rb") as file:
+        with temporary.open("r+b") as file:
             os.fsync(file.fileno())
         for index in range(10000):
             final = folder / f"{stem}{f' ({index + 1})' if index else ''}.{settings.container}"
@@ -458,6 +459,8 @@ def execute_export(root: Path, payload: dict) -> dict:
     settings = ExportSettings.model_validate(captured["settings"])
     frozen = folder / "project"
     timeline = project_timeline(frozen)
+    if settings.captions == 'none':
+        timeline.captions = {}
     if settings.range_mode == "range":
         fps = settings.fps_num / settings.fps_den
         timeline = slice_timeline(

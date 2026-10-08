@@ -69,6 +69,7 @@ _PLANES = ("video", "audio", "playback")
 _PREVIEW_STAGES = ("video", "audio", "mux")
 _KNOWN_OPERATION_KINDS = frozenset(
     {
+        'set_caption', 'remove_caption',
         "add_clip",
         "remove_clip",
         "move_clip",

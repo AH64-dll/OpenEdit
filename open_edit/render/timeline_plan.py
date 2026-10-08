@@ -105,6 +105,12 @@ def build_render_plan(
         remotion_overlays + frame_overlays + video_overlays,
         key=lambda o: o.z_index,
     )
+    if timeline.captions:
+        from open_edit.render.captions import caption_overlays
+
+        profile = frame_profile or remotion_profile_for_mode(mode)
+        width, height = map(int, profile.scale.split('x')) if profile.scale else (profile.width, profile.height)
+        overlay_clips.extend(caption_overlays(store.assets_dir.parent.parent, timeline.captions, width, height))
     return RenderPlan(
         melt_timeline=timeline_for_melt(timeline),
         overlay_clips=overlay_clips,

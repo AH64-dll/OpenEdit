@@ -57,7 +57,7 @@ def revert_request(project_path: str | Path, *, request_id: str, expected_revisi
             op = next((o for o in operations if o.edit_id == edit_id), None)
             if op is None or op.status != status:
                 conflicts.append({'field': edit_id, 'reason': 'Request operation was changed'})
-            elif op.kind not in ('set_graphics_source', 'remove_graphics_source'):
+            elif op.kind not in ('set_graphics_source', 'remove_graphics_source', 'set_caption', 'remove_caption'):
                 statuses[edit_id] = {'before': status, 'after': 'reverted'}
         for change in reversed(json.loads(row['object_changes'])):
             key = change['kind'], change['object_id']

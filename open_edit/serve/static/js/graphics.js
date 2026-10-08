@@ -200,7 +200,7 @@ async function rewrite(edits, label) {
 async function translations(offsets, label, baseline = geometry) {
   await rewrite(Object.entries(offsets).flatMap(([id, [dx, dy]]) => {
     const g = baseline.find(g => g.id === id), [x, y] = localDelta(g?.parent_matrix, dx, dy);
-    const deltaX=Math.round(x*1e6)/1e6, deltaY=Math.round(y*1e6)/1e6;
+    const deltaX=Math.round(x*1e3)/1e3, deltaY=Math.round(y*1e3)/1e3;
     const layer=elements().find(e=>e.id===id), localTime=Math.max(0,g?.local_time_sec ?? time);
     if (studio.autoKey) return [...(deltaX?keyframeEdits(draft.data,id,'x',localTime,g.x+deltaX,'linear',layer.x || 0):[]), ...(deltaY?keyframeEdits(draft.data,id,'y',localTime,g.y+deltaY,'linear',layer.y || 0):[])];
     return [{ kind: 'translate', source: `index.tsx:${id}`, dx: deltaX, dy: deltaY }];

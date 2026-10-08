@@ -116,6 +116,7 @@ def _emit_filter(
     effect: Effect,
     fps_num: int,
     fps_den: int,
+    *, clip_in: float = 0, clip_duration: float | None = None,
 ) -> None:
     """Emit a regular Effect as an MLT <filter> element."""
     if not effect.enabled:
@@ -127,6 +128,19 @@ def _emit_filter(
         "mlt_service": mlt_service,
     })
     prop_names = _catalog_property_names(effect.effect_type)
+    if effect.effect_type in ('audio_fade_in', 'audio_fade_out'):
+        if clip_duration is None:
+            raise ValueError('Audio fades require a clip duration')
+        fade = min(float(effect.params.get('duration', 0.5)), clip_duration)
+        if effect.effect_type == 'audio_fade_in':
+            keys = [(clip_in, -80), (clip_in + fade, 0)]
+        else:
+            keys = [(clip_in, 0), (clip_in + clip_duration - fade, 0), (clip_in + clip_duration, -80)]
+        values = {round(t * fps_num / fps_den): v for t, v in keys}
+        etree.SubElement(filter_el, 'property', name='level').text = ';'.join(f'{t}={v}' for t, v in sorted(values.items()))
+        return
+    if effect.effect_type == 'panner':
+        etree.SubElement(filter_el, 'property', name='channel').text = '-1'
     if effect.effect_type in ('volume', 'gain'):
         prop_names['gain'] = 'level'
     for key, value in effect.params.items():
@@ -135,6 +149,8 @@ def _emit_filter(
         prop = etree.SubElement(filter_el, "property", attrib={"name": prop_names.get(key, key)})
         if effect.effect_type == 'volume' and key == 'gain':
             prop.text = f'{_amp_to_db(float(value)):.6f}'
+        elif effect.effect_type == 'panner' and key in ('start', 'end'):
+            prop.text = str((float(value) + 1) / 2)
         elif isinstance(value, bool):
             prop.text = "1" if value else "0"
         else:
@@ -147,6 +163,8 @@ def _emit_filter(
         for time_sec, value, interp in kfs:
             marker = "!" if interp == "discrete" else ("~" if interp == "smooth" else "")
             serialized = _amp_to_db(value) if effect.effect_type == 'volume' and param == 'gain' else value
+            if effect.effect_type == 'panner' and param in ('start', 'end'):
+                serialized = (value + 1) / 2
             parts.append(f"{marker}{_format_timecode(time_sec, fps_num, fps_den)}={serialized}")
         prop.text = ";".join(parts)
 
@@ -321,7 +339,7 @@ def emit_timeline(
                 if effect.effect_type.startswith("transition_"):
                     _emit_transition(entry, effect)
                 else:
-                    _emit_filter(entry, effect, fps_num, fps_den)
+                    _emit_filter(entry, effect, fps_num, fps_den, clip_in=clip.in_point_sec, clip_duration=clip_dur)
             current_pos = clip.position_sec + clip_dur
 
         if current_pos < timeline.duration_sec:

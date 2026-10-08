@@ -105,6 +105,7 @@
       <div class="panel-tabs">
         <button class="tab active" data-tab="assets">Assets</button>
         <button class="tab" data-tab="layers">Layers</button>
+        <button class="tab" data-tab="captions">Captions</button>
         <button class="tab" data-tab="edits">History</button>
       </div>
 
@@ -125,6 +126,7 @@
         <div id="upload-progress" class="upload-progress hidden"></div>
       </div>
 
+      <div class="tab-content" data-tab="captions"><div id="caption-editor" class="caption-editor"></div></div>
       <div class="tab-content" data-tab="layers">
         <div class="studio-library-toolbar">
           <label>Composition <select id="graphics-document" aria-label="Graphics composition"></select></label>
@@ -345,7 +347,7 @@
           <div class="empty-state">No renders yet.</div>
         </div>
         <div class="render-buttons compact-renders">
-          <details class="render-advanced"><summary>Advanced export settings</summary><label class="encoder-select muted small">Encoder
+          <details class="render-advanced"><summary>Preview settings</summary><label class="encoder-select muted small">Encoder
             <select id="render-encoder-select">
               <option value="auto" selected>Auto (recommended)</option><option value="gpu">Prefer GPU</option>
               <option value="cpu">CPU</option>
@@ -483,5 +485,6 @@
   <script type="module" src="/js/timeline-controls.js?v=20261008"></script>
   <script type="module" src="/js/media-visuals.js?v=20261009"></script>
   <script type="module" src="/js/graphics-animation.js?v=20261009"></script>
+  <script type="module" src="/js/captions.js?v=20261009"></script>
 </body>
 </html>

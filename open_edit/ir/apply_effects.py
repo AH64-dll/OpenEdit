@@ -142,6 +142,10 @@ def _apply_set_keyframe(
     timeline: Timeline, op: SetKeyframeOp, strict: bool = False,
 ) -> Timeline:
     for track in timeline.tracks:
+        for index, effect in enumerate(track.effects):
+            if effect.effect_id == op.effect_id:
+                track.effects[index] = effect.model_copy(update={'keyframes': {**effect.keyframes, op.param: op.keyframes}})
+                return timeline
         for i, clip in enumerate(track.clips):
             for j, eff in enumerate(clip.effects):
                 if eff.effect_id == op.effect_id:

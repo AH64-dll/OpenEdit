@@ -28,6 +28,7 @@ class OverlayClip:
     alpha: bool = True
     in_point_sec: float = 0.0
     z_index: int = 0
+    still: bool = False
 
 
 OverlayInput: TypeAlias = OverlayClip | FrameOverlaySpec
@@ -98,9 +99,10 @@ def overlay_filter_chain(
                 f"[{ov_input}:v]{trim}scale={width}:{height},"
                 f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
             )
+        enable = f'gte(t,{ov.position_sec:.6f})*lt(t,{end:.6f})' if getattr(ov, 'still', False) else f'between(t,{ov.position_sec:.3f},{end:.3f})'
         filters.append(
             f"{last}[ov{i}]overlay=0:0:format=auto:eof_action=pass:"
-            f"enable='between(t,{ov.position_sec:.3f},{end:.3f})'"
+            f"enable='{enable}'"
             f"{out_label}"
         )
         last = f"[v{i}]"
@@ -203,6 +205,8 @@ def build_pipe_commands(
                 "-i", f"pipe:{ov.pipe_fd}",
             ]
         else:
+            if ov.still:
+                overlay_inputs += ['-loop', '1', '-framerate', fps, '-t', str(ov.duration_sec)]
             overlay_inputs += ["-i", str(ov.media_path)]
 
     if normalized_overlays:

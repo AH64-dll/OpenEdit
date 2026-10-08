@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from open_edit.ir.captions import CaptionCue
 from open_edit.ir.ids import new_id, now_iso8601
 
 # ===== Derived state (Timeline, Track, Clip, Effect) =====
@@ -82,6 +83,7 @@ class Timeline(BaseModel):
     remotion_compositions: list[RemotionComposition] = Field(default_factory=list)
     duration_sec: float = 0.0
     graphics_documents: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    captions: dict[str, CaptionCue] = Field(default_factory=dict)
 
 
 class RemotionComposition(BaseModel):
@@ -241,6 +243,17 @@ class ControlEffectOp(Operation):
     enabled: StrictBool | None = None
     index: StrictInt | None = Field(default=None, ge=0)
     new_effect_id: str | None = None
+
+
+class SetCaptionOp(Operation):
+    kind: Literal['set_caption'] = 'set_caption'
+    caption_id: str
+    cue: CaptionCue
+
+
+class RemoveCaptionOp(Operation):
+    kind: Literal['remove_caption'] = 'remove_caption'
+    caption_id: str
 
 
 class AddTransitionOp(Operation):
@@ -448,6 +461,7 @@ class RemoveRemotionCompositionOp(Operation):
 
 
 OperationUnion = Annotated[
+    SetCaptionOp | RemoveCaptionOp |
     AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | DuplicateClipOp | SetTrackPropertiesOp | RemoveTrackOp | SetClipPropertiesOp | ControlEffectOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp | SetGraphicsSourceOp | RemoveGraphicsSourceOp,
     Field(discriminator="kind"),
 ]

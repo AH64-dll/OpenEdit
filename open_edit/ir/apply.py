@@ -51,6 +51,7 @@ from open_edit.ir.types import (
     OperationUnion,
     RawMltXmlOp,
     RemotionComposition,
+    RemoveCaptionOp,
     RemoveClipOp,
     RemoveEffectOp,
     RemoveGraphicsSourceOp,
@@ -61,6 +62,7 @@ from open_edit.ir.types import (
     ReplaceClipSourceOp,
     RippleDeleteClipOp,
     SetAudioGainOp,
+    SetCaptionOp,
     SetClipSpeedRampOp,
     SetEffectParamOp,
     SetGraphicsSourceOp,
@@ -96,6 +98,13 @@ def apply_operation(
 
     if isinstance(op, STUDIO_OPERATIONS):
         return apply(timeline, op)
+
+    if isinstance(op, SetCaptionOp):
+        timeline.captions[op.caption_id] = op.cue.model_copy(deep=True)
+        return timeline
+    if isinstance(op, RemoveCaptionOp):
+        timeline.captions.pop(op.caption_id, None)
+        return timeline
 
     if isinstance(op, SetGraphicsSourceOp):
         old = timeline.graphics_documents.get(op.document_id)

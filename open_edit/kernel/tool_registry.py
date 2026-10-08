@@ -42,6 +42,8 @@ _EDIT_PROJECT_DESC = (
     "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
     "apply_studio_changes atomically applies params={expected_revision,changes:[{kind,object_id,data}],ops:[],request_id,label}. "
     "Use kind=document for editable graphics (data={source,clip_id,track_id,duration_sec,fps,label}); updating retains clip trims and effects. "
+    "Use kind=caption for {text,start_sec,end_sec,style,enabled,locked}; style includes font_id,font_size,color,background,stroke_color,stroke_width,x,y,width,align. "
+    "Use kind=style with {label,caption_style} to save a reusable editable style. Project font IDs come from the editing context. "
     "Null data deletes an object. Annotations are AI instructions and never render. Respect document and layer locks; use one request_id for all writes in a request. "
     "commit_graphics accepts a succeeded graphics job_id and expected_revision, then adds or replaces its clip after QC. "
     "rewrite_graphics_source uses the pinned source writer for literal canvas property edits without committing a preview. "

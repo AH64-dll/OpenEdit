@@ -90,6 +90,27 @@ def _prepare_changes(changes: list[dict], project_path: str | Path) -> list[dict
                 raise ValueError('Layer locks require unique existing object IDs')
             graphics_asset_manifest(project_path, values['assets'])
             change['data'] = values
+        elif change['kind'] == 'font':
+            if set(data) - {'label', 'font_id', 'locked'} or not isinstance(data.get('label'), str) or not 1 <= len(data['label']) <= 256 or type(data.get('locked', False)) is not bool:
+                raise ValueError('Project fonts require a name and immutable font_id')
+            from open_edit.render.captions import font_path
+
+            font_path(Path(project_path), data.get('font_id', ''))
+        elif change['kind'] in ('caption', 'style'):
+            from open_edit.ir.captions import CaptionCue, CaptionStyle
+
+            if change['kind'] == 'caption':
+                change['data'] = CaptionCue.model_validate(data).model_dump(mode='json')
+                style = change['data']['style']
+            else:
+                if set(data) - {'label', 'caption_style', 'locked'} or not isinstance(data.get('label'), str) or not 1 <= len(data['label']) <= 256 or type(data.get('locked', False)) is not bool:
+                    raise ValueError('Styles require a name and editable caption_style')
+                style = CaptionStyle.model_validate(data.get('caption_style', {})).model_dump(mode='json')
+                change['data'] = {**data, 'caption_style': style}
+            if style['font_id']:
+                from open_edit.render.captions import font_path
+
+                font_path(Path(project_path), style['font_id'])
     return out
 
 
@@ -118,7 +139,9 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
 
     from open_edit.ir.types import (
         OperationUnion,
+        RemoveCaptionOp,
         RemoveGraphicsSourceOp,
+        SetCaptionOp,
         SetGraphicsSourceOp,
     )
 
@@ -145,6 +168,9 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
                        if op.edit_id in _status_changes else op for op in current_ops]
     current_timeline = derive_timeline(Project(name='studio-validation', edit_graph=current_ops), strict=True)
     for change in prepared:
+        if change['kind'] == 'caption' and change['data'] != before.get(('caption', change['object_id'])):
+            operations.append(SetCaptionOp(author=author, caption_id=change['object_id'], cue=change['data']) if change['data'] is not None else RemoveCaptionOp(author=author, caption_id=change['object_id']))
+            continue
         if change['kind'] != 'document' or change['data'] == before.get(('document', change['object_id'])):
             continue
         data = change['data']
@@ -173,6 +199,12 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
         op = adapter.validate_python({**raw, 'author': author})
         if isinstance(op, (SetGraphicsSourceOp, RemoveGraphicsSourceOp)):
             raise ValueError('Change graphics through document objects to preserve source and history')
+        if isinstance(op, (SetCaptionOp, RemoveCaptionOp)):
+            raise ValueError('Change captions through caption objects to preserve source and history')
+        if op.kind in ('add_effect', 'set_keyframe'):
+            from open_edit.ir.studio_ops import validate_effect_edit
+
+            validate_effect_edit(op, derive_timeline(Project(name='effect-validation', edit_graph=[*current_ops, *operations])))
         operations.append(op)
     # Reject source updates that invalidate explicit trims, IDs or track layout.
     if operations:
@@ -257,6 +289,9 @@ def get_editing_context(project_path: str | Path, *, selected_ids: list[str] | N
     return {'status': 'ok', 'graph_revision': snapshot['graph_revision'],
             'playhead_sec': playhead_sec, 'selected_ids': selected_ids or [], 'document_id': document_id,
             'selected_clips': selected_clips,
+            'captions': [o for o in snapshot['objects'] if o['kind'] == 'caption' and (not selected or o['object_id'] in selected)],
+            'styles': [o for o in snapshot['objects'] if o['kind'] == 'style'],
+            'fonts': [o for o in snapshot['objects'] if o['kind'] == 'font'],
             'timeline': timeline.model_dump(mode='json', exclude={'graphics_documents'}),
             'documents': [o for o in snapshot['objects'] if o['kind'] == 'document' and
                           (document_id is None or o['object_id'] == document_id or o['object_id'] in selected_docs) and

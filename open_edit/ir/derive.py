@@ -65,7 +65,7 @@ def derive_timeline(project: Project, strict: bool = False) -> Timeline:
         end = composition.position_sec + composition.duration_sec
         if end > max_end:
             max_end = end
-    timeline.duration_sec = max_end
+    timeline.duration_sec = max(max_end, max((c.end_sec for c in timeline.captions.values() if c.enabled), default=0))
     if strict:
         from open_edit.ir.validate import TimelineValidationError, validate_timeline
         errs = validate_timeline(timeline)

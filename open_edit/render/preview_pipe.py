@@ -115,6 +115,8 @@ def _build_video_command(
     overlay_list = list(overlays)
     overlay_inputs: list[str] = []
     for overlay in overlay_list:
+        if overlay.still:
+            overlay_inputs.extend(['-loop', '1', '-framerate', fps, '-t', str(overlay.duration_sec)])
         overlay_inputs.extend(["-i", str(overlay.media_path)])
 
     ffmpeg_cmd = ["ffmpeg", "-y", *video_input, *overlay_inputs]

@@ -44,6 +44,7 @@ from .logging_setup import CorrelationIdMiddleware, setup_logging
 from .routers import (
     assets,
     authoring,
+    captions,
     config,
     exports,
     ops,
@@ -153,6 +154,7 @@ async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse
 app.include_router(projects.router)
 app.include_router(renders.router)
 app.include_router(exports.router)
+app.include_router(captions.router)
 app.include_router(preview_chunks.router)
 app.include_router(ops.router)
 app.include_router(config.router)

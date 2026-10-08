@@ -119,7 +119,7 @@ async function parity(browser) {
     await page.locator('#workspace-graphics').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-status').textContent.startsWith('Interactive canvas'),null,{timeout:60000});
     await page.locator('#graphics-commit').click(); await page.waitForFunction(()=>document.querySelector('#graphics-status').textContent.startsWith('Saved editable'));
-    await page.locator('[data-tab="layers"]').click();
+    await page.locator('.tab[data-tab="layers"]').click();
     await page.locator('[data-object-id="title"]').click();
     await page.locator('#graphics-properties [name=text]').fill('Manually editable title');
     await page.locator('#graphics-properties [type=submit]').click();
@@ -190,6 +190,20 @@ async function parity(browser) {
     await page.reload();await page.locator('#workspace-graphics').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('Manually editable title') && document.querySelector('#graphics-source').value.includes('fontSize={64}'));
     assert.equal((await api('/studio?kind=annotation')).objects[0].data.text,'Move this title along this arrow');
+    await page.locator('#workspace-review').click();
+    await page.locator('.tab[data-tab="captions"]').click();
+    await page.locator('#caption-editor').getByRole('button',{name:'Add caption',exact:true}).click();
+    await page.locator('#caption-properties [name=text]').fill('Editable export caption');
+    await page.locator('#caption-properties [name=start_sec]').fill('0');
+    await page.locator('#caption-properties [name=end_sec]').fill('1');
+    await page.locator('#caption-properties [name=font_size]').fill('72');
+    await page.locator('#caption-properties [type=submit]').click();
+    await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.captions && Object.values(window.OpenEdit.state.currentProjectState.timeline_full.captions).some(c=>c.text==='Editable export caption'));
+    const srt=await fetch(`${base}/api/projects/${id}/captions.srt`);assert.ok((await srt.text()).includes('Editable export caption'));
+    await page.locator('#caption-editor [name=style_name]').fill('Browser caption style');
+    await page.locator('#caption-editor').getByRole('button',{name:'Save reusable style',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#caption-editor select[aria-label="Caption style"]').textContent.includes('Browser caption style'));
+    await page.screenshot({path:path.join(artifacts,'studio-captions.png'),fullPage:true});
     // Export opens settings and produces a verified local file from this revision.
     await page.locator('#btn-render-final').click();
     await page.locator('#export-dialog').waitFor({state:'visible'});

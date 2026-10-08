@@ -113,6 +113,7 @@ def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[d
         return
     objects = snapshot(conn)
     documents = {o['object_id']: o['data'] for o in objects if o['kind'] == 'document'}
+    locked_captions = {o['object_id'] for o in objects if o['kind'] == 'caption' and o['data'].get('locked')}
     source_clips = {d['clip_id'] for d in documents.values() if d.get('clip_id')}
     locked_clips = {d['clip_id'] for d in documents.values() if d.get('locked') and d.get('clip_id')}
     locked_documents = {id for id, data in documents.items() if data.get('locked')}
@@ -120,7 +121,7 @@ def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[d
     locked_tracks = {o['object_id'] for o in objects if o['kind'] == 'track' and o['data'].get('locked')}
     changed_documents = {c['object_id'] for c in changes if c['kind'] == 'document'}
     effect_owners = {}
-    if not (documents or locked_clips or locked_tracks or any(getattr(op, 'locked', False) is True for op in current_ops)):
+    if not (documents or locked_captions or locked_clips or locked_tracks or any(getattr(op, 'locked', False) is True for op in current_ops)):
         # Plain legacy graphs can contain old semantically invalid operations.
         # Appending an unrelated operation must retain its tolerant behavior.
         return
@@ -142,6 +143,11 @@ def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[d
         if track.track_id in locked_tracks or any(c.clip_id in locked_clips for c in track.clips):
             effect_owners.update({e.effect_id: track.track_id for e in track.effects})
     for op in ops:
+        if getattr(op, 'caption_id', None) in locked_captions:
+            changed = next((c for c in changes if c['kind'] == 'caption' and c['object_id'] == op.caption_id), None)
+            # prepare() permits only an explicit unlock; generated source follows it.
+            if not changed or not changed.get('after') or changed['after'].get('locked'):
+                raise ValueError('Unlock the affected caption before editing it')
         unlock_only = (getattr(op, 'locked', None) is False and
                        all(getattr(op, field, None) is None for field in ('label', 'muted', 'hidden', 'solo', 'index', 'track_kind')))
         if op.kind == 'set_track_properties' and op.track_id in own_track_locks and unlock_only:

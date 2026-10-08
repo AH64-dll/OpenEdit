@@ -21,6 +21,46 @@ def effect_ids(timeline):
             [*t.effects, *[e for c in t.clips for e in c.effects]]}
 
 
+def validate_effect_edit(op, timeline: Timeline) -> None:
+    """Bound UI and AI animation before source is committed, including track effects."""
+    from open_edit.ir.types import AddEffectOp, Effect, SetKeyframeOp
+    from open_edit.ir.validate import _get_default_catalog
+
+    if isinstance(op, AddEffectOp):
+        if op.effect_id in effect_ids(timeline):
+            raise ValueError('Use a fresh stable effect ID')
+        target = (_find_clip(timeline, op.target_id)[1] if op.target_kind == 'clip'
+                  else next((t for t in timeline.tracks if t.track_id == op.target_id), None))
+        spec = _get_default_catalog().get(op.effect_type)
+        if not target or not spec or op.target_kind not in spec.target_kind:
+            raise ValueError('Choose a supported effect and existing compatible owner')
+        trial = timeline.model_copy(deep=True)
+        owner = (_find_clip(trial, op.target_id)[1] if op.target_kind == 'clip'
+                 else next(t for t in trial.tracks if t.track_id == op.target_id))
+        owner.effects.append(Effect(effect_id=op.effect_id, effect_type=op.effect_type))
+        errors = references(ControlEffectOp(author=op.author, target_kind=op.target_kind, target_id=op.target_id,
+            effect_id=op.effect_id, params=op.params), trial)
+        if errors:
+            raise ValueError('; '.join(errors))
+    elif isinstance(op, SetKeyframeOp):
+        targets = [(o, e) for t in timeline.tracks for o in [t, *t.clips] for e in o.effects if e.effect_id == op.effect_id]
+        if not targets:
+            raise ValueError('Keyframe effect is unavailable')
+        target, effect = targets[0]
+        spec = _get_default_catalog().get(effect.effect_type)
+        if not spec or op.param not in spec.keyframe_params or len(op.keyframes) > 1000:
+            raise ValueError('Choose a supported animated effect parameter')
+        parameter = spec.params[op.param]
+        limit = getattr(target, 'out_point_sec', timeline.duration_sec)
+        previous = -1.0
+        for time, value, easing in op.keyframes:
+            if not math.isfinite(time) or not math.isfinite(value) or time <= previous or time < 0 or time > limit + 1e-6:
+                raise ValueError('Keyframes require increasing unique finite source times within the owner')
+            if easing not in spec.interp or (parameter.range and not parameter.range[0] <= value <= parameter.range[1]):
+                raise ValueError('Keyframe easing or value is outside the effect capability')
+            previous = time
+
+
 def references(op, timeline: Timeline) -> list[str]:
     tracks = {t.track_id: t for t in timeline.tracks}
     clips = {c.clip_id: c for t in timeline.tracks for c in t.clips}

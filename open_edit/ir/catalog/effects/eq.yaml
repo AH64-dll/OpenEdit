@@ -1,18 +1,21 @@
 name: eq
-mlt_service: equalizer
+mlt_service: avfilter.equalizer
 target_kind: [clip, track]
 params:
   frequency:
+    property: av.frequency
     type: float
     default: 1000.0
     range: [20.0, 20000.0]
     unit: Hz
   gain:
+    property: av.gain
     type: float
     default: 0.0
     range: [-24.0, 24.0]
     unit: dB
   bandwidth:
+    property: av.width
     type: float
     default: 1.0
     range: [0.1, 5.0]

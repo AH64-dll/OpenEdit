@@ -144,6 +144,11 @@ def slice_timeline(
         raise ValueError(f"unsupported preview plane: {plane!r}")
 
     updated = timeline.model_copy(deep=True)
+    start_sec = _frames_to_seconds(render_start_frame, fps_num, fps_den)
+    end_sec = _frames_to_seconds(render_end_frame, fps_num, fps_den)
+    updated.captions = {id: cue.model_copy(update={'start_sec': max(cue.start_sec, start_sec) - start_sec,
+        'end_sec': min(cue.end_sec, end_sec) - start_sec}) for id, cue in updated.captions.items()
+        if plane != 'audio' and cue.start_sec < end_sec and cue.end_sec > start_sec}
     updated.tracks = _slice_tracks(
         updated.tracks,
         render_start_frame=render_start_frame,
@@ -399,6 +404,7 @@ OperationPlane = Literal["video", "audio"]
 _AUDIO_ONLY_KINDS = frozenset({"set_audio_gain", "normalize_audio"})
 _VIDEO_ONLY_KINDS = frozenset(
     {
+        'set_caption', 'remove_caption',
         "add_html_overlay",
         "remove_html_overlay",
         "add_remotion_composition",
@@ -835,6 +841,10 @@ def _operation_intervals(
     """Return affected project-second intervals, or None for full timeline."""
 
     kind = str(_op_field(op, "kind", ""))
+    if kind in ('set_caption', 'remove_caption'):
+        id = _op_field(op, 'caption_id', '')
+        return [(c.start_sec, c.end_sec) for t in (old_timeline, new_timeline) if t is not None
+                if (c := t.captions.get(id)) is not None]
     if kind in _FULL_TIMELINE_KINDS or kind in {
         "group_edits",
         "ungroup_edits",
@@ -1144,6 +1154,8 @@ def _effect_in_plane(effect: Any, plane: OperationPlane) -> bool:
     if not isinstance(params, dict):
         params = {}
     is_audio = (
+        effect_type in ('audio_fade_in', 'audio_fade_out')
+        or
         effect_type in _AUDIO_EFFECT_NAMES
         or effect_type.startswith("audio_")
         or bool(params.get("normalize"))
