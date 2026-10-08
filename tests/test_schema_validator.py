@@ -5,8 +5,8 @@ import pytest
 
 from open_edit.kernel.schema_validator import (
     SchemaValidationError,
-    validate_tool_args,
     validate_or_error,
+    validate_tool_args,
 )
 
 
@@ -26,7 +26,7 @@ def test_missing_required_field():
     assert "missing required" in err["detail"]
 
 
-def test_extra_field_with_additionalProperties_false():
+def test_extra_field_with_additional_properties_false():
     """query_project has additionalProperties: false."""
     with pytest.raises(SchemaValidationError, match="unexpected"):
         validate_tool_args("query_project", {"query": "list_assets", "unknown_field": "value"})
@@ -53,11 +53,13 @@ def test_all_schemas_valid():
         required = t["input_schema"].get("required", [])
         # Build minimal valid args
         args = {}
+        if name == "edit_project":
+            args["operation"] = "add_clip"
         for field in required:
             prop = props[field]
             ptype = prop.get("type", "string")
             if ptype == "string":
-                args[field] = "test_value"
+                args[field] = prop.get("enum", ["test_value"])[0]
             elif ptype == "integer":
                 args[field] = 1
             elif ptype == "number":

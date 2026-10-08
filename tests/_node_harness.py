@@ -25,7 +25,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-
 # The Node script is wrapped in an async IIFE so we can use
 # ``await import(...)`` (top-level await requires the file to be an ES
 # module, but the temp file is plain ``.js`` and we don't want to

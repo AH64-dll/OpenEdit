@@ -6,7 +6,11 @@ per line).
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import re
+import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -18,6 +22,25 @@ from .. import visual_verify
 
 _append_counters: dict[str, int] = {}
 _COMPACTION_INTERVAL = 50
+_HISTORY_LOCK = threading.RLock()
+
+
+def validate_conversation_id(conv_id: str) -> None:
+    """Reject path components and malformed client-supplied conversation IDs."""
+    if not isinstance(conv_id, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", conv_id) is None:
+        raise ValueError("conv_id must contain 1-128 letters, digits, underscores or hyphens")
+
+
+def _read_messages(path: Path) -> list[dict[str, Any]]:
+    messages = []
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            if line.strip():
+                with contextlib.suppress(json.JSONDecodeError):
+                    message = json.loads(line)
+                    if isinstance(message, dict):
+                        messages.append(message)
+    return messages
 
 
 def _conversations_dir(project_path: Path) -> Path:
@@ -37,62 +60,49 @@ def load_conversation(project_id: str, conv_id: str) -> list[dict[str, Any]]:
     # Look the resolver up through the package namespace: tests patch
     # ``open_edit.serve.agent._resolve_project_path`` and expect
     # conversation persistence to observe the patch.
+    validate_conversation_id(conv_id)
     path = _agent_pkg._resolve_project_path(project_id)
     if path is None:
         return []
     f = _conversations_dir(path) / f"{conv_id}.jsonl"
-    if not f.exists():
-        return []
-    out: list[dict[str, Any]] = []
-    for line in f.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return out
+    with _HISTORY_LOCK:
+        return _read_messages(f) if f.exists() else []
 
 
 def append_to_conversation(project_id: str, conv_id: str, message: dict[str, Any]) -> None:
     """Append one message to the conversation JSONL file."""
+    validate_conversation_id(conv_id)
     path = _agent_pkg._resolve_project_path(project_id)
     if path is None:
         return
     f = _conversations_dir(path) / f"{conv_id}.jsonl"
-    with f.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(message, sort_keys=True, default=str) + "\n")
-
-    key = f"{project_id}:{conv_id}"
-    count = _append_counters.get(key, 0) + 1
-    _append_counters[key] = count
-    if count % _COMPACTION_INTERVAL == 0:
-        _compact_jsonl(f)
+    with _HISTORY_LOCK:
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(message, sort_keys=True, default=str) + "\n")
+        key = str(f.resolve())
+        count = _append_counters.get(key, 0) + 1
+        _append_counters[key] = count
+        if count % _COMPACTION_INTERVAL == 0:
+            _compact_jsonl(f)
 
 
 def _compact_jsonl(path: Path) -> None:
     from ..context_budget import compact_history as _compact_history
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-        if not lines:
-            return
-        messages = []
-        for line in lines:
-            line = line.strip()
-            if line:
-                try:
-                    messages.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
+        messages = _read_messages(path)
         if not messages:
             return
         compacted = _compact_history(messages)
-        tmp = path.with_suffix(".jsonl.tmp")
-        with tmp.open("w", encoding="utf-8") as fh:
-            for msg in compacted:
-                fh.write(json.dumps(msg, sort_keys=True, default=str) + "\n")
-        tmp.replace(path)
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as fh:
+                tmp = Path(fh.name)
+                for msg in compacted:
+                    fh.write(json.dumps(msg, sort_keys=True, default=str) + "\n")
+            tmp.replace(path)
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -166,8 +176,6 @@ def _make_slim_history(
             ),
         )
 
-    slimmed = budget.truncate(slimmed)
-
     for msg in slimmed:
         content = msg.get("content")
         if isinstance(content, list):
@@ -177,8 +185,9 @@ def _make_slim_history(
                     if isinstance(inner, str) and len(inner) > 2000:
                         try:
                             parsed = json.loads(inner)
-                            block["content"] = json.dumps(cap_tool_result(parsed, max_chars=1000), default=str)
+                            if isinstance(parsed, dict):
+                                block["content"] = json.dumps(cap_tool_result(parsed, max_chars=1000), default=str)
                         except (json.JSONDecodeError, TypeError):
                             pass
 
-    return slimmed
+    return budget.truncate(slimmed)

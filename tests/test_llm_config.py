@@ -30,10 +30,10 @@ def test_load_llm_config_from_toml_file(tmp_path: Path, monkeypatch: pytest.Monk
 def test_load_llm_config_falls_back_to_env_when_file_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "pi")
+    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "opencode")
     monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "minimax-m3")
     cfg = load_llm_config(tmp_path)
-    assert cfg.provider == "pi"
+    assert cfg.provider == "opencode"
     assert cfg.model == "minimax-m3"
 
 
@@ -86,7 +86,7 @@ def test_save_llm_config_writes_atomic_file(tmp_path: Path) -> None:
 def test_save_then_load_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPEN_EDIT_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("OPEN_EDIT_LLM_MODEL", raising=False)
-    cfg = LLMConfig(provider="pi", model="minimax-m3", cli={"foo": "bar"})
+    cfg = LLMConfig(provider="opencode", model="minimax-m3", cli={"foo": "bar"})
     save_llm_config(tmp_path, cfg)
     loaded = load_llm_config(tmp_path)
     assert loaded == cfg
@@ -110,11 +110,11 @@ def test_save_preserves_non_llm_toml_sections(tmp_path: Path, monkeypatch: pytes
         "[ui]\n"
         'theme = "dark"\n'
     )
-    cfg = LLMConfig(provider="pi", model="minimax-m3")
+    cfg = LLMConfig(provider="opencode", model="minimax-m3")
     save_llm_config(tmp_path, cfg)
 
     text = cfg_path.read_text()
-    assert "provider = \"pi\"" in text
+    assert "provider = \"opencode\"" in text
     assert "minimax-m3" in text
     assert "[render]" in text, f"render section lost:\n{text}"
     assert "mode = \"proxy\"" in text
@@ -126,7 +126,7 @@ def test_save_preserves_similarly_named_table_and_utf8(tmp_path: Path) -> None:
     cfg_dir = tmp_path / ".open_edit"
     cfg_dir.mkdir()
     cfg_path = cfg_dir / "config.toml"
-    cfg_path.write_text('[llm_extra]\nlabel = "café"\n\n[llm]\nprovider = "pi"\nmodel = "old"\n')
+    cfg_path.write_text('[llm_extra]\nlabel = "café"\n\n[llm]\nprovider = "opencode"\nmodel = "old"\n')
     save_llm_config(tmp_path, LLMConfig(provider="openai", model="gpt-4o"))
     parsed = __import__("tomllib").loads(cfg_path.read_text())
     assert parsed["llm_extra"] == {"label": "café"}
@@ -140,5 +140,5 @@ def test_save_refuses_to_overwrite_malformed_toml(tmp_path: Path) -> None:
     original = "[render\nmode = 'proxy'\n"
     cfg_path.write_text(original)
     with pytest.raises(LLMConfigError, match="refusing to overwrite malformed"):
-        save_llm_config(tmp_path, LLMConfig(provider="pi", model="minimax-m3"))
+        save_llm_config(tmp_path, LLMConfig(provider="opencode", model="minimax-m3"))
     assert cfg_path.read_text() == original

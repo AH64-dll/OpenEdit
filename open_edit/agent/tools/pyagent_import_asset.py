@@ -24,8 +24,9 @@ content (we still require HTTPS to be safe).
 """
 from __future__ import annotations
 
-import ipaddress
+import contextlib
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -102,7 +103,7 @@ def _is_allowed_source_url(url: str, *, allow_any_https: bool = False) -> bool:
     try:
         parsed = urllib.parse.urlparse(url)
         # Accessing ``port`` validates malformed port syntax before urlopen.
-        parsed.port
+        _ = parsed.port
     except (TypeError, ValueError):
         return False
     if parsed.scheme.lower() != "https" or not parsed.hostname:
@@ -306,10 +307,8 @@ def _store_result(cache_dir: Path, result: dict[str, Any]) -> None:
             os.replace(tmp_path, p)
         finally:
             if tmp_path is not None:
-                try:
+                with contextlib.suppress(OSError):
                     tmp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
     except (OSError, TypeError, ValueError):
         pass
 
@@ -364,10 +363,8 @@ def _write_import_manifest(
         pass
     finally:
         if tmp_path is not None:
-            try:
+            with contextlib.suppress(OSError):
                 tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +503,7 @@ def import_asset(args: dict, project_path: str) -> dict:
     # (it needs an on-disk path, not raw bytes).
     try:
         data = _http_download(source_url, allow_any_https=allow_any_https)
-    except Exception as exc:  # noqa: BLE001 — surface any download error
+    except Exception as exc:
         return {
             "status": "error",
             "error": f"import_asset: {exc}",
@@ -544,17 +541,15 @@ def import_asset(args: dict, project_path: str) -> dict:
                 provider=source_name, source_url=source_url,
                 source_page_url=source_page_url,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return {
                 "status": "error",
                 "error": f"import_asset: ingest failed: {exc}",
             }
         asset = assets[0]
     finally:
-        try:
+        with contextlib.suppress(Exception):
             tmp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
 
     content_hash = asset.content_hash or asset.asset_hash
     _write_import_manifest(

@@ -2,21 +2,22 @@
 
 Per phase4-design-revised.md section 4.3 (W7). Templated per beat type:
 one template function per narrative beat; each takes ``MotionTemplateParams``
-and a duration, returns Python source for the render sandbox (W2) to run.
+and a duration, returns Python source for the render script (W2) to run.
 
-The render sandbox writes a video file; the engine ingests it as a new
+The render script writes a video file; the engine ingests it as a new
 asset and emits an ``AddClipOp`` on the conventional ``video_graphics``
 track.
 """
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from open_edit.agent.sandbox import run_render
-from open_edit.agent.sandbox.staging import _assets_dir_for_workdir
+from open_edit.agent.script_runner import run_render
+from open_edit.agent.script_runner.staging import _assets_dir_for_workdir
 from open_edit.agent.skills.motion_graphics import templates
 from open_edit.agent.skills.narrative_analyzer import NarrativeSegment
 from open_edit.ir.types import AddClipOp
@@ -52,7 +53,7 @@ def generate_visual(
         template: name of the template function (looked up on
             ``open_edit.agent.skills.motion_graphics.templates``).
         params: keyword args for ``MotionTemplateParams``.
-        project_id: used for tracing/render-sandbox bookkeeping.
+        project_id: used for tracing/render script bookkeeping.
         workdir: project working directory; the rendered file is written
         under a unique ``workdir/_render_output_<run-id>.mp4`` path and ingested into
             ``workdir/assets``.
@@ -98,7 +99,7 @@ def generate_visual(
     )
     if not render_result.ok:
         raise RuntimeError(
-            f"render sandbox failed for template {template!r} "
+            f"render script failed for template {template!r} "
             f"(segment {segment.beat_type!r}): {render_result.detail}"
         )
 
@@ -109,10 +110,8 @@ def generate_visual(
     finally:
         # AssetStore has copied the render into CAS; the render scratch file
         # must not accumulate across repeated or concurrent generations.
-        try:
+        with contextlib.suppress(OSError):
             output_path.unlink(missing_ok=True)
-        except OSError:
-            pass
 
     return AddClipOp(
         author="ai",

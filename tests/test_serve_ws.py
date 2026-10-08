@@ -4,26 +4,24 @@ Uses FastAPI's ``TestClient.websocket_connect`` to verify the WS protocol
 without spinning up a real server or making real LLM calls. The LLM and
 tool execution are mocked the same way as in ``test_serve_agent``.
 """
+
 from __future__ import annotations
 
 import json
-import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
-from unittest import mock
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from open_edit.serve import agent as agent_mod
+from open_edit.serve import app as app_mod
+from open_edit.serve import projects as projects_mod
+from open_edit.serve.llm import StreamEvent
+
 _THIS_DIR = Path(__file__).resolve()
 _REPO_ROOT = _THIS_DIR.parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.serve import agent as agent_mod  # noqa: E402
-from open_edit.serve import app as app_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
-from open_edit.serve.llm import StreamEvent  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -213,3 +211,6 @@ def test_ws_chat_stop_message(patched_ws):
         ws.send_text(json.dumps({"type": "stop"}))
         ev = json.loads(ws.receive_text())
         assert ev["type"] == "cancelled"
+
+
+pytestmark = pytest.mark.agent_ui

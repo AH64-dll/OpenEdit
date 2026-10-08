@@ -1,7 +1,9 @@
 """Phase 4.5 W7: motion graphics templated skill."""
 import pytest
+
 from open_edit.agent.skills.motion_graphics.engine import (
-    generate_visual, MotionTemplateParams,
+    MotionTemplateParams,
+    generate_visual,
 )
 from open_edit.agent.skills.narrative_analyzer import NarrativeSegment
 

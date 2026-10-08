@@ -18,7 +18,6 @@ from pydantic import BaseModel
 
 from open_edit.ir.types import Asset
 
-
 BEAT_TYPES = ("hook", "turn", "scope", "mechanism", "cost", "tease", "button")
 
 
@@ -60,7 +59,7 @@ def _analyze_rule_based(asset: Asset) -> list[NarrativeSegment]:
             current = []
         current.append(word)
         token = word.word.rstrip()
-        if token.endswith((".", "!", "?", "。", "！", "？")):
+        if token.endswith((".", "!", "?", "。", "！", "？")):  # noqa: RUF001 - CJK punctuation
             groups.append(current)
             current = []
     if current:
@@ -103,6 +102,7 @@ def _analyze_with_llm(asset: Asset) -> list[NarrativeSegment]:
     warnings.warn(
         "LLM-based narrative analysis is not implemented; returning "
         "rule-based fallback (beat types are positional heuristics, not "
-        "a real analysis)."
+        "a real analysis).",
+        stacklevel=2,
     )
     return _analyze_rule_based(asset)

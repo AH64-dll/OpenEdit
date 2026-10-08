@@ -62,7 +62,7 @@ def test_review_ui_uses_actual_profile_and_separate_source_copy() -> None:
     html = Path("open_edit/serve/static/index.html").read_text(encoding="utf-8")
     docs = Path("docs/MCP.md").read_text(encoding="utf-8")
 
-    assert "Review artifact · 640×360" in app
+    assert "Review artifact · 640×360" in app  # noqa: RUF001 - literal UI label
     assert "Proxy 720p" not in app
     assert "540p" not in app
     assert "Source media" in app or "Source media" in html

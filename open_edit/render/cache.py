@@ -6,6 +6,7 @@ never disagree with the kernel/serve job-dedup hash.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -188,10 +189,8 @@ class RenderCache:
             os.replace(temp_meta, metadata_path)
         finally:
             if temp_meta is not None:
-                try:
+                with contextlib.suppress(OSError):
                     temp_meta.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
     def get(self, key: str, ext: str = "mp4") -> Path | None:
         path = self._cache_path(key, ext)
@@ -300,10 +299,8 @@ class RenderCache:
             self._write_metadata(metadata_path, metadata)
         finally:
             if "temp_dest" in locals() and temp_dest is not None:
-                try:
+                with contextlib.suppress(OSError):
                     temp_dest.unlink(missing_ok=True)
-                except OSError:
-                    pass
         self.evict(protect=dest)
         return dest
 
@@ -357,10 +354,8 @@ class RenderCache:
                 continue
             total_bytes -= size
             deleted_bytes += size
-            try:
+            with contextlib.suppress(OSError):
                 self._metadata_path_for_artifact(path).unlink(missing_ok=True)
-            except OSError:
-                pass
         return deleted_bytes
 
     def remove(self, key: str, ext: str = "mp4") -> bool:

@@ -1,8 +1,6 @@
 """Tests for the result_capper module."""
 from __future__ import annotations
 
-import pytest
-
 from open_edit.serve.result_capper import cap_tool_result
 
 

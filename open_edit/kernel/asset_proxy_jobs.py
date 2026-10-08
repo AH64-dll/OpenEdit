@@ -7,7 +7,6 @@ trusted ``generate_asset_proxy`` function in a bounded host thread pool.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -15,11 +14,12 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Literal
 
 try:
     import fcntl
@@ -33,7 +33,6 @@ from open_edit.render.source_proxy import (
 )
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.paths import ProjectPaths
-
 
 AssetProxyJobStatus = Literal[
     "queued", "running", "succeeded", "failed", "orphaned",
@@ -168,6 +167,7 @@ class AssetProxyJobService:
             thread_name_prefix="open-edit-asset-proxy",
         )
         self._futures: dict[tuple[str, str], Future[None]] = {}
+        self._schedule_lock = threading.Lock()
 
     @staticmethod
     def db_path(project_path: Path) -> Path:
@@ -215,8 +215,8 @@ class AssetProxyJobService:
         job_id: str,
         status: AssetProxyJobStatus,
         *,
-        proxy_hash: str | None | object = _UNSET,
-        error: str | None | object = _UNSET,
+        proxy_hash: str | object | None = _UNSET,
+        error: str | object | None = _UNSET,
     ) -> None:
         assignments = ["status = ?", "updated_at = ?"]
         values: list[object] = [status, time.time()]
@@ -267,80 +267,81 @@ class AssetProxyJobService:
         # The same lock covers the coalescing read/insert and the worker's
         # encode section.  SQLite's partial unique index is the final guard
         # against a race between separate service processes.
-        with _asset_advisory_lock(root, asset_hash):
-            with self._connect(root) as con:
-                con.row_factory = sqlite3.Row
-                row = con.execute(
+        with _asset_advisory_lock(root, asset_hash), self._connect(root) as con:
+            con.row_factory = sqlite3.Row
+            row = con.execute(
+                "SELECT * FROM asset_proxy_jobs "
+                "WHERE asset_hash = ? AND profile = ? "
+                "AND status IN ('queued', 'running', 'succeeded') "
+                "ORDER BY created_at DESC LIMIT 1",
+                (asset_hash, profile_name),
+            ).fetchone()
+            if row is not None:
+                existing = self._row(row)
+                if (
+                    existing.status != "succeeded"
+                    or self._proxy_cas_exists(root, existing.proxy_hash)
+                ):
+                    return existing
+                # A durable success without its derived CAS object is
+                # stale; free its coalescing key for a new attempt.
+                con.execute(
+                    "UPDATE asset_proxy_jobs SET status='failed', "
+                    "updated_at=?, error=? WHERE job_id=?",
+                    (
+                        time.time(),
+                        "source proxy CAS object is missing",
+                        existing.job_id,
+                    ),
+                )
+
+            now = time.time()
+            job = AssetProxyJob(
+                job_id=uuid.uuid4().hex,
+                project_id=project_id,
+                asset_hash=asset_hash,
+                profile=profile_name,
+                status="queued",
+                created_at=now,
+                updated_at=now,
+            )
+            try:
+                con.execute(
+                    "INSERT INTO asset_proxy_jobs "
+                    "(job_id, project_id, asset_hash, profile, status, "
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        job.job_id,
+                        job.project_id,
+                        job.asset_hash,
+                        job.profile,
+                        job.status,
+                        job.created_at,
+                        job.updated_at,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                # A process that did not share the advisory lock may
+                # still have won the partial unique-index race.
+                raced = con.execute(
                     "SELECT * FROM asset_proxy_jobs "
-                    "WHERE asset_hash = ? AND profile = ? "
+                    "WHERE asset_hash=? AND profile=? "
                     "AND status IN ('queued', 'running', 'succeeded') "
                     "ORDER BY created_at DESC LIMIT 1",
                     (asset_hash, profile_name),
                 ).fetchone()
-                if row is not None:
-                    existing = self._row(row)
-                    if (
-                        existing.status != "succeeded"
-                        or self._proxy_cas_exists(root, existing.proxy_hash)
-                    ):
-                        return existing
-                    # A durable success without its derived CAS object is
-                    # stale; free its coalescing key for a new attempt.
-                    con.execute(
-                        "UPDATE asset_proxy_jobs SET status='failed', "
-                        "updated_at=?, error=? WHERE job_id=?",
-                        (
-                            time.time(),
-                            "source proxy CAS object is missing",
-                            existing.job_id,
-                        ),
-                    )
-
-                now = time.time()
-                job = AssetProxyJob(
-                    job_id=uuid.uuid4().hex,
-                    project_id=project_id,
-                    asset_hash=asset_hash,
-                    profile=profile_name,
-                    status="queued",
-                    created_at=now,
-                    updated_at=now,
-                )
-                try:
-                    con.execute(
-                        "INSERT INTO asset_proxy_jobs "
-                        "(job_id, project_id, asset_hash, profile, status, "
-                        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (
-                            job.job_id,
-                            job.project_id,
-                            job.asset_hash,
-                            job.profile,
-                            job.status,
-                            job.created_at,
-                            job.updated_at,
-                        ),
-                    )
-                except sqlite3.IntegrityError:
-                    # A process that did not share the advisory lock may
-                    # still have won the partial unique-index race.
-                    raced = con.execute(
-                        "SELECT * FROM asset_proxy_jobs "
-                        "WHERE asset_hash=? AND profile=? "
-                        "AND status IN ('queued', 'running', 'succeeded') "
-                        "ORDER BY created_at DESC LIMIT 1",
-                        (asset_hash, profile_name),
-                    ).fetchone()
-                    if raced is None:
-                        raise
-                    job = self._row(raced)
+                if raced is None:
+                    raise
+                job = self._row(raced)
 
         if job.status == "queued":
             key = (str(root.resolve()), job.job_id)
             try:
-                self._futures[key] = self._executor.submit(
-                    self._run, root, job.job_id, profile,
-                )
+                with self._schedule_lock:
+                    if key not in self._futures:
+                        self._futures[key] = self._executor.submit(
+                            self._run, root, job.job_id, profile,
+                        )
             except Exception as exc:
                 self._update(root, job.job_id, "failed", error=str(exc))
                 raise
@@ -364,12 +365,9 @@ class AssetProxyJobService:
         key = (str(root.resolve()), job_id)
         future = self._futures.get(key)
         if future is not None:
-            try:
+            # The durable row is authoritative even if the worker failed.
+            with suppress(Exception):
                 await asyncio.shield(asyncio.wrap_future(future))
-            except Exception:
-                # The durable row is the source of truth even if a future
-                # failed before its final status update.
-                pass
         else:
             # A restored service can observe a worker owned by another
             # process. Poll the durable row until that process reaches a
@@ -433,25 +431,24 @@ class AssetProxyJobService:
         already_running = 0
         for job in rows:
             key = (str(root.resolve()), job.job_id)
-            future = self._futures.get(key)
-            if future is not None and not future.done():
-                already_running += 1
-                continue
-            if job.status != "queued":
-                try:
-                    self._update(root, job.job_id, "queued", error=None)
-                except sqlite3.IntegrityError:
-                    # Crash-recovery duplicate: a sibling row for the same
-                    # (asset_hash, profile) is already queued. Run this job
-                    # anyway (status stays 'orphaned'/'running'); the
-                    # advisory per-asset flock + ready-reuse path keep a
-                    # concurrent encode safe (worst case: redundant decode).
-                    pass
-                recovered += 1
-            self._futures[key] = self._executor.submit(
-                self._run, root, job.job_id, _profile_by_name(job.profile),
-            )
-            started += 1
+            with self._schedule_lock:
+                future = self._futures.get(key)
+                # A successful future can finish after the SELECT above.
+                # Do not turn that stale row back into another queued job.
+                if future is not None and (not future.done() or future.exception() is None):
+                    already_running += 1
+                    continue
+                current = self.get(root, job.job_id)
+                if current is None or current.status in ("succeeded", "failed"):
+                    continue
+                if current.status != "queued":
+                    with suppress(sqlite3.IntegrityError):
+                        self._update(root, job.job_id, "queued", error=None)
+                    recovered += 1
+                self._futures[key] = self._executor.submit(
+                    self._run, root, job.job_id, _profile_by_name(job.profile),
+                )
+                started += 1
         return {"recovered": recovered, "started": started, "already_running": already_running}
 
     def _run(

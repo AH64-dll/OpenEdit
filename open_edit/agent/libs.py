@@ -1,7 +1,7 @@
 """Parse `# ir_api_version: X.Y; libs: {...}` headers and check against the
 allowed manifest.
 
-H6: SandboxError imported.
+H6: ScriptValidationError imported.
 H8: header requires quoted dict keys (Python literal syntax).
 L8: manifest is TOML (Python 3.11+ tomllib stdlib).
 """
@@ -12,7 +12,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from open_edit.agent.exceptions import SandboxError
+from open_edit.agent.exceptions import ScriptValidationError
 
 _HEADER_RE = re.compile(
     r'^\s*#\s*ir_api_version:\s*(\S+)\s*;\s*libs:\s*(\{.*?\})\s*$',
@@ -27,11 +27,11 @@ def parse_header(code: str) -> tuple[str, dict[str, str]]:
 
     Returns (version, libs_dict). libs_dict is {lib_name: version_str}.
 
-    Raises SandboxError on missing/malformed header or unparseable libs.
+    Raises ScriptValidationError on missing/malformed header or unparseable libs.
     """
     m = _HEADER_RE.search(code)
     if not m:
-        raise SandboxError(
+        raise ScriptValidationError(
             "missing or malformed ir_api_version header "
             "(expected: # ir_api_version: X.Y; libs: {\"name\": \"ver\"})"
         )
@@ -39,12 +39,12 @@ def parse_header(code: str) -> tuple[str, dict[str, str]]:
     try:
         libs = ast.literal_eval(m.group(2))
     except (ValueError, SyntaxError) as e:
-        raise SandboxError(f"libs dict is not valid Python: {e}") from e
+        raise ScriptValidationError(f"libs dict is not valid Python: {e}") from e
     if not isinstance(libs, dict):
-        raise SandboxError(f"libs must be a dict, got {type(libs).__name__}")
+        raise ScriptValidationError(f"libs must be a dict, got {type(libs).__name__}")
     for k, v in libs.items():
         if not isinstance(k, str) or not isinstance(v, str):
-            raise SandboxError(f"libs keys/values must be strings: {libs!r}")
+            raise ScriptValidationError(f"libs keys/values must be strings: {libs!r}")
     return version, libs
 
 

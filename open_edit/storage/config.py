@@ -67,10 +67,7 @@ def set_user_project_meta(project_id: str, key: str, value) -> None:
     p = get_config_dir() / "projects" / project_id / "project_meta.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     meta: dict
-    if p.exists():
-        meta = json.loads(p.read_text())
-    else:
-        meta = {"creativity_level": "balanced"}
+    meta = json.loads(p.read_text()) if p.exists() else {"creativity_level": "balanced"}
     meta[key] = value
     p.write_text(json.dumps(meta))
     _chmod(p, 0o600)

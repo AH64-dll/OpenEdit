@@ -270,8 +270,10 @@ def select_encoder(backend: str | None = None, *, tier: str | None = None,
     False/None -> fast). GPU backends probe the first working encoder of
     the family; non-tier vcodecs (amf/qsv/vaapi) fall back to the legacy
     ``_SPECS`` rows (final = tier != fast). CPU always yields the family's
-    CPU codec; unknown/absent probes fall back to libx264.
+    CPU codec; unsuccessful probes fall back to that family's CPU encoder.
     """
+    if codec not in _FAMILY_VCODECS:
+        raise ValueError(f"unknown codec {codec!r}; expected one of {sorted(_FAMILY_VCODECS)}")
     resolved_tier = _tier_for(final, tier)
     if resolve_backend(backend) == "cpu":
         vcodec = _FAMILY_VCODECS[codec][-1]
@@ -286,7 +288,7 @@ def select_encoder(backend: str | None = None, *, tier: str | None = None,
                 vcodec = candidate
                 break
         if vcodec is None:
-            vcodec = "libx264"
+            vcodec = _FAMILY_VCODECS[codec][-1]
     return _tier_spec(vcodec, resolved_tier)
 
 
@@ -308,7 +310,11 @@ def resolve_vcodec(backend: str | None = None, *, final: bool = False, codec: st
 
 
 def apply_profile_vcodec(profile_vcodec: str, backend: str | None = None) -> str:
-    return select_encoder(backend).vcodec
+    codec = next(
+        (family for family, codecs in _FAMILY_VCODECS.items() if profile_vcodec in codecs),
+        "h264",
+    )
+    return select_encoder(backend, codec=codec).vcodec
 
 
 def ffmpeg_video_args(backend: str | None = None, *, final: bool = False) -> list[str]:

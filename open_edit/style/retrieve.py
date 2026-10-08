@@ -10,7 +10,6 @@ from typing import Any
 
 from open_edit.storage.config import get_profile_path
 
-
 TAG_MAP: dict[str, list[str]] = {
     "AddTransition": ["transitions", "corrections"],
     "AddEffect": ["fades", "color", "visual_treatment", "corrections"],
@@ -76,7 +75,7 @@ def _trim_to_token_cap(slice_data: dict[str, Any]) -> dict[str, Any]:
         return value
 
     result = deepcopy(slice_data)
-    for category, data in result.items():
+    for data in result.values():
         if isinstance(data, dict) and "examples" in data:
             data["examples"] = []
     result = _bounded(result)

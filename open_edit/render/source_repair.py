@@ -8,6 +8,7 @@ from the rendered output.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -15,8 +16,9 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from open_edit.ir.types import Timeline
 from open_edit.qc.black_frames import (
@@ -25,7 +27,6 @@ from open_edit.qc.black_frames import (
 )
 from open_edit.qc.frozen_frames import list_frozen_frames
 from open_edit.render.ffmpeg_probe import probe_duration
-
 
 # Bump this when render-only repair semantics change. The orchestrator folds
 # it into the render-cache key so a corrected repair policy cannot reuse an
@@ -293,8 +294,8 @@ def collect_source_baseline(
 
 
 def _span_frame_range(span: dict[str, Any], fps: float) -> tuple[int, int]:
-    start = max(0, int(math.floor(float(span["start_sec"]) * fps)))
-    end = max(start + 1, int(math.ceil(float(span["end_sec"]) * fps)))
+    start = max(0, math.floor(float(span["start_sec"]) * fps))
+    end = max(start + 1, math.ceil(float(span["end_sec"]) * fps))
     return start, end
 
 
@@ -418,7 +419,7 @@ def _blend(a: bytes, b: bytes, amount: float) -> bytes:
         return a
     return bytes(
         round(left + (right - left) * amount)
-        for left, right in zip(a, b)
+        for left, right in zip(a, b, strict=True)
     )
 
 
@@ -610,7 +611,7 @@ def _pump_frames(
                 frame = _read_frame(decoder.stdout, frame_size)
                 continue
 
-            start, end, mode = spans[span_index]
+            _start, end, mode = spans[span_index]
             window: list[bytes] = []
             while frame is not None and frame_index < end:
                 window.append(frame)
@@ -627,10 +628,8 @@ def _pump_frames(
     except (BrokenPipeError, OSError):
         raise RuntimeError("frame repair encoder closed unexpectedly") from None
     finally:
-        try:
+        with contextlib.suppress(OSError):
             encoder.stdin.close()
-        except OSError:
-            pass
         decoder.stdout.close()
         decoder_rc = decoder.wait(timeout=30)
         encoder_rc = encoder.wait(timeout=30)

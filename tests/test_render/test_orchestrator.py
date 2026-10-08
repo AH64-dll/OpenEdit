@@ -11,7 +11,6 @@ from open_edit.render.orchestrator import (
     render_project,
 )
 
-
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 
 
@@ -57,13 +56,12 @@ def test_final_render_rejects_non_final_emission_profile(tmp_path: Path) -> None
 
 def _make_project(tmp_path: Path, *, name: str = "proj"):
     """Ingest one fixture clip and apply one AddClipOp (mirrors test_e2e_render)."""
-    from pathlib import Path
 
     from open_edit.ir.types import AddClipOp, Project
     from open_edit.storage.assets import AssetStore
     from open_edit.storage.edit_graph import EditGraphStore
 
-    TESTDATA = Path(__file__).resolve().parents[1] / "testdata" / "raw_videos"
+
     project_dir = tmp_path / name
     open_edit_dir = project_dir / ".open_edit"
     open_edit_dir.mkdir(parents=True, exist_ok=True)

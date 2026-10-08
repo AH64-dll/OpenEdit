@@ -16,6 +16,7 @@ import sqlite3
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
@@ -24,6 +25,37 @@ JobStatus = Literal[
     "queued", "running", "cancelling", "cancelled", "succeeded", "failed", "orphaned",
 ]
 _TERMINAL = frozenset({"cancelled", "succeeded", "failed", "orphaned"})
+
+
+@contextmanager
+def _project_lease(project_path: Path):
+    """Use a separate SQLite write lock to coordinate MCP/UI processes."""
+    path = project_path / ".open_edit" / "render_lease.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path, timeout=0)
+    try:
+        yield con
+    finally:
+        con.rollback()
+        con.close()
+
+
+def _try_lease(con: sqlite3.Connection) -> bool:
+    try:
+        con.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        if exc.sqlite_errorcode in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+            return False
+        raise
+    return True
+
+
+@asynccontextmanager
+async def _render_lease(project_path: Path):
+    with _project_lease(project_path) as con:
+        while not _try_lease(con):
+            await asyncio.sleep(0.05)
+        yield
 
 
 @dataclass(frozen=True)
@@ -93,7 +125,6 @@ class RenderJobService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._project_locks: dict[str, asyncio.Lock] = {}
         self._processes: dict[str, asyncio.subprocess.Process] = {}
-        self._job_encoder: dict[str, str] = {}
 
     @staticmethod
     def db_path(project_path: Path) -> Path:
@@ -163,12 +194,15 @@ class RenderJobService:
     def recover(self, project_path: Path) -> int:
         """Mark jobs interrupted by a prior service process as orphaned."""
         now = time.time()
-        with self._connect(project_path) as con:
-            cur = con.execute(
-                "UPDATE render_jobs SET status='orphaned', error=?, updated_at=? "
-                "WHERE status IN ('queued', 'running', 'cancelling')",
-                ("render service restarted before completion", now),
-            )
+        with _project_lease(project_path) as lease:
+            if not _try_lease(lease):
+                return 0  # Another process still owns this project's worker.
+            with self._connect(project_path) as con:
+                cur = con.execute(
+                    "UPDATE render_jobs SET status='orphaned', error=?, updated_at=? "
+                    "WHERE status IN ('queued', 'running', 'cancelling')",
+                    ("render service restarted before completion", now),
+                )
         return cur.rowcount
 
     def get(self, project_path: Path, job_id: str) -> RenderJob | None:
@@ -188,10 +222,15 @@ class RenderJobService:
     def _update(self, project_path: Path, job_id: str, status: JobStatus, *,
                 output_path: str | None = None, error: str | None = None,
                 result: dict | None = None, qc_report: dict | None = None) -> None:
+        # A remote cancellation can arrive while QC runs. Terminal writes
+        # must not turn that cancellation back into success or failure.
+        guard = ""
+        if status in ("succeeded", "failed", "running"):
+            guard = " AND status NOT IN ('cancelling', 'cancelled')"
         with self._connect(project_path) as con:
             con.execute(
                 "UPDATE render_jobs SET status=?, updated_at=?, output_path=?, error=?, "
-                "result_json=?, qc_report=? WHERE job_id=?",
+                "result_json=?, qc_report=? WHERE job_id=?" + guard,
                 (status, time.time(), output_path, error,
                  json.dumps(result, sort_keys=True) if result is not None else None,
                  json.dumps(qc_report, sort_keys=True) if qc_report is not None else None,
@@ -258,12 +297,18 @@ class RenderJobService:
                 f"stale graph revision: expected {expected_revision}, current {revision}"
             )
         now = time.time()
+        params = dict(params or {})
+        if encoder_backend in ("gpu", "cpu"):
+            # Persist the requested backend so resumed jobs retain it.
+            params["encoder_backend"] = encoder_backend
+        params = params or None
         # Coalesce: if a queued/running job already covers this graph+mode, reuse it.
         # If the in-memory worker task was lost (process restart / other process
         # wrote the row), re-attach a runner so the job does not sit forever.
         existing: RenderJob | None = None
         params_json = json.dumps(params, sort_keys=True) if params is not None else None
         with self._connect(project_path) as con:
+            con.execute("BEGIN IMMEDIATE")
             query = (
                 "SELECT job_id, status, created_at, updated_at, graph_revision, "
                 "edit_graph_hash, params_json "
@@ -271,11 +316,11 @@ class RenderJobService:
                 "AND edit_graph_hash = ? AND status IN ('queued', 'running') "
             )
             query_params: list[object] = [project_id, mode, graph_hash]
-            if mode == "preview-chunks":
-                query += "AND params_json IS ? "
-                query_params.append(params_json)
+            query += "AND params_json IS ? "
+            query_params.append(params_json)
             query += "ORDER BY created_at DESC LIMIT 1"
             row = con.execute(query, query_params).fetchone()
+            created_here = row is None
             if row is not None:
                 existing_params = json.loads(row[6]) if row[6] else None
                 existing = RenderJob(
@@ -304,13 +349,15 @@ class RenderJobService:
         assert job is not None
         task = self._tasks.get(job.job_id)
         if task is None or task.done():
-            # Reset stuck "running" rows that have no live process back to queued.
-            if job.status == "running":
-                self._update(project_path, job.job_id, "queued")
-                job = self.get(project_path, job.job_id) or job
             self._tasks[job.job_id] = asyncio.create_task(self._run(project_path, job.job_id))
-        if encoder_backend in ("gpu", "cpu"):
-            self._job_encoder[job.job_id] = encoder_backend
+            def finished(task: asyncio.Task, jid: str = job.job_id) -> None:
+                if task.cancelled() and created_here:
+                    current = self.get(project_path, jid)
+                    if current is not None and current.status == "queued":
+                        self._update(project_path, jid, "cancelled", error="cancelled")
+                if self._tasks.get(jid) is task:
+                    self._tasks.pop(jid, None)
+            self._tasks[job.job_id].add_done_callback(finished)
         return job
 
     async def wait(self, project_path: Path, job_id: str) -> RenderJob:
@@ -359,7 +406,7 @@ class RenderJobService:
                 proc.terminate()
             await asyncio.wait_for(proc.wait(), timeout=self.cancel_grace_s)
             return
-        except (asyncio.TimeoutError, ProcessLookupError):
+        except (TimeoutError, ProcessLookupError):
             pass
         try:
             if os.name == "posix":
@@ -368,17 +415,25 @@ class RenderJobService:
                 proc.kill()
         except ProcessLookupError:
             return
-        await proc.wait()
+        await asyncio.wait_for(proc.wait(), timeout=max(1.0, self.cancel_grace_s))
 
     async def _run(self, project_path: Path, job_id: str) -> None:
         initial = self.get(project_path, job_id)
         if initial is None:
             return
-        lock = self._project_locks.setdefault(initial.project_id, asyncio.Lock())
+        lock = self._project_locks.setdefault(str(project_path.resolve()), asyncio.Lock())
+        owns_lease = False
         try:
-            async with lock, self._semaphore:
+            async with lock, _render_lease(project_path), self._semaphore:
+                current = self.get(project_path, job_id)
+                if current is None or current.status in ("cancelled", "failed", "succeeded"):
+                    return
+                owns_lease = True
                 self._update(project_path, job_id, "running")
                 result = await self._launch(project_path, job_id, initial.mode)
+                current = self.get(project_path, job_id)
+                if current is not None and current.status in ("cancelling", "cancelled"):
+                    raise asyncio.CancelledError
                 if initial.mode != "preview-chunks":
                     result = await self._attach_qc(result, project_path)
                 self._update(
@@ -388,15 +443,22 @@ class RenderJobService:
                 )
         except asyncio.CancelledError:
             job = self.get(project_path, job_id)
-            if job is not None and job.status not in _TERMINAL:
+            if owns_lease and job is not None and job.status not in _TERMINAL:
                 self._update(project_path, job_id, "cancelled", error="cancelled")
             raise
         except Exception as exc:
             self._update(project_path, job_id, "failed", error=str(exc))
         finally:
             self._processes.pop(job_id, None)
-            self._tasks.pop(job_id, None)
-            self._job_encoder.pop(job_id, None)
+
+    async def shutdown(self) -> None:
+        """Cancel owned workers before their event loop closes."""
+        loop = asyncio.get_running_loop()
+        tasks = [task for task in self._tasks.values() if task.get_loop() is loop]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _attach_qc(self, result: dict, project_path: Path) -> dict:
         """Run the deterministic QC gate on a finished render and attach the
@@ -405,11 +467,11 @@ class RenderJobService:
         """
         from collections.abc import Mapping
 
+        from open_edit.qc.policy import resolve_qc_policy
         from open_edit.render.diagnostics import (
             LEGACY_STAGE_ALIASES,
             StageRecorder,
         )
-        from open_edit.qc.policy import resolve_qc_policy
 
         out = dict(result)
         raw_diagnostics = out.get("diagnostics")
@@ -543,25 +605,15 @@ class RenderJobService:
         return out
 
     async def _launch(self, project_path: Path, job_id: str, mode: str) -> dict:
-        """Run the canonical Python CLI (or overlay bridge) and consume JSON."""
-        if mode == "overlay":
-            from open_edit.kernel.render_overlay import run_trigger_render as _bridge_trigger_render
-
-            result = await asyncio.to_thread(_bridge_trigger_render, {"mode": "overlay"}, project_path)
-            if not isinstance(result, dict):
-                raise RuntimeError("overlay renderer returned a non-dict result")
-            output_path = result.get("output_path") or result.get("path")
-            if not output_path:
-                raise RuntimeError(result.get("error") or "overlay renderer reported no output")
-            out = dict(result)
-            out["ok"] = True
-            out["output_path"] = str(output_path)
-            out["mode"] = "overlay"
-            return out
-
+        """Run an isolated render worker and consume its JSON result."""
         job = self.get(project_path, job_id)
         params = (job.params if job is not None else None) or {}
-        if mode == "preview-chunks":
+        if mode == "overlay":
+            command = [
+                sys.executable, "-m", "open_edit.kernel.render_overlay",
+                "--project", str(project_path),
+            ]
+        elif mode == "preview-chunks":
             command = [
                 sys.executable, "-m", "open_edit.cli", "preview-chunks",
                 "--job-id", job_id, "--json",
@@ -571,7 +623,7 @@ class RenderJobService:
                 sys.executable, "-m", "open_edit.cli", "render",
                 "--mode", mode, "--json",
             ]
-        if mode != "preview-chunks":
+        if mode not in ("overlay", "preview-chunks"):
             for key, flag in (("profile", "--profile"), ("quality", "--quality"),
                               ("crf", "--crf"), ("vb", "--vb"), ("preset", "--preset"),
                               ("scale", "--scale"), ("codec", "--codec")):
@@ -585,7 +637,7 @@ class RenderJobService:
                 remotion_uids = (remotion_uids,)
             for composition_uid in remotion_uids:
                 command += ["--remotion-uid", str(composition_uid)]
-            encoder = self._job_encoder.get(job_id) or os.environ.get(
+            encoder = params.get("encoder_backend") or os.environ.get(
                 "OPEN_EDIT_RENDER_BACKEND", "gpu"
             )
             if encoder in ("gpu", "cpu"):
@@ -596,12 +648,44 @@ class RenderJobService:
         }
         if os.name == "posix":
             kwargs["start_new_session"] = True
-        proc = await asyncio.create_subprocess_exec(*command, **kwargs)
-        self._processes[job_id] = proc
+        # Shield process creation so cancellation cannot abandon a child
+        # between spawn and registration (a shutdown race in asyncio).
+        spawn = asyncio.create_task(asyncio.create_subprocess_exec(*command, **kwargs))
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.timeout_s)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            await self._terminate_process_group(proc)
+            proc = await asyncio.shield(spawn)
+        except asyncio.CancelledError:
+            with contextlib.suppress(OSError):
+                proc = await spawn
+                cleanup = asyncio.create_task(proc.communicate())
+                try:
+                    await self._terminate_process_group(proc)
+                    await asyncio.wait_for(cleanup, timeout=max(1.0, self.cancel_grace_s))
+                finally:
+                    cleanup.cancel()
+                    await asyncio.gather(cleanup, return_exceptions=True)
+            raise
+        self._processes[job_id] = proc
+        communication = asyncio.create_task(proc.communicate())
+        try:
+            deadline = asyncio.get_running_loop().time() + self.timeout_s
+            while not communication.done():
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError("render timed out")
+                await asyncio.wait({communication}, timeout=min(0.25, remaining))
+                current = self.get(project_path, job_id)
+                if current is not None and current.status in ("cancelling", "cancelled"):
+                    raise asyncio.CancelledError
+            stdout, stderr = await communication
+        except (TimeoutError, asyncio.CancelledError):
+            try:
+                # Keep draining while terminating. Cancelling communicate
+                # first can strand wait() behind a full stdout/stderr pipe.
+                await self._terminate_process_group(proc)
+                await asyncio.wait_for(communication, timeout=max(1.0, self.cancel_grace_s))
+            finally:
+                communication.cancel()
+                await asyncio.gather(communication, return_exceptions=True)
             raise
         if proc.returncode != 0:
             stdout_text = stdout.decode("utf-8", errors="replace").strip()
@@ -626,9 +710,25 @@ class RenderJobService:
         return result
 
 
-def public_job(job: RenderJob) -> dict:
+def public_job(job: RenderJob, *, include_details: bool = True) -> dict:
     """Stable JSON-friendly job representation for REST and WebSocket callers."""
-    return asdict(job)
+    data = asdict(job)
+    if include_details:
+        return data
+    result = data.get("result")
+    if isinstance(result, dict):
+        data["result"] = {key: value for key, value in result.items() if key not in {
+            "stdout", "stderr", "diagnostics", "verification", "qc_report",
+        }}
+    qc = data.get("qc_report")
+    if isinstance(qc, dict):
+        data["qc_report"] = {key: value for key, value in qc.items() if key in {
+            "passed", "complete", "policy", "reason",
+        }}
+        data["qc_report"]["failed_checks"] = [
+            check for check in qc.get("checks", []) if not check.get("passed")
+        ]
+    return data
 
 
 # The service is process-wide by design: it owns the global concurrency limit.

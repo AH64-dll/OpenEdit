@@ -12,7 +12,6 @@ from open_edit.render.melt_runner import run_pipe
 from open_edit.render.pipe_builder import OverlayClip, build_pipe_commands
 from open_edit.render.profiles import select_profile
 
-
 pytestmark = pytest.mark.skipif(
     shutil.which("melt") is None or shutil.which("ffmpeg") is None,
     reason="melt + ffmpeg required",

@@ -149,11 +149,12 @@ def validate_composition_source(source: str, *, max_bytes: int = 200_000) -> lis
     # Soft allow-list: any import line must mention an allowed prefix.
     for line in source.splitlines():
         stripped = line.strip()
-        if stripped.startswith("import ") or "require(" in stripped:
-            if not any(prefix in stripped for prefix in ALLOWED_IMPORT_PREFIXES):
-                # Allow type-only imports of remotion already covered; reject others
-                if "from " in stripped or "require(" in stripped:
-                    errors.append(f"disallowed import line: {stripped[:120]}")
+        if (
+            (stripped.startswith("import ") or "require(" in stripped)
+            and not any(prefix in stripped for prefix in ALLOWED_IMPORT_PREFIXES)
+            and ("from " in stripped or "require(" in stripped)
+        ):
+            errors.append(f"disallowed import line: {stripped[:120]}")
     return errors
 
 

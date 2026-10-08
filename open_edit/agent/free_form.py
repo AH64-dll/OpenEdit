@@ -6,13 +6,13 @@ layer (pure domain) no longer depends on the agent layer.
 
 from __future__ import annotations
 
-from open_edit.agent.sandbox import run_free_form
+from open_edit.agent.script_runner import run_free_form
 from open_edit.ir.apply import ApplyError
 from open_edit.ir.types import FreeFormCodeOp, Project
 
 
 def run_free_form_code(op: FreeFormCodeOp, project: Project) -> Project:
-    """Run a free-form Python script in the sandbox and append its child ops.
+    """Run a free-form Python script in a subprocess and append its child ops.
 
     Each child op has parent_id == op.edit_id (stamped by IR at build time).
 

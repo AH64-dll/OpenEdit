@@ -9,13 +9,13 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
+from open_edit.agent.tools.pyagent_list_assets import list_assets
 from open_edit.cli import cmd_init
 from open_edit.ir.types import Asset
 from open_edit.render.source_proxy import SourceProxyResult
 from open_edit.serve import app as app_mod
 from open_edit.serve import projects as projects_mod
 from open_edit.storage.assets import AssetStore
-from open_edit.agent.tools.pyagent_list_assets import list_assets
 
 
 def seed_project(tmp_path: Path, monkeypatch) -> tuple[Path, str]:

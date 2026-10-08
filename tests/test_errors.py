@@ -63,7 +63,6 @@ def test_error_codes_values() -> None:
     assert ErrorCodes.CONFLICT == "conflict"
     assert ErrorCodes.PERMISSION_DENIED == "permission_denied"
     assert ErrorCodes.AUTH_REQUIRED == "auth_required"
-    assert ErrorCodes.SANDBOX_UNAVAILABLE == "sandbox_unavailable"
     assert ErrorCodes.RENDER_FAILED == "render_failed"
     assert ErrorCodes.PROVIDER_ERROR == "provider_error"
     assert ErrorCodes.RATE_LIMITED == "rate_limited"

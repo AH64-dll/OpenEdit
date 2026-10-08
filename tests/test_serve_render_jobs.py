@@ -15,25 +15,24 @@ pruning tests are gone with the code: the durable DB is append-only by
 design, so there is no TTL pruning to test; the old "bounded size"
 property is covered by the service's queued/running coalescing.
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
 import time
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from open_edit.cli import cmd_init
+from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
+from open_edit.serve import app as app_mod
+from open_edit.serve import projects as projects_mod
 
-from open_edit.cli import cmd_init  # noqa: E402
-from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE  # noqa: E402
-from open_edit.serve import app as app_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -127,12 +126,17 @@ def test_render_route_rejects_invalid_mode(seeded_project):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_render_job_has_created_at_field(tmp_path):
+async def test_render_job_has_created_at_field(tmp_path, monkeypatch):
     """Every enqueued job carries a ``created_at`` timestamp (float)."""
+    async def fake_launch(project_path, job_id, mode):
+        return {"ok": True, "output_path": str(tmp_path / "out.mp4"), "mode": mode}
+
+    monkeypatch.setattr(DEFAULT_RENDER_JOB_SERVICE, "_launch", fake_launch)
     job = DEFAULT_RENDER_JOB_SERVICE.enqueue("proj", tmp_path, "proxy")
     assert isinstance(job.created_at, float)
     assert job.status == "queued"
     assert job.job_id
+    await DEFAULT_RENDER_JOB_SERVICE.wait(tmp_path, job.job_id)
 
 
 @pytest.mark.asyncio

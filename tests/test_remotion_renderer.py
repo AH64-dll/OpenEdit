@@ -9,16 +9,15 @@ from pathlib import Path
 import pytest
 
 from open_edit.render.profiles import RenderProfile
-from open_edit.render.remotion import renderer as renderer_mod
 from open_edit.render.remotion import (
     RemotionRenderError,
     composition_cache_key,
-    render_composition,
     remotion_profile_for_mode,
     remotion_worker_count,
+    render_composition,
     validate_entry_point,
 )
-
+from open_edit.render.remotion import renderer as renderer_mod
 
 _FAKE_REMOTION = textwrap.dedent(
     """\

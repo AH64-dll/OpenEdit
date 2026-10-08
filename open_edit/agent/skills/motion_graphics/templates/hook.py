@@ -1,6 +1,6 @@
 """Hook template: fade-in text on a colored background.
 
-The render sandbox (W2) executes the generated moviepy code; the output
+The render script (W2) executes the generated moviepy code; the output
 path is provided via the ``OUTPUT_PATH`` env var by the Rust binary.
 """
 

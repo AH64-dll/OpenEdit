@@ -549,8 +549,7 @@ function verifyStatusLabel(s, renderCount, maxRenders) {
 // ----------------------------------------------------------
 // A small monospace pill that displays the per-turn + cumulative
 // session cost, or an honest "cost n/a" state when the LLM
-// provider doesn't report a per-token bill (e.g. the ``pi`` path
-// through opencode-go, which is subscription-billed).
+// provider doesn't report a per-token bill (e.g. subscription-based CLI chat).
 //
 // Driven by the ``cost_update`` WS event from the agent loop:
 //   {type, turn_tokens, turn_cost_usd, session_cost_usd, source}
@@ -588,7 +587,7 @@ export function createCostBadge(element) {
 
   function formatUsd(n) {
     // 2-4 fraction digits depending on magnitude. Very small
-    // numbers (typical for a single pi turn) get 4 digits so
+    // numbers (typical for a single model turn) get 4 digits so
     // they don't show as "$0.00" when the user actually did
     // spend something. Larger numbers get 2 digits for compactness.
     if (n === 0) return '$0.00';
@@ -605,7 +604,7 @@ export function createCostBadge(element) {
   return {
     onEvent(ev) {
       if (!ev || ev.type !== 'cost_update') return;
-      const source = (ev.source === 'pi' || ev.source === 'computed')
+      const source = (ev.source === 'computed')
         ? ev.source : 'unavailable';
       setSource(source);
       setVisible(true);

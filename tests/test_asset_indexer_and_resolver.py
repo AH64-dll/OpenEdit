@@ -4,9 +4,10 @@ Unit tests for open_edit.asset_indexer and open_edit.asset_resolver.
 
 import json
 import os
-import pytest
-from open_edit.asset_indexer import generate_manifest, index_assets
-from open_edit.asset_resolver import AssetResolver, get_resolver
+from pathlib import Path
+
+from open_edit.asset_indexer import generate_manifest
+from open_edit.asset_resolver import AssetResolver
 
 
 def test_asset_indexer_and_resolver(tmp_path):
@@ -14,7 +15,7 @@ def test_asset_indexer_and_resolver(tmp_path):
     assets_dir = tmp_path / "assets"
     sfx_dir = assets_dir / "audio" / "sfx"
     sfx_dir.mkdir(parents=True, exist_ok=True)
-    
+
     overlay_dir = assets_dir / "video" / "overlays"
     overlay_dir.mkdir(parents=True, exist_ok=True)
 
@@ -29,7 +30,7 @@ def test_asset_indexer_and_resolver(tmp_path):
 
     assert os.path.exists(out_file)
 
-    with open(out_file, "r", encoding="utf-8") as f:
+    with open(out_file, encoding="utf-8") as f:
         data = json.load(f)
 
     assert data["total_assets"] == 3

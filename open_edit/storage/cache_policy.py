@@ -19,12 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from open_edit.render.cache import (
-    DEFAULT_RENDER_CACHE_MAX_BYTES,
     DEFAULT_REMOTION_CACHE_MAX_BYTES,
+    DEFAULT_RENDER_CACHE_MAX_BYTES,
     parse_cache_max_bytes,
 )
 from open_edit.storage.assets import AssetStore
-
 
 DEFAULT_SOURCE_PROXY_MAX_BYTES = 1024**3
 DEFAULT_CACHE_MAX_AGE_SEC = 86400
@@ -53,7 +52,7 @@ class CacheSettings:
     min_free_bytes: int
 
     @classmethod
-    def from_env(cls) -> "CacheSettings":
+    def from_env(cls) -> CacheSettings:
         """Read cache limits, falling back safely for bad environment data."""
         return cls(
             render_cache_max_bytes=_positive_bytes(

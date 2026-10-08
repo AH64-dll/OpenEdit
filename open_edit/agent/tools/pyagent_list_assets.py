@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from open_edit.agent.tools._contract import tool_result
-from open_edit.agent.tools._helpers import get_asset_store
+from open_edit.agent.tools._helpers import get_asset_store, page_window
 
 # Remotion materialize CAS names look like: <uuid>_<12hex>.mov|.webm
 _DERIVATIVE_RE = re.compile(
@@ -46,6 +46,7 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
         (args or {}).get("include_derivatives", False)
     )
     detail = bool((args or {}).get("detail", False))
+    offset, limit = page_window(args)
 
     if not assets_root.exists():
         return {
@@ -54,6 +55,9 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
             "filtered": True,
             "include_derivatives": include_derivatives,
             "detail": detail,
+            "total": 0,
+            "offset": offset,
+            "next_offset": None,
         }
 
     skipped = 0
@@ -62,8 +66,10 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
             obj = json.loads(meta_path.read_text())
         except (json.JSONDecodeError, OSError):
             continue
+        if not isinstance(obj, dict):
+            continue
         original = obj.get("original_path", "") or ""
-        filename = Path(original).name if original else meta_path.parent.name
+        filename = Path(original).name if original else str(obj.get("asset_hash") or meta_path.name.removesuffix(".meta.json"))
         codec = obj.get("codec")
         if not include_derivatives and _is_derivative(filename, codec):
             skipped += 1
@@ -89,7 +95,10 @@ def list_assets(args: dict, project_path: str) -> dict[str, Any]:
 
     return {
         "status": "ok",
-        "assets": assets,
+        "assets": assets[offset:offset + limit],
+        "total": len(assets),
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < len(assets) else None,
         "filtered": not include_derivatives,
         "skipped_derivatives": skipped,
         "include_derivatives": include_derivatives,

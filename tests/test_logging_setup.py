@@ -10,22 +10,21 @@ Covers:
 * ``get_logger`` records carry the current context (via the JSON
   formatter) with no filesystem/network side effects.
 """
+
 from __future__ import annotations
 
 import asyncio
 import io
 import json
 import logging
-import sys
 from pathlib import Path
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from open_edit.serve import logging_setup as ls
 
-from open_edit.serve import logging_setup as ls  # noqa: E402
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 
 @pytest.fixture(autouse=True)

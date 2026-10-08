@@ -1,14 +1,7 @@
-"""Kernel-side overlay render trigger.
+"""Kernel-side composited render trigger.
 
-This module hosts the ``trigger_render`` tool implementation that the
-serve layer previously kept in ``serve.pi_bridge``. It was moved here
-so kernel no longer lazily imports ``serve`` (the last kernel→serve
-dependency, see ``kernel/render_jobs.py``).
-
-The composited HTML-overlay pipeline (``open_edit.render.html_overlay``)
-is a pure HTML/ffmpeg compositor with no serve state, so it lives in
-``open_edit/render`` and is imported from here without violating the
-layering invariant.
+Shares the HTML/FFmpeg overlay pipeline across MCP and optional agent calls.
+Rendering code remains independent of HTTP and WebSocket state.
 """
 from __future__ import annotations
 
@@ -19,6 +12,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -56,9 +50,7 @@ def _probe_duration(mp4_path: Path) -> float:
 def make_should_cancel():
     """Return a cancellation predicate for the composited render pipeline.
 
-    The pi bridge runs as a short-lived subprocess, so there is no
-    long-running WebSocket to poll. The returned predicate always returns
-    False.
+    Callers without a cancellation callback use this always-false predicate.
     """
     return lambda: False
 
@@ -135,7 +127,7 @@ def _build_render_spec(project_path: Path, mode: str, hyperframes_timeout: int) 
     # unset (see render.env.get_overlay_config); the ``or`` short-circuit
     # falls back to the runtime resolver in that case. The contract is
     # the same as for the previous ``""`` sentinel: any falsy value
-    # triggers the auto-resolve. The resolver honours env > pinned > npx.
+    # triggers the auto-resolve. The resolver honours env > pinned > PATH.
     return {
         "width": profile["width"],
         "height": profile["height"],
@@ -143,7 +135,7 @@ def _build_render_spec(project_path: Path, mode: str, hyperframes_timeout: int) 
         "duration_sec": profile["duration_sec"],
         "mode": mode,
         "hyperframes_bin": overlay_cfg["hyperframes_bin"] or html_overlay._resolve_hyperframes_bin(),
-        "hyperframes_timeout_s": overlay_cfg["hyperframes_timeout_s"],
+        "hyperframes_timeout_s": hyperframes_timeout,
         "tmpdir": (Path(overlay_cfg["overlay_tmpdir"]) if overlay_cfg["overlay_tmpdir"]
                    else project_path / ".open_edit" / "tmp" / "overlay"),
     }
@@ -271,8 +263,8 @@ def run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, An
     mode = (args.get("mode") or "proxy").lower()
     if mode not in ("proxy", "final", "overlay"):
         mode = "proxy"
-    render_spec = _build_render_spec(project_path, mode, get_overlay_config()["hyperframes_timeout_s"])
-    if _should_use_composited(args, project_path, render_spec):
+    if _should_use_composited(args, project_path, {}):
+        render_spec = _build_render_spec(project_path, mode, get_overlay_config()["hyperframes_timeout_s"])
         coro = html_overlay.render_composited(
             timeline=_load_timeline(project_path),
             project_workdir=project_path,
@@ -320,3 +312,26 @@ def run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, An
             "render_id": f"render_{os.urandom(6).hex()}",
         }
     return _run_mlt_only_render(args, project_path)
+
+
+def main() -> int:
+    """Run legacy overlay jobs in a cancellable process group."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="OpenEdit overlay render worker")
+    parser.add_argument("--project", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        result = run_trigger_render({"mode": "overlay"}, args.project.resolve())
+        output_path = result.get("output_path") or result.get("path")
+        result = {**result, "ok": bool(output_path) and not result.get("error"), "mode": "overlay"}
+        if output_path:
+            result["output_path"] = str(output_path)
+    except Exception as exc:
+        result = {"ok": False, "mode": "overlay", "error": str(exc)}
+    print(json.dumps(result, default=str))
+    return 0 if result["ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

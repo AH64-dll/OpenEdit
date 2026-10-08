@@ -1,13 +1,19 @@
 """Phase 4 Task 2: unified notes store."""
-import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from open_edit.storage.notes import (
-    NotesStore, ReviewNote, TimestampAnchor, RegionAnchor, OpAnchor,
-    NoteSource, NoteStatus,
+    NoteSource,
+    NotesStore,
+    NoteStatus,
+    OpAnchor,
+    RegionAnchor,
+    ReviewNote,
+    TimestampAnchor,
 )
 
 
@@ -29,7 +35,7 @@ class TestNotesStore(unittest.TestCase):
             text="feels empty",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         note_id = store.append(note)
         self.assertEqual(note_id, note.note_id)
@@ -46,7 +52,7 @@ class TestNotesStore(unittest.TestCase):
             text="television overlay",
             source=NoteSource.region,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         store.append(note)
         notes = store.list_all("p1")
@@ -61,7 +67,7 @@ class TestNotesStore(unittest.TestCase):
             text="trim 1s off the front",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         store.append(note)
         notes = store.list_all("p1")
@@ -77,7 +83,7 @@ class TestNotesStore(unittest.TestCase):
                 text=f"note {i}",
                 source=NoteSource.typed,
                 status=status,
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=datetime.now(UTC).isoformat(),
             ))
         pending = store.list_pending("p1")
         self.assertEqual(len(pending), 2)
@@ -92,7 +98,7 @@ class TestNotesStore(unittest.TestCase):
                 text=f"note {i}",
                 source=NoteSource.typed,
                 status=NoteStatus.pending,
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=datetime.now(UTC).isoformat(),
             ))
         token = "commit_abc"
         notes = store.commit_pending("p1", token)
@@ -110,7 +116,7 @@ class TestNotesStore(unittest.TestCase):
                 text=f"note {i}",
                 source=NoteSource.typed,
                 status=NoteStatus.pending,
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=datetime.now(UTC).isoformat(),
             ))
         token = "commit_abc"
         committed = store.commit_pending("p1", token)
@@ -121,7 +127,7 @@ class TestNotesStore(unittest.TestCase):
             text="note added after commit",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         ))
         store.mark_processed(committed_ids, resulting_op_ids=["op_1", "op_2", "op_3"])
         pending = store.list_pending("p1")
@@ -136,7 +142,7 @@ class TestNotesStore(unittest.TestCase):
             text="",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         note_id = store.append(note)
         store.mark_dismissed([note_id])
@@ -152,7 +158,7 @@ class TestNotesStore(unittest.TestCase):
             text="original",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         note_id = store.append(note)
 
@@ -174,10 +180,10 @@ class TestNotesStore(unittest.TestCase):
             text="t",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         note_id = store.append(note)
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             store.update(note_id, project_id="p2")
 
     def test_update_unknown_note_id_is_noop(self) -> None:
@@ -193,7 +199,7 @@ class TestNotesStore(unittest.TestCase):
                 text=f"note {i}",
                 source=NoteSource.typed,
                 status=NoteStatus.pending,
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=datetime.now(UTC).isoformat(),
             ))
         first = store.commit_pending("p1", "token_a")
         second = store.commit_pending("p1", "token_b")
@@ -207,7 +213,7 @@ class TestNotesStore(unittest.TestCase):
             text="post-commit note",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         ))
         third = store.commit_pending("p1", "token_c")
         self.assertEqual(len(third), 1)
@@ -222,7 +228,7 @@ class TestNotesStore(unittest.TestCase):
             text="",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         ))
         store.append(ReviewNote(
             project_id="p2",
@@ -230,7 +236,7 @@ class TestNotesStore(unittest.TestCase):
             text="",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         ))
         self.assertEqual(len(store.list_all("p1")), 1)
 
@@ -242,7 +248,7 @@ class TestNotesStore(unittest.TestCase):
             text="note 1",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         n2 = ReviewNote(
             project_id="p1",
@@ -250,7 +256,7 @@ class TestNotesStore(unittest.TestCase):
             text="note 2",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         store.append(n1)
         store.append(n2)
@@ -277,7 +283,7 @@ class TestNotesStore(unittest.TestCase):
             text="",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         store.append(n)
         store.commit_pending("p1", "token_x")
@@ -293,7 +299,7 @@ class TestNotesStore(unittest.TestCase):
             text="old",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         store.append(note)
         store.update(
@@ -322,7 +328,7 @@ class TestNotesStore(unittest.TestCase):
             text="bye",
             source=NoteSource.typed,
             status=NoteStatus.pending,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         store.append(note)
         self.assertEqual(store.delete([note.note_id]), 1)

@@ -15,7 +15,6 @@ from open_edit.render.orchestrator import render_project
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 
-
 TESTDATA = Path(__file__).parent / "testdata" / "raw_videos"
 
 

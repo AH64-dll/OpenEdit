@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from open_edit.qc.silence import list_silence, get_audio_levels, SilenceResult
-
+from open_edit.qc.silence import SilenceResult, get_audio_levels, list_silence
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 

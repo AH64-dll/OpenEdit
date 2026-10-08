@@ -22,21 +22,20 @@ You are installing Open Edit, a local AI video editor that runs as an MCP server
      python3 -m venv .venv
      source .venv/bin/activate
      pip install -U pip
-     pip install -e ".[mcp]"
+     pip install -e .
    Windows (PowerShell):
      python -m venv .venv
      .\.venv\Scripts\Activate.ps1
      python -m pip install -U pip
-     pip install -e ".[mcp]"
+     pip install -e .
    If PowerShell blocks activation, first run: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
    If your shell does not keep the venv active between commands, call the venv binaries directly: .venv/bin/open_edit and .venv/bin/open-edit-mcp on Linux/macOS, or .\.venv\Scripts\open_edit.exe and .\.venv\Scripts\open-edit-mcp.exe on Windows.
-5. Install the optional extras (review UI and local transcription):
-   pip install -e ".[mcp,serve]"
-   pip install -e ".[mcp,whisper]"
+5. MCP and the review UI are included. Install local transcription if needed:
+   pip install -e ".[whisper]"
 6. Provision the render stack (Node.js >= 22 + the HyperFrames overlay engine):
    - Check for Node.js 22+: node --version (Linux/macOS) or node --version (Windows). If missing or older than 22, install Node.js LTS (Linux/macOS: user-local tarball from nodejs.org or your package manager; Windows: winget install OpenJS.NodeJS.LTS or the nodejs.org installer).
    - Install the pinned JS dependencies and verify the motion-graphics engine:
-     npm install --no-audit --no-fund
+     npm ci --no-audit --no-fund
      Linux/macOS: node_modules/.bin/hyperframes --version   (must print 0.7.65)
      Windows: .\node_modules\.bin\hyperframes.cmd --version
    - Check the render binaries are on PATH: ffmpeg and ffprobe, and melt (Linux/macOS; on Windows melt is optional — overlay-only renders do not need it). If any are missing, install them (Linux/macOS package manager, Windows winget for ffmpeg) and note it in your report.

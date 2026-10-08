@@ -1,8 +1,5 @@
 """Phase 3 Task 10: `open_edit free-form` subcommand."""
 import textwrap
-from pathlib import Path
-
-import pytest
 
 from open_edit.cli import main
 
@@ -23,7 +20,7 @@ def test_cli_free_form_runs_script(tmp_path, capsys, monkeypatch):
     def _mock_run(*args, **kwargs):
         return FreeFormResult.ok(ops=[], duration_s=0.0)
     monkeypatch.setattr(
-        "open_edit.agent.sandbox.run_free_form", _mock_run,
+        "open_edit.agent.script_runner.run_free_form", _mock_run,
     )
 
     rc = main(["free-form", str(code_file), str(project_dir)])

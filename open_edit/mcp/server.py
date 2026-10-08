@@ -34,13 +34,14 @@ def _require_mcp():
         if mcp_file.parent.resolve() == Path(__file__).resolve().parent:
             raise ImportError(
                 "import 'mcp' resolved to open_edit.mcp (self-shadow). "
-                "Install the MCP SDK (pip install 'mcp>=1.0,<2') with the "
+                "Install the MCP SDK (pip install 'mcp>=1.30,<2') with the "
                 "editable install rooted at the repo (packages=['open_edit'])."
             )
         from mcp.server import Server
-        from mcp.server.stdio import stdio_server
         from mcp.server.lowlevel.helper_types import ReadResourceContents
+        from mcp.server.stdio import stdio_server
         from mcp.types import (
+            CallToolResult,
             GetPromptResult,
             Prompt,
             PromptMessage,
@@ -64,24 +65,26 @@ def _require_mcp():
         Prompt,
         GetPromptResult,
         PromptMessage,
+        CallToolResult,
     )
 
 
 def build_server(project_path: Path):
-    """Construct an MCP ``Server`` bound to ``project_path``."""
+    """Construct an MCP ``server`` bound to ``project_path``."""
     (
-        Server,
+        server_class,
         _stdio_server,
-        TextContent,
-        Tool,
-        Resource,
-        ReadResourceContents,
-        Prompt,
-        GetPromptResult,
-        PromptMessage,
+        text_content,
+        tool,
+        resource,
+        read_resource_contents,
+        prompt,
+        get_prompt_result,
+        prompt_message,
+        call_tool_result,
     ) = _require_mcp()
 
-    server = Server(
+    server = server_class(
         "open-edit",
         instructions=mcp_instructions(),
     )
@@ -91,7 +94,7 @@ def build_server(project_path: Path):
         tools: list[Any] = []
         for schema in mcp_tool_schemas():
             tools.append(
-                Tool(
+                tool(
                     name=schema["name"],
                     description=schema.get("description") or "",
                     inputSchema=schema.get("input_schema") or {"type": "object"},
@@ -100,9 +103,13 @@ def build_server(project_path: Path):
         return tools
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict | None) -> list[Any]:
+    async def call_tool(name: str, arguments: dict | None) -> Any:
         result = await dispatch_mcp_tool(name, arguments, project_path)
-        return [TextContent(type="text", text=result_to_json(result))]
+        failed = result.get("ok") is False or result.get("status") in {"error", "retry"} or bool(result.get("error"))
+        return call_tool_result(
+            content=[text_content(type="text", text=result_to_json(result))],
+            isError=failed,
+        )
 
     @server.list_resources()
     async def list_resources() -> list[Any]:
@@ -113,7 +120,7 @@ def build_server(project_path: Path):
             except FileNotFoundError:
                 continue
             resources.append(
-                Resource(
+                resource(
                     uri=resource_uri(stem),
                     name=stem,
                     description=f"Open Edit harness skill: {stem}",
@@ -129,7 +136,7 @@ def build_server(project_path: Path):
         if stem is None:
             raise ValueError(f"Unknown resource URI: {uri_str}")
         return [
-            ReadResourceContents(
+            read_resource_contents(
                 content=load_skill(stem),
                 mime_type="text/markdown",
             )
@@ -138,40 +145,40 @@ def build_server(project_path: Path):
     @server.list_prompts()
     async def list_prompts() -> list[Any]:
         return [
-            Prompt(
+            prompt(
                 name="open-edit-playbook",
                 description=(
                     "Load the Open Edit MCP playbook (tools, when to use them, "
                     "recipes). Prefer this over exploring source code."
                 ),
             ),
-            Prompt(
+            prompt(
                 name="open-edit-reference",
                 description=(
                     "Load IR / run_script recipes for timeline construction."
                 ),
             ),
-            Prompt(
+            prompt(
                 name="open-edit-style-memory",
                 description=(
                     "Capture and reuse user style preferences "
                     "(get_style_profile, capture_style_hint, pins)."
                 ),
             ),
-            Prompt(
+            prompt(
                 name="open-edit-review-notes",
                 description=(
                     "Read/act on timeline review notes (including audio-targeted "
                     "notes). Prefer get_pending_notes over exploring source."
                 ),
             ),
-            Prompt(
+            prompt(
                 name="open-edit-tool-surface",
                 description=(
                     "4-pillar tool surface reference (query/edit/run_script/render)."
                 ),
             ),
-            Prompt(
+            prompt(
                 name="open-edit-edit-planning",
                 description=(
                     "Edit planning playbook: silence, music, SFX, narrative order."
@@ -194,12 +201,12 @@ def build_server(project_path: Path):
         if stem is None:
             raise ValueError(f"Unknown prompt: {name}")
         text = load_skill(stem)
-        return GetPromptResult(
+        return get_prompt_result(
             description=f"Open Edit skill: {stem}",
             messages=[
-                PromptMessage(
+                prompt_message(
                     role="user",
-                    content=TextContent(type="text", text=text),
+                    content=text_content(type="text", text=text),
                 )
             ],
         )
@@ -209,14 +216,18 @@ def build_server(project_path: Path):
 
 async def run_stdio(project_path: Path) -> None:
     """Serve MCP over stdin/stdout for the pinned project."""
-    _Server, stdio_server, *_rest = _require_mcp()
+    _server_cls, stdio_server, *_rest = _require_mcp()
     server = build_server(project_path)
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
-        )
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options(),
+            )
+    finally:
+        from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
+        await DEFAULT_RENDER_JOB_SERVICE.shutdown()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

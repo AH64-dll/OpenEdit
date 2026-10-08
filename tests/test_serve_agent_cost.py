@@ -18,25 +18,23 @@ A separate (small) table inside ``edit_graph.db`` was an option;
 we picked the JSON sidecar for simplicity and to keep
 ``EditGraphStore``'s schema untouched.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-import os
-import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 import pytest
 
+from open_edit.serve import agent as agent_mod
+from open_edit.serve import projects as projects_mod
+from open_edit.serve.llm import StreamEvent
+
 _THIS_DIR = Path(__file__).resolve()
 _REPO_ROOT = _THIS_DIR.parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.serve import agent as agent_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
-from open_edit.serve.llm import StreamEvent  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -53,12 +51,12 @@ def test_load_cost_state_round_trip(tmp_path):
     """Write a sidecar via the agent's save function, read it back."""
     agent_mod._save_cost_state(
         tmp_path,
-        {"conv-1": {"session_cost_usd": 0.05, "source": "pi",
+        {"conv-1": {"session_cost_usd": 0.05, "source": "computed",
                     "last_turn_cost_usd": 0.01}},
     )
     state = agent_mod._load_cost_state(tmp_path)
     assert state == {"conv-1": {"session_cost_usd": 0.05,
-                                "source": "pi",
+                                "source": "computed",
                                 "last_turn_cost_usd": 0.01}}
 
 
@@ -74,7 +72,7 @@ def test_save_cost_state_atomic_writes(tmp_path, monkeypatch):
     # or half-written).
     agent_mod._save_cost_state(
         tmp_path,
-        {"conv-x": {"session_cost_usd": 0.01, "source": "pi",
+        {"conv-x": {"session_cost_usd": 0.01, "source": "computed",
                     "last_turn_cost_usd": 0.01}},
     )
     # File exists and parses as JSON.
@@ -88,14 +86,14 @@ def test_save_cost_state_preserves_unrelated_conv_ids(tmp_path):
     belong to other conversations."""
     agent_mod._save_cost_state(
         tmp_path,
-        {"conv-a": {"session_cost_usd": 0.01, "source": "pi",
+        {"conv-a": {"session_cost_usd": 0.01, "source": "computed",
                     "last_turn_cost_usd": 0.01},
-         "conv-b": {"session_cost_usd": 0.02, "source": "pi",
+         "conv-b": {"session_cost_usd": 0.02, "source": "computed",
                     "last_turn_cost_usd": 0.02}},
     )
     agent_mod._save_cost_state(
         tmp_path,
-        {"conv-a": {"session_cost_usd": 0.03, "source": "pi",
+        {"conv-a": {"session_cost_usd": 0.03, "source": "computed",
                     "last_turn_cost_usd": 0.02}},
     )
     state = agent_mod._load_cost_state(tmp_path)
@@ -173,7 +171,7 @@ def test_agent_emits_cost_update_after_done(patched_agent_with_cost, monkeypatch
     monkeypatch.setattr(agent_mod, "stream_chat",
                         _mock_stream_chat_with_usage([
                             {"type": "text_delta", "text": "hi"},
-                            {"type": "usage", "source": "pi",
+                            {"type": "usage", "source": "computed",
                              "tokens": 150, "cost_usd": 0.0003,
                              "usage": {}},
                             {"type": "done", "stop_reason": "end_turn"},
@@ -202,7 +200,7 @@ def test_agent_emits_cost_update_after_done(patched_agent_with_cost, monkeypatch
     assert cost_ev["turn_cost_usd"] == pytest.approx(0.0003, abs=1e-9)
     # First turn: session_cost_usd == turn_cost_usd.
     assert cost_ev["session_cost_usd"] == pytest.approx(0.0003, abs=1e-9)
-    assert cost_ev["source"] == "pi"
+    assert cost_ev["source"] == "computed"
 
 
 def test_agent_aggregates_multiple_usage_events_in_one_turn(
@@ -224,12 +222,12 @@ def test_agent_aggregates_multiple_usage_events_in_one_turn(
             yield {"type": "text_delta", "text": "first"}
             yield {"type": "tool_use", "id": "t1", "name": "add_marker",
                    "input": {"t_start": 1.0, "text": "x"}}
-            yield {"type": "usage", "source": "pi",
+            yield {"type": "usage", "source": "computed",
                    "tokens": 100, "cost_usd": 0.0001, "usage": {}}
             yield {"type": "done", "stop_reason": "tool_use"}
         else:
             yield {"type": "text_delta", "text": "second"}
-            yield {"type": "usage", "source": "pi",
+            yield {"type": "usage", "source": "computed",
                    "tokens": 50, "cost_usd": 0.0002, "usage": {}}
             yield {"type": "done", "stop_reason": "end_turn"}
 
@@ -261,7 +259,7 @@ def test_agent_persists_session_cost_to_sidecar(
     session cumulative for this conv_id."""
     monkeypatch.setattr(agent_mod, "stream_chat",
                         _mock_stream_chat_with_usage([
-                            {"type": "usage", "source": "pi",
+                            {"type": "usage", "source": "computed",
                              "tokens": 200, "cost_usd": 0.005,
                              "usage": {}},
                             {"type": "done", "stop_reason": "end_turn"},
@@ -283,7 +281,7 @@ def test_agent_persists_session_cost_to_sidecar(
     state = json.loads(sidecar.read_text())
     assert "conv-1" in state
     assert state["conv-1"]["session_cost_usd"] == pytest.approx(0.005, abs=1e-9)
-    assert state["conv-1"]["source"] == "pi"
+    assert state["conv-1"]["source"] == "computed"
     assert state["conv-1"]["last_turn_cost_usd"] == pytest.approx(0.005, abs=1e-9)
 
 
@@ -296,13 +294,13 @@ def test_agent_uses_persisted_session_cost_on_next_turn(
     # Seed the sidecar with a previous turn's cost.
     agent_mod._save_cost_state(
         tmp_path,
-        {"conv-1": {"session_cost_usd": 0.005, "source": "pi",
+        {"conv-1": {"session_cost_usd": 0.005, "source": "computed",
                     "last_turn_cost_usd": 0.005}},
     )
 
     monkeypatch.setattr(agent_mod, "stream_chat",
                         _mock_stream_chat_with_usage([
-                            {"type": "usage", "source": "pi",
+                            {"type": "usage", "source": "computed",
                              "tokens": 100, "cost_usd": 0.003,
                              "usage": {}},
                             {"type": "done", "stop_reason": "end_turn"},
@@ -340,7 +338,7 @@ def test_agent_unavailable_source_does_not_demote_persisted_state(
     previously-persisted value."""
     agent_mod._save_cost_state(
         tmp_path,
-        {"conv-1": {"session_cost_usd": 0.05, "source": "pi",
+        {"conv-1": {"session_cost_usd": 0.05, "source": "computed",
                     "last_turn_cost_usd": 0.05}},
     )
 
@@ -402,13 +400,7 @@ def test_agent_no_usage_events_emits_cost_update_with_zeros(
 def test_agent_chooses_highest_priority_source_in_mixed_turn(
     patched_agent_with_cost, monkeypatch, tmp_path,
 ):
-    """If a single turn has both pi-sourced and computed-sourced
-    usage events (e.g. provider switch mid-turn — pathological
-    but possible), the cost_update's source field is the
-    highest-priority source. Priority: pi > computed > unavailable.
-    Pi is preferred because the user's default is pi and pi's
-    numbers are authoritative for that provider."""
-    # Three calls in one turn: pi, computed, unavailable.
+    """Reported usage takes precedence over unavailable usage in a mixed turn."""
     call_count = {"n": 0}
 
     async def _mixed_stream_chat(
@@ -424,7 +416,7 @@ def test_agent_chooses_highest_priority_source_in_mixed_turn(
             yield {"type": "done", "stop_reason": "tool_use"}
         elif call_count["n"] == 2:
             yield {"type": "text_delta", "text": "2"}
-            yield {"type": "usage", "source": "pi",
+            yield {"type": "usage", "source": "computed",
                    "tokens": 70, "cost_usd": 0.0002, "usage": {}}
             yield {"type": "tool_use", "id": "t2", "name": "add_marker",
                    "input": {}}
@@ -453,8 +445,8 @@ def test_agent_chooses_highest_priority_source_in_mixed_turn(
     # All three usages sum to: 50+70+0 = 120 tokens, 0.0001+0.0002+0 = 0.0003 cost.
     assert cost_ev["turn_tokens"] == 120
     assert cost_ev["turn_cost_usd"] == pytest.approx(0.0003, abs=1e-9)
-    # Highest-priority source = pi.
-    assert cost_ev["source"] == "pi"
+    # Computed usage takes precedence over unavailable usage.
+    assert cost_ev["source"] == "computed"
 
 
 def test_agent_persists_cost_async_non_blocking(
@@ -465,18 +457,17 @@ def test_agent_persists_cost_async_non_blocking(
     the sidecar write doesn't block the event loop. Test asserts
     that the write happens off the main thread (we monkeypatch
     ``asyncio.to_thread`` to record the call)."""
-    from unittest import mock as _mock
 
-    # Force ``asyncio.to_thread`` to a sync stub that records calls.
+    # Record off-loop persistence without changing to_thread's async contract.
     calls = []
-    def fake_to_thread(fn, *args, **kwargs):
+    async def fake_to_thread(fn, *args, **kwargs):
         calls.append((fn.__name__, args))
         return fn(*args, **kwargs)
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
 
     monkeypatch.setattr(agent_mod, "stream_chat",
                         _mock_stream_chat_with_usage([
-                            {"type": "usage", "source": "pi",
+                            {"type": "usage", "source": "computed",
                              "tokens": 10, "cost_usd": 0.001,
                              "usage": {}},
                             {"type": "done", "stop_reason": "end_turn"},
@@ -493,6 +484,6 @@ def test_agent_persists_cost_async_non_blocking(
 
     asyncio.run(_run())
     # At least one asyncio.to_thread call for the cost write.
-    assert any(name == "_write_cost_json_sync" for name, _ in calls), (
-        f"expected _write_cost_json_sync in to_thread calls, got {calls}"
+    assert any(name == "_save_cost_state" for name, _ in calls), (
+        f"expected _save_cost_state in to_thread calls, got {calls}"
     )

@@ -1,13 +1,12 @@
 """Single-frame thumbnail extraction for QC."""
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
-
 
 MAX_LONG_EDGE = 480
 JPEG_QUALITY = 70
@@ -21,7 +20,7 @@ class ThumbnailResult(BaseModel):
     height: int
     file_bytes: int
     timestamp_sec: float
-    error: Optional[str] = None
+    error: str | None = None
 
 
 def _probe_dimensions(path: str) -> tuple[int, int]:
@@ -41,15 +40,11 @@ def _probe_dimensions(path: str) -> tuple[int, int]:
         if "=" in line:
             k, v = line.split("=", 1)
             if k.strip() == "width":
-                try:
+                with contextlib.suppress(ValueError):
                     w = int(v.strip())
-                except ValueError:
-                    pass
             elif k.strip() == "height":
-                try:
+                with contextlib.suppress(ValueError):
                     h = int(v.strip())
-                except ValueError:
-                    pass
     return w, h
 
 

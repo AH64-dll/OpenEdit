@@ -4,9 +4,18 @@ from pydantic import ValidationError
 
 from open_edit.ir.api import IR
 from open_edit.ir.types import (
-    AddClipOp, AddEffectOp, AddTransitionOp, FreeFormCodeOp,
-    GroupEditsOp, MoveClipOp, NormalizeAudioOp, RawMltXmlOp,
-    RemoveClipOp, SetAudioGainOp, SetKeyframeOp, TrimClipOp,
+    AddClipOp,
+    AddEffectOp,
+    AddTransitionOp,
+    FreeFormCodeOp,
+    GroupEditsOp,
+    MoveClipOp,
+    NormalizeAudioOp,
+    RawMltXmlOp,
+    RemoveClipOp,
+    SetAudioGainOp,
+    SetKeyframeOp,
+    TrimClipOp,
 )
 
 

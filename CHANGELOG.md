@@ -3,6 +3,32 @@
 All notable changes are tagged on GitHub. See
 https://github.com/AH64-dll/OpenEdit/releases for downloads.
 
+## Unreleased
+
+- Remove the Pi extension, bridge and provider. MCP is included in the default
+  package; built-in chat SDKs remain optional and the UI defaults to review mode.
+- Remove generated graph indexes, task scratch files, UI backups and personal
+  launchers/configuration. Clean imports and static-analysis failures.
+- Load detailed guides on demand; page asset/transcript reads and return compact
+  render polling results, with full diagnostics available explicitly.
+- Validate tool enums, nested numbers and exclusive edit modes. Report MCP
+  errors using the protocol error flag and keep synchronous tools off the loop.
+- Commit generated edits, scripts, silence cuts and color grading atomically.
+  Preserve current project paths and reject non-finite operation numbers.
+- Fix invalid-media batch uploads, codec-family fallback, render settings
+  coalescing, cross-process render ownership and cancellation during child spawn.
+  Isolate legacy overlay workers; fix FFmpeg's missing composite output label
+  and preserve optional background audio.
+- Fix conversation path validation, concurrent history/cost persistence and CLI
+  stream lifetime/output bounds. Disable render dependency telemetry.
+- Expand CI to lint, the non-browser regression suite, Python 3.11-3.13,
+  package builds and a default-install smoke check.
+- Remove tests of an untracked private sample project; generate timeline-view
+  media fixtures locally. Use the sandbox's actual interpreter/version in its
+  test probe, and isolate direct proxy tests from ingest's background workers.
+- Document Diffusion Studio's tested compiler/write-back reuse seam and a
+  proposed optional JSX adapter in `docs/DIFFUSION_INTEGRATION.md`.
+
 ## v1.3.1 — 2026-08-11
 
 **Installers provision the full render stack** — a fresh download can now

@@ -9,8 +9,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, Sequence
+from typing import Any, Literal
 
 from open_edit.ir.types import (
     Clip,
@@ -21,7 +22,6 @@ from open_edit.ir.types import (
     Track,
 )
 from open_edit.render.preview_manifest import PreviewRange
-
 
 PreviewPlane = Literal["video", "audio", "both"]
 
@@ -98,7 +98,7 @@ def make_chunk_windows(
         raise ValueError("duration_frames must be non-negative")
 
     if chunk_frames is None:
-        fps_frames = max(1, int(round(fps_num / fps_den)))
+        fps_frames = max(1, round(fps_num / fps_den))
         target = round(duration_frames / 64)
         chunk_frames = max(fps_frames, min(target, fps_frames * 30))
     if chunk_frames <= 0:
@@ -385,7 +385,7 @@ def _validate_frame_range(start_frame: int, end_frame: int) -> None:
 def _seconds_to_frame(seconds: float, fps_num: int, fps_den: int) -> int:
     if not math.isfinite(seconds):
         raise ValueError("timeline seconds must be finite")
-    return int(round(seconds * fps_num / fps_den))
+    return round(seconds * fps_num / fps_den)
 
 
 def _frames_to_seconds(frames: int, fps_num: int, fps_den: int) -> float:
@@ -812,7 +812,7 @@ def _operation_marker(op: Operation) -> dict[str, Any]:
         return {"kind": str(_op_field(op, "kind", "")), "value": data}
     # Identity/audit fields do not change rendered media.  The semantic IDs
     # that target clips/effects/compositions remain in the marker.
-    for field in (
+    for field_name in (
         "author",
         "edit_id",
         "originating_note_id",
@@ -820,7 +820,7 @@ def _operation_marker(op: Operation) -> dict[str, Any]:
         "status",
         "timestamp",
     ):
-        data.pop(field, None)
+        data.pop(field_name, None)
     return data
 
 

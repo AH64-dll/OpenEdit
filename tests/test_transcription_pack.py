@@ -1,10 +1,7 @@
 """Unit tests for phrase-packed transcription formatting, tool handler, and registration."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
-
-import pytest
 
 from open_edit.agent.tools import get_transcript_packed
 from open_edit.ir.types import Asset, WordAlignment

@@ -7,6 +7,7 @@ explicitly enables frame pull.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -16,9 +17,10 @@ import signal
 import subprocess
 import threading
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Mapping, Sequence
+from typing import Literal
 
 REMOTION_VERSION = "4.0.278"
 DEFAULT_MAX_PROPS_JSON_BYTES = 1_000_000
@@ -290,7 +292,7 @@ class FramePullClient:
         max_props_json_bytes: int = DEFAULT_MAX_PROPS_JSON_BYTES,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         request_timeout_s: float | None = None,
-    ) -> "FramePullClient":
+    ) -> FramePullClient:
         return cls(
             build_frame_server_command(
                 project_path,
@@ -381,12 +383,10 @@ class FramePullClient:
         finally:
             for stream in (process.stdin, process.stdout, process.stderr):
                 if stream is not None:
-                    try:
+                    with contextlib.suppress(OSError):
                         stream.close()
-                    except OSError:
-                        pass
 
-    def __enter__(self) -> "FramePullClient":
+    def __enter__(self) -> FramePullClient:
         return self
 
     def __exit__(self, *_exc: object) -> None:

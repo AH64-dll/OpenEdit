@@ -20,8 +20,8 @@ possible (spec §2):
        │
        └─ Stage 4: ffmpeg composite
             ffmpeg -i bg.mp4 -i overlay.mov
-              -filter_complex "[0:v][1:v]overlay=eof_action=pass"
-              -map 0:a -map [outv] -c:a copy
+              -filter_complex "[0:v][1:v]overlay=eof_action=pass[outv]"
+              -map 0:a? -map [outv] -c:a copy
             → final.mp4
 
 The v1.5 visual verification loop runs unchanged on `final.mp4`.
@@ -40,19 +40,22 @@ new binary dependency is `hyperframes@0.7.65` pinned in `package.json`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import html
+import json
 import logging
 import os
-import json
 import re
 import shlex
+import shutil
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from open_edit.ir.types import HtmlOverlay, Timeline  # noqa: F401  (re-exported)
+from open_edit.ir.types import HtmlOverlay, Timeline
 
 _LOG = logging.getLogger("open_edit.render.html_overlay")
 
@@ -61,7 +64,7 @@ class OverlayRenderError(Exception):
     """Raised when the composited render fails.
 
     Carries ``bg_path`` when the bg render succeeded but a downstream step
-    failed — lets ``pi_bridge``'s fallback reuse the completed bg without
+    failed — lets the kernel fallback reuse the completed bg without
     re-running the MLT encode (the bg encode is the slow part).
     """
 
@@ -71,29 +74,21 @@ class OverlayRenderError(Exception):
 
 
 def _resolve_hyperframes_bin() -> str:
-    """Return the path to the hyperframes binary.
-
-    Order of resolution (spec §5):
-      1. ``OPEN_EDIT_HYPERFRAMES_BIN`` env var, if set — used verbatim.
-      2. ``node_modules/.bin/hyperframes`` if it exists (set up by
-         ``npm install`` at the repo root).
-      3. Bare ``npx hyperframes`` (network resolution + version-drift risk;
-         a WARNING is logged so the operator notices).
-
-    Never raises.
-    """
+    """Resolve an installed engine independently of the client's working directory."""
     env_bin = os.environ.get("OPEN_EDIT_HYPERFRAMES_BIN", "").strip()
     if env_bin:
         return env_bin
-    pinned = Path("node_modules/.bin/hyperframes")
+    name = "hyperframes.cmd" if os.name == "nt" else "hyperframes"
+    pinned = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / name
     if pinned.is_file():
         return str(pinned.resolve())
-    _LOG.warning(
-        "hyperframes pinned binary not found at %s; falling back to npx hyperframes "
-        "(network resolution + version drift risk). Run npm install at repo root.",
-        pinned,
+    installed = shutil.which("hyperframes")
+    if installed:
+        return installed
+    raise OverlayRenderError(
+        "HyperFrames binary not found; run npm ci in the repository or set "
+        "OPEN_EDIT_HYPERFRAMES_BIN to an installed engine"
     )
-    return "npx hyperframes"
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +313,7 @@ def _run_subprocess_with_cancel(
     timeout_label: str,
     nonzero_label: str,
     cwd: str | os.PathLike[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> Path:
     """Run ``cmd`` via :class:`subprocess.Popen` with cancellation support.
 
@@ -340,22 +336,22 @@ def _run_subprocess_with_cancel(
             text=True,
             shell=False,
             cwd=cwd,
+            env=env,
         )
     except FileNotFoundError as exc:
         raise OverlayRenderError(f"{binary_label} binary not found: {exc}") from exc
 
     cancelled = threading.Event()
+    watcher_stop = threading.Event()
 
     def _cancel_watcher() -> None:
-        while not cancelled.is_set():
+        while not watcher_stop.is_set():
             if proc.poll() is not None:
                 break
             if should_cancel and should_cancel():
                 cancelled.set()
-                try:
+                with contextlib.suppress(OSError):
                     proc.kill()
-                except OSError:
-                    pass
                 break
             time.sleep(0.1)
 
@@ -363,15 +359,16 @@ def _run_subprocess_with_cancel(
     watcher.start()
 
     try:
-        stdout, stderr = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        try:
+        _stdout, stderr = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        with contextlib.suppress(OSError):
             proc.kill()
-        except OSError:
-            pass
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            proc.communicate(timeout=2)
         cancelled.set()
-        raise OverlayRenderError(f"{timeout_label} after {timeout_s}s")
+        raise OverlayRenderError(f"{timeout_label} after {timeout_s}s") from exc
     finally:
+        watcher_stop.set()
         watcher.join(timeout=2.0)
 
     if cancelled.is_set():
@@ -382,7 +379,7 @@ def _run_subprocess_with_cancel(
 
     if proc.returncode != 0:
         raise OverlayRenderError(
-            f"{nonzero_label} ({proc.returncode}): stderr={stderr.strip()[:500]}"
+            f"{nonzero_label} ({proc.returncode}): stderr={stderr.strip()[-1000:]}"
         )
 
     if not output_path.exists() or output_path.stat().st_size == 0:
@@ -404,7 +401,7 @@ def _estimate_overlay_size_mb(timeline: Timeline) -> int:
     block a 5-minute static title card).
     """
     total_seconds = sum(o.duration_sec for o in timeline.overlays)
-    return int(round(total_seconds * 1.0))  # 1 MB/s
+    return round(total_seconds * 1.0)  # 1 MB/s
 
 
 def _disk_footprint_check(estimated_mb: int, tmpdir: Path) -> None:
@@ -453,19 +450,15 @@ def render_overlay_layer(
 
     # Verify CLI syntax (spec §16): positional [DIR], -c <html>, -f <fps>,
     # --format mov, -o <out>, -q standard, --strict.
-    bin_argv = shlex.split(render_spec["hyperframes_bin"])
-    cmd = bin_argv + [
-        "render",
-        "-c", "overlay.html",
-        "-f", str(int(render_spec["fps"])),
-        "--format", "mov",
-        "-o", str(output_path),
-        "-q", "standard",
-        "--strict",
-        str(tmp_project_dir.resolve()),
-    ]
+    binary = render_spec["hyperframes_bin"]
+    # The resolver returns a real executable path, which may contain spaces
+    # or Windows backslashes. Split only explicit command-line overrides.
+    bin_argv = [binary] if Path(binary).is_file() else shlex.split(binary)
+    cmd = [*bin_argv, "render", "-c", "overlay.html", "-f", str(int(render_spec["fps"])), "--format", "mov", "-o", str(output_path), "-q", "standard", "--strict", str(tmp_project_dir.resolve())]
 
     _LOG.info("render_overlay_layer: %s", cmd)
+    # Keep local renders local. HyperFrames otherwise sends usage analytics.
+    child_env = {**os.environ, "HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
     return _run_subprocess_with_cancel(
         cmd,
         output_path=output_path,
@@ -476,6 +469,7 @@ def render_overlay_layer(
         timeout_label="hyperframes timed out",
         nonzero_label="hyperframes non-zero exit",
         cwd=str(tmp_project_dir.resolve()),
+        env=child_env,
     )
 
 
@@ -488,8 +482,8 @@ def composite_with_background(
 ) -> Path:
     """Composite the overlay MOV over the bg MP4 via ffmpeg.
 
-    Verifies the ffmpeg filter from spec §5: `[0:v][1:v]overlay=eof_action=pass`,
-    explicit `-map 0:a -map [outv] -c:a copy` so bg's audio wins and isn't
+    Uses a named video output: `[0:v][1:v]overlay=eof_action=pass[outv]`,
+    explicit `-map 0:a? -map [outv] -c:a copy` so bg's audio wins and isn't
     re-encoded. Returns the `output_path`. Raises OverlayRenderError on
     any failure (binary missing, timeout, non-zero exit, missing/empty output).
     Polls `should_cancel` before launching the subprocess and monitors the
@@ -503,8 +497,8 @@ def composite_with_background(
         "ffmpeg", "-y",
         "-i", str(bg_path),
         "-i", str(overlay_path),
-        "-filter_complex", "[0:v][1:v]overlay=eof_action=pass",
-        "-map", "0:a",
+        "-filter_complex", "[0:v][1:v]overlay=eof_action=pass[outv]",
+        "-map", "0:a?",
         "-map", "[outv]",
         "-c:a", "copy",
         "-c:v", "libx264",
@@ -547,7 +541,7 @@ async def render_composited(
     Raises:
         OverlayRenderError on any failure. The exception carries ``bg_path``
         when the bg render succeeded but a downstream step failed — lets
-        pi_bridge's fallback return the completed bg without re-encoding.
+        the kernel fallback return the completed bg without re-encoding.
     """
     tmpdir = Path(render_spec["tmpdir"])
     tmpdir.mkdir(parents=True, exist_ok=True)
@@ -642,7 +636,7 @@ async def render_composited(
         if not success:
             (tmpdir / "final.mp4").unlink(missing_ok=True)
             # Only unlink bg.mp4 if no bg_path is being propagated to the
-            # exception — pi_bridge's fallback reuses the completed bg.
+            # exception — the kernel fallback reuses the completed bg.
             if bg_path_holder["path"] is None:
                 for candidate in (tmpdir / "bg.mp4",):
                     if candidate.exists():
@@ -652,8 +646,8 @@ async def render_composited(
 __all__ = [
     "OverlayRenderError",
     "_resolve_hyperframes_bin",
-    "generate_composition_html",
-    "render_overlay_layer",
     "composite_with_background",
+    "generate_composition_html",
     "render_composited",
+    "render_overlay_layer",
 ]

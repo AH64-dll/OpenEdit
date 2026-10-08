@@ -21,7 +21,7 @@ diagnostics endpoints, and the static mount.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -61,11 +61,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # process's bounded thread pool. Never let proxy recovery break startup.
     if source_proxy_worker_enabled():
         for project in await projects_mod.list_projects():
-            try:
+            with suppress(Exception):
                 DEFAULT_ASSET_PROXY_JOB_SERVICE.drain(Path(project.path))
-            except Exception:
-                pass
-    yield
+    try:
+        yield
+    finally:
+        await DEFAULT_RENDER_JOB_SERVICE.shutdown()
 
 
 app = FastAPI(

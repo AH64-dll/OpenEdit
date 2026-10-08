@@ -23,7 +23,7 @@ def test_diagnostics_ok_without_token() -> None:
     resp = client.get("/diagnostics")
     assert resp.status_code == 200
     body = resp.json()
-    for key in ("mlt_available", "sandbox_available", "sqlite_version"):
+    for key in ("mlt_available", "script_execution", "sqlite_version"):
         assert key in body
 
 

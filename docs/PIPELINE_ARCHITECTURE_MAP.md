@@ -103,17 +103,10 @@ This is already HTML/CSS/JS based. Native HyperFrames overlays also use the shar
 
 Safe migration requires preserving operation replay and timeline semantics while changing the composition payload from React entry points to HyperFrames HTML composition references. Do not delete Remotion files until no runtime imports, schema names, tests, or stored graph operations depend on them.
 
-## Graphy status
+## Source navigation
 
-`open_edit/graphify-out/graph.json` and `GRAPH_REPORT.md` were refreshed on 2026-08-04 after the current MCP/rendering changes. The current graph contains 3,747 nodes and 7,190 edges across 269 communities. Refresh after structural edits:
-
-```bash
-cd open_edit
-graphify update . --no-cluster
-graphify cluster-only . --no-label --no-viz
-```
-
-Graphy is a navigation index, not a substitute for source-of-truth contracts. Keep this map and graph synchronized after module additions/removals.
+Use the package contracts in `architecture/BLUEPRINT.md` and the source files
+listed above. Generated graph indexes are local artifacts and are not shipped.
 
 ## Navigation rules for agents
 

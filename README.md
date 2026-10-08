@@ -27,8 +27,9 @@ Open Edit owns the machinery: SHA-256 content-addressed ingest, word-level trans
 (faster-whisper), an append-only IR edit graph in SQLite (WAL), and melt + ffmpeg rendering
 with a 640×360 proxy review artifact and a 1080p final export.
 
-No cloud, no built-in LLM. The server is pinned to one project directory and executes
-28 kinds of IR edit operations against it, each one recorded, reversible, and renderable.
+The MCP server needs no LLM API key. It is pinned to one project directory and
+executes recorded, reversible IR operations. The included Review Studio runs in
+review-only mode by default; built-in chat is an optional `--with-agent` mode.
 
 ## Downloads
 
@@ -73,7 +74,7 @@ cd OpenEdit
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -e ".[mcp]"        # extras: ,serve (review UI) · ,whisper (transcription)
+pip install -e .        # extras: [whisper] for transcription; [serve] for optional SDK chat
 ```
 
 **Windows (PowerShell)**
@@ -84,7 +85,7 @@ cd C:\OpenEdit
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1   # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 python -m pip install -U pip
-pip install -e ".[mcp]"
+pip install -e .
 ```
 
 Check the entry point, create a project, and start the review studio:
@@ -93,7 +94,7 @@ Check the entry point, create a project, and start the review studio:
 .venv/bin/open-edit-mcp --help            # Windows: .\.venv\Scripts\open-edit-mcp.exe --help
 mkdir -p ~/OpenEditProjects               # Windows: New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\OpenEditProjects"
 open_edit init ~/OpenEditProjects/my-talk
-open_edit serve --review-only --port 8000 # → http://127.0.0.1:8000 (needs the ,serve extra)
+open_edit serve --review-only --port 8000 # → http://127.0.0.1:8000
 ```
 
 Register the server in Cursor (`~/.cursor/mcp.json` on Linux/macOS, `%USERPROFILE%\.cursor\mcp.json` on Windows) and reload MCP:
@@ -128,7 +129,7 @@ Register the server in Cursor (`~/.cursor/mcp.json` on Linux/macOS, `%USERPROFIL
 |---|---|
 | `query_project` | Read-only project queries |
 | `edit_project` | Mutations + creative generation |
-| `run_script` | Free-form Python IR edits (bwrap sandbox on Linux, `dev` on Windows) |
+| `run_script` | Trusted Python IR edits in a subprocess with timeout and atomic validation |
 | `trigger_render` | Enqueue proxy / final / preview-chunks renders |
 | `get_render_job` | Poll a durable render job by `job_id` |
 | `cancel_render_job` | Cancel queued or running jobs |
@@ -145,6 +146,7 @@ The product is documented and illustrated in the live guide: **[open-edit guide]
 - [INSTALL.md](INSTALL.md) — full Linux + Windows setup, smoke checks, update/uninstall
 - [docs/MCP.md](docs/MCP.md) — MCP tools, Cursor config, review UI, render workflow
 - [skills/](skills/) — agent playbook and harness skills (also shipped in the wheel)
+- [docs/DIFFUSION_INTEGRATION.md](docs/DIFFUSION_INTEGRATION.md) — compiler reuse assessment and adapter contract
 - [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md) — Remotion licensing
 
 ## Contributing
@@ -156,6 +158,6 @@ Bugs, ideas, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTIN
 
 MIT — see [LICENSE](LICENSE). Experimental prototype; behavior may change between
 releases. Motion graphics use the bundled HyperFrames engine (HTML/CSS/JS,
-pinned in this repo — no extra install). Remotion is legacy/migration-only.
+pinned in this repo; install with `npm ci`). Remotion is legacy/migration-only.
 Legacy Remotion templates may require a company license — see
 [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md).

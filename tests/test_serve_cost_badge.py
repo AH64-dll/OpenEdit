@@ -3,12 +3,11 @@
 The cost badge sits next to the chat-status pill (P1-2) and
 displays the per-turn + cumulative session cost, or an honest
 ``cost n/a (subscription)`` state when the LLM provider doesn't
-report a per-token bill (e.g. the ``pi`` provider, which runs on
-a subscription through opencode-go).
+report a per-token bill (e.g. subscription-based CLI chat).
 
 The badge is driven by the ``cost_update`` WS event:
 ``{"type": "cost_update", "turn_tokens", "turn_cost_usd",
-"session_cost_usd", "source": "pi"|"computed"|"unavailable"}``.
+"session_cost_usd", "source": "computed"|"unavailable"}``.
 
 The wire shape and label conventions are pinned by these tests so
 the UI doesn't drift from the spec.
@@ -20,19 +19,15 @@ the old ``vm.runInContext`` pattern.
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
 
-import pytest
-
-# Allow ``from _node_harness import ...`` from the tests/ dir.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node_harness import (  # noqa: E402
+from tests._node_harness import (
     app_js_path,
+)
+from tests._node_harness import (
     harness as _harness,
+)
+from tests._node_harness import (
     run_node_script as _run_node_script,
 )
 
@@ -48,11 +43,11 @@ def test_cost_badge_present_in_html():
     """The cost badge element must be in index.html, sitting next
     to the chat-status pill (P1-2). The wire shape requires a
     stable id we can target from the JS."""
-    INDEX_HTML = (
+    index_html = (
         Path(__file__).resolve().parents[1]
         / "open_edit" / "serve" / "static" / "index.html"
     )
-    html = INDEX_HTML.read_text()
+    html = index_html.read_text()
     # The badge needs an id we can target from app.js.
     assert 'id="cost-badge"' in html, (
         "expected #cost-badge element in index.html near chat-status; "
@@ -97,8 +92,8 @@ console.log('OK');
 # 3. factory renders the right label for each source state
 # ---------------------------------------------------------------------------
 
-def test_cost_badge_renders_pi_source_label():
-    """Source=pi: render the per-turn + session cost in dollars."""
+def test_cost_badge_renders_reported_cost_label():
+    """Source=computed: render the per-turn + session cost in dollars."""
     script = _harness(r"""
 const hooks = globalThis.OpenEdit.__testHooks;
 const textHistory = [];
@@ -122,7 +117,7 @@ badge.onEvent({
   turn_tokens: 1500,
   turn_cost_usd: 0.02,
   session_cost_usd: 0.45,
-  source: 'pi',
+  source: 'computed',
 });
 console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
 """)
@@ -133,7 +128,7 @@ console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
     # Label must include both the per-turn figure and the session
     # figure. We use a permissive contains check: the precise
     # format ("$0.02 this turn · $0.45 session") is a UX choice
-    # but the digits must be there. The source label ("pi" /
+    # but the digits must be there. The source label ("computed" /
     # "computed" / "unavailable") is NOT shown to the user —
     # that's a wire field, not a UI label.
     assert "0.02" in text, (
@@ -152,7 +147,7 @@ console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
 
 def test_cost_badge_renders_computed_source_label():
     """Source=computed (anthropic/openai): same dollar-format label
-    as pi. The source field is for the JS state machine, not the
+    as other reported costs. The source field is for the JS state machine, not the
     user-visible label."""
     script = _harness(r"""
 const hooks = globalThis.OpenEdit.__testHooks;
@@ -185,7 +180,7 @@ console.log(JSON.stringify({ text: textHistory[textHistory.length - 1] }));
     assert rc == 0, f"rc={rc} stdout={out!r} stderr={err!r}"
     payload = json.loads(out.strip().splitlines()[-1])
     text = payload["text"]
-    # The user-visible label is identical for pi and computed —
+    # The user-visible label is identical for reported costs —
     # the source field is internal.
     assert "0.0" in text, f"expected dollar figure in badge text, got {text!r}"
 
@@ -313,7 +308,7 @@ console.log('OK');
 # ---------------------------------------------------------------------------
 
 def test_cost_badge_uses_dollar_sign_for_dollar_amounts():
-    """When source=pi or source=computed, the badge text contains
+    """When source=computed, the badge text contains
     a $ glyph. Pinned so the format is consistent across turns
     and providers (operators reading the UI shouldn't have to
     guess whether the number is dollars, tokens, or a percent)."""

@@ -46,6 +46,7 @@ Environment
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -301,10 +302,8 @@ def _cache_put(
         pass
     finally:
         if tmp_path is not None:
-            try:
+            with contextlib.suppress(OSError):
                 tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def _cache_stale(
@@ -337,7 +336,7 @@ def _call_provider(
         try:
             result = operation()
             return result, attempt
-        except Exception as exc:  # noqa: BLE001 - isolate upstream failures
+        except Exception as exc:
             last_error = exc
             if attempt >= _MAX_PROVIDER_ATTEMPTS or not _is_retryable_provider_error(exc):
                 break
@@ -768,9 +767,7 @@ def search_assets(args: dict, project_path: str) -> dict:
 
     provider_scope_parts: list[str] = []
     if requested_license.lower() == "any":
-        if kind == "video" and _pexels_api_key():
-            provider_scope_parts.append("pexels")
-        elif kind == "photo" and _pexels_api_key():
+        if (kind == "video" and _pexels_api_key()) or (kind == "photo" and _pexels_api_key()):
             provider_scope_parts.append("pexels")
         elif kind == "audio" and _freesound_api_key():
             provider_scope_parts.append("freesound")
@@ -837,7 +834,7 @@ def search_assets(args: dict, project_path: str) -> dict:
         try:
             candidate, attempts = _call_provider(provider, operation)
             attempts_by_provider[provider] = attempts
-        except Exception as exc:  # noqa: BLE001 - continue the cascade
+        except Exception as exc:
             failed_providers.append(provider)
             provider_errors[provider] = str(exc)
             continue

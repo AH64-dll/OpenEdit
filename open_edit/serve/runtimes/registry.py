@@ -16,7 +16,6 @@ from typing import Any
 
 from ..providers import PROVIDERS
 
-
 # Standard candidate directories where CLI tools install on macOS/Linux
 # even when desktop GUI launchers omit them from $PATH.
 # Tests may monkeypatch this list; ``candidate_dirs()`` reads it on POSIX.
@@ -49,7 +48,7 @@ def _windows_candidate_dirs() -> list[Path]:
             local_p / "Programs" / "ffmpeg" / "bin",
             local_p / "Microsoft" / "WinGet" / "Links",
         ])
-    program_files = os.environ.get("ProgramFiles", "").strip()
+    program_files = os.environ.get("PROGRAMFILES", "").strip()
     if program_files:
         dirs.append(Path(program_files) / "nodejs")
     return dirs

@@ -17,7 +17,7 @@ From the repo root (use your project venv):
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[mcp]"
+pip install -e .
 ```
 
 That installs the `mcp` SDK and the `open-edit-mcp` console script.
@@ -27,17 +27,16 @@ That installs the `mcp` SDK and the `open-edit-mcp` console script.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e ".[mcp]"
+pip install -e .
 ```
 
-Optional extras: `.[mcp,serve]` for the review UI, `.[mcp,whisper]` for local
-transcription.
+MCP and the review UI are included by default. Use `.[whisper]` for local
+transcription or `.[serve]` for optional built-in Anthropic chat.
 
-On Windows the Linux bwrap/Rust sandbox is **not** used. `run_script` defaults
-to `OPEN_EDIT_SANDBOX_BACKEND=dev` (unsandboxed in the MCP process; the host
-harness owns isolation). Moviepy `generate_visual_for_segment` is unsupported
-(`render_sandbox_unsupported_on_windows`). Core IR edit, ingest, HyperFrames
-overlays, and `trigger_render` work when the PATH tools below are installed.
+`run_script` and MoviePy graphics run in Python subprocesses on all platforms.
+Scripts inherit the MCP server account permissions, with wall-clock timeouts
+and validated, atomic edit batches. Rust/Bubblewrap binaries are not required.
+Core IR edits, ingest, overlays, and rendering need the PATH tools below.
 
 #### Windows PATH dependencies
 
@@ -151,7 +150,7 @@ Restart Cursor (or reload MCP servers) after editing the config.
 |---|---|
 | `query_project` | Read-only project queries |
 | `edit_project` | Mutations + generate (incl. HyperFrames overlays, `ingest_local`) |
-| `run_script` | Free-form Python (bwrap sandbox on Linux; `dev` on Windows) |
+| `run_script` | Trusted Python edits in a subprocess |
 | `trigger_render` | Enqueue + wait for proxy/final/overlay/preview-chunks |
 | `get_render_job` | Poll a durable render job by `job_id` |
 | `cancel_render_job` | Cancel a queued/running job |
@@ -200,7 +199,7 @@ ready source proxy with canonical fallback. Therefore `mode=final` always
 uses originals even when `proxy_hash` is ready. The host-side
 `generate-asset-proxy` job reports `proxy_hash`, `proxy_profile`, and
 `proxy_status` through asset/project state; it does not expose a guessed proxy
-filesystem path. Free-form `run_script` remains sandboxed IR editing and never
+filesystem path. Free-form `run_script` performs validated IR editing and never
 renders preview media or writes preview cache files.
 
 ## Review UI (recommended with MCP)
@@ -409,11 +408,9 @@ Longer planning docs:
 
 - Tools are project-scoped to the pinned project; local ingestion copies any
   readable absolute media path into the project CAS.
-- `run_script` uses the bwrap sandbox on Linux by default. On Windows it
-  defaults to `OPEN_EDIT_SANDBOX_BACKEND=dev` (no jail — rely on the MCP host).
-  Explicit `OPEN_EDIT_SANDBOX_BACKEND=bwrap` is rejected on Windows.
-- Moviepy `generate_visual_for_segment` requires the Linux render-sandbox
-  binary and is unsupported on Windows.
+- `run_script` and graphics Python execute with the MCP host account permissions.
+  MCP is a communication protocol, not process isolation; connect trusted agents.
+  Edits are validated before committing and scripts have bounded timeouts.
 - Prefer an absolute project path in MCP config; do not point at untrusted trees.
 
 ## License

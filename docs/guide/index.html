@@ -300,7 +300,7 @@
               <span class="oe-print-edge" aria-hidden="true">NEG 04 · AGENT LOOP · 4806-24A</span>
             </div>
           </figure>
-          <p class="oe-note oe-reveal">The agent drives through MCP: <code>query_project</code> reads state, <code>edit_project</code> mutates, <code>run_script</code> runs sandboxed multi-step IR edits, <code>trigger_render</code> enqueues renders, <code>get_render_job</code> polls them, <code>cancel_render_job</code> stops them. With <code>--review-only</code> the UI is a pure review surface: preview, timeline, notes. Run <code>serve</code> without it and the same UI hosts a chat loop with selectable LLM providers.</p>
+          <p class="oe-note oe-reveal">The agent drives through MCP: <code>query_project</code> reads state, <code>edit_project</code> mutates, <code>run_script</code> runs validated multi-step IR edits, <code>trigger_render</code> enqueues renders, <code>get_render_job</code> polls them, <code>cancel_render_job</code> stops them. With <code>--review-only</code> the UI is a pure review surface: preview, timeline, notes. Run <code>serve</code> without it and the same UI hosts a chat loop with selectable LLM providers.</p>
         </div>
       </div>
     </section>
@@ -322,7 +322,7 @@
           <div class="oe-band">
             <span class="oe-band-num" aria-hidden="true">NEG 02</span>
             <span class="oe-band-name">agent / kernel</span>
-            <span class="oe-band-desc">tool kernel, agent tools + skills, sandbox</span>
+            <span class="oe-band-desc">tool kernel, agent tools + skills, script runner</span>
           </div>
           <div class="oe-band">
             <span class="oe-band-num" aria-hidden="true">NEG 03</span>
@@ -341,7 +341,7 @@
           </div>
         </div>
 
-        <p class="oe-note oe-reveal"><code>ir</code> is a pure domain: no network I/O, no project state. Storage and render persist and produce; <code>qc</code> gates deliverables; <code>agent</code>/<code>kernel</code> route tools and run the sandbox; <code>mcp</code>, <code>serve</code>, and <code>cli</code> are thin entry points over one dispatcher. Layering is enforced by tests, not by convention.</p>
+        <p class="oe-note oe-reveal"><code>ir</code> is a pure domain: no network I/O, no project state. Storage and render persist and produce; <code>qc</code> gates deliverables; <code>agent</code>/<code>kernel</code> route tools and execute scripts; <code>mcp</code>, <code>serve</code>, and <code>cli</code> are thin entry points over one dispatcher. Layering is enforced by tests, not by convention.</p>
 
         <ul class="oe-chips oe-reveal" aria-label="Technology stack">
           <li class="oe-chip">Python ≥3.11</li>
@@ -938,7 +938,7 @@
               <tr><td><code>open_edit render</code></td><td>Render to MP4 + QC gate: <code>--mode proxy|final</code>, <code>--encoder gpu|cpu</code></td></tr>
               <tr><td><code>open_edit asset-proxy</code></td><td>Drain the per-asset source-proxy job queue</td></tr>
               <tr><td><code>open_edit preview-chunks --job-id ID</code></td><td>Run the durable preview-chunks worker</td></tr>
-              <tr><td><code>open_edit free-form CODE_FILE PROJECT_DIR</code></td><td>Run a Python script in the sandbox; append produced ops</td></tr>
+              <tr><td><code>open_edit free-form CODE_FILE PROJECT_DIR</code></td><td>Run a Python script in a Python subprocess; append produced ops</td></tr>
               <tr><td><code>open_edit notes &lt;list|add|dismiss&gt;</code></td><td>Review notes lifecycle (notes.db)</td></tr>
               <tr><td><code>open_edit serve</code></td><td>FastAPI review UI: <code>--host</code>, <code>--port</code>, <code>--token</code>, <code>--review-only</code></td></tr>
               <tr><td><code>open_edit mcp</code></td><td>stdio MCP server: <code>--project</code></td></tr>
@@ -969,7 +969,7 @@
               <tr><td><code>OPEN_EDIT_NODE_BIN</code></td><td><code>node</code></td><td>Node executable for the HyperFrames overlay engine (>= 22; legacy Remotion uses it too). HyperFrames resolves its own <code>hyperframes</code> binary via PATH or <code>OPEN_EDIT_HYPERFRAMES_BIN</code></td></tr>
               <tr><td><code>OPEN_EDIT_WHISPER_MODEL</code></td><td><code>base</code></td><td>faster-whisper model size</td></tr>
               <tr><td><code>OPEN_EDIT_WHISPER_LANGUAGE</code></td><td>auto-detect</td><td>faster-whisper language code (e.g. <code>ar</code>)</td></tr>
-              <tr><td><code>OPEN_EDIT_SANDBOX_BACKEND</code></td><td><code>bwrap</code> (Linux) / <code>dev</code> (Windows)</td><td><code>run_script</code> isolation; <code>dev</code> runs unsandboxed</td></tr>
+
               <tr><td><code>OPEN_EDIT_TOKEN</code></td><td>—</td><td>Bearer token for <code>serve</code> (enforced when the client is not localhost)</td></tr>
               <tr><td><code>OPEN_EDIT_SERVE_HOST</code> / <code>OPEN_EDIT_SERVE_PORT</code></td><td><code>127.0.0.1</code> / <code>8000</code></td><td>Review UI bind address and port</td></tr>
             </tbody>
@@ -991,7 +991,6 @@
             <tbody>
               <tr><td><code>anthropic</code> (default)</td><td><code>ANTHROPIC_API_KEY</code></td><td>default model <code>claude-sonnet-4-5</code>; included in the base install</td></tr>
               <tr><td><code>openai</code></td><td><code>OPENAI_API_KEY</code></td><td>requires the <code>.[openai]</code> extra</td></tr>
-              <tr><td><code>pi</code></td><td><code>PI_API_KEY</code></td><td>via the <code>pi</code> CLI binary</td></tr>
               <tr><td><code>opencode</code></td><td><code>OPENCODE_API_KEY</code></td><td>via the <code>opencode</code> CLI binary</td></tr>
               <tr><td><code>antigravity</code></td><td><code>ANTIGRAVITY_API_KEY</code></td><td>via the <code>agy</code>/<code>antigravity</code> CLI binary</td></tr>
             </tbody>
@@ -1022,12 +1021,12 @@
           <div class="oe-acc-item oe-reveal">
             <h3 class="oe-acc-h">
               <button class="oe-acc-btn" type="button" aria-expanded="false" aria-controls="oe-acc-p2" id="oe-acc-b2">
-                What is the sandbox?
+                How do scripts run?
                 <svg class="oe-ico oe-ico--sm oe-acc-chevron" aria-hidden="true"><use href="#oe-ico-chevron"/></svg>
               </button>
             </h3>
             <div class="oe-acc-panel" id="oe-acc-p2" role="region" aria-labelledby="oe-acc-b2">
-              <p><code>run_script</code> executes Python in a bwrap + seccomp jail on Linux, fail-closed by default. On Windows it defaults to <code>dev</code> (unsandboxed, run as a plain subprocess), and an explicit <code>OPEN_EDIT_SANDBOX_BACKEND=bwrap</code> is rejected: the host harness owns isolation there.</p>
+              <p><code>run_script</code> executes trusted Python in a subprocess with timeouts and validated atomic edits. Scripts inherit the MCP host account permissions on every platform.</p>
             </div>
           </div>
           <div class="oe-acc-item oe-reveal">
@@ -1060,7 +1059,7 @@
               </button>
             </h3>
             <div class="oe-acc-panel" id="oe-acc-p5" role="region" aria-labelledby="oe-acc-b5">
-              <p>The moviepy <code>generate_visual_for_segment</code> generation op (it needs the Linux render-sandbox binary) and same-pass frame feeding to melt (POSIX inherited descriptors). Everything else, ingest, IR edits, Remotion/HyperFrames, proxy/final render, works.</p>
+              <p>Same-pass frame feeding to melt requires POSIX inherited descriptors. MoviePy graphics use ordinary Python subprocesses. Everything else, ingest, IR edits, Remotion/HyperFrames, proxy/final render, works.</p>
             </div>
           </div>
           <div class="oe-acc-item oe-reveal">

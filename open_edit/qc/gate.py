@@ -13,12 +13,13 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from open_edit.agent.skills.silence_cutter import no_word_split_check as no_word_split_check
 from open_edit.qc.black_frames import list_black_frames
 from open_edit.qc.frozen_frames import list_frozen_frames
 from open_edit.qc.policy import (
+    QC_CHECK_NAMES,
     QCMode,
     QCPolicy,
-    QC_CHECK_NAMES,
     skipped_qc_report,
 )
 from open_edit.qc.silence import list_silence
@@ -69,7 +70,7 @@ class QCReport(BaseModel):
     duration_sec: float | None = None
 
     @classmethod
-    def from_checks(cls, checks: list[QCCheck]) -> "QCReport":
+    def from_checks(cls, checks: list[QCCheck]) -> QCReport:
         return cls(passed=all(c.passed for c in checks), checks=checks)
 
 
@@ -411,4 +412,3 @@ def run_qc_gate(
 
 # Backward-compatible home for the cut-policy helper that moved to
 # ``open_edit.agent.skills.silence_cutter`` (it is cut policy, not QC).
-from open_edit.agent.skills.silence_cutter import no_word_split_check  # noqa: E402

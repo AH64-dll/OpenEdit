@@ -13,7 +13,6 @@ from open_edit.ir.types import (
     Timeline,
     Track,
 )
-from open_edit.render.preview_manifest import PreviewRange
 from open_edit.render.preview_invalidation import (
     classify_operation_planes,
     compute_chunk_fingerprints,
@@ -21,6 +20,7 @@ from open_edit.render.preview_invalidation import (
     select_dirty_windows,
     slice_timeline,
 )
+from open_edit.render.preview_manifest import PreviewRange
 
 
 def _clip(

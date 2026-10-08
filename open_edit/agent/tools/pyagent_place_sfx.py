@@ -10,8 +10,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from open_edit.agent.tools._contract import get_asset_or_error, tool_result
+
+if TYPE_CHECKING:
+    from open_edit.agent.skills.sfx_placer import SfxClip
 
 
 @tool_result
@@ -52,7 +56,7 @@ def place_sfx(args: dict, project_path: str) -> dict:
     return {"status": "ok", "ops": [op.model_dump() for op in ops], "timing": timing}
 
 
-def _load_sfx_library(path: str | None) -> list[SfxClip]:  # noqa: F821
+def _load_sfx_library(path: str | None) -> list[SfxClip]:
     """Load SFX library from a JSON file; empty list if not provided."""
     if not path:
         return []

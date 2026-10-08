@@ -1,5 +1,6 @@
-from open_edit.ir.types import Project, AddClipOp
 from open_edit.ir.derive import derive_timeline
+from open_edit.ir.types import AddClipOp, Project
+
 
 def test_project_can_be_created():
     p = Project(name="test")

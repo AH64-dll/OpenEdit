@@ -29,7 +29,7 @@ def project(tmp_path: Path) -> Path:
 def test_resolve_project_path_requires_marker(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
-    with pytest.raises(ProjectPathError, match="missing .open_edit"):
+    with pytest.raises(ProjectPathError, match=r"missing \.open_edit"):
         resolve_project_path(empty)
 
 
@@ -53,7 +53,7 @@ def test_mcp_tool_schemas_include_pillars_and_helpers() -> None:
         "get_render_job",
         "cancel_render_job",
     } <= names
-    assert HELPER_TOOL_NAMES <= names
+    assert names >= HELPER_TOOL_NAMES
     # project_path must not appear in LLM-visible schemas
     for schema in mcp_tool_schemas():
         props = (schema.get("input_schema") or {}).get("properties") or {}

@@ -4,6 +4,8 @@ Per phase4-design-revised.md section 4.5 (W6).
 """
 from __future__ import annotations
 
+import itertools
+
 from pydantic import BaseModel
 
 from open_edit.agent.skills.narrative_analyzer import NarrativeSegment
@@ -30,7 +32,7 @@ TRANSITION_SFX_MAP = {
 def place(segments: list[NarrativeSegment], music_downbeats: list[float], library: list[SfxClip]) -> list[AddEffectOp]:
     """Place duration-fit SFX at transitions, aligned to music when possible."""
     ops = []
-    for prev, curr in zip(segments, segments[1:]):
+    for prev, curr in itertools.pairwise(segments):
         kind = TRANSITION_SFX_MAP.get((prev.beat_type, curr.beat_type), "impact")
         candidates = [s for s in library if s.kind == kind]
         if not candidates:

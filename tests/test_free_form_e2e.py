@@ -1,62 +1,10 @@
-"""Phase 3 Task 10: end-to-end tests for the free-form Python sandbox.
-
-All tests skip if the sandbox can't actually run (bwrap missing, or the
-container/environment can't create user+network namespaces). Tests use the
-real Rust binary.
-"""
-import os
-import shutil
-import subprocess
-import tempfile
+"""Real subprocess end-to-end tests for free-form edits."""
 import textwrap
-from pathlib import Path
-
-import pytest
-
-# The e2e fixtures build projects under the pytest temp dir (/tmp/...). Allow
-# that as a project root so the P9 workdir security check doesn't reject them
-# (the sandbox itself is what's under test here, not the root allow-list).
-os.environ.setdefault("OPEN_EDIT_PROJECTS_ROOT", tempfile.gettempdir())
-
-
-def _sandbox_runnable() -> bool:
-    """Probe whether the Rust sandbox can actually execute a trivial run.
-
-    Returns False if bwrap or open-edit-sandbox is missing, or if a minimal
-    invocation fails (e.g. unprivileged container without CAP_SYS_ADMIN, or
-    a network namespace that can't bring up the loopback).
-    """
-    if shutil.which("bwrap") is None or shutil.which("open-edit-sandbox") is None:
-        return False
-    with tempfile.TemporaryDirectory() as td:
-        scratch = Path(td) / "scratch"
-        scratch.mkdir()
-        (scratch / "code.py").write_text("# ir_api_version: 0.1; libs: {}\npass\n")
-        (scratch / "_bootstrap.py").write_text("pass\n")
-        try:
-            proc = subprocess.run(
-                ["open-edit-sandbox",
-                 "--scratch", str(scratch),
-                 "--python-bin", "python3",
-                 "--expected-py-version", "3.14",
-                 "--timeout", "5", "--mem", "512", "--cpu", "5", "--json",
-                ],
-                capture_output=True, text=True, timeout=15,
-            )
-            return proc.returncode == 0
-        except Exception:
-            return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _sandbox_runnable(),
-    reason="sandbox cannot run in this environment (bwrap missing, or namespace/loopback setup fails)",
-)
 
 
 def test_pyagent_run_python_50_lines(tmp_project_with_assets):
     """The design's "Done when" criterion: 50-line script -> 50 child ops."""
-    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.script_runner import run_free_form
     from open_edit.ir.types import AddClipOp
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}
@@ -81,7 +29,7 @@ def test_pyagent_run_python_50_lines(tmp_project_with_assets):
 
 def test_chained_ops_succeed(tmp_project_with_assets):
     """L4: covers C6 -- `ir.add_clip(...)` returns cid, `ir.trim_clip(cid, ...)` works."""
-    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.script_runner import run_free_form
     from open_edit.ir.types import AddClipOp, TrimClipOp
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}
@@ -102,7 +50,7 @@ def test_chained_ops_succeed(tmp_project_with_assets):
 
 def test_free_form_then_render(tmp_project_with_assets):
     """L2: free-form + full render produces a non-empty mlt xml string."""
-    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.script_runner import run_free_form
     from open_edit.ir.derive import derive_timeline
     from open_edit.render.emitter import emit_timeline
     code = textwrap.dedent('''
@@ -127,7 +75,7 @@ def test_free_form_then_render(tmp_project_with_assets):
 
 def test_free_form_failure_does_not_corrupt_graph(tmp_project_with_assets):
     """L3: a free-form script that raises an exception does NOT corrupt the graph."""
-    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.script_runner import run_free_form
     pre_ops = list(tmp_project_with_assets.edit_graph)
     code = textwrap.dedent('''
         # ir_api_version: 0.1; libs: {}
@@ -143,39 +91,7 @@ def test_free_form_failure_does_not_corrupt_graph(tmp_project_with_assets):
     # Graph is unchanged (atomic commit)
     assert list(tmp_project_with_assets.edit_graph) == pre_ops
     # No ops.jsonl files left behind
-    sandbox_dir = tmp_project_with_assets.workdir / ".sandbox"
+    sandbox_dir = tmp_project_with_assets.workdir / ".script-runs"
     if sandbox_dir.exists():
         for run_dir in sandbox_dir.iterdir():
             assert not (run_dir / "ops.jsonl").exists()
-
-
-@pytest.mark.skipif(
-    os.environ.get("OPEN_EDIT_SANDBOX_BACKEND", "").strip().lower() == "dev",
-    reason="ro-bind mount semantics (/mnt/src0 -> EROFS) require the bwrap "
-    "sandbox backend; OPEN_EDIT_SANDBOX_BACKEND=dev runs without OS isolation "
-    "so /mnt/src0 does not exist (ENOENT)",
-)
-def test_source_ro_blocks_writes(tmp_project_with_assets):
-    """L1: ro-bound source raises OSError(EROFS). The script catches the
-    error and records the errno via position_sec (AddClipOp has no label)."""
-    from open_edit.agent.sandbox import run_free_form
-    code = textwrap.dedent('''
-        # ir_api_version: 0.1; libs: {}
-        try:
-            with open("/mnt/src0/clip.mp4", "w") as f:
-                f.write("x")
-        except OSError as e:
-            ir.add_clip(
-                asset_hash="abc123", track_id="video_main",
-                position_sec=float(e.errno),
-            )
-    ''')
-    result = run_free_form(
-        code, tmp_project_with_assets.workdir,
-        project_id=tmp_project_with_assets.project_id,
-        parent_op_id="e1",
-    )
-    assert result.success, f"free-form failed: {result.reason}: {result.detail}"
-    assert len(result.ops) == 1
-    # EROFS = 30 on Linux
-    assert int(result.ops[0].position_sec) == 30

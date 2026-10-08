@@ -1,10 +1,9 @@
 import json
-import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from open_edit.serve.runtimes.keys_store import save_stored_key, load_all_stored_keys
+from open_edit.serve.runtimes.keys_store import load_all_stored_keys, save_stored_key
 
 
 def test_keys_atomic_write_and_permissions():

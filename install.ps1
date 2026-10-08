@@ -167,10 +167,6 @@ Write-Step "Installing core package (.[mcp]) ..."
 & $venvPy -m pip install -e ".[mcp]"
 if ($LASTEXITCODE -ne 0) { Fail "pip install -e '.[mcp]' failed (exit $LASTEXITCODE). See the output above, then re-run." }
 
-Write-Step "Installing optional extras (.[mcp,serve]) ..."
-& $venvPy -m pip install -e ".[mcp,serve]"
-if ($LASTEXITCODE -ne 0) { Write-WarnMsg ".[mcp,serve] (review UI) extras install failed; continuing without the review UI." }
-
 Write-Step "Installing optional extras (.[mcp,whisper]) ..."
 & $venvPy -m pip install -e ".[mcp,whisper]"
 if ($LASTEXITCODE -ne 0) { Write-WarnMsg ".[mcp,whisper] (local transcription) extras install failed; continuing without whisper support." }
@@ -231,24 +227,24 @@ if (-not $nodeBin) {
     }
 }
 if (-not $nodeBin) {
-    Write-WarnMsg "Node.js is not available; skipping npm install. The HyperFrames overlay engine will be missing. Install Node.js LTS (22+) from https://nodejs.org/en/download and re-run."
+    Write-WarnMsg "Node.js is not available; skipping npm ci. The HyperFrames overlay engine will be missing. Install Node.js LTS (22+) from https://nodejs.org/en/download and re-run."
 } else {
     Write-Ok "Using Node.js: $nodeBin"
-    Write-Step "Installing Node.js dependencies (npm install --no-audit --no-fund) ..."
+    Write-Step "Installing Node.js dependencies (npm ci --no-audit --no-fund) ..."
     $npm = Join-Path (Split-Path $nodeBin -Parent) "npm.cmd"
     if (-not (Test-Path -LiteralPath $npm)) { $npm = "npm" }
     $npmExit = 1
     try {
         Push-Location $InstallDir
-        & $npm install --no-audit --no-fund 2>$null
+        & $npm ci --no-audit --no-fund 2>$null
         $npmExit = $LASTEXITCODE
         Pop-Location
     } catch {
-        Write-WarnMsg ("npm install failed: " + $_.Exception.Message)
+        Write-WarnMsg ("npm ci failed: " + $_.Exception.Message)
         try { Pop-Location } catch { }
     }
     if ($npmExit -ne 0) {
-        Write-WarnMsg "npm install failed (exit $npmExit). Retry with: cd $InstallDir; npm install --no-audit --no-fund"
+        Write-WarnMsg "npm ci failed (exit $npmExit). Retry with: cd $InstallDir; npm ci --no-audit --no-fund"
     }
 }
 $hyperBin = Join-Path $InstallDir "node_modules\.bin\hyperframes.cmd"
@@ -346,7 +342,7 @@ $rows = @(
     @{ Name = "ffmpeg";      Status = if ($probes["ffmpeg"]) { "READY  " + $probes["ffmpeg"] } else { "MANUAL - https://www.gyan.dev/ffmpeg/builds/ (winget install Gyan.FFmpeg)" } },
     @{ Name = "melt (MLT)";  Status = if ($probes["melt"]) { "READY  " + $probes["melt"] } else { "MANUAL - no one-command Windows install; see warning above (WSL: apt install melt)" } },
     @{ Name = "node";        Status = if ($nodeBin) { "READY  " + $nodeBin } else { "MANUAL - https://nodejs.org/en/download (Node.js LTS)" } },
-    @{ Name = "hyperframes"; Status = if ($hyperReady) { "READY  " + $hyperBin } else { "MANUAL - cd $InstallDir; npm install --no-audit --no-fund" } },
+    @{ Name = "hyperframes"; Status = if ($hyperReady) { "READY  " + $hyperBin } else { "MANUAL - cd $InstallDir; npm ci --no-audit --no-fund" } },
     @{ Name = "chrome";      Status = if ($chromeFound) { "READY  " + $chromeFound } else { "MANUAL - install Chrome, or: cd $InstallDir; npx @puppeteer/browsers install chrome" } }
 )
 foreach ($r in $rows) {
@@ -357,7 +353,7 @@ foreach ($r in $rows) {
     }
 }
 Write-Host ""
-Write-Host "Overlay/motion-graphics rendering uses the HyperFrames engine (HTML/CSS/JS) bundled in this repo - no extra install."
+Write-Host "Overlay/motion-graphics rendering uses HyperFrames (HTML/CSS/JS), pinned in package-lock.json and installed by npm ci."
 
 # ---- Summary ---------------------------------------------------------------
 Write-Host ""

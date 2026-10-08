@@ -3,9 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from open_edit.kernel.pillar_tools import dispatch_query, dispatch_edit, dispatch_generate
+from open_edit.kernel.pillar_tools import dispatch_edit, dispatch_generate, dispatch_query
 
 
 def test_dispatch_query_unknown():

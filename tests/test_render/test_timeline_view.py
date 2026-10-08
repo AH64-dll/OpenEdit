@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 from unittest import mock
 
@@ -9,7 +10,6 @@ import pytest
 
 from open_edit.ir.types import WordAlignment
 from open_edit.render.timeline_view import (
-    SILENCE_THRESHOLD_S,
     build_timeline_view,
     find_silences,
 )
@@ -40,9 +40,14 @@ def test_find_silences_respects_threshold():
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
 def test_build_timeline_view_real_ffmpeg(tmp_path):
-    video = Path("/home/amr/apps/mlt-pipeline/testdata/video_with_audio.mp4")
-    if not video.exists():
-        pytest.skip("testdata clip missing")
+    video = tmp_path / "video_with_audio.mp4"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=3",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=16000:duration=3",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        "-shortest", str(video),
+    ], check=True, capture_output=True, timeout=15)
     out = tmp_path / "view.png"
     result = build_timeline_view(
         video, 0.0, 2.0, words=_words(), n_frames=4, width=1024, out_path=out,
@@ -83,8 +88,6 @@ def test_build_timeline_view_mocked_ffmpeg(tmp_path):
 
 def test_get_timeline_view_tool_contract(tmp_path):
     """Tool-level: error handling and path confinement."""
-    import sys
-    sys.path.insert(0, str(tmp_path.parent))
     from open_edit.agent.tools.pyagent_get_timeline_view import get_timeline_view
 
     res = get_timeline_view({}, str(tmp_path))

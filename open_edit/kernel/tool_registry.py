@@ -6,12 +6,11 @@ tool-call validation.
 """
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from open_edit.render.preview_manifest import PreviewRange
-
 
 _QUERY_PROJECT_DESC = (
     "Read-only queries about the project. Use this for ALL "
@@ -23,6 +22,8 @@ _QUERY_PROJECT_DESC = (
     "list_assets is compact by default (hash/filename/duration); pass "
     "params.detail=true for full metadata, params.include_derivatives=true "
     "to include Remotion rematerialized CAS."
+    " Use params.offset/limit for paged assets (default limit 50); follow next_offset."
+    " Packed transcripts use word offset/limit (default 500, max 2000); follow next_offset."
 )
 
 _EDIT_PROJECT_DESC = (
@@ -47,8 +48,8 @@ _EDIT_PROJECT_DESC = (
 )
 
 _RUN_SCRIPT_DESC = (
-    "Run Python in the bwrap+seccomp sandbox for complex edits. "
-    "The sandbox header is injected automatically — do NOT add it "
+    "Run Python in the trusted Python subprocess for complex edits. "
+    "The IR version header is injected automatically — do NOT add it "
     "manually. Use this when no single edit_project operation fits "
     "— e.g. multi-step edits that need to fetch state, compose "
     "ops, and append them programmatically."
@@ -74,7 +75,8 @@ _TRIGGER_RENDER_DESC = (
 
 _GET_RENDER_JOB_DESC = (
     "Poll a durable render job by job_id. Use after trigger_render "
-    "when you need status without blocking, or to inspect a prior job."
+    "when you need status without blocking. Set include_details=true "
+    "only when full diagnostics and logs are needed."
 )
 
 _CANCEL_RENDER_JOB_DESC = (
@@ -103,13 +105,16 @@ class EditProjectArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid", title="edit_project", description=_EDIT_PROJECT_DESC
     )
-    operation: Optional[str] = None
+    operation: str | None = Field(default=None, min_length=1)
     params: dict = {}
-    generate: Optional[Literal[
-        "sfx", "music", "visual", "silence_cuts",
-        "remotion", "init_remotion", "write_remotion",
-    ]] = None
+    generate: Literal["sfx", "music", "visual", "silence_cuts", "remotion", "init_remotion", "write_remotion"] | None = None
     generate_params: dict = {}
+
+    @model_validator(mode="after")
+    def _one_edit_mode(self) -> EditProjectArgs:
+        if bool(self.operation) == bool(self.generate):
+            raise ValueError("provide exactly one of operation or generate")
+        return self
 
 
 class RunScriptArgs(BaseModel):
@@ -117,7 +122,7 @@ class RunScriptArgs(BaseModel):
         extra="forbid", title="run_script", description=_RUN_SCRIPT_DESC
     )
     code: str
-    timeout_sec: int = 30
+    timeout_sec: int = Field(default=30, gt=0, le=300)
 
 
 class TriggerRenderArgs(BaseModel):
@@ -130,27 +135,28 @@ class TriggerRenderArgs(BaseModel):
     ranges: list[PreviewRange] = Field(default_factory=list)
     media: Literal["video", "audio", "both"] = "both"
     priority: Literal["interactive", "background"] = "interactive"
-    quality: str | None = None
+    quality: Literal["fast", "standard", "high", "archival"] | None = None
     profile: str | None = None
-    crf: int | None = None
+    crf: int | None = Field(default=None, ge=0, le=51)
     vb: str | None = None
     preset: str | None = None
     scale: str | None = None
-    codec: str | None = None
+    codec: Literal["h264", "hevc", "av1"] | None = None
 
 
 class GetRenderJobArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid", title="get_render_job", description=_GET_RENDER_JOB_DESC
     )
-    job_id: str
+    job_id: str = Field(min_length=1)
+    include_details: bool = Field(default=False, description="Include full render diagnostics and logs.")
 
 
 class CancelRenderJobArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid", title="cancel_render_job", description=_CANCEL_RENDER_JOB_DESC
     )
-    job_id: str
+    job_id: str = Field(min_length=1)
 
 
 TOOL_REGISTRY: dict[str, type[BaseModel]] = {
@@ -170,11 +176,18 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
 
 def build_tool_schemas() -> list[dict]:
     """Return Anthropic-shaped tool schemas generated from the registry."""
+    def compact(schema):
+        if isinstance(schema, dict):
+            return {key: compact(value) for key, value in schema.items() if key != "title"}
+        if isinstance(schema, list):
+            return [compact(value) for value in schema]
+        return schema
+
     return [
         {
             "name": name,
             "description": TOOL_DESCRIPTIONS[name],
-            "input_schema": model.model_json_schema(),
+            "input_schema": compact({key: value for key, value in model.model_json_schema().items() if key != "description"}),
         }
         for name, model in TOOL_REGISTRY.items()
     ]

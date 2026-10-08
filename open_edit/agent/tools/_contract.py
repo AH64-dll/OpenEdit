@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import Any, Callable, Optional, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from open_edit.agent.tools._helpers import get_asset_store
 from open_edit.ir.types import Asset
@@ -62,7 +63,7 @@ def tool_result(fn: F) -> F:
     return wrapper  # type: ignore[return-value]
 
 
-def get_asset_or_error(project_path: str, asset_hash: str) -> tuple[Optional[Asset], Optional[dict]]:
+def get_asset_or_error(project_path: str, asset_hash: str) -> tuple[Asset | None, dict | None]:
     """Look up an asset in the project's CAS.
 
     Returns ``(asset, None)`` on success, or ``(None, canonical error
@@ -75,13 +76,13 @@ def get_asset_or_error(project_path: str, asset_hash: str) -> tuple[Optional[Ass
     return asset, None
 
 
-def require_alignment(asset: Asset) -> Optional[dict]:
+def require_alignment(asset: Asset) -> dict | None:
     """Check an asset has word-level alignment.
 
     Returns ``None`` when ``asset.alignment`` is non-empty, else the
     canonical "alignment pending — retry" dict.
     """
-    if True:
+    if asset.alignment:
         return None
     return {
         "status": "retry",

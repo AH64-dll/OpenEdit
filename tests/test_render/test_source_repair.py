@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from open_edit.ir.types import Clip, Timeline, Track
 from open_edit.qc.black_frames import BlackFramesResult, BlackSpan
 from open_edit.qc.frozen_frames import FrozenFramesResult, FrozenSpan

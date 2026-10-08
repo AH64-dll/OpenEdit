@@ -12,12 +12,10 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
 from open_edit.render.ffmpeg_probe import probe_duration
-
 
 DEFAULT_FREEZE_MIN_SEC = 1.0
 DEFAULT_FREEZE_NOISE_DB = -50.0
@@ -39,7 +37,7 @@ class FrozenFramesResult(BaseModel):
     min_sec: float
     noise_db: float
     spans: list[FrozenSpan]
-    error: Optional[str] = None
+    error: str | None = None
 
 
 def list_frozen_frames(

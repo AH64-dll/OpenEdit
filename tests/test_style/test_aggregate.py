@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 
-from open_edit.style.aggregate import set_pinned
 from open_edit.storage.config import get_profile_path
+from open_edit.style.aggregate import set_pinned
 
 
 def _load_profile() -> dict:

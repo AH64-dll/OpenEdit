@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from open_edit.ir.catalog.loader import EffectCatalog, EffectSpec
+from open_edit.ir.catalog.loader import EffectCatalog
 
 
 @pytest.fixture

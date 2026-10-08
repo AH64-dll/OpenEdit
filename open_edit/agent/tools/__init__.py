@@ -1,38 +1,11 @@
-"""Agent tool registry.
+"""Shared editing tool registry.
 
-This package is the canonical registry of agent tools. It re-exports 20
-tool functions (``pyagent_*.py`` modules) plus the 7 ``pyagent_timeline_ops``
-functions and exposes them all in a single explicit table:
-
-``TOOL_TABLE: dict[str, Callable]`` maps every callable tool name to its
-function (27 entries: 20 re-exported + 7 timeline ops). Kernel dispatch
-(``open_edit.kernel.tool_executor._run_tool``) and pillar routing
-(``open_edit.kernel.pillar_tools``) both consume this one table — there is
-no longer any ``getattr(open_edit.agent.tools, name)`` lookup.
-
-Not in TOOL_TABLE (kernel-handled, see ``kernel.tool_executor``):
-- ``query_project`` / ``edit_project`` — pillar dispatchers
-  (``kernel.pillar_tools.dispatch_query/dispatch_edit/dispatch_generate``);
-- ``get_render_job`` / ``cancel_render_job`` — kernel render-service
-  branches;
-- ``trigger_render`` — virtual tool executed by
-  ``kernel.tool_executor.execute_trigger_render``.
-
-v1.4 P1-1: also re-exports ``search_assets`` and ``import_asset`` so the
-pi extension bridge can dispatch them.
-
-The pi bridge (``serve/pi_bridge.py``) routes the 4 pillar tools from
-``open_edit.kernel.tool_schemas.TOOL_SCHEMAS`` (``query_project``,
-``edit_project``, ``run_script``, ``trigger_render``) through
-``kernel.tool_executor.execute_tool``, which owns schema validation,
-pillar routing, and the ``TOOL_TABLE`` lookup; ``trigger_render`` goes
-through the separate server-side ``execute_trigger_render`` path.
-Unknown names raise ``ToolNotFound`` ("tool not found in
-open_edit.agent.tools: '<name>'"). 3 of the 4 pillar tools are
-deliberately NOT re-exported here — only ``run_script`` is (backed by
-``pyagent_run_python``).
+TOOL_TABLE explicitly maps supported names to implementations. MCP pillar
+routing and the optional built-in agent both dispatch through the kernel.
+query_project, edit_project, trigger_render and render-job helpers are handled
+by the kernel; run_script aliases the subprocess run_python implementation.
 """
-from typing import Callable
+from collections.abc import Callable
 
 from open_edit.agent.tools.pyagent_add_marker import add_marker
 from open_edit.agent.tools.pyagent_analyze_narrative import analyze_narrative
@@ -46,8 +19,8 @@ from open_edit.agent.tools.pyagent_generate_visual_for_segment import (
 from open_edit.agent.tools.pyagent_get_pending_notes import get_pending_notes
 from open_edit.agent.tools.pyagent_get_silence_gaps import get_silence_gaps
 from open_edit.agent.tools.pyagent_get_style_profile import get_style_profile
-from open_edit.agent.tools.pyagent_get_transcript_packed import get_transcript_packed
 from open_edit.agent.tools.pyagent_get_timeline_view import get_timeline_view
+from open_edit.agent.tools.pyagent_get_transcript_packed import get_transcript_packed
 from open_edit.agent.tools.pyagent_import_asset import import_asset
 from open_edit.agent.tools.pyagent_ingest_local import ingest_local
 from open_edit.agent.tools.pyagent_init_remotion_project import init_remotion_project
@@ -74,37 +47,37 @@ from open_edit.agent.tools.pyagent_write_remotion_composition import (
 )
 
 __all__ = [
+    "add_clip",
+    "add_hyperframes_overlay",
     "add_marker",
     "analyze_narrative",
+    "apply_silence_gaps",
+    "auto_color_grade",
     "capture_style_hint",
+    "change_clip_speed",
     "generate_remotion_composition",
     "generate_visual_for_segment",
     "get_pending_notes",
     "get_silence_gaps",
     "get_style_profile",
-    "get_transcript_packed",
     "get_timeline_view",
+    "get_transcript_packed",
     "import_asset",
     "ingest_local",
     "init_remotion_project",
     "list_assets",
     "place_sfx",
     "propose_silence_cuts",
+    "remove_clip",
+    "replace_clip_source",
     "run_python",
     "run_script",
     "search_assets",
     "select_music",
-    "set_pinned_value",
-    "write_remotion_composition",
-    "add_clip",
-    "add_hyperframes_overlay",
-    "trim_clip",
-    "replace_clip_source",
-    "change_clip_speed",
-    "remove_clip",
     "set_audio_gain",
-    "apply_silence_gaps",
-    "auto_color_grade",
+    "set_pinned_value",
+    "trim_clip",
+    "write_remotion_composition",
 ]
 
 TOOL_TABLE: dict[str, Callable] = {

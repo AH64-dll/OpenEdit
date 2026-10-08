@@ -17,10 +17,7 @@ if TYPE_CHECKING:
 
 def _invalidate_project_snapshots(conn: sqlite3.Connection, store: EditGraphStore) -> None:
     """Delete cached timeline snapshot rows for the project (one db per project)."""
-    row = conn.execute(
-        "SELECT value FROM project_meta WHERE key = 'project_id'"
-    ).fetchone()
-    project_id = row[0] if row is not None else store.project_id
+    project_id = store._project_id_in(conn)
     conn.execute(
         "DELETE FROM timeline_snapshots WHERE project_id = ?", (project_id,)
     )
@@ -36,6 +33,7 @@ def delete_op(
     Returns True if an op was found and deleted.
     """
     with open_conn(store.db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(
             "SELECT edit_id FROM edits WHERE edit_id = ?", (edit_id,)
         )
@@ -63,6 +61,7 @@ def move_arbitrary(
     Returns True if the op was found and moved.
     """
     with open_conn(store.db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(
             "SELECT sequence_num FROM edits WHERE edit_id = ?",
             (edit_id,),
@@ -108,6 +107,7 @@ def reorder_all(
     if len(edit_ids) != len(set(edit_ids)):
         raise ValueError("reorder contains duplicate edit IDs")
     with open_conn(store.db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
         rows = conn.execute("SELECT edit_id FROM edits ORDER BY sequence_num").fetchall()
         existing = [row[0] for row in rows]
         if set(edit_ids) != set(existing) or len(edit_ids) != len(existing):
@@ -140,6 +140,7 @@ def reorder(
     are not adjacent in sequence_num.
     """
     with open_conn(store.db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(
             "SELECT edit_id, sequence_num FROM edits "
             "WHERE edit_id IN (?, ?) ORDER BY sequence_num",

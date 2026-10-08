@@ -26,9 +26,9 @@ _MIGRATION_RE = re.compile(r"^(\d{4})_.*\.sql$")
 
 __all__ = [
     "CURRENT_VERSION",
-    "run_migrations",
     "current_version",
     "ensure_schema",
+    "run_migrations",
 ]
 
 

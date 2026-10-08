@@ -600,7 +600,7 @@ def test_preview_worker_uses_adaptive_chunk_size_on_long_timeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir, store = _project(tmp_path, duration_sec=2211.0)
+    project_dir, _store = _project(tmp_path, duration_sec=2211.0)
     monkeypatch.setattr(
         preview_chunks,
         "_load_job_params",
@@ -642,7 +642,7 @@ def test_preview_worker_honors_explicit_chunk_frames_param(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir, store = _project(tmp_path)
+    project_dir, _store = _project(tmp_path)
     monkeypatch.setattr(
         preview_chunks,
         "_load_job_params",

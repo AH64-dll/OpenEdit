@@ -1,12 +1,10 @@
 """IR + materialize tests for Remotion compositions."""
 from __future__ import annotations
 
-import json
 import stat
-import threading
 import textwrap
+import threading
 import time
-import uuid
 from pathlib import Path
 
 import pytest
@@ -15,21 +13,21 @@ from open_edit.ir.apply import apply_operation
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddRemotionCompositionOp,
-    RemotionComposition,
     Project,
+    RemotionComposition,
     RemoveRemotionCompositionOp,
     Timeline,
 )
+from open_edit.ir.validate import OpValidationError
 from open_edit.render import materialize as materialize_module
 from open_edit.render.materialize import (
     MaterializeReport,
     RemotionMaterializeError,
     materialize_remotion_compositions,
 )
-from open_edit.render.remotion.dirty import write_manifest_atomic
 from open_edit.render.remotion import RemotionRenderResult
+from open_edit.render.remotion.dirty import write_manifest_atomic
 from open_edit.storage.edit_graph import EditGraphStore
-
 
 _FAKE_REMOTION = textwrap.dedent(
     """\
@@ -251,9 +249,8 @@ def test_materialize_fails_hard_on_bad_entry(project_with_remotion: Path) -> Non
 
 def test_append_rejects_path_escape(project_with_remotion: Path) -> None:
     store = EditGraphStore(project_with_remotion / ".open_edit" / "edit_graph.db")
-    from open_edit.ir.validate import OpValidationError
 
-    with pytest.raises(Exception):
+    with pytest.raises(OpValidationError):
         store.append(AddRemotionCompositionOp(
             author="ai",
             entry_point="../etc/passwd",

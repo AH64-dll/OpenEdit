@@ -1,7 +1,8 @@
 """Phase 4.5 W4: narrative analyzer skill."""
 import pytest
+
+from open_edit.agent.skills.narrative_analyzer import BEAT_TYPES, analyze
 from open_edit.ir.types import Asset, WordAlignment
-from open_edit.agent.skills.narrative_analyzer import analyze, BEAT_TYPES
 
 
 def test_beat_types_complete():

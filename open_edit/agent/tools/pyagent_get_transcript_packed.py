@@ -1,10 +1,12 @@
 """pyagent_get_transcript_packed: returns silence-aware phrase-packed transcript for an asset."""
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
 from open_edit.agent.tools._contract import get_asset_or_error, require_alignment, tool_result
+from open_edit.agent.tools._helpers import page_window
 from open_edit.storage.transcription import pack_transcript
 
 
@@ -13,7 +15,8 @@ def get_transcript_packed(args: dict, project_path: str | Path) -> dict[str, Any
     """Return packed transcript string for target asset.
 
     Args:
-        args: {"asset_hash": str, "pause_threshold_sec": float (optional, default 0.5)}
+        args: asset_hash, pause_threshold_sec (default 0.5), offset/limit in
+            words (default page 500, maximum 2000). Follow next_offset.
         project_path: path to the project directory.
 
     Returns:
@@ -29,15 +32,21 @@ def get_transcript_packed(args: dict, project_path: str | Path) -> dict[str, Any
         return err
 
     pause_thresh = float(args.get("pause_threshold_sec", 0.5))
+    if not math.isfinite(pause_thresh) or pause_thresh < 0:
+        return {"status": "error", "error": "pause_threshold_sec must be finite and nonnegative"}
+    offset, limit = page_window(args, default_limit=500, max_limit=2000)
     err = require_alignment(asset)
     if err:
         return err
 
-    packed = pack_transcript(asset.alignment, pause_threshold_sec=pause_thresh)
+    packed = pack_transcript(asset.alignment[offset:offset + limit], pause_threshold_sec=pause_thresh)
 
-    # Single field — avoid 3× transcript token burn in MCP responses.
+    # Return one transcript representation and a cursor for longer recordings.
     return {
         "status": "ok",
         "asset_hash": asset_hash,
         "transcript_packed": packed,
+        "total_words": len(asset.alignment),
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < len(asset.alignment) else None,
     }

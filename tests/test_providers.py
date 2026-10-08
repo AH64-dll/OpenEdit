@@ -15,7 +15,7 @@ from open_edit.serve.providers import (
 
 def test_all_known_providers_registered():
     names = {p.name for p in PROVIDERS.values()}
-    assert names == {"anthropic", "openai", "pi", "opencode", "antigravity", "jcode"}
+    assert names == {"anthropic", "openai", "opencode", "antigravity", "jcode"}
 
 
 def test_resolve_provider_known():
@@ -43,7 +43,7 @@ def test_list_provider_specs_sorted_by_name():
 
 
 def test_cli_providers_have_callable_stream():
-    for name in ("pi", "opencode", "antigravity", "jcode"):
+    for name in ("opencode", "antigravity", "jcode"):
         spec = resolve_provider(name)
         assert spec.transport == "cli"
         assert callable(spec.stream)
@@ -69,6 +69,7 @@ def test_provider_default_model():
 
 def test_provider_model_endpoint_handles_all_providers():
     from fastapi.testclient import TestClient
+
     from open_edit.serve.app import app
     client = TestClient(app)
     for spec in list_provider_specs():
@@ -85,7 +86,6 @@ def test_all_providers_have_label():
 
 def test_context_strategies_match_capabilities():
     """OE-P1-007: every provider declares an explicit context strategy."""
-    assert resolve_provider("pi").context_strategy == "native_session"
     assert resolve_provider("opencode").context_strategy == "full_history"
     assert resolve_provider("antigravity").context_strategy == "full_history"
     assert resolve_provider("anthropic").context_strategy == "full_history"
@@ -121,8 +121,8 @@ def test_every_runtime_registry_entry_derives_from_provider():
 
 
 def test_every_provider_has_adapter_and_env_keys():
-    from open_edit.serve.providers import PROVIDERS
     from open_edit.serve.cli_adapter import get_adapter
+    from open_edit.serve.providers import PROVIDERS
     from open_edit.serve.runtimes.keys_store import env_map
     for pid in PROVIDERS:
         assert get_adapter(pid) is not None, pid
@@ -132,10 +132,14 @@ def test_every_provider_has_adapter_and_env_keys():
 def test_anthropic_and_openai_appear_in_api_llm_config():
     """Regression: Anthropic and OpenAI must be in the available_providers
     list returned by the GET llm-config endpoint."""
+    import asyncio
+    import os
+    import tempfile
+
     from fastapi.testclient import TestClient
-    from open_edit.serve.app import app
+
     from open_edit.serve import projects as projects_mod
-    import asyncio, tempfile, os
+    from open_edit.serve.app import app
 
     tmp = tempfile.mkdtemp()
     os.environ["OPEN_EDIT_PROJECTS_ROOT"] = tmp
@@ -153,3 +157,6 @@ def test_anthropic_and_openai_appear_in_api_llm_config():
     assert "anthropic" in provs, f"anthropic missing from {provs}"
     assert "openai" in provs, f"openai missing from {provs}"
     assert "jcode" not in provs, "jcode must be hidden"
+
+
+pytestmark = pytest.mark.agent_ui

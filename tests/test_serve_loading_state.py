@@ -26,16 +26,14 @@ asserts the loading state is gone and the real data is shown.
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
-import pytest
-
-# Allow ``from _node_harness import ...`` from the tests/ dir.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node_harness import (  # noqa: E402
+from tests._node_harness import (
     app_js_path,
+)
+from tests._node_harness import (
     harness as _harness,
+)
+from tests._node_harness import (
     run_node_script as _run_node_script,
 )
 

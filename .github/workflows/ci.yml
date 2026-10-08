@@ -2,34 +2,45 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "fix/**"]
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    env:
+      HYPERFRAMES_NO_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install package
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install test prerequisites
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
           python -m pip install -U pip
-          pip install -e ".[mcp,dev]"
-      - name: Core unit tests
+          pip install -e ".[dev,serve,openai]" build
+      - name: Lint
+        run: ruff check open_edit tests
+      - name: Python and frontend regression tests
+        run: pytest -m "not browser" --timeout=30 --timeout-method=thread --tb=short
+      - name: Check installer syntax
+        run: bash -n install.sh
+      - name: Build distribution artifacts
+        run: python -m build
+      - name: Default install and MCP smoke check
         run: |
-          pytest -q \
-            tests/test_windows_mcp.py \
-            tests/test_sandbox_backends.py \
-            tests/test_ingest_local.py \
-            tests/test_tool_executor.py \
-            tests/test_schema_validator.py \
-            tests/test_tool_registry.py \
-            tests/test_pillar_tools.py \
-            tests/test_mcp_server.py \
-            tests/test_ir \
-            tests/test_storage \
-            tests/test_render_encoder.py \
-            tests/test_serve_module_structure.py \
-            --tb=short
+          python -m venv /tmp/openedit-smoke
+          /tmp/openedit-smoke/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/openedit-smoke/bin/open-edit-mcp --help
+          /tmp/openedit-smoke/bin/python -c "from open_edit.mcp.skills import load_skill; assert load_skill('open-edit-mcp')"

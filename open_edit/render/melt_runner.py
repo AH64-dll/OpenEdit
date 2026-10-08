@@ -1,6 +1,7 @@
 """Melt subprocess execution: command building, timeout, and cache mediation."""
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import os
 import subprocess
@@ -8,7 +9,7 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from open_edit.render.cache import RenderCache
 from open_edit.render.pipe_builder import PipeCommands
@@ -30,16 +31,16 @@ class MeltRunner:
     def __init__(
         self,
         melt_bin: str,
-        cache: Optional[RenderCache] = None,
+        cache: RenderCache | None = None,
         nice_level: int = 10,
-        encoder_backend: Optional[str] = None,
+        encoder_backend: str | None = None,
     ):
         self.melt_bin = melt_bin
         self.cache = cache
         self.nice_level = nice_level
         self.encoder_backend = encoder_backend
 
-    def cached(self, key: str) -> Optional[Path]:
+    def cached(self, key: str) -> Path | None:
         """Look up a cached render for ``key`` (None if absent)."""
         if self.cache is None:
             return None
@@ -68,7 +69,7 @@ class MeltRunner:
         args = [self.melt_bin, str(xml_path), "-consumer", f"avformat:{output_mp4}"]
         args += profile_to_mlt_args(profile, backend=self.encoder_backend, mode=mode)
         if self.nice_level > 0 and os.name == "posix":
-            return ["nice", "-n", str(self.nice_level)] + args
+            return ["nice", "-n", str(self.nice_level), *args]
         return args
 
     def run(
@@ -129,10 +130,8 @@ def _restore_frame_fds(
     saved: dict[int, int],
 ) -> None:
     for target in targets:
-        try:
+        with contextlib.suppress(OSError):
             os.close(target)
-        except OSError:
-            pass
         original = saved.pop(target, None)
         if original is not None:
             try:
@@ -164,14 +163,10 @@ def _reserve_frame_fds(targets: Sequence[int]) -> dict[int, int]:
 def _terminate_process(process: Any) -> None:
     if process is None or process.poll() is not None:
         return
-    try:
+    with contextlib.suppress(OSError):
         process.kill()
-    except OSError:
-        pass
-    try:
+    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
         process.wait(timeout=2)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
 
 
 def _close_frame_clients(
@@ -187,10 +182,8 @@ def _close_frame_clients(
         seen.add(id(resource))
         close = getattr(resource, "close", None)
         if callable(close):
-            try:
+            with contextlib.suppress(Exception):
                 close()
-            except Exception:
-                pass
 
 
 def _run_pipe_with_frame_feeders(
@@ -248,7 +241,7 @@ def _run_pipe_with_frame_feeders(
                 raise PipeRunError("frame client count does not match frame overlay count")
             feeders = [
                 FrameFeeder(client, overlay)
-                for client, overlay in zip(frame_clients, frame_overlays)
+                for client, overlay in zip(frame_clients, frame_overlays, strict=True)
             ]
         active_feeders.extend(feeders)
         frame_pipe_fds = tuple(cmds.frame_pipe_fds)
@@ -287,7 +280,7 @@ def _run_pipe_with_frame_feeders(
                 for target, (read_fd, _write_fd) in zip(
                     frame_pipe_fds,
                     frame_pipes,
-                ):
+                strict=True):
                     os.dup2(read_fd, target)
                     os.set_inheritable(target, True)
                     os.close(read_fd)
@@ -308,10 +301,8 @@ def _run_pipe_with_frame_feeders(
             _terminate_process(ffmpeg)
             for read_fd, write_fd in frame_pipes:
                 for fd in (read_fd, write_fd):
-                    try:
+                    with contextlib.suppress(OSError):
                         os.close(fd)
-                    except OSError:
-                        pass
             raise PipeRunError(f"pipe spawn failed: {exc}") from None
         finally:
             if frame_fds_reserved and not frame_fds_restored:
@@ -336,7 +327,7 @@ def _run_pipe_with_frame_feeders(
 
         if feeders:
             for index, (feeder, (_read_fd, write_fd)) in enumerate(
-                zip(feeders, frame_pipes)
+                zip(feeders, frame_pipes, strict=True)
             ):
                 thread = threading.Thread(
                     target=_feed,
@@ -379,10 +370,8 @@ def _run_pipe_with_frame_feeders(
                 thread.join(timeout=2)
             for read_fd, write_fd in frame_pipes:
                 for fd in (read_fd, write_fd):
-                    try:
+                    with contextlib.suppress(OSError):
                         os.close(fd)
-                    except OSError:
-                        pass
 
         if feeder_errors:
             _terminate_process(melt)

@@ -1,7 +1,6 @@
 """Tests for the host-only Remotion frame-pull protocol."""
 from __future__ import annotations
 
-import json
 import io
 import sys
 import textwrap
@@ -10,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from open_edit.render.orchestrator import frame_pull_gate
 from open_edit.render.remotion.frame_engine import (
     FrameProtocolError,
     FramePullClient,
@@ -21,7 +21,6 @@ from open_edit.render.remotion.frame_feeder import (
     FrameFeeder,
     FrameOverlaySpec,
 )
-from open_edit.render.orchestrator import frame_pull_gate
 
 
 def _write_fake_frame_server(
@@ -116,7 +115,7 @@ def test_frame_request_rejects_out_of_range_frame_before_path_validation():
 
 
 def test_frame_request_rejects_non_relative_entry_point():
-    with pytest.raises(FrameProtocolError, match="entry.point"):
+    with pytest.raises(FrameProtocolError, match="entry_point"):
         _request(entry_point="/tmp/escape.tsx", frame=0)
 
 
@@ -159,7 +158,7 @@ def test_frame_client_rejects_response_with_wrong_payload_length(tmp_path: Path)
     )
     client = FramePullClient([sys.executable, str(fake_server)], timeout_s=0.2)
 
-    with pytest.raises(FrameProtocolError, match="payload|EOF|closed|timed out"):
+    with pytest.raises(FrameProtocolError, match=r"payload|EOF|closed|timed out"):
         client.request_frame(_request())
 
     client.close()

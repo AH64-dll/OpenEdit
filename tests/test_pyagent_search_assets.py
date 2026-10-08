@@ -8,29 +8,24 @@ TTL so an agent loop's iterative search doesn't burn the monthly cap
 The HTTP layer is mocked via ``unittest.mock.patch`` so the tests don't
 talk to the real internet and don't need the API keys set.
 """
+
 from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.agent.tools import pyagent_search_assets as mod  # noqa: E402
-from open_edit.agent.tools.pyagent_search_assets import (  # noqa: E402
-    search_assets,
-    _cache_get,
-    _cache_put,
+from open_edit.agent.tools import pyagent_search_assets as mod
+from open_edit.agent.tools.pyagent_search_assets import (
     _cache_clear,
-    _pexels_api_key,
     _freesound_api_key,
+    _pexels_api_key,
+    search_assets,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +500,6 @@ def test_search_assets_cache_is_project_scoped(pexels_key, tmp_path):
 
 def test_search_assets_cache_respects_ttl(pexels_key, tmp_path, monkeypatch):
     """After the TTL elapses, the next call hits the network again."""
-    import time as time_mod
     # Patch the cache to use a 0-second TTL.
     monkeypatch.setattr(mod, "_CACHE_TTL_S", 0.0)
     with mock.patch.object(
@@ -537,7 +531,6 @@ def test_search_assets_default_limit_is_eight(pexels_key, tmp_path):
     call = m.call_args
     # The args are (url, params=...). Either form is fine — we just
     # need to confirm 8 is in there.
-    all_args = (call.args, call.kwargs)
     flat = json.dumps([str(a) for a in (call.args or ())] + [
         json.dumps(v) for v in (call.kwargs or {}).values()
     ], default=str)

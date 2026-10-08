@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from open_edit.ir.types import Asset
 from open_edit.kernel.asset_proxy_jobs import (
     DEFAULT_ASSET_PROXY_JOB_SERVICE,
     AssetProxyJob,
@@ -157,7 +158,7 @@ async def get_asset_proxy_job(
     return _asset_proxy_job_response(job)
 
 
-def _guess_mime_type(asset: Asset) -> str:  # noqa: F821
+def _guess_mime_type(asset: Asset) -> str:
     """Best-effort mime type for a streamed asset.
 
     Prefers the original filename's extension (``clip_short.mp4`` →

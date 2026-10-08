@@ -5,17 +5,16 @@ Per phase4-design-revised.md section 3.2 (T2) and audit M4.
 from __future__ import annotations
 
 import json
-from typing import Optional
 
-from open_edit.style.retrieve import get_slice
 from open_edit.storage.config import get_profile_path
+from open_edit.style.retrieve import get_slice
 
 
 def build_prior_state(
     project_id: str,
-    expected_op_type: Optional[str] = None,
+    expected_op_type: str | None = None,
     creativity_level: str = "balanced",
-    workdir: Optional[str] = None,
+    workdir: str | None = None,
 ) -> str:
     parts = []
 

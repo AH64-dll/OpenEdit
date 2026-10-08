@@ -6,7 +6,7 @@ discriminated union is on `kind`, validated via Pydantic's Field(discriminator).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -68,7 +68,7 @@ class HtmlOverlay(BaseModel):
 class Timeline(BaseModel):
     tracks: list[Track] = Field(default_factory=list)
     overlays: list[HtmlOverlay] = Field(default_factory=list)
-    remotion_compositions: list["RemotionComposition"] = Field(default_factory=list)
+    remotion_compositions: list[RemotionComposition] = Field(default_factory=list)
     duration_sec: float = 0.0
 
 
@@ -90,7 +90,7 @@ class RemotionComposition(BaseModel):
     track_id: str = "video_graphics"
     alpha: bool = False
     clip_id: str = Field(default_factory=new_id)
-    asset_hash: Optional[str] = None
+    asset_hash: str | None = None
 
     @property
     def id(self) -> str:
@@ -102,7 +102,7 @@ class WordAlignment(BaseModel):
     t_start: float
     t_end: float
     confidence: float = 1.0
-    speaker: Optional[str] = None
+    speaker: str | None = None
 
 
 
@@ -112,15 +112,15 @@ class Asset(BaseModel):
     stored_path: str
     type: Literal["video", "audio", "image"]
     duration_sec: float = 0.0
-    fps: Optional[float] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    codec: Optional[str] = None
+    fps: float | None = None
+    width: int | None = None
+    height: int | None = None
+    codec: str | None = None
     has_audio: bool = False
-    pix_fmt: Optional[str] = None
+    pix_fmt: str | None = None
     has_alpha: bool = False
-    proxy_hash: Optional[str] = None
-    proxy_profile: Optional[str] = None
+    proxy_hash: str | None = None
+    proxy_profile: str | None = None
     proxy_status: SourceProxyStatus = "none"
     proxy_error: str = ""
     proxy_updated_at: str = ""
@@ -142,13 +142,15 @@ class Asset(BaseModel):
 # ===== Operation base + concrete variants =====
 
 class Operation(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     kind: str  # overridden by each subclass as Literal[...]
     edit_id: str = Field(default_factory=new_id)
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     author: Literal["ai", "user"]
     timestamp: str = Field(default_factory=now_iso8601)
     status: Literal["applied", "reverted", "superseded"] = "applied"
-    originating_note_id: Optional[str] = None
+    originating_note_id: str | None = None
 
 
 class AddClipOp(Operation):
@@ -158,7 +160,7 @@ class AddClipOp(Operation):
     track_kind: Literal["video", "audio"] = "video"
     position_sec: float
     in_point_sec: float = 0.0
-    out_point_sec: Optional[float] = None
+    out_point_sec: float | None = None
     clip_id: str = Field(default_factory=new_id)
 
 
@@ -281,7 +283,7 @@ class SetAudioGainOp(Operation):
     kind: Literal["set_audio_gain"] = "set_audio_gain"
     clip_id: str
     gain_db: float
-    keyframe_op_id: Optional[str] = None
+    keyframe_op_id: str | None = None
 
 
 class NormalizeAudioOp(Operation):
@@ -314,7 +316,7 @@ class FreeFormCodeOp(Operation):
     code: str
     timeout_sec: int = 30
     mem_mb: int = 512
-    label: Optional[str] = None
+    label: str | None = None
 
 
 class AddHtmlOverlayOp(Operation):
@@ -366,19 +368,7 @@ class RemoveRemotionCompositionOp(Operation):
 
 
 OperationUnion = Annotated[
-    Union[
-        AddClipOp, RemoveClipOp, MoveClipOp, TrimClipOp,
-        AddTransitionOp, RemoveTransitionOp, SetTransitionPropertyOp,
-        AddEffectOp, RemoveEffectOp, SetEffectParamOp,
-        SetKeyframeOp, RemoveKeyframeOp,
-        SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp,
-        SplitClipOp, ReplaceClipSourceOp, SetClipSpeedRampOp,
-        SetAudioGainOp, NormalizeAudioOp,
-        GroupEditsOp, UngroupEditsOp,
-        RawMltXmlOp, FreeFormCodeOp,
-        AddHtmlOverlayOp, RemoveHtmlOverlayOp,
-        AddRemotionCompositionOp, RemoveRemotionCompositionOp,
-    ],
+    AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp,
     Field(discriminator="kind"),
 ]
 
@@ -386,7 +376,7 @@ OperationUnion = Annotated[
 class Project(BaseModel):
     project_id: str = Field(default_factory=new_id)
     name: str
-    workdir: Optional[Path] = None
+    workdir: Path | None = None
     created_at: str = Field(default_factory=now_iso8601)
     assets: dict[str, Asset] = Field(default_factory=dict)
     edit_graph: list[OperationUnion] = Field(default_factory=list)

@@ -1,8 +1,8 @@
 """Phase 4 Task 3: tag-gated style profile retrieval."""
 import json
 
-from open_edit.style.retrieve import get_slice
 from open_edit.storage.config import get_profile_path
+from open_edit.style.retrieve import get_slice
 
 
 def _write_profile(tmp_path, monkeypatch, *, transitions_confidence: float, examples: list | None = None):

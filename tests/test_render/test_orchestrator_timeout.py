@@ -12,7 +12,8 @@ from open_edit.ir.types import AddClipOp
 from open_edit.render.orchestrator import render_project
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.render_snapshots import (
-    RenderSnapshotStore, RenderStatus,
+    RenderSnapshotStore,
+    RenderStatus,
 )
 
 

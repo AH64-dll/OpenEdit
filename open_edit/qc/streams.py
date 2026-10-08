@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -18,14 +17,14 @@ class StreamsInfo(BaseModel):
     ok: bool
     video_streams: int
     audio_streams: int
-    video_duration_s: Optional[float] = None
-    audio_duration_s: Optional[float] = None
-    container_duration_s: Optional[float] = None
+    video_duration_s: float | None = None
+    audio_duration_s: float | None = None
+    container_duration_s: float | None = None
     codec_types: list[str] = []
-    error: Optional[str] = None
+    error: str | None = None
 
 
-def _as_float(value) -> Optional[float]:
+def _as_float(value) -> float | None:
     if value is None:
         return None
     try:

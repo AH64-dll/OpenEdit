@@ -1,9 +1,8 @@
 """Phase 4.5 W5: music selector skill."""
 from pathlib import Path
 
-import pytest
+from open_edit.agent.skills.music_selector import MusicTrack, select
 from open_edit.agent.skills.narrative_analyzer import NarrativeSegment
-from open_edit.agent.skills.music_selector import select, MusicTrack
 from open_edit.ir.catalog.loader import EffectCatalog
 from open_edit.ir.types import AddEffectOp, Project
 from open_edit.ir.validate import validate_op

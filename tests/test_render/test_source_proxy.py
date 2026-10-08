@@ -15,11 +15,13 @@ from open_edit.render.source_proxy import (
 )
 from open_edit.storage.assets import AssetStore
 
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg and ffprobe are required",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+        reason="ffmpeg and ffprobe are required",
+    ),
+    pytest.mark.usefixtures("manual_source_proxies"),
+]
 
 
 def _run_ffmpeg(*args: str) -> None:

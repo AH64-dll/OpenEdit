@@ -19,18 +19,19 @@ def test_merge_consecutive_user_messages():
     assert "third" in compacted[2]["content"]
 
 
-def test_remove_tool_only_assistant():
+def test_preserve_tool_only_assistant():
     hist = [
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": [{"type": "tool_use", "name": "bash"}]},
         {"role": "user", "content": [{"type": "tool_result", "content": "ok"}]},
     ]
     compacted = compact_history(hist)
-    assert len(compacted) == 2
+    assert len(compacted) == 3
     assert compacted[0]["role"] == "user"
     assert compacted[0]["content"] == "hello"
-    assert compacted[1]["role"] == "user"
-    assert compacted[1]["content"] == [{"type": "tool_result", "content": "ok"}]
+    assert compacted[1]["role"] == "assistant"
+    assert compacted[2]["role"] == "user"
+    assert compacted[2]["content"] == [{"type": "tool_result", "content": "ok"}]
 
 
 def test_preserve_assistant_with_text():

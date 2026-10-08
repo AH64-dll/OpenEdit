@@ -1,7 +1,7 @@
-"""Phase 3 Task 2: FreeFormResult + SandboxError."""
+"""Phase 3 Task 2: FreeFormResult + ScriptValidationError."""
 import pytest
 
-from open_edit.agent.exceptions import FreeFormResult, SandboxError
+from open_edit.agent.exceptions import FreeFormResult, ScriptValidationError
 
 
 def test_free_form_result_ok():
@@ -23,5 +23,5 @@ def test_free_form_result_fail():
 
 
 def test_sandbox_error_is_exception():
-    with pytest.raises(SandboxError):
-        raise SandboxError("oops")
+    with pytest.raises(ScriptValidationError):
+        raise ScriptValidationError("oops")

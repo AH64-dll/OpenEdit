@@ -2,9 +2,7 @@
 
 Covers the root causes behind the "agent gets stuck in a loop" report:
 
-1. CLI providers (pi/opencode/...) own their agent loop — the Open Edit
-   loop must stream exactly once, must NOT re-execute tools locally
-   (double execution), and must NOT re-iterate.
+1. Optional CLI chat does not execute editing tools; MCP owns external edits.
 2. Circuit breaker: identical failing tool calls abort the turn after
    3 attempts instead of burning all MAX_AGENT_ITERATIONS.
 3. Every tool_use in a batch gets a tool_result — skipped trigger_renders
@@ -12,24 +10,22 @@ Covers the root causes behind the "agent gets stuck in a loop" report:
 4. ``_db_path`` resolves the canonical ``.open_edit/edit_graph.db``
    layout (with legacy fallback) — the split-brain DB bug.
 """
+
 from __future__ import annotations
 
 import json
-import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 import pytest
 
+from open_edit.agent.tools import _helpers
+from open_edit.serve import agent as agent_mod
+from open_edit.serve.llm import StreamEvent
+
 _THIS_DIR = Path(__file__).resolve()
 _REPO_ROOT = _THIS_DIR.parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.serve import agent as agent_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
-from open_edit.serve.llm import StreamEvent  # noqa: E402
-from open_edit.agent.tools import _helpers  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -54,103 +50,10 @@ def _patch_common(monkeypatch, tmp_path):
 # 1. CLI-owned turns: single stream, no local execution
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_cli_owned_turn_does_not_reexecute_tools(monkeypatch, tmp_path):
-    """pi-style stream (tool_use + tool_result from provider) → the local
-    executor is NEVER called; the provider's result is the one surfaced."""
-    _patch_common(monkeypatch, tmp_path)
-    monkeypatch.setattr(agent_mod, "effective_provider", lambda p: "pi")
-
-    async def pi_stream(*args, **kwargs) -> AsyncIterator[StreamEvent]:
-        yield {"type": "text_delta", "text": "Adding a marker."}
-        yield {"type": "tool_use", "id": "c1", "name": "add_marker",
-               "input": {"t_start": 1.5, "text": "x"}}
-        yield {"type": "tool_result", "name": "add_marker",
-               "result": {"status": "ok", "note_id": "note_FROM_PI"},
-               "tool_use_id": "c1"}
-        yield {"type": "done", "stop_reason": "end_turn"}
-
-    monkeypatch.setattr(agent_mod, "stream_chat", pi_stream)
-
-    local_calls: list[str] = []
-    monkeypatch.setattr(
-        agent_mod, "_execute_tool",
-        lambda name, args, path, command_id=None: local_calls.append(name) or {},
-    )
-
-    history: list[dict[str, Any]] = []
-    events = [ev async for ev in agent_mod.run_agent_turn("pid", "add a marker", history)]
-
-    assert local_calls == [], f"local executor must not run for CLI-owned turns: {local_calls}"
-    results = [e for e in events if e["type"] == "tool_result"]
-    assert len(results) == 1
-    assert results[0]["result"]["note_id"] == "note_FROM_PI"
-    assert results[0]["id"] == "c1"
-    # One done, clean stop, single iteration (exactly one assistant message).
-    dones = [e for e in events if e["type"] == "done"]
-    assert len(dones) == 1
-    assert dones[0]["stop_reason"] == "end_turn"
-    assistant_msgs = [m for m in history if m.get("role") == "assistant"]
-    assert len(assistant_msgs) == 1
 
 
-@pytest.mark.asyncio
-async def test_cli_owned_turn_history_pairs_every_tool_use(monkeypatch, tmp_path):
-    """Every tool_use in history must be followed by a tool_result with a
-    matching tool_use_id (Anthropic contract), even if the provider did
-    not forward a result for it."""
-    _patch_common(monkeypatch, tmp_path)
-    monkeypatch.setattr(agent_mod, "effective_provider", lambda p: "pi")
-
-    async def pi_stream(*args, **kwargs) -> AsyncIterator[StreamEvent]:
-        yield {"type": "tool_use", "id": "a", "name": "list_assets", "input": {}}
-        yield {"type": "tool_use", "id": "b", "name": "get_pending_notes", "input": {}}
-        # Only ONE result forwarded — "b" is unmatched.
-        yield {"type": "tool_result", "name": "list_assets",
-               "result": {"assets": []}, "tool_use_id": "a"}
-        yield {"type": "done", "stop_reason": "end_turn"}
-
-    monkeypatch.setattr(agent_mod, "stream_chat", pi_stream)
-    monkeypatch.setattr(agent_mod, "_execute_tool", lambda *a, **k: {})
-
-    history: list[dict[str, Any]] = []
-    async for _ev in agent_mod.run_agent_turn("pid", "check stuff", history):
-        pass
-
-    tool_uses = [
-        b for m in history if m.get("role") == "assistant"
-        for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_use"
-    ]
-    tool_results = [
-        b for m in history if m.get("role") == "user"
-        for b in (m["content"] if isinstance(m["content"], list) else [])
-        if isinstance(b, dict) and b.get("type") == "tool_result"
-    ]
-    assert {b["id"] for b in tool_uses} == {b["tool_use_id"] for b in tool_results}
 
 
-@pytest.mark.asyncio
-async def test_cli_owned_turn_no_second_stream_call(monkeypatch, tmp_path):
-    """The loop must NOT re-call stream_chat after tools complete (the old
-    bug: second pi subprocess died with 'no user message found')."""
-    _patch_common(monkeypatch, tmp_path)
-    monkeypatch.setattr(agent_mod, "effective_provider", lambda p: "pi")
-
-    stream_calls = {"n": 0}
-
-    async def pi_stream(*args, **kwargs) -> AsyncIterator[StreamEvent]:
-        stream_calls["n"] += 1
-        yield {"type": "tool_use", "id": "c1", "name": "list_assets", "input": {}}
-        yield {"type": "tool_result", "name": "list_assets",
-               "result": {"assets": []}, "tool_use_id": "c1"}
-        yield {"type": "done", "stop_reason": "end_turn"}
-
-    monkeypatch.setattr(agent_mod, "stream_chat", pi_stream)
-    monkeypatch.setattr(agent_mod, "_execute_tool", lambda *a, **k: {})
-
-    async for _ev in agent_mod.run_agent_turn("pid", "list", []):
-        pass
-    assert stream_calls["n"] == 1
 
 
 # ---------------------------------------------------------------------------

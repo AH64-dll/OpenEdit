@@ -1,9 +1,9 @@
 """Unit tests for 30ms audio micro-fades in MLT Emitter."""
-import pytest
 from lxml import etree
 
-from open_edit.ir.types import Timeline, Track, Clip, Effect
-from open_edit.render.emitter import emit_timeline, EmitterConfig
+from open_edit.ir.types import Clip, Effect, Timeline, Track
+from open_edit.render.emitter import EmitterConfig, emit_timeline
+
 
 def _level_keyframes(filter_el) -> list[tuple[str, str]]:
     """Parse the MLT animated property string (frame=value; ...) of a filter."""

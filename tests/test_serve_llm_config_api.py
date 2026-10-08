@@ -47,7 +47,7 @@ def test_get_llm_config_returns_current_config(
     assert body["provider"] == "opencode"
     assert body["model"] == "opencode-go/minimax-m3"
     assert "opencode" in body["available_providers"]
-    assert "pi" in body["available_providers"]
+    assert "opencode" in body["available_providers"]
     # available_models for opencode is whatever `opencode models` returns
     # (or [] if binary missing); we only assert it's a list.
     assert isinstance(body["available_models"], list)
@@ -63,16 +63,16 @@ def test_put_llm_config_persists_and_round_trips(
     client, project_path, project_id = client_and_project
     r = client.put(
         f"/api/projects/{project_id}/llm-config",
-        json={"provider": "pi", "model": "minimax-m3"},
+        json={"provider": "opencode", "model": "minimax-m3"},
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["provider"] == "pi"
+    assert body["provider"] == "opencode"
     assert body["model"] == "minimax-m3"
     # File on disk reflects the new value.
     cfg_path = Path(project_path) / ".open_edit" / "config.toml"
     text = cfg_path.read_text()
-    assert "provider = \"pi\"" in text
+    assert "provider = \"opencode\"" in text
     assert "model = \"minimax-m3\"" in text
 
 
@@ -108,7 +108,10 @@ def test_put_llm_config_rejects_empty_model(
     client, _, project_id = client_and_project
     r = client.put(
         f"/api/projects/{project_id}/llm-config",
-        json={"provider": "pi", "model": "  "},
+        json={"provider": "opencode", "model": "  "},
     )
     assert r.status_code == 400
     assert "model" in r.json()["error"].lower()
+
+
+pytestmark = pytest.mark.agent_ui

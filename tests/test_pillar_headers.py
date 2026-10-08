@@ -13,12 +13,12 @@ def test_run_python_importable():
 
 
 def test_run_script_is_run_python():
-    from open_edit.agent.tools import run_script, run_python
+    from open_edit.agent.tools import run_python, run_script
     assert run_script is run_python
 
 
 def test_header_auto_inject_missing():
-    from open_edit.agent.sandbox import run_free_form
+    from open_edit.agent.script_runner import run_free_form
     assert callable(run_free_form)
 
 

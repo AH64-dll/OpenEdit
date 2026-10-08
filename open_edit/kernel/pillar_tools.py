@@ -114,56 +114,35 @@ def _apply_generated_ops(params: dict[str, Any], project_path: Path) -> dict[str
     ops = params.get("ops", [])
     if not isinstance(ops, list):
         return {"status": "error", "error": "apply_generated_ops: ops must be a list"}
-    results = []
-    for op in ops:
-        if not isinstance(op, dict):
-            results.append({"status": "error", "error": f"invalid op: {op}"})
-            continue
-        # Legacy shape {"type": ..., "params": ...} — no producer emits it
-        # today, but keep the marker path working for older clients.
-        if "type" in op and "kind" not in op:
-            op_type = op.get("type", "")
-            if op_type == "add_marker":
-                results.append(add_marker(op.get("params", {}), str(project_path)))
-            else:
-                results.append({"status": "error", "error": f"unknown op type: {op_type}"})
-            continue
-        results.append(_append_ir_op(op, project_path))
-    return {"status": "ok", "results": results}
+    if any(not isinstance(op, dict) for op in ops):
+        return {"status": "error", "error": "apply_generated_ops: every op must be an object"}
+    legacy = [op for op in ops if "type" in op and "kind" not in op]
+    if legacy:
+        if len(ops) != 1 or legacy[0].get("type") != "add_marker":
+            return {"status": "error", "error": "legacy markers must be applied individually"}
+        result = add_marker(_with_project_id(legacy[0].get("params", {}), project_path), str(project_path))
+        return {"status": result.get("status", "error"), "results": [result]}
+    from pydantic import TypeAdapter
 
-
-def _append_ir_op(op: dict[str, Any], project_path: Path) -> dict[str, Any]:
-    """Parse and append one IR op dict (``kind``-discriminated model dump).
-
-    Uses the same vault door as every other mutation
-    (``EditGraphStore.append`` → reference validation), so a generated op
-    referencing a missing clip/effect is rejected instead of corrupting
-    the graph.
-    """
     from open_edit.ir.types import OperationUnion
     from open_edit.storage.edit_graph import EditGraphStore
     from open_edit.storage.paths import ProjectPaths
-    from pydantic import TypeAdapter
 
-    kind = op.get("kind")
-    if not kind:
-        return {"status": "error", "error": f"apply_generated_ops: op missing 'kind': {op}"}
-    try:
-        model = TypeAdapter(OperationUnion).validate_python(op)
-    except Exception as exc:
-        return {"status": "error", "error": f"apply_generated_ops: invalid {kind} op: {exc}"}
     db = ProjectPaths.for_project(project_path).db_path
     if not db.exists():
         return {"status": "error", "error": "edit graph not found"}
     try:
-        sequence_num = EditGraphStore(db).append(model)
+        adapter = TypeAdapter(OperationUnion)
+        models = [adapter.validate_python(op) for op in ops]
+        sequences = EditGraphStore(db).append_many(models)
     except Exception as exc:
         return {"status": "error", "error": f"apply_generated_ops: {exc}"}
     return {
         "status": "ok",
-        "kind": model.kind,
-        "edit_id": model.edit_id,
-        "sequence_num": sequence_num,
+        "results": [
+            {"status": "ok", "kind": model.kind, "edit_id": model.edit_id, "sequence_num": seq}
+            for model, seq in zip(models, sequences, strict=True)
+        ],
     }
 
 

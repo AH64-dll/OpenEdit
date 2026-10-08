@@ -6,7 +6,6 @@ import math
 from collections.abc import Mapping
 from typing import Any, Literal
 
-
 RenderMode = Literal["proxy", "final"]
 StageStatus = Literal["completed", "skipped", "failed"]
 
@@ -102,10 +101,7 @@ def _dimension(
         return int(explicit)
     if profile is None:
         raise TypeError(f"{name} is required when profile is omitted")
-    if isinstance(profile, Mapping):
-        value = profile.get(name)
-    else:
-        value = getattr(profile, name, None)
+    value = profile.get(name) if isinstance(profile, Mapping) else getattr(profile, name, None)
     if value is None:
         raise TypeError(f"profile has no {name}")
     return int(value)

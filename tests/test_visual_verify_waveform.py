@@ -104,7 +104,7 @@ def _generate_waveform_inspection_image(
     rel_t = float(cut_time_sec) - start_time
     rel_ratio = rel_t / duration if duration > 0 else 0.5
     rel_ratio = max(0.0, min(1.0, rel_ratio))
-    marker_x = int(round(w_w * rel_ratio))
+    marker_x = round(w_w * rel_ratio)
 
     has_video, has_audio = _probe_streams(input_path)
 
@@ -237,7 +237,7 @@ def test_basic_vstack_composite_command_syntax(tmp_path):
     assert res["height"] == 720
 
     # Inspect FFmpeg invocation call
-    ffmpeg_call = [call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0]][0]
+    ffmpeg_call = next(call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0])
     cmd = ffmpeg_call.args[0]
     assert ffmpeg_call.kwargs.get("shell") is False
     assert ffmpeg_call.kwargs.get("timeout") == 30
@@ -286,7 +286,7 @@ def test_hstack_layout_parameters(tmp_path):
     assert res["status"] == "ok"
     assert res["layout"] == "hstack"
 
-    ffmpeg_call = [call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0]][0]
+    ffmpeg_call = next(call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0])
     cmd = ffmpeg_call.args[0]
     fc_str = cmd[cmd.index("-filter_complex") + 1]
     assert "hstack=inputs=2" in fc_str
@@ -321,7 +321,7 @@ def test_audio_only_stream_fallback(tmp_path):
         )
 
     assert res["status"] == "ok"
-    ffmpeg_call = [call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0]][0]
+    ffmpeg_call = next(call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0])
     cmd = ffmpeg_call.args[0]
     fc_str = cmd[cmd.index("-filter_complex") + 1]
     assert "color=c=black:s=1280x360" in fc_str
@@ -354,7 +354,7 @@ def test_silent_video_stream_fallback(tmp_path):
         )
 
     assert res["status"] == "ok"
-    ffmpeg_call = [call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0]][0]
+    ffmpeg_call = next(call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0])
     cmd = ffmpeg_call.args[0]
     fc_str = cmd[cmd.index("-filter_complex") + 1]
     assert "anullsrc=" in fc_str
@@ -432,7 +432,7 @@ def test_cut_time_near_zero_clamping(tmp_path):
         )
 
     assert res["status"] == "ok"
-    ffmpeg_call = [call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0]][0]
+    ffmpeg_call = next(call for call in run_mock.call_args_list if "ffmpeg" in call.args[0][0])
     cmd = ffmpeg_call.args[0]
     ss_idx = cmd.index("-ss")
     assert cmd[ss_idx + 1] == "0.0000"

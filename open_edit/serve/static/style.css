@@ -842,7 +842,6 @@ h1, h2, h3, h4 {
 }
 .cost-badge.hidden { display: none; }
 .cost-badge[data-source="unavailable"] { color: var(--text-dim); font-style: italic; }
-.cost-badge[data-source="pi"],
 .cost-badge[data-source="computed"] { color: var(--green); }
 .cost-badge-text {
   white-space: nowrap;

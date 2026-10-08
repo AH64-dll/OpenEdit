@@ -11,9 +11,9 @@ from open_edit.render.remotion.renderer import (
     RemotionRenderResult,
     RemotionRunner,
     probe_alpha_capability,
-    render_composition,
     remotion_profile_for_mode,
     remotion_worker_count,
+    render_composition,
     resolve_alpha_mode,
 )
 from open_edit.render.remotion.safety import (
@@ -29,19 +29,19 @@ from open_edit.render.remotion.safety import (
 )
 
 __all__ = [
-    "REMOTION_VERSION",
     "ALPHA_POLICY_VERSION",
+    "REMOTION_VERSION",
     "RemotionRenderError",
     "RemotionRenderResult",
     "RemotionRunner",
     "composition_cache_key",
     "composition_source_bundle",
-    "referenced_file_fingerprints",
-    "render_reference_fingerprint",
     "probe_alpha_capability",
-    "render_composition",
+    "referenced_file_fingerprints",
     "remotion_profile_for_mode",
     "remotion_worker_count",
+    "render_composition",
+    "render_reference_fingerprint",
     "resolve_alpha_mode",
     "resolve_remotion_root",
     "stage_referenced_assets",

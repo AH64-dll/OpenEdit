@@ -1,12 +1,10 @@
 """Phase 4 Task 1: originating_note_id on Operation + IR API + sandbox."""
 import json
-import pytest
-from pathlib import Path
 
-from open_edit.ir.types import (
-    AddClipOp, AddEffectOp, SetKeyframeOp, Operation, Project, Asset,
-)
 from open_edit.ir.api import IR
+from open_edit.ir.types import (
+    AddClipOp,
+)
 from open_edit.storage.edit_graph import EditGraphStore
 
 
@@ -51,7 +49,7 @@ def test_operation_back_compat_no_field_in_payload():
 
 
 def test_ir_add_clip_stamps_originating_note_id(tmp_path):
-    store = EditGraphStore(tmp_path / "edit_graph.db")
+    EditGraphStore(tmp_path / "edit_graph.db")
     buf = _make_buffer()
     ir = IR(buf, project_id="p1", parent_op_id=None)
     clip_id = ir.add_clip(
@@ -64,7 +62,7 @@ def test_ir_add_clip_stamps_originating_note_id(tmp_path):
 
 
 def test_ir_add_clip_default_none(tmp_path):
-    store = EditGraphStore(tmp_path / "edit_graph.db")
+    EditGraphStore(tmp_path / "edit_graph.db")
     buf = _make_buffer()
     ir = IR(buf, project_id="p1", parent_op_id=None)
     ir.add_clip(asset_hash="abc", track_id="t1", position_sec=0.0)
@@ -88,7 +86,7 @@ def test_edit_graph_store_round_trip(tmp_path):
         author="user", asset_hash="abc", track_id="t1", position_sec=0.0,
         originating_note_id="note_42",
     )
-    seq = store.append(op)
+    store.append(op)
     loaded = store.load_all()
     assert len(loaded) == 1
     assert loaded[0].originating_note_id == "note_42"

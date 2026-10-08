@@ -12,8 +12,7 @@ class StreamEvent(TypedDict, total=False):
     - ``"tool_use"``   — a tool invocation request. Carries ``id: str``,
       ``name: str``, ``input: dict``.
     - ``"tool_result"``— the result of a tool call. Carries ``name: str``,
-      ``result: dict``. (Only emitted by the pi provider, which executes
-      tools in its TS extension; other providers don't re-emit this.)
+      ``result: dict``. Tool execution results are emitted by the agent loop.
     - ``"usage"``      — token / cost accounting. Carries ``tokens: int``,
       ``cost_usd: float``, ``usage: dict``, ``source: str``.
     - ``"done"``       — terminal event. Carries ``stop_reason: str``.

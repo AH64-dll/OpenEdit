@@ -2,12 +2,8 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from _node_harness import app_js_path, harness, run_node_script
+from tests._node_harness import app_js_path, harness, run_node_script
 
 
 def test_preview_diagnostics_are_exposed_as_safe_structured_labels() -> None:

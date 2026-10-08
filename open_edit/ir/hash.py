@@ -42,5 +42,6 @@ def compute_edit_graph_hash(ops: list) -> str:
         data = op.model_dump(mode="json") if hasattr(op, "model_dump") else dict(op)
         data.pop("sequence_num", None)
         edit_id = data.get("edit_id", "")
-        parts.append(f"{seq}:{edit_id}:{json.dumps(data, sort_keys=True, separators=(",", ":"))}")
+        op_json = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        parts.append(f"{seq}:{edit_id}:{op_json}")
     return hashlib.sha256("".join(parts).encode()).hexdigest()

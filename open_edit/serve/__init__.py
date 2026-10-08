@@ -14,4 +14,4 @@ Run the server with::
     uvicorn open_edit.serve.app:app --reload --host 0.0.0.0 --port 8000
 """
 
-__all__ = ["projects", "llm", "agent", "app"]
+__all__ = ["agent", "app", "llm", "projects"]

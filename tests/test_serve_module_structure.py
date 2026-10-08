@@ -36,14 +36,13 @@ updating the test list sees a clear failure.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Allow ``from _node_harness import ...`` from the tests/ dir.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node_harness import (  # noqa: E402
+from tests._node_harness import (
     app_js_path,
+)
+from tests._node_harness import (
     harness as _harness,
+)
+from tests._node_harness import (
     run_node_script as _run_node_script,
 )
 

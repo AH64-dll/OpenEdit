@@ -1,7 +1,7 @@
-"""pyagent_run_python: invokes the Phase 3 free-form Python sandbox.
+"""pyagent_run_python: invokes the Phase 3 free-form Python runner.
 
 Per phase4-design-revised.md §3.3 (T8): the agent can run arbitrary
-Python inside the bwrap+seccomp sandbox. On success, validated ops are
+Python inside the trusted Python subprocess. On success, validated ops are
 appended to edit_graph.db (same contract as the CLI path).
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 from open_edit.agent.exceptions import FreeFormResult
-from open_edit.agent.sandbox import run_free_form
+from open_edit.agent.script_runner import run_free_form
 from open_edit.agent.tools._contract import tool_result
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.paths import ProjectPaths
@@ -41,10 +41,10 @@ def run_python(args: dict, project_path: str) -> dict:
     appended = 0
     op_summaries: list[dict] = []
     if result.success and result.ops:
-        # Match CLI: persist validated ops to the edit graph.
+        # Commit the complete script result, including reference validation.
+        store.append_many(result.ops)
+        appended = len(result.ops)
         for op in result.ops:
-            store.append(op)
-            appended += 1
             dump = op.model_dump() if hasattr(op, "model_dump") else {}
             op_summaries.append({
                 "kind": dump.get("kind") or getattr(op, "kind", type(op).__name__),

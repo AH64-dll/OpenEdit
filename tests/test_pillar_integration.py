@@ -1,8 +1,6 @@
 """Integration tests for the 4 pillar tools through the dispatch layer."""
 from __future__ import annotations
 
-import pytest
-
 from open_edit.kernel.schema_validator import validate_or_error
 from open_edit.kernel.tool_executor import execute_tool
 from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
@@ -24,7 +22,8 @@ def test_4_pillar_schemas():
 def test_query_project_unknown_query(tmp_path):
     result = execute_tool("query_project", {"query": "nonexistent"}, tmp_path)
     assert result.get("status") == "error"
-    assert "unknown query" in result.get("error", "")
+    assert result["error_code"] == "schema_validation_failed"
+    assert "query" in result["detail"]
 
 
 def test_edit_project_unknown_operation(tmp_path):
@@ -36,7 +35,8 @@ def test_edit_project_unknown_operation(tmp_path):
 def test_edit_project_generate_unknown(tmp_path):
     result = execute_tool("edit_project", {"generate": "nonexistent"}, tmp_path)
     assert result.get("status") == "error"
-    assert "unknown generate kind" in result.get("error", "")
+    assert result["error_code"] == "schema_validation_failed"
+    assert "generate" in result["detail"]
 
 
 def test_run_script_validate(tmp_path):

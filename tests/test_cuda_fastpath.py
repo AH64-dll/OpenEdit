@@ -1,5 +1,4 @@
 """Tests for the CUDA fast path (pure-ffmpeg GPU render for simple timelines)."""
-import shutil
 from pathlib import Path
 
 import pytest
@@ -154,7 +153,8 @@ def test_build_command_requires_media_file(tmp_path: Path) -> None:
     assert cmd is None
 
 
-def test_build_command_uses_scale_override(tmp_path: Path) -> None:
+def test_build_command_uses_scale_override(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("open_edit.render.cuda_fastpath._cuda_probe", lambda: True)
     clip_a = TESTDATA / "clip_a.mp4"
     if not clip_a.is_file():
         pytest.skip("clip_a.mp4 missing")
@@ -170,7 +170,8 @@ def test_build_command_uses_scale_override(tmp_path: Path) -> None:
     assert any("scale_cuda=320:180" in part for part in cmd)
 
 
-def test_build_command_has_cuda_flags(tmp_path: Path) -> None:
+def test_build_command_has_cuda_flags(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("open_edit.render.cuda_fastpath._cuda_probe", lambda: True)
     clip_a = TESTDATA / "clip_a.mp4"
     if not clip_a.is_file():
         pytest.skip("clip_a.mp4 missing")

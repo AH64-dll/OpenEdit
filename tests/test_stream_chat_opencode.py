@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import stat
 from pathlib import Path
@@ -11,7 +10,6 @@ import pytest
 
 from open_edit.serve.llm import stream_chat
 from open_edit.serve.llm_config import LLMConfig, save_llm_config
-
 
 _FAKE_OPENCODE = """#!/usr/bin/env python3
 import json, sys

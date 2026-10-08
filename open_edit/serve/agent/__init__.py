@@ -18,7 +18,7 @@ per line).
 
 This package is a facade: the implementation lives in
 ``history_store``, ``cost_sidecar``, ``prompts``, ``verify_stage``,
-``loop`` and ``cli_turn``. The names below are re-exported so
+and ``loop``. The names below are re-exported so
 ``open_edit.serve.agent`` keeps the public surface of the former flat
 ``agent.py`` module — including the patchable seams (``stream_chat``,
 ``_execute_tool``, ``effective_provider``, ``_resolve_project_path``)
@@ -37,23 +37,17 @@ import os
 # imported it from this module.
 from open_edit.kernel.tool_executor import (  # noqa: F401
     ToolNotFound,
-    execute_tool as _execute_agent_tool,
-    execute_trigger_render as _execute_trigger_render,
+)
+from open_edit.kernel.tool_executor import (
+    execute_tool as _execute_agent_tool,  # noqa: F401 - public patch seam
+)
+from open_edit.kernel.tool_executor import (
+    execute_trigger_render as _execute_trigger_render,  # noqa: F401 - public patch seam
 )
 
-from .. import projects as projects_mod
+from .. import projects as projects_mod  # noqa: F401 - public patch seam
 from ..llm import effective_provider, stream_chat  # noqa: F401
 from ..project_meta import is_verify_disabled  # noqa: F401
-
-from .history_store import (  # noqa: F401
-    _append_counters,
-    _build_tool_result_message,
-    _make_slim_history,
-    _resolve_project_path,
-    append_to_conversation,
-    load_conversation,
-    new_conversation_id,
-)
 from .cost_sidecar import (  # noqa: F401
     _BG_TASKS,
     _SOURCE_PRIORITY,
@@ -65,6 +59,20 @@ from .cost_sidecar import (  # noqa: F401
     accumulate_usage,
     emit_cost_update,
 )
+from .history_store import (  # noqa: F401
+    _append_counters,
+    _build_tool_result_message,
+    _make_slim_history,
+    _resolve_project_path,
+    append_to_conversation,
+    load_conversation,
+    new_conversation_id,
+)
+from .loop import (  # noqa: F401
+    AgentEvent,
+    _execute_tool,
+    run_agent_turn,
+)
 from .prompts import (  # noqa: F401
     _build_state_summary,
     _build_system_prompt,
@@ -73,12 +81,6 @@ from .verify_stage import (  # noqa: F401
     _build_verification_result,
     _maybe_verify_render,
 )
-from .loop import (  # noqa: F401
-    AgentEvent,
-    _execute_tool,
-    run_agent_turn,
-)
-from .cli_turn import _run_cli_owned_turn  # noqa: F401
 
 # v1.6 polish: ``MAX_AGENT_ITERATIONS`` is a module-scope constant so
 # operators can tune the runaway-loop safety cap at process start without

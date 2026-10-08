@@ -15,6 +15,6 @@ PR and must pass. -->
 ## Checklist
 
 - [ ] Focused change (one logical change per PR)
-- [ ] CI test set passes locally (`pip install -e ".[mcp,dev]"` + `pytest`)
+- [ ] CI test set passes locally (`pip install -e ".[dev,serve,openai]"`, `ruff check open_edit tests`, `pytest -m "not browser"`)
 - [ ] No secrets, keys, or credentials added
 - [ ] Docs updated if behavior changed (README / INSTALL / docs/ as applicable)

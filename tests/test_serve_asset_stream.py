@@ -23,32 +23,27 @@ preview player. Concretely, three contracts are tested here:
    ``open_edit init`` — which only scans the project root, so the
    file never reached the CAS and the preview had nothing to play.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
-import os
-import subprocess
-import sys
+import shutil as _shutil  # local alias for the ffprobe-skip check below
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-# Allow ``from _node_harness import ...`` from the tests/ dir.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node_harness import (  # noqa: E402
+from open_edit.serve import app as app_mod
+from open_edit.serve import projects as projects_mod
+from tests._node_harness import (
     app_js_path,
     harness,
     run_node_script,
 )
 
 _TPKG_ROOT = Path(__file__).resolve().parents[1]
-if str(_TPKG_ROOT) not in sys.path:
-    sys.path.insert(0, str(_TPKG_ROOT))
 
-from open_edit.serve import app as app_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
 
 APP_JS = app_js_path()
 assert APP_JS.exists(), f"missing {APP_JS}"
@@ -80,8 +75,9 @@ def seeded_project(projects_root_tmp):
     """
     proj = projects_root_tmp / "p1"
     proj.mkdir()
-    from open_edit.cli import cmd_init
     import argparse
+
+    from open_edit.cli import cmd_init
     rc = cmd_init(argparse.Namespace(folder=str(proj)))
     assert rc == 0
     project_id = projects_mod._project_id_from_path(proj.resolve())
@@ -99,6 +95,7 @@ def _seed_asset_on_disk(project_path: Path, filename: str, contents: bytes) -> s
     ``AssetStore.ingest_paths`` does for a real file.
     """
     import hashlib as _hashlib
+
     from open_edit.ir.types import Asset
     from open_edit.storage.assets import AssetStore
 
@@ -304,7 +301,6 @@ def test_asset_file_endpoint_rejects_path_traversal_in_hash(seeded_project):
 # Contract 3: ingest — upload actually puts the file in CAS
 # ---------------------------------------------------------------------------
 
-import shutil as _shutil  # local alias for the ffprobe-skip check below
 
 
 @pytest.fixture

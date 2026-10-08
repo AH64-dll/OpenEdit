@@ -7,8 +7,6 @@ parent_op_id string.
 import re
 from unittest.mock import patch
 
-import pytest
-
 from open_edit.agent.tools.pyagent_run_python import run_python
 
 

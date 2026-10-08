@@ -166,32 +166,30 @@ def _apply_remove_keyframe(
     for track in timeline.tracks:
         for i, clip in enumerate(track.clips):
             for j, eff in enumerate(clip.effects):
-                if eff.effect_id == op.effect_id:
-                    if op.param in eff.keyframes:
-                        new_kfs = [
-                            kf for kf in eff.keyframes[op.param]
-                            if abs(kf[0] - op.frame) >= 1e-6
-                        ]
-                        updated_keyframes = {**eff.keyframes, op.param: new_kfs}
-                        new_eff = eff.model_copy(update={"keyframes": updated_keyframes})
-                        new_effects = [*clip.effects]
-                        new_effects[j] = new_eff
-                        track.clips[i] = clip.model_copy(update={"effects": new_effects})
-                        return timeline
-        for j, eff in enumerate(track.effects):
-            if eff.effect_id == op.effect_id:
-                if op.param in eff.keyframes:
+                if eff.effect_id == op.effect_id and op.param in eff.keyframes:
                     new_kfs = [
                         kf for kf in eff.keyframes[op.param]
                         if abs(kf[0] - op.frame) >= 1e-6
                     ]
                     updated_keyframes = {**eff.keyframes, op.param: new_kfs}
                     new_eff = eff.model_copy(update={"keyframes": updated_keyframes})
-                    new_effects = [*track.effects]
+                    new_effects = [*clip.effects]
                     new_effects[j] = new_eff
-                    idx = timeline.tracks.index(track)
-                    timeline.tracks[idx] = track.model_copy(update={"effects": new_effects})
+                    track.clips[i] = clip.model_copy(update={"effects": new_effects})
                     return timeline
+        for j, eff in enumerate(track.effects):
+            if eff.effect_id == op.effect_id and op.param in eff.keyframes:
+                new_kfs = [
+                    kf for kf in eff.keyframes[op.param]
+                    if abs(kf[0] - op.frame) >= 1e-6
+                ]
+                updated_keyframes = {**eff.keyframes, op.param: new_kfs}
+                new_eff = eff.model_copy(update={"keyframes": updated_keyframes})
+                new_effects = [*track.effects]
+                new_effects[j] = new_eff
+                idx = timeline.tracks.index(track)
+                timeline.tracks[idx] = track.model_copy(update={"effects": new_effects})
+                return timeline
     if strict:
         raise ApplyError(
             f"RemoveKeyframeOp: effect_id '{op.effect_id}' not found in any clip or track"

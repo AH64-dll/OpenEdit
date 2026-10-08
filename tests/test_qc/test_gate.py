@@ -1,16 +1,15 @@
 """Tests for the QC gate (documented 6 checks + pipeline diagnostics)."""
 import shutil
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from open_edit.qc import gate as gate_mod
 from open_edit.qc.black_frames import BlackFramesResult, BlackSpan
 from open_edit.qc.frozen_frames import FrozenFramesResult
-from open_edit.qc.gate import run_qc_gate, QCReport
+from open_edit.qc.gate import QCReport, run_qc_gate
 from open_edit.qc.policy import QCPolicy
-
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 

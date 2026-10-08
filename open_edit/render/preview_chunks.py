@@ -17,7 +17,6 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -401,7 +400,7 @@ def _chunk_size(
             return None
         return value if value > 0 else None
 
-    fps_frames = max(1, int(round(fps_num / fps_den)))
+    fps_frames = max(1, round(fps_num / fps_den))
     target = round(duration_frames / 64)
     return max(fps_frames, min(target, fps_frames * 30))
 

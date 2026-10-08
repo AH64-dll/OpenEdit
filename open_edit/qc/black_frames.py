@@ -9,10 +9,8 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
-
 
 DEFAULT_BLACK_THRESHOLD = 0.10
 DEFAULT_BLACK_MIN_SEC = 0.5
@@ -33,7 +31,7 @@ class BlackFramesResult(BaseModel):
     threshold: float
     min_sec: float
     spans: list[BlackSpan]
-    error: Optional[str] = None
+    error: str | None = None
 
 
 def list_black_frames(

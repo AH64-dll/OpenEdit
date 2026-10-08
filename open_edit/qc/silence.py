@@ -5,12 +5,10 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
 from open_edit.render.ffmpeg_probe import FFprobeError, detect_silence_spans
-
 
 DEFAULT_SILENCE_DB = -35.0
 DEFAULT_SILENCE_MIN_SEC = 1.0
@@ -22,7 +20,7 @@ class AudioLevels(BaseModel):
     out_sec: float
     rms_db: float
     peak_db: float
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class SilenceSpan(BaseModel):
@@ -38,10 +36,10 @@ class SilenceResult(BaseModel):
     threshold_db: float
     min_sec: float
     spans: list[SilenceSpan]
-    error: Optional[str] = None
+    error: str | None = None
 
 
-def _ffmpeg() -> Optional[str]:
+def _ffmpeg() -> str | None:
     return shutil.which("ffmpeg")
 
 

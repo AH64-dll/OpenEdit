@@ -41,9 +41,9 @@ import shutil
 import sqlite3
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -131,8 +131,8 @@ class TimelineSummary(BaseModel):
     num_effects: int = 0
     num_markers: int = 0
     num_tracks: int = 0
-    head: Optional[str] = None
-    tail: Optional[str] = None
+    head: str | None = None
+    tail: str | None = None
     timeline_status: str = "valid"
     timeline_error_code: str | None = None
 
@@ -156,13 +156,13 @@ class ProjectState(BaseModel):
     assets: list[AssetInfo]
     ops: list[OpInfo]
     timeline: TimelineSummary
-    timeline_full: Optional[dict] = None
+    timeline_full: dict | None = None
     pending_notes_count: int
     notes: list[ReviewNoteInfo] = Field(default_factory=list)
     graph_revision: int = 0
     edit_graph_hash: str | None = None
     timeline_status: str = "valid"
-    timeline_error_code: Optional[str] = None
+    timeline_error_code: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +425,7 @@ async def get_project_state(project_id: str) -> ProjectState:
             total_dur = full_timeline.duration_sec
             num_tracks = len(full_timeline.tracks)
             num_clips = sum(len(track.clips) for track in full_timeline.tracks)
-        except Exception as exc:
+        except Exception:
             timeline_status = "invalid"
             timeline_error_code = "timeline_derivation_failed"
             _LOG.warning("failed to derive timeline for project %s", project_id, exc_info=True)
@@ -635,7 +635,7 @@ def _scan_project(path: Path) -> ProjectInfo:
 
     last_modified = datetime.fromtimestamp(
         db.stat().st_mtime if db.exists() else path.stat().st_mtime,
-        tz=timezone.utc,
+        tz=UTC,
     ).isoformat()
 
     return ProjectInfo(
@@ -649,7 +649,7 @@ def _scan_project(path: Path) -> ProjectInfo:
     )
 
 
-def _resolve_project_by_id(project_id: str) -> Optional[Path]:
+def _resolve_project_by_id(project_id: str) -> Path | None:
     """Find the project folder whose id matches ``project_id``."""
     root = projects_root()
     for child in root.iterdir():

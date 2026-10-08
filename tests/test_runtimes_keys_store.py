@@ -1,13 +1,11 @@
 """Unit tests for serve/runtimes/keys_store.py (BYOK secure key store)."""
-import os
 import sys
-from pathlib import Path
+
 from open_edit.serve.runtimes.keys_store import (
-    save_stored_key,
-    get_stored_key,
-    load_all_stored_keys,
-    mask_key,
     get_masked_keys_summary,
+    get_stored_key,
+    mask_key,
+    save_stored_key,
 )
 
 

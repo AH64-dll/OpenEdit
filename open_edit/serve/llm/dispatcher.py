@@ -20,7 +20,6 @@ from typing import Any
 from .events import StreamEvent
 from .keys import _model, _provider, effective_provider
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -96,10 +95,8 @@ async def stream_chat(
 
     ``messages`` is the standard Anthropic messages list. ``tools`` is the
     Anthropic tools spec (list of ``{"name", "description", "input_schema"}``
-    dicts). ``system`` is the system prompt. ``session_id`` is used by the
-    ``pi`` provider to maintain a persistent session across turns.
-    ``project_path`` is used by the ``pi`` provider to tell the extension
-    which project to operate on (via ``OPEN_EDIT_PROJECT`` env var).
+    dicts). ``system`` is the system prompt. ``session_id`` identifies the
+    conversation; ``project_path`` resolves optional per-project chat settings.
 
     The function is an async generator — callers iterate it with
     ``async for event in stream_chat(...):``.
@@ -160,7 +157,7 @@ async def stream_chat(
         try:
             if spec.transport == "cli":
                 # CLI streams are name-bound closures from providers.py;
-                # the adapter (incl. the pi cost wrapper) is resolved there.
+                # the adapter is resolved there.
                 async for ev in spec.stream(
                     messages, tools, system, model,
                     session_id=session_id, project_path=project_path,

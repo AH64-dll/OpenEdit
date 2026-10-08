@@ -9,8 +9,8 @@ from open_edit.ir.types import Timeline
 from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.encoder import EncoderSpec
 from open_edit.render.frame_engine import PreviewVideoRequest
-from open_edit.render.materialize import materialize_remotion_compositions
 from open_edit.render.hyperframes import materialize_hyperframes_overlays
+from open_edit.render.materialize import materialize_remotion_compositions
 from open_edit.render.pipe_builder import OverlayClip
 from open_edit.render.preview_pipe import build_preview_pipe_commands
 from open_edit.render.profiles import RenderProfile, resolve_encoder_args

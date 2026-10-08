@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from open_edit.serve import llm_config
 from open_edit.serve.app import app
 from open_edit.serve.llm import stream_chat
-from open_edit.serve.providers import ProviderSpec, PROVIDERS
+from open_edit.serve.providers import PROVIDERS, ProviderSpec
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_put_llm_config_oserror_handling(
 
     res = client.put(
         f"/api/projects/{project_id}/llm-config",
-        json={"provider": "pi", "model": "minimax-m3"},
+        json={"provider": "opencode", "model": "minimax-m3"},
     )
     assert res.status_code == 500
     body = res.json()
@@ -161,3 +161,6 @@ async def test_llm_no_retry_if_events_already_yielded(monkeypatch: pytest.Monkey
         assert len(events) == 2
         assert events[0] == {"type": "text_delta", "text": "Partial message"}
         assert events[1]["type"] == "error"
+
+
+pytestmark = pytest.mark.agent_ui

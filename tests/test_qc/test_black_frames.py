@@ -5,9 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from open_edit.qc.black_frames import list_black_frames, BlackFramesResult
 import open_edit.qc.black_frames as black_frames_mod
-
+from open_edit.qc.black_frames import list_black_frames
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 

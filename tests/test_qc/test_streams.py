@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from open_edit.qc.streams import probe_streams, StreamsInfo
-
+from open_edit.qc.streams import StreamsInfo, probe_streams
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 

@@ -5,16 +5,16 @@ cache key derivation. Never shell-interpolates user input.
 """
 from __future__ import annotations
 
+import filecmp
 import hashlib
 import json
-import filecmp
 import os
-from pathlib import Path
+import re
 import shutil
 import tempfile
+from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
-import re
 
 from open_edit.render.profiles import RenderProfile
 

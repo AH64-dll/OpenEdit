@@ -2,19 +2,19 @@
 """Durable asset-proxy queue runner (drain) and CLI command."""
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
+import threading
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
 from open_edit.cli import cmd_asset_proxy
+from open_edit.ir.types import Asset
 from open_edit.kernel.asset_proxy_jobs import AssetProxyJobService
 from open_edit.render.source_proxy import SourceProxyResult
 from open_edit.storage.assets import AssetStore
-from open_edit.ir.types import Asset
 
 
 def seed_high_res_asset(project_path: Path) -> str:
@@ -111,9 +111,11 @@ async def test_drain_does_not_double_run_live_futures(tmp_path: Path) -> None:
     service = AssetProxyJobService(max_concurrency=1)
     asset_hash = seed_high_res_asset(tmp_path)
     calls: list[str] = []
+    release = threading.Event()
 
     def generate(*args, **kwargs):
         calls.append(args[1])
+        release.wait(timeout=5)
         return proxy_result(asset_hash)
 
     with mock.patch(
@@ -121,7 +123,10 @@ async def test_drain_does_not_double_run_live_futures(tmp_path: Path) -> None:
         side_effect=generate,
     ):
         job = service.enqueue("project", tmp_path, asset_hash)
-        stats = service.drain(tmp_path)  # row already has a live future
+        try:
+            stats = service.drain(tmp_path)  # row already has a live future
+        finally:
+            release.set()
         finished = await service.wait(tmp_path, job.job_id)
 
     assert stats["started"] == 0

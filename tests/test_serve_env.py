@@ -16,24 +16,23 @@ These tests pin:
   caller can accidentally treat ``""`` as a real path and pass it to
   ``subprocess.run``.
 """
+
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.serve import serve_env  # noqa: E402
-from open_edit.serve.review_mode import (  # noqa: E402
+from open_edit.serve import serve_env
+from open_edit.serve.review_mode import (
     auto_preview_enabled,
     preview_chunks_enabled,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 # ---------------------------------------------------------------------------
 # get_overlay_config

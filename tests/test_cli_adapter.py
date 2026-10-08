@@ -9,12 +9,6 @@ from open_edit.serve.cli_adapter import (
 )
 
 
-def test_get_adapter_returns_pi() -> None:
-    a = get_adapter("pi")
-    assert a.name == "pi"
-    assert a.default_timeout_s > 0
-
-
 def test_get_adapter_returns_opencode() -> None:
     a = get_adapter("opencode")
     assert a.name == "opencode"
@@ -33,15 +27,9 @@ def test_get_adapter_unknown_raises_for_arbitrary() -> None:
 
 def test_list_adapters_includes_all_providers() -> None:
     names = sorted(list_adapters())
-    assert names == ["anthropic", "antigravity", "jcode", "openai", "opencode", "pi"]
+    assert names == ["anthropic", "antigravity", "jcode", "openai", "opencode"]
 
 
-def test_pi_default_timeout_s_is_set() -> None:
-    """R4 fix: every CLIAdapter must have a positive default_timeout_s."""
-    a = get_adapter("pi")
-    assert isinstance(a.default_timeout_s, int)
-    assert a.default_timeout_s > 0
-    assert a.default_timeout_s <= 86400  # no absurd values
 
 
 def test_opencode_default_timeout_s_is_set() -> None:
@@ -51,9 +39,6 @@ def test_opencode_default_timeout_s_is_set() -> None:
     assert a.default_timeout_s <= 86400
 
 
-def test_pi_supports_tools_is_true() -> None:
-    """Pi has the open_edit TS extension; tools are available."""
-    assert get_adapter("pi").supports_tools() is True
 
 
 def test_opencode_supports_tools_is_false() -> None:
@@ -62,24 +47,16 @@ def test_opencode_supports_tools_is_false() -> None:
 
 
 def test_both_adapters_manage_own_auth() -> None:
-    """Q3: both pi and opencode read from their own auth files."""
-    assert get_adapter("pi").manages_own_auth() is True
+    """Q3: OpenCode reads from its own auth files."""
     assert get_adapter("opencode").manages_own_auth() is True
 
 
-def test_pi_default_model_is_minimax_m3() -> None:
-    assert get_adapter("pi").default_model() == "minimax-m3"
 
 
 def test_opencode_default_model_is_opencode_go_minimax_m3() -> None:
     assert get_adapter("opencode").default_model() == "opencode-go/minimax-m3"
 
 
-def test_pi_available_models_is_nonempty_list() -> None:
-    models = get_adapter("pi").available_models()
-    assert isinstance(models, list)
-    assert len(models) > 0
-    assert "minimax-m3" in models
 
 
 def test_opencode_available_models_is_list() -> None:

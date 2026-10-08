@@ -28,7 +28,6 @@ from open_edit.kernel.tool_executor import (
     execute_trigger_render,
 )
 
-
 # ============================================================================
 # add_marker
 # ============================================================================
@@ -261,7 +260,7 @@ def test_run_python_missing_code(tmp_path: Path):
     assert result["status"] == "error"
 
 
-def test_run_python_read_only_succeeds_with_zero_ops(tmp_path: Path):
+def test_run_python_read_only_succeeds_with_zero_ops(tmp_path: Path, monkeypatch):
     """A read-only script (no ops emitted) should succeed, not error."""
     result = run_python({"code": "pass"}, str(tmp_path))
     assert result["status"] == "ok"
@@ -446,9 +445,8 @@ async def test_execute_trigger_render_subprocess_fails(tmp_path: Path):
     with mock.patch(
         "open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch",
         failing_launch,
-    ):
-        with pytest.raises(RuntimeError) as exc:
-            await execute_trigger_render(args={"wait": True}, project_path=tmp_path)
+    ), pytest.raises(RuntimeError) as exc:
+        await execute_trigger_render(args={"wait": True}, project_path=tmp_path)
     assert "open_edit render" in str(exc.value)
     assert "boom" in str(exc.value)
 

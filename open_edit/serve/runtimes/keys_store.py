@@ -9,6 +9,7 @@ The provider → env var map is derived from the canonical registry in
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -66,10 +67,8 @@ def save_stored_key(provider: str, key_value: str) -> None:
             os.chmod(tmp, 0o600)
         os.replace(tmp, KEYS_FILE_PATH)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
 
 

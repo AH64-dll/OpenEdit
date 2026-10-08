@@ -1,11 +1,10 @@
 """Unit tests for serve/runtimes/registry.py (Runtime registry & GUI PATH expansion)."""
-import os
 from pathlib import Path
+
 from open_edit.serve.runtimes.registry import (
-    CANDIDATE_DIRS,
-    get_expanded_path_env,
-    find_binary_in_expanded_path,
     discover_runtimes,
+    find_binary_in_expanded_path,
+    get_expanded_path_env,
 )
 
 
