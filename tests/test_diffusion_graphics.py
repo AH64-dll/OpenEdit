@@ -306,3 +306,17 @@ def test_encoder_timeout_reaps_child_and_allows_restart(tmp_path, monkeypatch):
                                    'color=c=blue:s=32x32:r=30', '-t', '0.1', '-f', 'null', '-'],
                                   timeout=10)
     assert restarted.returncode == 0
+
+
+def test_completed_worker_never_signals_a_reaped_process_group(monkeypatch):
+    import sys
+
+    from open_edit.integrations.diffusion import graphics
+
+    with subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=os.name == 'posix') as proc:
+        assert proc.wait(timeout=10) == 0
+        monkeypatch.setattr(graphics._ACTIVE, 'process', proc, raising=False)
+        def unexpected_signal(*args):
+            pytest.fail('A reaped process group must not be signalled')
+        monkeypatch.setattr(os, 'killpg', unexpected_signal, raising=False)
+        graphics.stop_worker()

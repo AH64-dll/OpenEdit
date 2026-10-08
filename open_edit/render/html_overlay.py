@@ -89,7 +89,7 @@ def _resolve_hyperframes_bin() -> str:
     if installed:
         return installed
     raise OverlayRenderError(
-        "HyperFrames binary not found; run npm ci in the repository or set "
+        "HyperFrames binary not found; run open_edit setup html, npm ci in a source checkout, or set "
         "OPEN_EDIT_HYPERFRAMES_BIN to an installed engine"
     )
 

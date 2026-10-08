@@ -15,9 +15,10 @@ export const $$ = (sel, root = (typeof document !== 'undefined' ? document : nul
 };
 
 export function el(tag, props = {}, children = []) {
-  const node = document.createElement(tag);
+  const svg = tag === 'svg' && typeof document.createElementNS === 'function';
+  const node = svg ? document.createElementNS('http://www.w3.org/2000/svg', tag) : document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
-    if (k === 'class') node.className = v;
+    if (k === 'class' && !svg) node.className = v;
     else if (k === 'dataset') Object.assign(node.dataset, v);
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'html') node.innerHTML = v;

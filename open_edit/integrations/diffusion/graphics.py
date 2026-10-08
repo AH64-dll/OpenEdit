@@ -62,7 +62,10 @@ def validate_params(params: dict) -> dict:
 def stop_worker() -> None:
     """Also called by the standalone worker's SIGTERM handler."""
     proc = getattr(_ACTIVE, 'process', None)
-    if proc is None:
+    if proc is None or proc.poll() is not None:
+        # A reaped PID no longer identifies our process group. Normal worker
+        # completion already closes Chromium; signalling that PID afterwards
+        # can target a reused group or raise EPERM on macOS.
         return
     if os.name == 'posix':
         with contextlib.suppress(ProcessLookupError):

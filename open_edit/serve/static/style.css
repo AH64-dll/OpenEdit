@@ -3918,3 +3918,25 @@ body[data-workspace] .compact-renders { flex-wrap:wrap; }
 body[data-workspace] .render-card { flex-wrap:wrap; }
 #preview-panel:fullscreen { background:#080b10; width:100vw; height:100vh; }
 #preview-panel:fullscreen .preview-media { max-height:calc(100vh - 120px); }
+/* One compact transport, with working SVG icons in the DOM namespace. */
+body[data-workspace] .transport { display:flex; flex:0 0 auto; align-items:center; gap:8px; min-height:44px; padding:0 16px; }
+body[data-workspace] .transport .btn-icon { width:32px; height:32px; padding:0; flex:0 0 32px; }
+body[data-workspace] .transport-time { font-size:12px; white-space:nowrap; }
+body[data-workspace] .transport .icon-svg { width:17px; height:17px; }
+body[data-workspace] .preview-volume { margin-left:auto; }
+@media(max-width:900px) {
+ body[data-workspace] .topbar { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:auto auto; height:auto; min-height:0; gap:6px; padding:8px 10px; }
+ body[data-workspace] .topbar-left { grid-column:1/-1; grid-row:1; width:100%; overflow:visible; }
+ body[data-workspace] .topbar-center { grid-column:1; grid-row:2; }
+ body[data-workspace] .topbar-right { grid-column:2; grid-row:2; justify-content:flex-end; gap:4px; }
+ body[data-workspace] .topbar-project { display:flex; min-width:0; width:auto; height:auto; flex:1; }
+ body[data-workspace] .topbar-project > .topbar-label { display:none; }
+ body[data-workspace] .project-select-wrap { flex:1; }
+ body[data-workspace] .project-select { min-width:0; max-width:none; width:100%; }
+ body[data-workspace] #btn-refresh-project, body[data-workspace] #btn-toggle-left-panel, body[data-workspace] #btn-toggle-right-panel { display:none !important; }
+ body[data-workspace] .transport { flex-wrap:wrap; padding:0 12px; gap:6px; }
+ body[data-workspace] .preview-volume { margin-left:0; }
+ body[data-workspace] .preview-stage { flex:0 0 auto !important; min-height:0; height:auto; }
+ body[data-workspace] .preview-media { flex:0 0 auto !important; height:auto; aspect-ratio:16/9; }
+ body[data-workspace] .preview-player { position:absolute; inset:0; }
+}

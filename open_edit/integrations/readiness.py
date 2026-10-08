@@ -49,6 +49,7 @@ def chromium_available() -> bool:
 def readiness() -> dict:
     from open_edit.integrations.diffusion.compiler import worker_ready
     from open_edit.integrations.diffusion.graphics import graphics_ready
+    from open_edit.render.html_overlay import OverlayRenderError, _resolve_hyperframes_bin
 
     binaries = {name: bool(shutil.which(name)) for name in ('ffmpeg', 'ffprobe', 'melt', 'node', 'npm')}
     base = binaries['ffmpeg'] and binaries['ffprobe'] and 'libx264' in _output('ffmpeg', '-hide_banner', '-encoders')
@@ -57,6 +58,10 @@ def readiness() -> dict:
     node = binaries['node'] and binaries['npm'] and version.isdigit() and int(version) >= 24
     media = node and worker_ready()
     graphics = base and node and graphics_ready() and chromium_available()
+    try:
+        html = node and Path(_resolve_hyperframes_bin()).is_file()
+    except OverlayRenderError:
+        html = False
     legacy = Path(__file__).parent / 'remotion/node_modules/@remotion/cli/package.json'
     return {
         'capabilities': {'timeline': timeline, 'media': media, 'graphics': graphics},
@@ -69,6 +74,8 @@ def readiness() -> dict:
              'help': 'Install Node.js 24 and npm, then run: open_edit setup media'},
             {'name': 'Editable graphics', 'ready': graphics,
              'help': 'Install full FFmpeg, Node.js 24 and npm, then run: open_edit setup graphics. Linux may also need Playwright Chromium system libraries.'},
+            {'name': 'Advanced HTML package (optional)', 'ready': html,
+             'help': 'Only for advanced HTML/CSS/JS overlays: install Node.js 24 and npm, then run open_edit setup html.'},
             {'name': 'Legacy Remotion compatibility (optional)', 'ready': legacy.is_file(),
              'help': 'Only for existing Remotion projects: open_edit setup legacy-remotion'},
         ],
