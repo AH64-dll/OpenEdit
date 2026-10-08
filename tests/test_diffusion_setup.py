@@ -36,7 +36,7 @@ def test_setup_reproduces_exact_upstream_patch_and_is_repeatable(tmp_path):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
     # Restore pristine npm files with the independently vendored upstream diff.
-    subprocess.run(['git', 'apply', '--reverse', '--unsafe-paths',
+    subprocess.run(['git', '-c', 'core.autocrlf=false', 'apply', '--reverse', '--unsafe-paths',
                     str(tmp_path / 'patches/koota+0.6.6.patch')],
                    cwd=tmp_path, check=True, capture_output=True)
     assert len(apply_dependency_patches(tmp_path)) == 3

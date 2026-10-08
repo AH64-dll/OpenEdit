@@ -56,7 +56,7 @@ def _patch_function(body: bytes, signature: bytes, early_return: bytes) -> bytes
         return body  # already patched
     if body.count(early_return) != 1 or body.count(_KOOTA_OR_OLD) != 1:
         raise SystemExit(f'koota patch anchors not found after {signature!r}: dependency content changed')
-    body = body.replace(early_return, early_return + _KOOTA_DECL, 1)
+    body = body.replace(early_return, early_return + _KOOTA_DECL.lstrip(b'\n'), 1)
     body = body.replace(_KOOTA_OR_OLD, _KOOTA_OR_NEW, 1)
     tail_marker = (b'\n  let hasOrGroup = false;\n'
                    if signature == b'function checkQueryTracking('
