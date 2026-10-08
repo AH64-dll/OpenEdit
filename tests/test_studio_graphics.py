@@ -238,3 +238,72 @@ def test_source_backed_timeline_export_is_checked_and_excludes_marks(tmp_path, m
     frame.save(artifacts / 'studio-source-timeline-export.png')
     assert store.graph_revision() == revision and len(store.load_all()) == 1
     assert get_studio(tmp_path, include_source=True)['objects'][-1]['data']['source'] == source
+
+
+@pytest.mark.browser
+def test_upper_video_trim_effect_bypass_hidden_picture_and_audio(tmp_path, monkeypatch):
+    """Exercise actual MLT and FFmpeg, not just the serialized filter graph."""
+    import array
+    import shutil
+    import subprocess
+
+    from PIL import Image
+
+    from open_edit.render.orchestrator import render_project
+    from open_edit.storage.assets import AssetStore
+
+    if not shutil.which('melt'):
+        pytest.skip('Actual MLT required')
+    monkeypatch.setenv('QT_QPA_PLATFORM', 'offscreen')
+    monkeypatch.setenv('SDL_VIDEODRIVER', 'dummy')
+    from pathlib import Path
+
+    base_path, upper_path = tmp_path/'base.mp4', tmp_path/'upper.mp4'
+    subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','color=c=blue:s=320x180:r=30:d=1.5',
+                    '-c:v','libx264','-pix_fmt','yuv420p',str(base_path)],check=True)
+    subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','color=c=red:s=320x180:r=30:d=0.5',
+                    '-f','lavfi','-i','color=c=lime:s=320x180:r=30:d=0.5',
+                    '-f','lavfi','-i','sine=frequency=880:sample_rate=48000:duration=1',
+                    '-filter_complex','[0:v][1:v]concat=n=2:v=1:a=0[v]','-map','[v]','-map','2:a',
+                    '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',str(upper_path)],check=True)
+    assets = AssetStore(tmp_path/'.open_edit/assets')
+    base, upper = assets.ingest(str(base_path),transcribe=False), assets.ingest(str(upper_path),transcribe=False)
+    store = EditGraphStore(tmp_path/'.open_edit/edit_graph.db')
+    commit_studio(tmp_path,expected_revision=0,changes=[],ops=[
+        {'kind':'add_clip','clip_id':'base','asset_hash':base.asset_hash,'track_id':'v1','position_sec':0,'out_point_sec':1.5},
+        {'kind':'add_clip','clip_id':'upper','asset_hash':upper.asset_hash,'track_id':'v2','position_sec':.5,'in_point_sec':.5,'out_point_sec':1},
+        {'kind':'add_effect','effect_id':'brightness','target_kind':'clip','target_id':'upper','effect_type':'brightness','params':{'value':.5}},
+    ])
+    def render(name):
+        result = render_project(project_id='layers',project_dir=tmp_path,workdir=tmp_path/name,
+                                mode='proxy',overrides={'scale':'320x180'},encoder_backend='cpu',force=True)
+        assert result.ok, result.error
+        return result.output_path
+    def pixel(path, time):
+        raw = subprocess.check_output(['ffmpeg','-v','error','-ss',str(time),'-i',str(path),'-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-'])
+        return Image.frombytes('RGB',(320,180),raw).getpixel((160,90))
+    def rms(path):
+        raw = subprocess.check_output(['ffmpeg','-v','error','-i',str(path),'-ss','.6','-t','.25','-vn','-ac','1','-f','f32le','-'])
+        values = array.array('f',raw)
+        return (sum(v*v for v in values)/max(1,len(values)))**.5
+    checked = render('effects')
+    assert pixel(checked,.1)[2] > 200 and pixel(checked,1.2)[2] > 200
+    color = pixel(checked,.7)
+    assert 90 < color[1] < 160 and color[0] < 30, color  # trimmed lime, half brightness
+    assert rms(checked) > .02, 'Upper video lost its audio'
+    cache = list((tmp_path/'.open_edit/cache/layers').glob('*.mov'))
+    assert len(cache)==1
+    commit_studio(tmp_path,expected_revision=store.graph_revision(),changes=[],ops=[
+        {'kind':'control_effect','target_kind':'clip','target_id':'upper','effect_id':'brightness','enabled':False},
+        {'kind':'set_clip_properties','clip_id':'upper','muted':True},
+    ])
+    bypass = render('bypass')
+    assert pixel(bypass,.7)[1] > 220 and rms(bypass) < .001
+    commit_studio(tmp_path,expected_revision=store.graph_revision(),changes=[],ops=[
+        {'kind':'set_clip_properties','clip_id':'upper','hidden':True,'muted':False},
+    ])
+    hidden = render('hidden')
+    assert pixel(hidden,.7)[2] > 200 and rms(hidden) > .02
+    artifacts = Path('tests/browser/artifacts')
+    artifacts.mkdir(parents=True,exist_ok=True)
+    (artifacts/'studio-layer-controls.json').write_text(__import__('json').dumps({'half_brightness':color,'audio_rms':rms(checked),'hidden_audio_rms':rms(hidden)}))

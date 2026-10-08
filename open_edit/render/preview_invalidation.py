@@ -198,6 +198,7 @@ def _slice_tracks(
         else {plane}
     )
     sliced_tracks: list[Track] = []
+    has_solo = any(track.solo for track in tracks)
     for track in tracks:
         if track.kind not in selected_kinds:
             continue
@@ -215,7 +216,8 @@ def _slice_tracks(
         ]
         if clips:
             clips.sort(key=lambda clip: clip.position_sec)
-            sliced_tracks.append(track.model_copy(update={"clips": clips}))
+            sliced_tracks.append(track.model_copy(update={"clips": clips,
+                'muted': track.muted or (has_solo and not track.solo), 'solo': False}))
     return sliced_tracks
 
 

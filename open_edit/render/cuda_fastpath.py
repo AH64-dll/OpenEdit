@@ -112,11 +112,15 @@ def timeline_supports_cuda_fastpath(timeline: Any) -> bool:
     if len(video_tracks) != 1:
         return False
     track = video_tracks[0]
+    if track.hidden:
+        return False
     if len(track.clips) != 1:
         return False
     if track.effects:
         return False
     clip = track.clips[0]
+    if clip.hidden:
+        return False
     # Audio-only effects (volume/gain) do NOT disqualify the CUDA fast path:
     # the fast path encodes video only, and the caller's separate melt-audio
     # pass applies the gain to the wav. Video-affecting effects still require

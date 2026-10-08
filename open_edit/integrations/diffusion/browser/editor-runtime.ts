@@ -2,13 +2,16 @@
 import {
   createRuntimeWorld, FrameRate, RenderSurface, Mode, Library, Fonts, FramePromises,
   resetCamera, Silent, AudioEngine, Computed, Playback, Time, Host, WorldTransform,
-  setActive, store, assetSystem, playbackSystem, motionSystem, transformSystem,
+  setActive, store, assetSystem, playbackSystem, motionSystem, transformSystem, Source, Hidden,
   renderSystem, getParentEntity,
 } from '@diffusionstudio/runtime';
 import { mount, getRuntimeDocument } from '@diffusionstudio/reconciler';
 import { captureScene, normalizeSceneTransform, resolverSystem, warmupAssets } from './vendor/encoder/src/encoder';
 
 let fontReady: Promise<void> | undefined;
+// The source compiler deliberately removes authored `id` props. Source is the
+// durable identity shared with the AST writer, rather than a runtime entity ID.
+const sourceId = (entity: any) => entity?.get(Source)?.value?.split(':').at(-1);
 function loadFont() {
   return fontReady ??= (async () => {
     const font = new FontFace('OpenEdit Sans', 'url(/api/studio/font.woff2)', { weight: '400' });
@@ -71,7 +74,7 @@ class Editor {
       const document = getRuntimeDocument(world);
       for (const entity of world.query(Host)) {
         const node = entity.get(Host);
-        for (const [key, value] of Object.entries(props[node?.props.id] || {})) {
+        for (const [key, value] of Object.entries(props[sourceId(entity)] || {})) {
           if (!['x', 'y', 'width', 'height', 'rotation', 'scale', 'scaleX', 'scaleY', 'opacity'].includes(key) ||
               typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Invalid interactive property');
           document.setProperty(node, key, value);
@@ -86,7 +89,7 @@ class Editor {
       if (this.disposed) return [];
       motionSystem(world); normalizeSceneTransform(world, sceneId);
       for (const entity of world.query(Host)) {
-        const delta = offsets[entity.get(Host)?.props.id];
+        const delta = offsets[sourceId(entity)];
         if (delta) {
           computed.positionX[entity.id()] += delta[0];
           computed.positionY[entity.id()] += delta[1];
@@ -106,13 +109,14 @@ class Editor {
     // The authored tree order is also the paint order, including nested siblings.
     const visit = (node: any, ancestorsVisible: boolean) => {
       const entity = node.entity, id = entity?.id(), matrix = entity?.get(WorldTransform);
-      const visible = ancestorsVisible && computed.visibility[id] > 0 && computed.opacity[id] > 0;
-      if (node.props.id && matrix && ['rect', 'text', 'image', 'group'].includes(node.tag)) {
+      const authoredId = sourceId(entity);
+      const visible = ancestorsVisible && !entity?.has(Hidden) && computed.visibility[id] > 0 && computed.opacity[id] > 0;
+      if (authoredId && matrix && ['rect', 'text', 'image', 'group'].includes(node.tag)) {
         const width = computed.width[id], height = computed.height[id];
         const originX = computed.originX[id] || 0, originY = computed.originY[id] || 0;
         const point = (x: number, y: number) => [matrix.a * x + matrix.c * y + matrix.e, matrix.b * x + matrix.d * y + matrix.f];
         const parent = getParentEntity(entity), parentMatrix = parent?.get(WorldTransform);
-        result.push({ id: node.props.id, tag: node.tag, visible, width, height,
+        result.push({ id: authoredId, tag: node.tag, visible, width, height,
           x: computed.positionX[id], y: computed.positionY[id], matrix, parent_matrix: parentMatrix,
           corners: [[originX, originY], [originX + width, originY], [originX + width, originY + height], [originX, originY + height]].map(([x, y]) => point(x, y)),
         });

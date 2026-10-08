@@ -90,10 +90,28 @@ receive the same structured selection/source/marks as external MCP agents, and
 History offers request revert with a dependency report. Focused regression checks
 are passing; complete regression and actual browser acceptance are in progress.
 
-Still required: request-revert browser acceptance, full timeline
+Timeline/effect checkpoint in progress: stable IR operations now name, reorder,
+mute/solo/hide/lock tracks and clips; duplicate clips with independent effect IDs;
+and update, bypass, reorder, reset, copy or remove effects by stable ID. The UI
+adds pointer dragging and trim handles, multi-selection, splitting, duplication,
+normal/ripple deletion, track buttons and catalog-driven effect forms. The script
+bootstrap exposes these controls too. Source-duration and compatible-track
+validation share the revision-checked commit path, preserving atomic history.
+
+Rendering now preserves upper-layer source-in offsets and stacking, keeps upper
+video audio in the mix, and caches checked alpha layer passes for upper effects.
+Solo state survives preview-range slicing; disabled effects are excluded from
+emission. Linear volume converts to the MLT decibel level property. A canvas
+selection bug was fixed by reading stable Source metadata instead of removed
+runtime id props. New browser tests exercise actual drag/trim/effect controls;
+actual render acceptance checks trimmed upper media, effect bypass, hidden
+pictures and audio. These checks await the next CI run. Local compatibility
+regressions passed (234 tests, one MLT skip); the full rerun is in progress.
+
+Still required: request-revert browser acceptance, complete timeline
 interaction and track controls, effect-stack editing, keyframe/curve UI, audio
 waveforms and controls, caption/style/font editing, full media-canvas marks,
-built-in agent request grouping/context, custom export settings, immutable
+custom export settings, immutable
 snapshot publication to Desktop, fresh package/platform validation and the
 complete S16 workflow. Keep all S01-S16 acceptance requirements open until their
 current implementation and runtime evidence are complete.

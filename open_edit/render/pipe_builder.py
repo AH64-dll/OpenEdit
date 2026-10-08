@@ -26,6 +26,8 @@ class OverlayClip:
     blur_under: bool = False
     # ProRes/Remotion overlays carry alpha; opaque MP4 screen recordings do not.
     alpha: bool = True
+    in_point_sec: float = 0.0
+    z_index: int = 0
 
 
 OverlayInput: TypeAlias = OverlayClip | FrameOverlaySpec
@@ -83,15 +85,17 @@ def overlay_filter_chain(
         end = ov.position_sec + ov.duration_sec
         out_label = f"[v{i}]" if i < len(overlays) else "[vout]"
         ov_input = first_overlay_input + i - 1
+        source_in = getattr(ov, 'in_point_sec', 0.0)
+        trim = f'trim=start={source_in}:duration={ov.duration_sec},' if source_in else ''
         if ov.alpha:
             filters.append(
-                f"[{ov_input}:v]scale={width}:{height},"
+                f"[{ov_input}:v]{trim}scale={width}:{height},"
                 f"format=rgba,"
                 f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
             )
         else:
             filters.append(
-                f"[{ov_input}:v]scale={width}:{height},"
+                f"[{ov_input}:v]{trim}scale={width}:{height},"
                 f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
             )
         filters.append(
@@ -137,7 +141,7 @@ def build_pipe_commands(
         overlay
         for _index, overlay in sorted(
             enumerate(requested_overlays),
-            key=lambda item: (item[1].position_sec, item[0]),
+            key=lambda item: (getattr(item[1], 'z_index', 0), item[0]),
         )
     ]
     normalized_overlays: list[OverlayInput] = []

@@ -19,6 +19,17 @@ from .projects import _require_project
 router = APIRouter()
 
 
+@router.get('/api/studio/effects')
+async def effect_capabilities():
+    """The same catalog drives validation, UI controls and XML properties."""
+    from open_edit.ir.validate import _get_default_catalog
+
+    catalog = _get_default_catalog()
+    return {'effects': [catalog.get(name).model_dump(mode='json') for name in sorted(catalog.known_names())],
+            'actions': ['update', 'remove', 'move', 'reset', 'duplicate'],
+            'advanced': 'Uncatalogued effects retain source and can be bypassed, reordered or removed.'}
+
+
 class StudioEditRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     expected_revision: StrictInt = Field(ge=0)

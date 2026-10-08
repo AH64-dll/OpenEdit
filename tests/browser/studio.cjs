@@ -31,28 +31,37 @@ async function parity(browser) {
     if (url.pathname === '/') return route.fulfill({contentType:'text/html',body:'<!doctype html><canvas id="editor"></canvas>'});
     return route.abort();
   });
-  await page.goto('https://openedit.invalid/'); await page.addScriptTag({content:editorCode}); await page.addScriptTag({content:exportCode});
+  await page.goto('https://openedit.invalid/'); await page.addScriptTag({content:editorCode});
   const result = await page.evaluate(async ({code}) => {
     const canvas = document.querySelector('#editor');
     const editor = await window.OpenEditCanvas.create(canvas, {code, fps:30, assets:[]});
     const first = await editor.frame(0), firstPixels = [...canvas.getContext('2d').getImageData(0,0,320,180).data];
     const later = await editor.frame(.5), interactive = [...canvas.getContext('2d').getImageData(0,0,320,180).data];
     await editor.frame(0); const seekBack = [...canvas.getContext('2d').getImageData(0,0,320,180).data];
+    await editor.dispose();
+    return {interactive, firstPixels, seekBack, first, later};
+  }, {code:compiled.code});
+  // Each production host has its own realm. Koota installs Number.prototype
+  // entity methods; loading two independent bundles into one realm replaces
+  // those methods with the other bundle's world registry.
+  await page.reload(); await page.addScriptTag({content:exportCode});
+  const exported = await page.evaluate(async ({code}) => {
     await window.openEdit.mount(code,30,[]);
     const png = await window.openEdit.frame(15), bytes = Uint8Array.from(atob(png), c=>c.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes],{type:'image/png'}));
     const comparison = document.createElement('canvas'); comparison.width=320; comparison.height=180;
     comparison.getContext('2d').drawImage(bitmap,0,0); bitmap.close();
-    const exported = [...comparison.getContext('2d').getImageData(0,0,320,180).data];
-    const maxDifference = interactive.reduce((max,v,i)=>Math.max(max,Math.abs(v-exported[i])),0);
-    const seekDifference = firstPixels.reduce((max,v,i)=>Math.max(max,Math.abs(v-seekBack[i])),0);
-    // Geometry must use the same matrix which put the colored rectangle here.
-    const animated = later.find(g=>g.id==='animated');
-    const center = animated.corners.reduce((p,c)=>[p[0]+c[0]/4,p[1]+c[1]/4],[0,0]);
-    const color = [...comparison.getContext('2d').getImageData(Math.round(center[0]),Math.round(center[1]),1,1).data];
-    await editor.dispose(); await window.openEdit.dispose();
-    return {maxDifference,seekDifference,first,later,color};
+    const pixels = [...comparison.getContext('2d').getImageData(0,0,320,180).data];
+    await window.openEdit.dispose(); return pixels;
   }, {code:compiled.code});
+  result.maxDifference = result.interactive.reduce((max,v,i)=>Math.max(max,Math.abs(v-exported[i])),0);
+  result.seekDifference = result.firstPixels.reduce((max,v,i)=>Math.max(max,Math.abs(v-result.seekBack[i])),0);
+  // Geometry must use the same matrix which put the colored rectangle here.
+  const animated = result.later.find(g=>g.id==='animated'); assert.ok(animated, 'Missing source-ID geometry');
+  const center = animated.corners.reduce((p,c)=>[p[0]+c[0]/4,p[1]+c[1]/4],[0,0]);
+  const pixel = (Math.round(center[1])*320+Math.round(center[0]))*4;
+  result.color = exported.slice(pixel,pixel+4);
+  delete result.interactive; delete result.firstPixels; delete result.seekBack;
   assert.equal(result.maxDifference,0,'Interactive pixels differ from checked export pixels');
   assert.equal(result.seekDifference,0,'Backward seeking changed the authored frame');
   assert.deepEqual(result.color,[221,51,85,255]);
@@ -78,7 +87,34 @@ async function parity(browser) {
     const projects=await (await fetch(`${base}/api/projects`)).json(), id=projects[0].id;
     const api = async (suffix,body) => { const response=await fetch(`${base}/api/projects/${encodeURIComponent(id)}${suffix}`,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{}); const result=await response.json(); assert.ok(response.ok,JSON.stringify(result));return result; };
     page=await browser.newPage({viewport:{width:1600,height:1050}}); const errors=[]; page.on('pageerror',e=>errors.push(e.message));
-    await page.goto(base); await page.locator('#workspace-graphics').click();
+    await page.goto(base);
+    await page.locator('.timeline-clip[data-clip-id="hero"]').waitFor();
+    await page.waitForFunction(()=>Number.isInteger(window.OpenEdit.state.editingSelection?.expected_revision));
+    // Actual pointer edits use the guarded IR path, without opening Code.
+    const hero = page.locator('.timeline-clip[data-clip-id="hero"]');
+    let clipBox = await hero.boundingBox();
+    const pps = Number(await page.locator('#timeline-tracks-area').getAttribute('data-pixels-per-second'));
+    await page.mouse.move(clipBox.x+clipBox.width/2,clipBox.y+clipBox.height/2);
+    await page.mouse.down();await page.mouse.move(clipBox.x+clipBox.width/2+pps,clipBox.y+clipBox.height/2,{steps:8});await page.mouse.up();
+    await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id==='hero')?.position_sec===1);
+    clipBox = await hero.boundingBox();
+    await page.mouse.move(clipBox.x+clipBox.width-3,clipBox.y+clipBox.height/2);await page.mouse.down();
+    await page.mouse.move(clipBox.x+clipBox.width-3-pps*.5,clipBox.y+clipBox.height/2,{steps:8});await page.mouse.up();
+    await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id==='hero')?.out_point_sec===1.5);
+    await hero.click();await page.locator('#timeline-inspector select[aria-label="Add effect"]').selectOption('brightness');
+    await page.locator('#timeline-inspector .effect-card input[name=value]').fill('0.7');
+    await page.locator('#timeline-inspector').getByRole('button',{name:'Update effect',exact:true}).click();
+    await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id==='hero')?.effects[0]?.params.value===.7);
+    await page.locator('#timeline-inspector').getByRole('button',{name:'Bypass',exact:true}).click();
+    await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id==='hero')?.effects[0]?.enabled===false);
+    await page.locator('#timeline-inspector .studio-layer-actions').getByRole('button',{name:'Duplicate',exact:true}).click();
+    await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).length===2);
+    const duplicate = await page.evaluate(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id!=='hero').clip_id);
+    await page.locator(`.timeline-clip[data-clip-id="${duplicate}"]`).click();
+    await page.locator('#timeline-inspector .studio-layer-actions').getByRole('button',{name:'Ripple delete',exact:true}).click();
+    await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).length===1);
+    await page.screenshot({path:path.join(artifacts,'studio-timeline-effects.png'),fullPage:true});
+    await page.locator('#workspace-graphics').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-status').textContent.startsWith('Interactive canvas'),null,{timeout:60000});
     await page.locator('#graphics-commit').click(); await page.waitForFunction(()=>document.querySelector('#graphics-status').textContent.startsWith('Saved editable'));
     await page.locator('[data-tab="layers"]').click();

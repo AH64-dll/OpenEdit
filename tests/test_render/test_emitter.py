@@ -110,7 +110,7 @@ def test_emitter_emits_effects_as_filters() -> None:
     ))
     assert "<filter" in xml
     assert 'service="volume"' in xml
-    assert "0.5" in xml  # gain value in the filter
+    assert 'name="level">-6.020600' in xml  # linear 0.5 becomes dB for MLT
 
 
 def test_emitter_emits_audio_tracks_separately() -> None:

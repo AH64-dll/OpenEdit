@@ -193,7 +193,7 @@ async function rewrite(edits, label) {
   finally { busy = false; controls(); }
 }
 async function translations(offsets, label) {
-  await rewrite(Object.entries(offsets).map(([id, [dx, dy]]) => { const g = geometry.find(g => g.id === id), [x, y] = localDelta(g?.parent_matrix, dx, dy); return { kind: 'translate', source: `index.tsx:${id}`, dx: x, dy: y }; }), label);
+  await rewrite(Object.entries(offsets).map(([id, [dx, dy]]) => { const g = geometry.find(g => g.id === id), [x, y] = localDelta(g?.parent_matrix, dx, dy); return { kind: 'translate', source: `index.tsx:${id}`, dx: Math.round(x*1e6)/1e6, dy: Math.round(y*1e6)/1e6 }; }), label);
 }
 const pointer = event => { const rect = canvas.getBoundingClientRect(); return [(event.clientX - rect.left) * canvas.width / rect.width, (event.clientY - rect.top) * canvas.height / rect.height]; };
 canvas.addEventListener('pointerdown', event => {

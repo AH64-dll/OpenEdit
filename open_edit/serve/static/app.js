@@ -1847,7 +1847,7 @@ function bindTimelineScrubbing() {
   rulerCol.dataset.scrubBound = '1';
   rulerCol.addEventListener('mousedown', (evt) => {
     if (evt.button !== 0) return;
-    if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
+    if (evt.target.closest('.timeline-clip, .timeline-edit-marker, .timeline-note-marker')) return;
     tlScrubbing = true;
     seekToSec(timelineSecFromEvent(evt, rulerCol));
     evt.preventDefault();
@@ -1993,15 +1993,16 @@ export function renderTimeline(timelineData, context = {}) {
   // for now, overlay markers live on top of all tracks)
   const totalWidth = secToPx(Math.max(durationSec, 10));
   tracksArea.style.width = `${totalWidth}px`;
+  tracksArea.dataset.pixelsPerSecond = String(secToPx(1));
 
   tracks.forEach((track) => {
     // Label
     const kindBadge = el('span', {
       class: `track-kind-badge ${track.kind ?? 'video'}`,
     }, [icon(track.kind === 'audio' ? 'audio' : 'video')]);
-    const labelRow = el('div', { class: 'timeline-track-label-row' }, [
+    const labelRow = el('div', { class: 'timeline-track-label-row', 'data-track-id': track.track_id || '' }, [
       kindBadge,
-      document.createTextNode(track.track_id ?? ''),
+      el('span', { class: 'track-label-name' }, [track.label || track.track_id || '']),
     ]);
     labelsCol.appendChild(labelRow);
 
@@ -2131,6 +2132,7 @@ export function renderTimeline(timelineData, context = {}) {
   }
 
   bindTimelineScrubbing();
+  window.dispatchEvent?.(new CustomEvent('openedit:timeline-rendered'));
 
   if (durationSec > 120 && !tlAutoFitPending) {
     tlAutoFitPending = true;

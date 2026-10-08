@@ -92,6 +92,10 @@ def apply_operation(
     timeline = timeline.model_copy(deep=True)
     if op.status != "applied":
         return timeline
+    from open_edit.ir.studio_ops import STUDIO_OPERATIONS, apply
+
+    if isinstance(op, STUDIO_OPERATIONS):
+        return apply(timeline, op)
 
     if isinstance(op, SetGraphicsSourceOp):
         old = timeline.graphics_documents.get(op.document_id)

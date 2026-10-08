@@ -118,6 +118,8 @@ def _emit_filter(
     fps_den: int,
 ) -> None:
     """Emit a regular Effect as an MLT <filter> element."""
+    if not effect.enabled:
+        return
     mlt_service = _mlt_service_name(effect.effect_type)
     filter_el = etree.SubElement(parent, "filter", attrib={
         "id": effect.effect_id,
@@ -125,11 +127,15 @@ def _emit_filter(
         "mlt_service": mlt_service,
     })
     prop_names = _catalog_property_names(effect.effect_type)
+    if effect.effect_type in ('volume', 'gain'):
+        prop_names['gain'] = 'level'
     for key, value in effect.params.items():
         if key == "service":
             continue
         prop = etree.SubElement(filter_el, "property", attrib={"name": prop_names.get(key, key)})
-        if isinstance(value, bool):
+        if effect.effect_type == 'volume' and key == 'gain':
+            prop.text = f'{_amp_to_db(float(value)):.6f}'
+        elif isinstance(value, bool):
             prop.text = "1" if value else "0"
         else:
             prop.text = str(value)
@@ -140,9 +146,8 @@ def _emit_filter(
         parts: list[str] = []
         for time_sec, value, interp in kfs:
             marker = "!" if interp == "discrete" else ("~" if interp == "smooth" else "")
-            parts.append(
-                f"{marker}{_format_timecode(time_sec, fps_num, fps_den)}={value}"
-            )
+            serialized = _amp_to_db(value) if effect.effect_type == 'volume' and param == 'gain' else value
+            parts.append(f"{marker}{_format_timecode(time_sec, fps_num, fps_den)}={serialized}")
         prop.text = ";".join(parts)
 
 
@@ -268,7 +273,7 @@ def emit_timeline(
 
     used_hashes: set[str] = set()
     for track in timeline.tracks:
-        for clip in track.clips:
+        for clip in sorted(track.clips, key=lambda c: c.position_sec):
             used_hashes.add(clip.asset_hash)
 
     for asset_hash in sorted(used_hashes):
@@ -288,7 +293,7 @@ def emit_timeline(
         })
 
         current_pos: float = 0.0
-        for clip in track.clips:
+        for clip in sorted(track.clips, key=lambda c: c.position_sec):
             if clip.position_sec > current_pos:
                 blank_dur = clip.position_sec - current_pos
                 etree.SubElement(playlist, "blank", attrib={
@@ -311,6 +316,8 @@ def emit_timeline(
                     clip_in_sec=clip.in_point_sec,
                 )
             for effect in clip.effects:
+                if not effect.enabled:
+                    continue
                 if effect.effect_type.startswith("transition_"):
                     _emit_transition(entry, effect)
                 else:
@@ -324,6 +331,8 @@ def emit_timeline(
             })
 
         for effect in track.effects:
+            if not effect.enabled:
+                continue
             if effect.effect_type.startswith("transition_"):
                 _emit_transition(playlist, effect)
             else:
@@ -340,10 +349,20 @@ def emit_timeline(
     })
 
     multitrack = etree.SubElement(tractor, "multitrack")
-    for track_id in playlist_track_ids:
+    solo = any(t.solo for t in timeline.tracks)
+    for track_id, track in zip(playlist_track_ids, timeline.tracks, strict=True):
+        muted = track.muted or (solo and not track.solo)
+        hidden = track.hidden or track.kind == 'audio'
         etree.SubElement(multitrack, "track", attrib={
             "producer": f"playlist_{track_id}",
+            **({'hide': 'both' if hidden and muted else 'video' if hidden else 'audio'} if hidden or muted else {}),
         })
+
+    # Sum audible tracks rather than relying on multitrack's frame choice.
+    for upper in range(1, len(timeline.tracks)):
+        trans = etree.SubElement(tractor, 'transition', attrib={'id': f'audio_mix_{upper}', 'mlt_service': 'mix'})
+        for name, value in [('a_track', '0'), ('b_track', str(upper)), ('always_active', '1'), ('sum', '1')]:
+            etree.SubElement(trans, 'property', attrib={'name': name}).text = value
 
     # Composite higher video tracks over lower ones. Without this, melt's
     # multitrack can render blank/silent when more than one video track exists

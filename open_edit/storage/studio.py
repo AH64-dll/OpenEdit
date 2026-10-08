@@ -120,31 +120,49 @@ def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[d
     locked_tracks = {o['object_id'] for o in objects if o['kind'] == 'track' and o['data'].get('locked')}
     changed_documents = {c['object_id'] for c in changes if c['kind'] == 'document'}
     effect_owners = {}
-    if documents or locked_clips or locked_tracks:
-        from open_edit.ir.derive import derive_timeline
-        from open_edit.ir.types import Project
+    if not (documents or locked_clips or locked_tracks or any(getattr(op, 'locked', False) is True for op in current_ops)):
+        # Plain legacy graphs can contain old semantically invalid operations.
+        # Appending an unrelated operation must retain its tolerant behavior.
+        return
+    from open_edit.ir.derive import derive_timeline
+    from open_edit.ir.types import Project
 
-        timeline = derive_timeline(Project(name='lock-validation', edit_graph=current_ops))
-        for track in timeline.tracks:
-            for clip in track.clips:
-                if clip.document_id in documents:
-                    source_clips.add(clip.clip_id)
-                if clip.clip_id in locked_clips or clip.document_id in locked_documents or track.track_id in locked_tracks:
-                    locked_clips.add(clip.clip_id)
-                    effect_owners.update({e.effect_id: clip.clip_id for e in clip.effects})
-            if track.track_id in locked_tracks or any(c.clip_id in locked_clips for c in track.clips):
-                effect_owners.update({e.effect_id: track.track_id for e in track.effects})
+    timeline = derive_timeline(Project(name='lock-validation', edit_graph=current_ops))
+    own_clip_locks = {c.clip_id for t in timeline.tracks for c in t.clips if c.locked}
+    own_track_locks = {t.track_id for t in timeline.tracks if t.locked}
+    locked_tracks.update(own_track_locks)
+    locked_clips.update(own_clip_locks)
+    for track in timeline.tracks:
+        for clip in track.clips:
+            if clip.document_id in documents:
+                source_clips.add(clip.clip_id)
+            if clip.clip_id in locked_clips or clip.document_id in locked_documents or track.track_id in locked_tracks:
+                locked_clips.add(clip.clip_id)
+                effect_owners.update({e.effect_id: clip.clip_id for e in clip.effects})
+        if track.track_id in locked_tracks or any(c.clip_id in locked_clips for c in track.clips):
+            effect_owners.update({e.effect_id: track.track_id for e in track.effects})
     for op in ops:
+        unlock_only = (getattr(op, 'locked', None) is False and
+                       all(getattr(op, field, None) is None for field in ('label', 'muted', 'hidden', 'solo', 'index', 'track_kind')))
+        if op.kind == 'set_track_properties' and op.track_id in own_track_locks and unlock_only:
+            continue
+        if op.kind == 'set_clip_properties' and op.clip_id in own_clip_locks and unlock_only:
+            clip = next(c for t in timeline.tracks for c in t.clips if c.clip_id == op.clip_id)
+            if clip.track_id not in locked_tracks and clip.document_id not in locked_documents:
+                continue
         if op.kind in ('set_graphics_source', 'remove_graphics_source'):
             if op.document_id in documents and op.document_id not in changed_documents:
                 raise ValueError('Change graphics through document objects to preserve editable source')
             if op.document_id in changed_documents:
+                if any(c.clip_id in locked_clips for t in timeline.tracks for c in t.clips if c.document_id == op.document_id):
+                    raise ValueError('Unlock the affected clip or track before editing its source')
                 continue  # source/object locks were checked by prepare in this transaction
         clip_id = getattr(op, 'clip_id', None)
         target = getattr(op, 'target_id', None)
         if op.kind == 'replace_clip_source' and clip_id in source_clips:
             raise ValueError('A source-backed clip must retain its graphics document')
-        if clip_id in locked_clips or target in locked_clips or target in locked_tracks or getattr(op, 'effect_id', None) in effect_owners:
+        targets = {clip_id, target, getattr(op, 'clip_a_id', None), getattr(op, 'clip_b_id', None)}
+        if targets.intersection(locked_clips | locked_tracks) or getattr(op, 'effect_id', None) in effect_owners or getattr(op, 'transition_id', None) in effect_owners:
             raise ValueError('Unlock the affected clip or track before editing it')
         if getattr(op, 'track_id', None) in locked_tracks or getattr(op, 'new_track_id', None) in locked_tracks:
             raise ValueError('Unlock the affected track before editing it')

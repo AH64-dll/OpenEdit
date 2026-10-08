@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from open_edit.ir.ids import new_id, now_iso8601
 
@@ -25,6 +25,7 @@ class Effect(BaseModel):
     effect_type: str
     params: dict[str, Any] = Field(default_factory=dict)
     keyframes: dict[str, list[tuple[float, float, str]]] = Field(default_factory=dict)
+    enabled: bool = True
 
 
 class Clip(BaseModel):
@@ -37,6 +38,10 @@ class Clip(BaseModel):
     out_point_sec: float
     effects: list[Effect] = Field(default_factory=list)
     document_id: str | None = None
+    label: str = ''
+    locked: bool = False
+    muted: bool = False
+    hidden: bool = False
 
 
 class Track(BaseModel):
@@ -44,6 +49,11 @@ class Track(BaseModel):
     kind: Literal["video", "audio"]
     clips: list[Clip] = Field(default_factory=list)
     effects: list[Effect] = Field(default_factory=list)
+    label: str = ''
+    locked: bool = False
+    muted: bool = False
+    hidden: bool = False
+    solo: bool = False
 
 
 class HtmlOverlay(BaseModel):
@@ -183,6 +193,54 @@ class TrimClipOp(Operation):
     clip_id: str
     new_in_point_sec: float
     new_out_point_sec: float
+
+
+class DuplicateClipOp(Operation):
+    kind: Literal['duplicate_clip'] = 'duplicate_clip'
+    clip_id: str
+    new_clip_id: str = Field(default_factory=new_id)
+    new_track_id: str | None = None
+    position_sec: float = Field(ge=0, allow_inf_nan=False)
+    # Effect identities are authored once, never generated during replay.
+    effect_ids: dict[str, str] = Field(default_factory=dict)
+
+
+class SetTrackPropertiesOp(Operation):
+    kind: Literal['set_track_properties'] = 'set_track_properties'
+    track_id: str = Field(min_length=1, max_length=128)
+    track_kind: Literal['video', 'audio'] | None = None
+    label: str | None = Field(default=None, max_length=256)
+    locked: StrictBool | None = None
+    muted: StrictBool | None = None
+    hidden: StrictBool | None = None
+    solo: StrictBool | None = None
+    index: StrictInt | None = Field(default=None, ge=0)
+
+
+class RemoveTrackOp(Operation):
+    kind: Literal['remove_track'] = 'remove_track'
+    track_id: str
+
+
+class SetClipPropertiesOp(Operation):
+    kind: Literal['set_clip_properties'] = 'set_clip_properties'
+    clip_id: str
+    label: str | None = Field(default=None, max_length=256)
+    locked: StrictBool | None = None
+    muted: StrictBool | None = None
+    hidden: StrictBool | None = None
+
+
+class ControlEffectOp(Operation):
+    kind: Literal['control_effect'] = 'control_effect'
+    target_kind: Literal['clip', 'track']
+    target_id: str
+    effect_id: str
+    action: Literal['update', 'remove', 'move', 'reset', 'duplicate'] = 'update'
+    params: dict[str, Any] = Field(default_factory=dict)
+    enabled: StrictBool | None = None
+    index: StrictInt | None = Field(default=None, ge=0)
+    new_effect_id: str | None = None
 
 
 class AddTransitionOp(Operation):
@@ -390,7 +448,7 @@ class RemoveRemotionCompositionOp(Operation):
 
 
 OperationUnion = Annotated[
-    AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp | SetGraphicsSourceOp | RemoveGraphicsSourceOp,
+    AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | DuplicateClipOp | SetTrackPropertiesOp | RemoveTrackOp | SetClipPropertiesOp | ControlEffectOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp | SetGraphicsSourceOp | RemoveGraphicsSourceOp,
     Field(discriminator="kind"),
 ]
 

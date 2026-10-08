@@ -176,9 +176,22 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
     # Reject source updates that invalidate explicit trims, IDs or track layout.
     if operations:
         try:
-            derive_timeline(Project(name='studio-validation', edit_graph=[*current_ops, *operations]), strict=True)
+            resulting = derive_timeline(Project(name='studio-validation', edit_graph=[*current_ops, *operations]), strict=True)
         except ApplyError as exc:
             raise ValueError(str(exc)) from exc
+        from open_edit.storage.assets import list_assets_from_disk
+
+        assets = {a.asset_hash: a for a in list_assets_from_disk(project_path)}
+        for track in resulting.tracks:
+            for clip in track.clips:
+                if clip.position_sec < 0 or clip.in_point_sec < 0:
+                    raise ValueError('Clip positions and source in-points must be nonnegative')
+                source_duration = (resulting.graphics_documents[clip.document_id]['duration_sec'] if clip.document_id
+                                   else assets[clip.asset_hash].duration_sec if clip.asset_hash in assets else None)
+                if source_duration and clip.out_point_sec > source_duration + 1e-6:
+                    raise ValueError('A trim cannot extend past the end of its source')
+                if clip.track_kind != track.kind:
+                    raise ValueError('Move clips to a compatible video or audio track')
     receipt = {}
     if _preview:
         from open_edit.storage.studio import check_operations, prepare
