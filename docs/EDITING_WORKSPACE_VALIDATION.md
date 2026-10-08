@@ -24,6 +24,8 @@ Main CI covers Python 3.11–3.13, lint, package builds and fresh wheel installa
 - Full local regression: **1,517 passed**, 18 skipped because local MLT/melt is
   absent, 5 browser tests deselected, in 115.93 seconds. An external sandbox
   socket-polling helper was used for local async tests; it is not shipped.
+- Browser-session ownership/coalescing and preview API regression: **19 passed**.
+  Cancelling one automatic update leaves external and other-session jobs queued.
 - Worker lifecycle/compiler checks after the completed-process cleanup guard:
   **19 passed**. Readiness and advanced HTML regression: **63 passed**.
 - Main CI for the workspace implementation and shell correction:
@@ -50,7 +52,7 @@ and actual JSX compilation passed from the installed wheel. Source and wheel
 builds both succeed.
 
 `dist/open_edit-1.4.0-py3-none-any.whl` SHA-256:
-`51a13da31b82ccfe8681541799c0761528ec33f0785c149b5d445551d365be8d`
+`72f29afb8984f12dadfd3605f65b47140ca0eaaea24c03d875b5890e02694eb0`
 
 ## Limits
 

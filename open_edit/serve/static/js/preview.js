@@ -2,6 +2,7 @@
 import { state } from './state.js';
 
 let generation = 0, observed = '', timer, active, seekGeneration = 0;
+const owner = globalThis.crypto?.randomUUID?.() || String(Math.random()).slice(2);
 const node = id => document.querySelector(`#${id}`);
 const base = id => `/api/projects/${encodeURIComponent(id)}`;
 function status(value, detail = '') {
@@ -61,7 +62,7 @@ async function update(id, revision, token) {
     const cached = await request(id, '/preview-chunks');
     if (token !== generation) return;
     if (accept(cached.manifest, revision)) return;
-    const job = await request(id, '/render', { mode: 'preview-chunks', expected_revision: revision, media: 'both', priority: 'interactive', ranges: [] });
+    const job = await request(id, '/render', { mode: 'preview-chunks', expected_revision: revision, media: 'both', priority: 'interactive', ranges: [], preview_owner: owner });
     if (token !== generation) { request(id, `/render_jobs/${job.job_id}/cancel`, {}).catch(() => {}); return; }
     active = { id, job: job.job_id };
     let result = job;

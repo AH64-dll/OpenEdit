@@ -35,6 +35,7 @@ class RenderRequest(BaseModel):
     scale: str | None = None
     codec: str | None = None
     graphics: dict | None = None
+    preview_owner: str | None = Field(default=None, pattern=r'^[a-zA-Z0-9_-]{8,64}$')
 
 
 class RenderJobResponse(BaseModel):
@@ -110,6 +111,10 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
             "media": media,
             "priority": priority,
         }
+        if req.preview_owner:
+            # Distinguish UI sessions during job coalescing so a superseded
+            # automatic update cannot cancel an external client's render.
+            preview_params['preview_owner'] = req.preview_owner
     params = {k: v for k, v in (
         ("profile", req.profile), ("quality", quality), ("crf", req.crf),
         ("vb", req.vb), ("preset", req.preset), ("scale", req.scale), ("codec", codec),
