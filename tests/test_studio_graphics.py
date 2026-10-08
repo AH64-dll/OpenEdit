@@ -10,6 +10,7 @@ from open_edit.ir.types import (
     Project,
     RemoveGraphicsSourceOp,
     SetGraphicsSourceOp,
+    SplitClipOp,
     TrimClipOp,
 )
 from open_edit.kernel.studio_service import commit_studio, get_studio
@@ -57,6 +58,25 @@ def test_full_source_duration_updates_but_explicit_trim_cannot_be_erased():
     trim = TrimClipOp(author='user', clip_id='title-clip', new_in_point_sec=0.5, new_out_point_sec=2)
     with pytest.raises(ApplyError, match='explicit clip trim'):
         timeline([first, trim, shorter])
+
+
+def test_source_updates_preserve_split_instances_and_validate_every_trim():
+    first = source_op()
+    split = SplitClipOp(author='user', clip_id='title-clip', at_sec=1,
+                        left_clip_id='left', right_clip_id='right')
+    changed = source_op().model_copy(update={'source': DEFAULT_SOURCE.replace('Your title', 'Updated'), 'duration_sec': 4})
+    derived = timeline([first, split, changed])
+    clips = [c for t in derived.tracks for c in t.clips]
+    assert [c.clip_id for c in clips] == ['left', 'right']
+    assert all(c.document_id == 'title-doc' for c in clips)
+    assert [(c.in_point_sec, c.out_point_sec) for c in clips] == [(0, 1), (1, 3)]
+    with pytest.raises(ApplyError, match='explicit clip trim'):
+        timeline([first, split, source_op().model_copy(update={'duration_sec': 2})])
+    from open_edit.ir.validate import _known_ids_from_ops
+
+    assert _known_ids_from_ops([first, split, changed])[0] == {'left', 'right'}
+    removed = RemoveGraphicsSourceOp(author='user', document_id='title-doc')
+    assert not _known_ids_from_ops([first, split, changed, removed])[0]
 
 
 def test_materialization_binds_checked_media_to_a_copy_preserving_source(monkeypatch):

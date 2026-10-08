@@ -115,18 +115,21 @@ def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[d
     documents = {o['object_id']: o['data'] for o in objects if o['kind'] == 'document'}
     source_clips = {d['clip_id'] for d in documents.values() if d.get('clip_id')}
     locked_clips = {d['clip_id'] for d in documents.values() if d.get('locked') and d.get('clip_id')}
+    locked_documents = {id for id, data in documents.items() if data.get('locked')}
     locked_clips.update(o['object_id'] for o in objects if o['kind'] == 'clip' and o['data'].get('locked'))
     locked_tracks = {o['object_id'] for o in objects if o['kind'] == 'track' and o['data'].get('locked')}
     changed_documents = {c['object_id'] for c in changes if c['kind'] == 'document'}
     effect_owners = {}
-    if locked_clips or locked_tracks:
+    if documents or locked_clips or locked_tracks:
         from open_edit.ir.derive import derive_timeline
         from open_edit.ir.types import Project
 
         timeline = derive_timeline(Project(name='lock-validation', edit_graph=current_ops))
         for track in timeline.tracks:
             for clip in track.clips:
-                if clip.clip_id in locked_clips or track.track_id in locked_tracks:
+                if clip.document_id in documents:
+                    source_clips.add(clip.clip_id)
+                if clip.clip_id in locked_clips or clip.document_id in locked_documents or track.track_id in locked_tracks:
                     locked_clips.add(clip.clip_id)
                     effect_owners.update({e.effect_id: clip.clip_id for e in clip.effects})
             if track.track_id in locked_tracks or any(c.clip_id in locked_clips for c in track.clips):

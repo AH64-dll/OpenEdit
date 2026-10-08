@@ -212,6 +212,9 @@ const { chromium } = require('playwright-core');
       fs.writeFileSync(path.join(artifacts,'workspace-failure.json'), JSON.stringify(await page.evaluate(() => ({
         history:document.querySelector('#history-status')?.textContent,
         sourceStatus:document.querySelector('#authoring-status')?.textContent,
+        graphicsStatus:document.querySelector('#graphics-status')?.textContent,
+        graphicsSource:document.querySelector('#graphics-source')?.value,
+        graphicsLayers:document.querySelector('#graphics-element')?.innerHTML,
         source:document.querySelector('#authoring-source')?.value,
         preview:document.querySelector('#preview-freshness')?.outerHTML,
         project:window.OpenEdit.state.currentProjectState,

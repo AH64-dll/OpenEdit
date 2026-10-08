@@ -8,7 +8,7 @@ const panel = el('panel'), source = el('source'), canvas = el('canvas'), live = 
 const form = el('properties'), select = el('element'), guides = el('guides');
 let draft, renderer, geometry = [], drag, playing = false, time = 0, generation = 0, runtimeReady;
 let busy = false, checkedJob = null, checkedSource = null, lastProject = null, loadingSnapshot = false, saving = false;
-let pendingSnapshot = false, pendingDiscard = false, playGeneration = 0;
+let pendingSnapshot = false, pendingDiscard = false, snapshotTask = null, playGeneration = 0;
 const message = text => { el('status').textContent = text; };
 const uid = prefix => `${prefix}-${crypto.randomUUID()}`;
 const visual = e => ['rect', 'text', 'image', 'group'].includes(e.tag) && !e.clipPath;
@@ -22,7 +22,7 @@ const fail = error => message(error.stale ? 'Project changed. Your source draft 
 const safe = fn => async (...args) => { try { await fn(...args); } catch (error) { fail(error); } };
 
 function controls() {
-  const disabled = !draft || busy || studio.busy, selection = item(), selectedLocked = studio.selectedIds.some(locked);
+  const disabled = !draft || busy || studio.busy || saving || loadingSnapshot, selection = item(), selectedLocked = studio.selectedIds.some(locked);
   source.disabled = disabled || draft?.data.locked;
   el('commit').disabled = disabled || draft?.stale || draft?.data.locked;
   el('commit').textContent = draft?.saved ? 'Save source' : 'Add to timeline';
@@ -136,11 +136,21 @@ function remember() {
     if (dirty()) sessionStorage.setItem(key, JSON.stringify({ source: source.value, baseline: draft.data.source })); else sessionStorage.removeItem(key);
   } catch {}
 }
-async function acceptSnapshot(discard = false) {
+function acceptSnapshot(discard = false) {
+  pendingSnapshot = true; pendingDiscard ||= discard;
+  if (!snapshotTask) snapshotTask = (async () => {
+    loadingSnapshot = true; controls();
+    try {
+      while (pendingSnapshot) {
+        const discard = pendingDiscard; pendingSnapshot = false; pendingDiscard = false;
+        await acceptOneSnapshot(discard);
+      }
+    } finally { loadingSnapshot = false; snapshotTask = null; controls(); }
+  })();
+  return snapshotTask;
+}
+async function acceptOneSnapshot(discard = false) {
   if (!panel.open || !studio.projectId || studio.projectId !== state.currentProjectId) return;
-  if (loadingSnapshot) { pendingSnapshot = true; pendingDiscard ||= discard; return; }
-  loadingSnapshot = true;
-  try {
     if (lastProject !== studio.projectId) { ++generation; playing = false; time = 0; draft = null; geometry = []; el('video').removeAttribute('src'); }
     lastProject = studio.projectId;
     const documents = studio.objects.filter(o => o.kind === 'document'); el('document').replaceChildren();
@@ -162,19 +172,16 @@ async function acceptSnapshot(discard = false) {
     if (draft && !discard && !dirty()) try {
       const saved = JSON.parse(sessionStorage.getItem(`open_edit.studio-draft.${state.currentProjectId}.${draft.object_id}`));
       if (typeof saved?.source === 'string') { source.value = saved.source; draft.stale = saved.baseline !== draft.data.source; message('Recovered source draft · save or reload to continue.'); }
-    } catch {} controls();
-  } finally {
-    loadingSnapshot = false;
-    if (pendingSnapshot) { const nextDiscard = pendingDiscard; pendingSnapshot = false; pendingDiscard = false; queueMicrotask(() => safe(() => acceptSnapshot(nextDiscard))()); }
-  }
+    } catch {}
 }
 async function load(discard = false) { await loadStudio(); await acceptSnapshot(discard); }
 async function save(data = { ...draft.data, source: source.value, duration_sec: Number(el('duration').value), fps: Number(el('fps').value), clip_id: el('clip-id').value }, label = 'Edit graphics source') {
   if (!draft || draft.stale) throw new Error('Reload the project before applying this draft.');
-  const objectId = draft.object_id; saving = true;
-  try { await commitStudio([{ kind: 'document', object_id: objectId, data }], label); }
-  finally { saving = false; }
-  draft = null; studio.documentId = objectId; await acceptSnapshot(true); remember(); message(`Saved editable source · revision ${studio.revision}`);
+  const objectId = draft.object_id; saving = true; controls();
+  try {
+    await commitStudio([{ kind: 'document', object_id: objectId, data }], label);
+    draft = null; studio.documentId = objectId; await acceptSnapshot(true); remember(); message(`Saved editable source · revision ${studio.revision}`);
+  } finally { saving = false; controls(); }
 }
 async function rewrite(edits, label) {
   if (!draft || busy || studio.busy || dirty()) throw new Error('Save or reload the source draft before editing objects.');

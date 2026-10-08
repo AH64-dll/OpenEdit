@@ -26,7 +26,7 @@ const request = JSON.parse(fs.readFileSync(0, 'utf8'));
  process.stdout.write(JSON.stringify({ source, document: parse(source) }));
 })().catch(error => { process.stderr.write(error.message); process.exitCode = 1; });'''
         proc = subprocess.run([shutil.which('node'), '-e', code], input=json.dumps({'source': source, 'edits': edits}),
-                              text=True, capture_output=True, cwd=browser_directory(), timeout=30)
+                              text=True, encoding='utf-8', capture_output=True, cwd=browser_directory(), timeout=30)
         if proc.returncode:
             raise ValueError(proc.stderr)
         return json.loads(proc.stdout)

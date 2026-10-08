@@ -247,20 +247,28 @@ def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
     """
     clips: set[str] = set()
     effects: set[str] = set()
+    documents: dict[str, set[str]] = {}
     for op in ops:
         if op.status != "applied":
             continue
-        if isinstance(op, (AddClipOp, SetGraphicsSourceOp)):
+        if isinstance(op, AddClipOp):
             clips.add(op.clip_id)
+        elif isinstance(op, SetGraphicsSourceOp):
+            if op.document_id not in documents:
+                documents[op.document_id] = {op.clip_id}
+                clips.add(op.clip_id)
         elif isinstance(op, RemoveGraphicsSourceOp):
-            removed = {prior.clip_id for prior in ops if isinstance(prior, SetGraphicsSourceOp) and prior.document_id == op.document_id}
-            clips.difference_update(removed)
+            clips.difference_update(documents.pop(op.document_id, set()))
         elif isinstance(op, RemoveClipOp):
             clips.discard(op.clip_id)
         elif isinstance(op, SplitClipOp):
             clips.discard(op.clip_id)
             clips.add(op.left_clip_id)
             clips.add(op.right_clip_id)
+            for instances in documents.values():
+                if op.clip_id in instances:
+                    instances.discard(op.clip_id)
+                    instances.update((op.left_clip_id, op.right_clip_id))
         elif isinstance(op, RippleDeleteClipOp):
             clips.discard(op.clip_id)
         elif isinstance(op, AddEffectOp):
