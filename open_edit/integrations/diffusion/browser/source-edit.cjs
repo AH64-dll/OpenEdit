@@ -165,4 +165,4 @@ function editSource(source, edits, validate) {
   validate(result);
   return result;
 }
-module.exports = { editSource };
+module.exports = { editSource, astOf, index, valueNode, open };

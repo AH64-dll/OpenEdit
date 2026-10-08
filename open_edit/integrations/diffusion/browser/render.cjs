@@ -4,7 +4,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { chromium } = require('playwright-core');
 const esbuild = require('esbuild');
-const { compile, rewrite } = require('./compile.cjs');
+const { compile, rewrite, parse } = require('./compile.cjs');
 const delay = ms => new Promise(r => setTimeout(r, ms));
 let chrome; let browser;
 async function cleanup() {
@@ -15,6 +15,10 @@ process.on('SIGTERM', () => cleanup().finally(() => process.exit(143)));
 process.on('SIGINT', () => cleanup().finally(() => process.exit(130)));
 (async () => {
   const request = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
+  if (request.inverse) {
+    const { inverseSource } = require('./source-merge.cjs');
+    process.stdout.write(JSON.stringify({ ok: true, ...inverseSource(request.inverse.before, request.inverse.after, request.source, parse) })); return;
+  }
   const source = request.edits !== undefined ? await rewrite(request.source, request.edits, request.scratch) : request.source;
   const { document, code } = await compile(source);
   if (request.validate_only) {

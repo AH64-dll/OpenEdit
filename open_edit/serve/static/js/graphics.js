@@ -15,6 +15,8 @@ const visual = e => ['rect', 'text', 'image', 'group'].includes(e.tag) && !e.cli
 const elements = () => draft?.data.elements || [];
 const item = () => elements().find(e => e.id === studio.selectedIds[0]);
 const dirty = () => draft && source.value !== draft.data.source;
+const previewKey = data => JSON.stringify([state.currentProjectId, data.source, data.fps, data.duration_sec]);
+function invalidateChecked(data) { if (checkedSource !== previewKey(data)) { el('checked').checked = false; el('video').hidden = true; } }
 const locked = id => layerLocked(id, elements(), draft?.data.locked_ids || [], draft?.data.locked);
 const roots = () => selectionRoots(studio.selectedIds, elements());
 const mark = () => studioObject('annotation', studio.selectedMarks[0]);
@@ -118,7 +120,7 @@ async function mountDraft() {
   const next = await window.OpenEditCanvas.create(live, { code: config.code, fps: captured.data.fps, assets: config.asset_manifest });
   if (token !== generation || project !== state.currentProjectId) { await next.dispose(); return; }
   renderer = next; Object.assign(captured.data, { elements: config.elements, scene: config.scene });
-  if (checkedSource !== config.source) { el('checked').checked = false; el('video').hidden = true; }
+  invalidateChecked(captured.data);
   canvas.width = config.scene.width; canvas.height = config.scene.height; guides.setAttribute('viewBox', `0 0 ${canvas.width} ${canvas.height}`);
   canvas.parentElement.style.aspectRatio = `${canvas.width}/${canvas.height}`;
   layerLists(); await seek(time); message(`Interactive canvas · ${captured.saved ? 'saved source' : 'new composition'} · revision ${studio.revision}`);
@@ -162,6 +164,7 @@ async function acceptOneSnapshot(discard = false) {
     if (doc) {
       const changed = draft?.object_id !== doc.object_id || draft?.data.source !== doc.data.source || draft?.data.fps !== doc.data.fps || !renderer;
       draft = { ...doc, data: { ...doc.data }, saved: true }; studio.documentId = doc.object_id; el('document').value = doc.object_id;
+      invalidateChecked(doc.data);
       source.value = doc.data.source; el('duration').value = doc.data.duration_sec; el('fps').value = doc.data.fps; el('clip-id').value = doc.data.clip_id;
       el('seek').max = doc.data.duration_sec; el('seek').step = 1 / doc.data.fps; layerLists(); if (changed) await mountDraft(); else drawGuides();
     } else if (!draft || draft.saved || discard) {
@@ -296,7 +299,7 @@ el('preview').addEventListener('click', safe(async () => {
     do { await new Promise(resolve => setTimeout(resolve, 750)); result = await studioRequest(`/render_jobs/${checkedJob}`, undefined, project); } while (['queued', 'running', 'cancelling'].includes(result.status));
     if (project !== state.currentProjectId || revision !== studio.revision) return;
     if (result.status !== 'succeeded') throw new Error(result.error || `Preview ${result.status}`);
-    checkedSource = draft.data.source;
+    checkedSource = previewKey(draft.data);
     el('video').src = `/api/projects/${encodeURIComponent(project)}/graphics/${checkedJob}/preview`; el('video').load(); el('checked').checked = true; el('video').hidden = false;
     message('Checked full-quality preview · passed quality checks');
   } finally { checkedJob = null; busy = false; controls(); }

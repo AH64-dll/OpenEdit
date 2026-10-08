@@ -92,3 +92,41 @@ def test_translation_shifts_keyframes_without_erasing_animation(rewrite):
     assert elements['title']['x'] == 75 and elements['title']['y'] == 370
     assert elements['motion-in']['value'] == 75 and elements['motion-out']['value'] == 275
     assert elements['motion-in']['easing'] == 'easeIn' and elements['motion-out']['time'] == 2
+
+
+@pytest.fixture
+def inverse():
+    if not graphics_ready():
+        pytest.skip('Optional graphics source compiler is not installed')
+    def call(before, after, current):
+        code = '''const fs=require('node:fs'), {parse}=require('./compile.cjs'), {inverseSource}=require('./source-merge.cjs');
+const r=JSON.parse(fs.readFileSync(0,'utf8')); const out=inverseSource(r.before,r.after,r.current,parse);
+process.stdout.write(JSON.stringify({...out,document:parse(out.source)}));'''
+        p = subprocess.run([shutil.which('node'), '-e', code], cwd=browser_directory(), timeout=20,
+                           input=json.dumps({'before': before, 'after': after, 'current': current}),
+                           text=True, encoding='utf-8', capture_output=True, check=True)
+        return json.loads(p.stdout)
+    return call
+
+
+def test_inverse_group_preserves_later_child_properties(rewrite, inverse):
+    after = rewrite(DEFAULT_SOURCE, [{'kind': 'group', 'sources': ['index.tsx:panel', 'index.tsx:title'], 'id': 'grouped'}])['source']
+    current = rewrite(after, [{'kind': 'set', 'source': 'index.tsx:title', 'props': {'fontSize': 72}}])['source']
+    result = inverse(DEFAULT_SOURCE, after, current)
+    assert not result['conflicts']
+    elements = {e['id']: e for e in result['document']['elements']}
+    assert 'grouped' not in elements and elements['title']['parent_id'] == 'graphics-scene'
+    assert elements['title']['fontSize'] == 72
+
+
+def test_inverse_creation_reports_dependency_and_restores_deletion(rewrite, inverse):
+    after = rewrite(DEFAULT_SOURCE, [{'kind': 'insert', 'parent': 'index.tsx:graphics-scene', 'jsx': '<rect id="new-layer" width={30} height={40}/>'}])['source']
+    current = rewrite(after, [{'kind': 'set', 'source': 'index.tsx:new-layer', 'props': {'width': 55}}])['source']
+    result = inverse(DEFAULT_SOURCE, after, current)
+    assert result['conflicts'][0]['object_id'] == 'new-layer' and result['source'] == current
+    removed = rewrite(DEFAULT_SOURCE, [{'kind': 'remove', 'source': 'index.tsx:panel'}])['source']
+    current = '// My later comment\n' + rewrite(removed, [{'kind': 'text', 'source': 'index.tsx:title', 'text': 'Later text'}])['source']
+    result = inverse(DEFAULT_SOURCE, removed, current)
+    assert not result['conflicts'] and 'My later comment' in result['source']
+    elements = {e['id']: e for e in result['document']['elements']}
+    assert elements['title']['text'] == 'Later text' and elements['panel']['width'] == 840

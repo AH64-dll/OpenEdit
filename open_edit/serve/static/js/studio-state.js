@@ -4,7 +4,11 @@ import { state } from './state.js';
 export const studio = { projectId: null, revision: null, objects: [], selectedIds: [],
   documentId: null, selectedMarks: [], busy: false };
 let serial = 0;
-const announce = name => window.dispatchEvent(new CustomEvent(`openedit:studio-${name}`, { detail: studio }));
+const announce = name => {
+  state.editingSelection = studio.projectId === state.currentProjectId && Number.isInteger(studio.revision)
+    ? { selected_ids: studio.selectedIds, annotation_ids: studio.selectedMarks, document_id: studio.documentId, expected_revision: studio.revision } : null;
+  window.dispatchEvent(new CustomEvent(`openedit:studio-${name}`, { detail: studio }));
+};
 export async function studioRequest(suffix, body, projectId = state.currentProjectId) {
   if (!projectId) throw new Error('Select a project first.');
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}${suffix}`, body === undefined ? {} : {

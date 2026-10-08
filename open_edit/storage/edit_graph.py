@@ -190,6 +190,7 @@ class EditGraphStore:
         studio_changes: list[dict] | None = None,
         author: str = 'user', request_id: str | None = None,
         receipt: dict | None = None,
+        status_changes: dict | None = None, reverted_targets: list[str] | None = None,
     ) -> list[int]:
         """Append a batch in one transaction, or leave the graph unchanged.
 
@@ -212,11 +213,15 @@ class EditGraphStore:
             if expected_revision is not None and current_revision != expected_revision:
                 raise GraphRevisionConflict(expected_revision, current_revision)
             object_changes = _studio.prepare(conn, changes)
-            if not ops and not object_changes:
+            if not ops and not object_changes and not status_changes and not reverted_targets:
                 self._save_authoring_source(conn, authoring_view)
                 if receipt is not None:
                     receipt.update(graph_revision=current_revision, changed=False, changed_object_ids=[])
                 return []
+            if status_changes:
+                previous_ops = self._load_all_in(conn)
+                _studio.check_operations(conn, [op for op in previous_ops if op.edit_id in status_changes], previous_ops, object_changes)
+            _history.apply_status_changes(conn, status_changes or {}, command_id)
             current_ops = self._load_all_in(conn)
             _studio.check_operations(conn, ops, current_ops, object_changes)
             view = SimpleNamespace(
@@ -250,16 +255,24 @@ class EditGraphStore:
                 current_ops.append(op)
                 sequences.append(next_sequence)
                 next_sequence += 1
+            if not ops and (object_changes or status_changes or reverted_targets):
+                self._check_and_bump_revision(conn, None)
             if object_changes:
-                if not ops:
-                    self._check_and_bump_revision(conn, None)
                 _studio.apply(conn, object_changes, self._revision_in(conn))
             self._save_authoring_source(conn, authoring_view)
-            _history.record(conn, ops, action_label, current_revision,
-                            object_changes=object_changes, author=author, request_id=request_id)
+            if status_changes:
+                from open_edit.ir.derive import derive_timeline
+                from open_edit.ir.types import Project
+                derive_timeline(Project(name='request-revert', edit_graph=current_ops), strict=True)
+            action_author = ops[0].author if ops else author
+            if action_author == 'ai':
+                request_id = _history.request_context.get() or request_id or new_id()
+            action_id = _history.record(conn, ops, action_label, current_revision,
+                            object_changes=object_changes, author=author, request_id=request_id,
+                            status_changes=status_changes, reverted_targets=reverted_targets)
             conn.execute('DELETE FROM timeline_snapshots')
             if receipt is not None:
-                receipt.update(graph_revision=self._revision_in(conn), changed=True,
+                receipt.update(graph_revision=self._revision_in(conn), changed=True, action_id=action_id,
                                changed_object_ids=[change['object_id'] for change in object_changes])
         return sequences
 

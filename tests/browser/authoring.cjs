@@ -151,7 +151,7 @@ const { chromium } = require('playwright-core');
     await page.locator('#graphics-properties input[name=x]').fill('125');
     await page.locator('#graphics-properties button').click();
     await page.waitForFunction(() => document.querySelector('#graphics-source').value.includes('x={125}'));
-    assert.ok(!(await page.locator('#graphics-commit').isDisabled()));
+    await page.waitForFunction(() => !document.querySelector('#graphics-commit').disabled);
     await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.startsWith('Saved editable'));
     const bounds = await page.locator('#graphics-canvas').boundingBox();
     // Move the text by 30 scene pixels using the actual canvas pointer path.

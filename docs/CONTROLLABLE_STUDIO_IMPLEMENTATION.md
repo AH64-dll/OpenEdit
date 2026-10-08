@@ -81,7 +81,16 @@ contains the migration, browser runtime and studio UI resources.
 Local Chromium is blocked by the process sandbox and MLT is not installed, so
 local unit tests do not establish browser/export acceptance.
 
-Still required: selective request revert and dependency UI, full timeline
+Request-history implementation now adds migration 9, contiguous AI-tool grouping,
+semantic three-way source/property inversion, audited operation-status deltas,
+and reversible selective request actions. Later unrelated properties and source
+comments survive; conflicting properties, source ownership, locked layers,
+dependent clips and linked marks produce an explicit report. Built-in AI turns
+receive the same structured selection/source/marks as external MCP agents, and
+History offers request revert with a dependency report. Focused regression checks
+are passing; complete regression and actual browser acceptance are in progress.
+
+Still required: request-revert browser acceptance, full timeline
 interaction and track controls, effect-stack editing, keyframe/curve UI, audio
 waveforms and controls, caption/style/font editing, full media-canvas marks,
 built-in agent request grouping/context, custom export settings, immutable

@@ -104,12 +104,21 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
 
 def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch an edit operation to the corresponding tool."""
+    if operation == 'revert_request':
+        from open_edit.kernel.request_history import revert_request
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        try:
+            return {'status': 'ok', **revert_request(project_path, **params)}
+        except (TypeError, ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if operation == 'apply_studio_changes':
         from open_edit.kernel.studio_service import commit_studio
         from open_edit.storage.edit_graph import GraphRevisionConflict
         try:
             # The caller cannot disguise an AI write as a manual action.
             values = {k: v for k, v in params.items() if k != 'author'}
+            if values.keys() - {'expected_revision', 'changes', 'ops', 'request_id', 'label'}:
+                raise ValueError('Unsupported studio change parameters')
             return commit_studio(project_path, **values, author='ai')
         except (TypeError, ValueError, GraphRevisionConflict) as exc:
             return {'status': 'error', 'error': str(exc)}

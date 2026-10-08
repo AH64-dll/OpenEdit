@@ -54,6 +54,7 @@ _EDIT_PROJECT_DESC = (
     "``operation=add_hyperframes_overlay`` adds native HTML/CSS/JS "
     "graphics. Prefer Diffusion for editable titles/shapes/animation; use HyperFrames for advanced HTML. "
     "undo/redo require params.expected_revision from get_history and reverse a complete editing action. "
+    "revert_request takes params={request_id,expected_revision,preview?}; preserves unrelated later work and returns conflicts/dependencies. "
     "``generate=remotion`` appends a legacy AddRemotionCompositionOp "
     "(materializes on proxy/final render; graphics burned via ffmpeg). "
     "``generate=init_remotion`` scaffolds ``.open_edit/remotion/``. "

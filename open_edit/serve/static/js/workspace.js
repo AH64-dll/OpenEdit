@@ -2,7 +2,7 @@
 import { state } from './state.js';
 import { $, el, showToast, showModal } from './dom.js';
 
-let history = null, pending = false, fetchId = 0;
+let history = null, pending = false, fetchId = 0, revertReport = null;
 export function setWorkspace(view) {
   if (!['review', 'graphics', 'code'].includes(view)) return;
   document.body.dataset.workspace = view;
@@ -25,19 +25,52 @@ function paintHistory() {
   }
   const list = $('#history-list');
   list.replaceChildren();
+  if (revertReport) list.append(revertReport);
+  const requests = new Set();
   for (const action of history?.actions || []) {
     const row = el('div', { class: `history-action history-${action.state}` }, [
       el('strong', {}, action.label),
-      el('span', { class: 'muted small' }, `${action.author === 'ai' ? 'Agent' : 'You'} · ${action.state === 'undone' ? 'Undone' : action.state === 'abandoned' ? 'Earlier history' : 'Applied'}`),
+      el('span', { class: 'muted small' }, `${action.author === 'ai' ? 'Agent' : 'You'} · ${action.reverted_by ? 'Request reverted' : action.state === 'undone' ? 'Undone' : action.state === 'abandoned' ? 'Earlier history' : 'Applied'} · ${action.object_count} objects · ${action.operation_count} operations`),
     ]);
+    if (action.author === 'ai' && action.request_id && action.state === 'applied' && !action.reverted_by && !requests.has(action.request_id)) {
+      requests.add(action.request_id);
+      const button = el('button', { class: 'btn btn-secondary btn-xs', type: 'button', 'data-revert-request': action.request_id }, 'Revert AI request');
+      button.disabled = !available; button.addEventListener('click', () => revertRequest(action.request_id)); row.append(button);
+    }
     list.appendChild(row);
   }
   if (!history?.actions?.length) list.appendChild(el('p', { class: 'muted small' }, 'No editing actions yet.'));
 }
 
+async function revertRequest(requestId) {
+  const id = state.currentProjectId;
+  if (!id || pending) return;
+  pending = true; revertReport = null; paintHistory();
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(id)}/history/revert-request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request_id: requestId, expected_revision: history.graph_revision }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Request revert failed.');
+    if (id !== state.currentProjectId) return;
+    if (result.conflicts?.length) {
+      const report = el('div', { class: 'studio-revert-report', role: 'alert' }, [el('strong', {}, 'This request has later dependencies')]);
+      for (const conflict of result.conflicts) report.append(el('p', {}, `${conflict.document_id || conflict.object_id || conflict.field}: ${conflict.reason}`));
+      if (result.dependencies?.length) report.append(el('p', { class: 'muted small' }, 'Later actions: ' + result.dependencies.map(d => d.label).join(', ')));
+      revertReport = report; $('#history-status').textContent = 'Resolve the listed dependencies, then retry.';
+    } else {
+      $('#history-status').textContent = 'AI request reverted. Unrelated later edits preserved.';
+      window.dispatchEvent(new CustomEvent('openedit:graph-changed', { detail: { projectId: id } }));
+      await refreshHistory();
+    }
+  } catch (error) { showToast(error.message, 'warn'); await refreshHistory(); }
+  finally { pending = false; paintHistory(); }
+}
+
 async function refreshHistory() {
   const id = state.currentProjectId, request = ++fetchId;
-  if (!id) { history = null; paintHistory(); return; }
+  if (!id) { history = null; revertReport = null; paintHistory(); return; }
   try {
     const response = await fetch(`/api/projects/${encodeURIComponent(id)}/history`);
     if (!response.ok) throw new Error('History unavailable');

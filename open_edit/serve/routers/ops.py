@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from .projects import _require_project
 
@@ -31,7 +31,28 @@ class ReorderOpsRequest(BaseModel):
 
 
 class HistoryRequest(BaseModel):
-    expected_revision: int = Field(ge=0)
+    expected_revision: StrictInt = Field(ge=0)
+
+
+class RevertRequest(HistoryRequest):
+    request_id: str = Field(min_length=1, max_length=128)
+    preview: bool = False
+
+
+@router.post('/api/projects/{project_id}/history/revert-request')
+async def revert_ai_request(project_id: str, req: RevertRequest) -> dict:
+    from starlette.concurrency import run_in_threadpool
+
+    from open_edit.kernel.request_history import revert_request
+    from open_edit.storage.edit_graph import GraphRevisionConflict
+
+    state = await _require_project(project_id)
+    try:
+        return await run_in_threadpool(revert_request, Path(state.path), **req.model_dump())
+    except GraphRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get('/api/projects/{project_id}/history')

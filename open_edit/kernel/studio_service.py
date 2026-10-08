@@ -110,7 +110,9 @@ def get_studio(project_path: str | Path, *, kind: str | None = None,
 
 def commit_studio(project_path: str | Path, *, expected_revision: int, changes: list[dict],
                   ops: list[dict] | None = None, author: str = 'user',
-                  request_id: str | None = None, label: str | None = None) -> dict:
+                  request_id: str | None = None, label: str | None = None,
+                  _status_changes: dict | None = None, _reverted_targets: list[str] | None = None,
+                  _preview: bool = False) -> dict:
     from pydantic import TypeAdapter
 
     from open_edit.ir.types import (
@@ -137,6 +139,9 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
     from open_edit.ir.derive import derive_timeline
     from open_edit.ir.types import Project
     current_ops = store.load_all()
+    if _status_changes:
+        current_ops = [op.model_copy(update={'status': _status_changes[op.edit_id]['after']})
+                       if op.edit_id in _status_changes else op for op in current_ops]
     current_timeline = derive_timeline(Project(name='studio-validation', edit_graph=current_ops), strict=True)
     for change in prepared:
         if change['kind'] != 'document' or change['data'] == before.get(('document', change['object_id'])):
@@ -175,8 +180,22 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
         except ApplyError as exc:
             raise ValueError(str(exc)) from exc
     receipt = {}
+    if _preview:
+        from open_edit.storage.studio import check_operations, prepare
+
+        with store._conn() as conn:
+            conn.execute('BEGIN')
+            actual = store._revision_in(conn)
+            if actual != expected_revision:
+                raise GraphRevisionConflict(expected_revision, actual)
+            object_changes = prepare(conn, prepared)
+            check_operations(conn, operations, current_ops, object_changes)
+            if _status_changes:
+                check_operations(conn, [op for op in current_ops if op.edit_id in _status_changes], current_ops, object_changes)
+        return {'status': 'ok', 'graph_revision': actual, 'changed': False}
     store.append_many(operations, expected_revision=expected_revision, studio_changes=prepared,
-                      author=author, request_id=request_id, action_label=label, receipt=receipt)
+                      author=author, request_id=request_id, action_label=label, receipt=receipt,
+                      status_changes=_status_changes, reverted_targets=_reverted_targets)
     return {'status': 'ok', **receipt, 'request_id': request_id}
 
 

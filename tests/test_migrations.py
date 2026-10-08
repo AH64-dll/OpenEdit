@@ -26,7 +26,7 @@ def test_run_migrations_applies_initial():
     assert current_version(conn) == 0
     final = run_migrations(conn)
     assert final == CURRENT_VERSION
-    assert final == 8
+    assert final == 9
     assert current_version(conn) == final
     assert _tables(conn) >= EXPECTED_TABLES
 

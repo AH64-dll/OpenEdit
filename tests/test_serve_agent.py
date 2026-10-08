@@ -19,6 +19,7 @@ Expected AgentEvent sequence:
 from __future__ import annotations
 
 import importlib
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,43 @@ def _mock_execute_tool(
             ],
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_builtin_turn_reads_marks_and_groups_tool_calls(patched_agent, monkeypatch, tmp_path):
+    from open_edit.kernel.studio_service import commit_studio, save_editing_selection
+    from open_edit.storage.edit_graph import EditGraphStore
+    from open_edit.storage.history import request_context
+
+    store = EditGraphStore(tmp_path / '.open_edit/edit_graph.db')
+    mark = {'kind': 'annotation', 'object_id': 'direction', 'data': {
+        'tool': 'note', 'points': [[20, 30]], 'text': 'Keep the title here'}}
+    commit_studio(tmp_path, expected_revision=0, changes=[mark])
+    save_editing_selection(tmp_path, expected_revision=1, selected_ids=['title'],
+                           annotation_ids=['direction'], document_id=None, playhead_sec=2)
+    prompts, request_ids = [], []
+    async def stream(messages, tools, system, **kwargs):
+        prompts.append(system)
+        if not any(m['role'] == 'assistant' for m in messages):
+            for i in range(2):
+                yield {'type': 'tool_use', 'id': f'edit-{i}', 'name': 'edit_project', 'input': {'operation': 'apply_studio_changes', 'params': {}}}
+            yield {'type': 'done', 'stop_reason': 'tool_use'}
+        else:
+            yield {'type': 'done', 'stop_reason': 'end_turn'}
+    def execute(name, args, project_path, **kwargs):
+        request_ids.append(request_context.get())
+        changed = {**mark, 'data': {**mark['data'], 'text': f'Changed {len(request_ids)}'}}
+        return commit_studio(project_path, expected_revision=store.graph_revision(), changes=[changed], author='ai')
+    monkeypatch.setattr(agent_mod, 'stream_chat', stream)
+    monkeypatch.setattr(agent_mod, '_execute_tool', execute)
+    events = [event async for event in agent_mod.run_agent_turn('testproject', 'Refine the selected title', [])]
+    assert events[-1]['type'] == 'cost_update'
+    context = json.loads(prompts[0].split('Current editing workspace (structured source and marks):\n')[1].split('\nRequest ID:')[0])
+    assert context['annotations'][0]['data']['text'] == 'Keep the title here' and context['playhead_sec'] == 2
+    assert len(request_ids) == 2 and request_ids[0] and request_ids[0] == request_ids[1]
+    assert request_context.get() is None
+    assert len(store.history()['actions']) == 2
+    assert store.history()['actions'][0]['request_id'] == request_ids[0]
 
 
 @pytest.fixture
