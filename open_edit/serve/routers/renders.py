@@ -56,7 +56,7 @@ class RenderJobResponse(BaseModel):
 @router.post("/api/projects/{project_id}/render", status_code=202)
 async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     """Trigger a render in the background. Returns the job immediately."""
-    _check_rate_limit(f"render:{project_id}", max_requests=5, window_sec=300)
+    _check_rate_limit(f"render:{project_id}", max_requests=60 if req.mode == 'graphics' else 5, window_sec=300)
     state = await _require_project(project_id)
     if req.mode not in ("proxy", "final", "overlay", "preview-chunks", "graphics"):
         raise HTTPException(

@@ -28,7 +28,7 @@ function controls() {
 }
 function selectClip() {
   const item = current()?.elements?.find(c => c.source_id === clips.value);
-  if (item) for (const key of ['start', 'sourceIn', 'sourceOut', 'volume']) {
+  if (item) for (const key of ['start', 'sourceIn', 'sourceOut', 'volume', 'playbackRate']) {
     form.elements[key].value = item[key];
   }
   controls();
@@ -122,6 +122,7 @@ async function save(body) {
       remember();
       await load(true);
       message(`Saved · revision ${result.graph_revision}`);
+      window.dispatchEvent(new CustomEvent('openedit:graph-changed', { detail: { projectId: id } }));
     } else drafts.delete(id);
   } catch (error) {
     d.stale = !!error.stale;
@@ -144,7 +145,7 @@ apply.addEventListener('click', () => save({ source: current()?.source }));
 form.addEventListener('submit', event => {
   event.preventDefault();
   if (applyClip.disabled) return;
-  const props = Object.fromEntries(['start', 'sourceIn', 'sourceOut', 'volume'].map(key => [key, Number(form.elements[key].value)]));
+  const props = Object.fromEntries(['start', 'sourceIn', 'sourceOut', 'volume', 'playbackRate'].map(key => [key, Number(form.elements[key].value)]));
   save({ edits: [{ kind: 'set', source: clips.value, props }] });
 });
 panel.addEventListener('toggle', () => { if (panel.open) load(); });

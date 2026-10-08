@@ -1,5 +1,5 @@
 // MIT host over the pinned, unchanged MPL runtime, reconciler, and encoder.
-import { createRuntimeWorld, FrameRate, RenderSurface, Mode, Library, Fonts } from '@diffusionstudio/runtime';
+import { createRuntimeWorld, FrameRate, RenderSurface, Mode, Library, Fonts, FramePromises } from '@diffusionstudio/runtime';
 import { mount } from '@diffusionstudio/reconciler';
 import { createImageEncoder } from '@diffusionstudio/encoder';
 
@@ -10,6 +10,7 @@ let mounted: any;
     world = createRuntimeWorld('openedit-capture');
     world.set(FrameRate, { value: fps });
     world.set(Mode, { value: 'offline-video' });
+    world.set(FramePromises, { list: [] });
     const canvas = document.createElement('canvas'); document.body.append(canvas);
     world.set(RenderSurface, { canvas, ctx: canvas.getContext('2d'), resolution: 1 });
     const font = new FontFace('OpenEdit Sans', 'url(https://openedit.invalid/font.woff2)', { weight: '400' });

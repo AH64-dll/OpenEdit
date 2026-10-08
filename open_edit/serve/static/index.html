@@ -172,8 +172,45 @@
             <label>Source in (s) <input name="sourceIn" type="number" min="0" step="any" required></label>
             <label>Source out (s) <input name="sourceOut" type="number" min="0" step="any" required></label>
             <label>Volume (dB) <input name="volume" type="number" min="-120" max="24" step="any" required></label>
+            <label>Playback rate <input name="playbackRate" type="number" min="0.125" max="8" step="any" value="1" required></label>
             <button id="authoring-apply-properties" class="btn btn-secondary btn-xs" type="submit" disabled>Apply clip</button>
           </form>
+        </div>
+      </details>
+
+      <details id="graphics-panel" class="authoring-panel">
+        <summary>Graphics studio</summary>
+        <div class="authoring-toolbar">
+          <button id="graphics-reload" class="btn btn-ghost btn-xs" type="button">Reload source</button>
+          <button id="graphics-preview" class="btn btn-secondary btn-xs" type="button" disabled>Render preview</button>
+          <button id="graphics-cancel" class="btn btn-ghost btn-xs" type="button" disabled>Cancel</button>
+          <button id="graphics-commit" class="btn btn-primary btn-xs" type="button" disabled>Add to timeline</button>
+        </div>
+        <p id="graphics-status" role="status" aria-live="polite">Open the studio to create text and shapes.</p>
+        <div class="graphics-workspace">
+          <div class="graphics-visual">
+            <div class="graphics-canvas-wrap">
+              <video id="graphics-video" muted loop playsinline aria-label="Rendered graphics preview"></video>
+              <canvas id="graphics-canvas" width="960" height="540" aria-label="Graphics canvas; select a layer and drag to move it"></canvas>
+            </div>
+            <button id="graphics-play" class="btn btn-ghost btn-xs" type="button">Play / pause animation</button>
+            <label>Layer <select id="graphics-element" aria-label="Graphics layer"></select></label>
+            <form id="graphics-properties" class="graphics-properties">
+              <label>X <input name="x" type="number" step="any" value="0" required></label>
+              <label>Y <input name="y" type="number" step="any" value="0" required></label>
+              <label>Width <input name="width" type="number" min="1" max="1920" step="any" value="100" required></label>
+              <label>Height <input name="height" type="number" min="1" max="1920" step="any" value="100" required></label>
+              <button class="btn btn-secondary btn-xs" type="submit">Update layer</button>
+            </form>
+          </div>
+          <label class="authoring-code">Graphics JSX
+            <textarea id="graphics-source" spellcheck="false" aria-label="Graphics JSX source" disabled></textarea>
+          </label>
+        </div>
+        <div class="authoring-toolbar">
+          <label>Clip ID <input id="graphics-clip-id" value="graphics" maxlength="128"></label>
+          <label>Duration (s) <input id="graphics-duration" type="number" min="0.1" max="60" step="0.1" value="3"></label>
+          <label>FPS <input id="graphics-fps" type="number" min="1" max="60" value="30"></label>
         </div>
       </details>
 
@@ -360,5 +397,6 @@
 
   <script type="module" src="/app.js?v=20260814-notes-mcp"></script>
   <script type="module" src="/js/authoring.js?v=20261008"></script>
+  <script type="module" src="/js/graphics.js?v=20261008"></script>
 </body>
 </html>

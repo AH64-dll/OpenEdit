@@ -45,7 +45,7 @@ class _Clip(_LiteralModel):
     start: Seconds
     source_in: Seconds = Field(alias="sourceIn")
     source_out: Seconds = Field(alias="sourceOut")
-    playback_rate: StrictFloat = Field(default=1.0, alias="playbackRate")
+    playback_rate: StrictFloat = Field(default=1.0, alias="playbackRate", ge=0.125, le=8)
     volume: Volume = 0.0
 
 
@@ -104,6 +104,8 @@ def _snapshot(project_path):
 
 
 def _document(timeline, assets) -> _Document:
+    from open_edit.integrations.diffusion.timing import timing_provenance
+
     tracks = []
     clip_ids = set()
     for track in timeline.tracks:
@@ -116,12 +118,25 @@ def _document(timeline, assets) -> _Document:
             if asset is None:
                 raise ValueError(f'Clip {clip.clip_id}: asset metadata not found')
             tag = 'audio' if track.kind == 'audio' else asset.type
+            source_hash = clip.asset_hash
+            source_in, source_out, playback_rate = clip.in_point_sec, clip.out_point_sec, 1.0
+            provenance = timing_provenance(asset)
+            if provenance and len(provenance['segments']) == 1:
+                segment = provenance['segments'][0]
+                original = assets.get(provenance['asset_hash'])
+                if original is None:
+                    raise ValueError('Retimed clip original CAS asset is missing')
+                source_hash = original.asset_hash
+                playback_rate = segment['rate']
+                source_in = segment['source_in'] + clip.in_point_sec * playback_rate
+                source_out = segment['source_in'] + clip.out_point_sec * playback_rate
+                tag = 'audio' if track.kind == 'audio' else original.type
             if (track.kind == 'audio' and asset.type == 'image') or (track.kind == 'video' and tag == 'audio'):
                 raise ValueError('Media kind does not match its track')
             clips.append(_Clip(
-                id=element_id('c', clip.clip_id), tag=tag, src=f'asset://{quote(clip.asset_hash, safe="-._~")}',
-                start=clip.position_sec, sourceIn=clip.in_point_sec, sourceOut=clip.out_point_sec,
-                volume=_gain_db(clip),
+                id=element_id('c', clip.clip_id), tag=tag, src=f'asset://{quote(source_hash, safe="-._~")}',
+                start=clip.position_sec, sourceIn=source_in, sourceOut=source_out,
+                volume=_gain_db(clip), playbackRate=playback_rate,
             ))
         tracks.append(_Track(id=element_id('t', track.track_id), clips=clips))
     if len(clip_ids) > MAX_CLIPS:
@@ -161,9 +176,9 @@ def get_authoring_view(project_path: str | Path, *, include_source: bool = False
         'tracks': [{'track_id': t.track_id, 'kind': t.kind, 'source_id': f'index.tsx:{element_id("t", t.track_id)}'} for t in timeline.tracks[:50]],
         'tracks_truncated': len(timeline.tracks) > 50,
         'worker_ready': worker_ready(),
-        'supported': ['add', 'remove', 'move', 'trim', 'replace_source', 'constant_volume_db'],
+        'supported': ['add', 'remove', 'move', 'trim', 'replace_source', 'constant_volume_db', 'playback_rate_CAS'],
         'preserved': {'html_overlays': len(timeline.overlays), 'remotion_compositions': len(timeline.remotion_compositions), 'effects': sum(len(t.effects) + sum(len(c.effects) for c in t.clips) for t in timeline.tracks)},
-        'limitations': ['literal media JSX only', 'playbackRate must be 1', 'track order is fixed', 'existing effects and overlays stay in the graph', 'canvas size is authoring metadata; rendering uses the existing profile'],
+        'limitations': ['literal media JSX only', 'non-unity rates materialize checked CAS media first', 'legacy speed effects remain on the legacy path', 'track order is fixed', 'existing effects and overlays stay in the graph', 'canvas size is authoring metadata; rendering uses the existing profile'],
     }
     if include_source:
         out['source'] = store.load_authoring_source(FORMAT, revision) or _source(document)
@@ -202,13 +217,11 @@ def _validate_target(target: _Document, before: _Document, timeline, assets):
             if clip_id in clip_ids:
                 raise ValueError('Duplicate clip identity')
             clip_ids.add(clip_id)
-            if clip.playback_rate != 1:
-                raise ValueError('playbackRate must be 1 until timing parity is verified')
             if clip.source_out <= clip.source_in:
                 raise ValueError('sourceOut must be greater than sourceIn')
             if clip.start < prior_end - 1e-9:
                 raise ValueError('Media clips must not overlap on the same track')
-            prior_end = clip.start + clip.source_out - clip.source_in
+            prior_end = clip.start + (clip.source_out - clip.source_in) / clip.playback_rate
             asset_hash = asset_urls.get(clip.src)
             if asset_hash is None:
                 raise ValueError('src must identify an asset in the pinned project CAS')
@@ -247,6 +260,33 @@ def apply_authoring_edit(project_path, *, expected_revision, source=None, edits=
         raise ValueError(f'Invalid authoring field {error["loc"]}: {error["msg"]}') from exc
     records = _validate_target(target, before, timeline, assets)
     old = {c.clip_id: c for t in timeline.tracks for c in t.clips}
+    # Versioned CAS retiming leaves the legacy speed-op replay untouched. The
+    # graph receives ordinary zero-based media only after frame/audio QC.
+    from open_edit.integrations.diffusion.timing import bake_timing
+
+    old_literals = {_identity('c', c.id): c for t in before.tracks for c in t.clips}
+    changed_rates = [id_ for id_, (c, _, _, _) in records.items() if c.playback_rate != 1 and
+                     (id_ not in old_literals or any(getattr(c, k) != getattr(old_literals[id_], k)
+                                                    for k in ('src', 'source_in', 'source_out', 'playback_rate')))]
+    if len(changed_rates) > 20:
+        raise ValueError('Retiming is limited to 20 changed clips per authoring transaction')
+    for clip_id, (clip, track_id, kind, asset_hash) in list(records.items()):
+        if clip.playback_rate == 1:
+            continue
+        original = old.get(clip_id)
+        prior = old_literals.get(clip_id)
+        same_source = prior is not None and prior.src == clip.src and all(
+            math.isclose(getattr(prior, key), getattr(clip, key), abs_tol=1e-8)
+            for key in ('source_in', 'source_out', 'playback_rate'))
+        if same_source and original:
+            physical_hash = original.asset_hash
+            physical_in, physical_out = original.in_point_sec, original.out_point_sec
+        else:
+            materialized = bake_timing(project_path, asset_hash=asset_hash, source_in=clip.source_in,
+                                       source_out=clip.source_out, playback_rate=clip.playback_rate)
+            physical_hash, physical_in, physical_out = materialized['asset_hash'], 0.0, materialized['duration_sec']
+        physical = clip.model_copy(update={'source_in': physical_in, 'source_out': physical_out, 'playback_rate': 1.0})
+        records[clip_id] = (physical, track_id, kind, physical_hash)
     ops = [RemoveClipOp(author=author, clip_id=id_) for id_ in old if id_ not in records]
     for clip_id, (clip, track_id, kind, asset_hash) in records.items():
         original = old.get(clip_id)

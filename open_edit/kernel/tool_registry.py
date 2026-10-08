@@ -38,6 +38,8 @@ _EDIT_PROJECT_DESC = (
     "run_script. "
     "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
     "commit_graphics accepts a succeeded graphics job_id and expected_revision, then adds or replaces its clip after QC. "
+    "rewrite_graphics_source uses the pinned source writer for literal canvas property edits without committing a preview. "
+    "retime_asset bakes source ranges/rates or explicit speed segments into checked CAS media without editing the graph. "
     "Use ``generate`` for creative suggestions (SFX, music, visuals, "
     "remotion, silence_cuts) — review then commit via "
     "``operation=\"apply_generated_ops\"`` (or apply_silence_gaps for cuts). "

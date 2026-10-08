@@ -51,6 +51,8 @@ _EDIT_ROUTING: dict[str, str] = {
     "auto_color_grade": "auto_color_grade",
     "apply_authoring_edit": "apply_authoring_edit",
     "commit_graphics": "commit_graphics",
+    "rewrite_graphics_source": "rewrite_graphics_source",
+    "retime_asset": "retime_asset",
 }
 
 # Generate kind → TOOL_TABLE name for the generate pillar mode.

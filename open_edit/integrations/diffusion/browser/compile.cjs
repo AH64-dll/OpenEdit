@@ -2,9 +2,10 @@
 const babel = require('@babel/core');
 const esbuild = require('esbuild');
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const solid = require('babel-preset-solid');
 const common = ['id', 'x', 'y', 'width', 'height', 'rotation', 'scale', 'scaleX', 'scaleY',
-  'opacity', 'cornerRadius', 'start', 'end', 'sourceIn', 'sourceOut', 'playbackRate', 'hidden', 'fill'];
+  'opacity', 'cornerRadius', 'start', 'end', 'sourceIn', 'sourceOut', 'playbackRate', 'hidden', 'fill', 'transition'];
 const props = {
   stage: ['id'], scene: ['id', 'width', 'height', 'active', 'fill'],
   group: common, rect: [...common, 'clipPath'],
@@ -27,6 +28,15 @@ function literal(node) {
   if (!node) return true;
   if (['StringLiteral', 'NumericLiteral', 'BooleanLiteral'].includes(node.type)) return node.value;
   if (node.type === 'JSXExpressionContainer') return literal(node.expression);
+  if (node.type === 'ObjectExpression') {
+    const value = {};
+    for (const property of node.properties) {
+      const key = property.key?.type === 'Identifier' ? property.key.name : property.key?.value;
+      if (property.type !== 'ObjectProperty' || property.computed || !['type', 'duration'].includes(key) || Object.hasOwn(value, key)) throw new Error('Only literal transition type/duration objects are supported');
+      value[key] = literal(property.value);
+    }
+    return value;
+  }
   if (node.type === 'UnaryExpression' && ['-', '+'].includes(node.operator) && node.argument.type === 'NumericLiteral') {
     return node.argument.value * (node.operator === '-' ? -1 : 1);
   }
@@ -58,7 +68,10 @@ function parse(source) {
     const stringProps = ['fill', 'color', 'fontFamily', 'textAlign', 'textBaseline', 'src', 'fit', 'type', 'phase', 'property', 'easing'];
     for (const [key, val] of Object.entries(values)) {
       if (key === 'id') continue;
-      if (['active', 'hidden', 'clipPath'].includes(key)) { if (typeof val !== 'boolean') throw new Error(`${key} must be boolean`); }
+      if (key === 'transition') {
+        if (parent !== 'sequence' || !val || typeof val !== 'object' || !['dissolve', 'slideFromRight', 'slideFromLeft', 'fadeToBlack', 'fadeToWhite'].includes(val.type) || typeof val.duration !== 'number' || val.duration <= 0 || val.duration > 5) throw new Error('Transitions need a sequence parent, a supported type and a duration in (0,5]');
+      }
+      else if (['active', 'hidden', 'clipPath'].includes(key)) { if (typeof val !== 'boolean') throw new Error(`${key} must be boolean`); }
       else if (stringProps.includes(key)) { if (typeof val !== 'string') throw new Error(`${key} must be a string`); }
       else if (key === 'value' && typeof val === 'string') { /* animated color */ }
       else if (typeof val !== 'number') throw new Error(`${key} must be a number in seconds or pixels`);
@@ -96,4 +109,30 @@ async function compile(source) {
   const compiled = await esbuild.transform(transformed.code, { format: 'cjs', target: 'chrome130' });
   return { document, code: compiled.code };
 }
-module.exports = { parse, compile };
+async function rewrite(source, edits, scratch) {
+  const before = parse(source);
+  const elements = new Map(before.elements.map(e => [e.id, e]));
+  if (!Array.isArray(edits) || edits.length > 1000) throw new Error('Graphics edits must be a bounded list');
+  for (const edit of edits) {
+    const id = typeof edit?.source === 'string' ? edit.source.replace(/^index\.tsx:/, '') : '';
+    const entry = elements.get(id);
+    if (!entry || edit.source !== `index.tsx:${id}` || edit.kind !== 'set' || Object.keys(edit).some(k => !['kind', 'source', 'props'].includes(k))) throw new Error('Graphics edits must set an existing stable source ID');
+    if (!edit.props || typeof edit.props !== 'object' || Array.isArray(edit.props)) throw new Error('Graphics edits require literal props');
+    for (const [key, value] of Object.entries(edit.props)) {
+      if (key === 'id' || !props[entry.tag].includes(key) || !['number', 'string', 'boolean'].includes(typeof value)) throw new Error('Unsupported graphics property edit');
+    }
+  }
+  if (!edits.length) return source;
+  const module = { exports: {} };
+  const bundled = esbuild.buildSync({ entryPoints: [path.join(__dirname, '../worker/vendor/desktop/edit.ts')],
+    bundle: true, platform: 'node', format: 'cjs', packages: 'external', write: false,
+    alias: { '@diffusionstudio/jsx': path.join(__dirname, 'vendor/jsx/src/index.ts') }, logLevel: 'silent', legalComments: 'inline' });
+  new Function('require', 'module', 'exports', bundled.outputFiles[0].text)(require, module, module.exports);
+  await fs.writeFile(path.join(scratch, 'index.tsx'), source, 'utf8');
+  const result = await module.exports.applyEdits({ dir: scratch }, edits);
+  if (result.error || result.skipped.length) throw new Error(result.error || 'Graphics source edit could not be applied');
+  const rewritten = await fs.readFile(path.join(scratch, 'index.tsx'), 'utf8');
+  parse(rewritten);
+  return rewritten;
+}
+module.exports = { parse, compile, rewrite };

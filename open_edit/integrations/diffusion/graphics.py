@@ -83,9 +83,9 @@ def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
             proc.wait()
             _ACTIVE = None
         output.seek(0)
-        raw = output.read(256 * 1024 + 1)
-        if len(raw) > 256 * 1024:
-            raise ValueError('Graphics worker response exceeds 256 KiB')
+        raw = output.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError('Graphics worker response exceeds 1 MiB')
         try:
             result = json.loads(raw)
         except (ValueError, UnicodeError) as exc:
@@ -98,6 +98,21 @@ def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
 def inspect_source(source: str) -> dict:
     with tempfile.TemporaryDirectory(prefix='openedit-graphics-') as directory:
         return _worker({'source': source, 'validate_only': True}, Path(directory), timeout=20)['document']
+
+
+def rewrite_graphics_source(project_path, *, source, edits, expected_revision) -> dict:
+    from open_edit.integrations.diffusion.authoring import _snapshot
+
+    store, revision, _, _ = _snapshot(project_path)
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise ValueError('expected_revision must be a nonnegative integer')
+    if revision != expected_revision:
+        raise GraphRevisionConflict(expected_revision, revision)
+    with tempfile.TemporaryDirectory(prefix='openedit-graphics-edit-') as directory:
+        result = _worker({'source': source, 'edits': edits, 'validate_only': True}, Path(directory), timeout=20)
+    # A concurrent graph write during source rewriting must also fail.
+    store.append_many([], expected_revision=expected_revision)
+    return {'status': 'ok', 'graph_revision': revision, 'source': result['source'], **result['document']}
 
 
 def _runtime_digest() -> str:
@@ -168,12 +183,22 @@ def materialize(project_path: str | Path, params: dict) -> dict:
         asset = AssetStore(paths.assets_dir).ingest(str(output), transcribe=False, provider='diffusion',
                                                   attribution=f'OpenEdit graphics; Diffusion {UPSTREAM}; content key {key}',
                                                   source_url=f'openedit:graphics:{key}')
+        preview = cache / f'{key}.webm'
+        preview_temp = scratch / 'preview.webm'
+        encoded = subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', str(output), '-an',
+                                  '-c:v', 'libvpx-vp9', '-b:v', '1M', '-deadline', 'realtime',
+                                  '-cpu-used', '6', '-pix_fmt', 'yuva420p', str(preview_temp)],
+                                 capture_output=True, timeout=90)
+        if encoded.returncode:
+            raise ValueError('Browser preview encoding failed; last good preview retained')
+        preview_temp.replace(preview)
         poster = cache / f'{key}.png'
         shutil.copyfile(scratch / 'frame-000000.png', poster)
         record = {'asset_hash': asset.asset_hash, 'content_key': key, 'duration_sec': params['duration_sec'],
                   'fps': params['fps'], 'scene': scene, 'elements': document['elements'][:500],
                   'upstream': UPSTREAM, 'browser_version': rendered['browser_version'], 'qc_report': qc,
                   'source': params['source'], 'poster_path': str(poster)}
+        record['preview_path'] = str(preview)
         temporary = record_path.with_suffix('.tmp')
         temporary.write_text(json.dumps(record), encoding='utf-8')
         temporary.replace(record_path)

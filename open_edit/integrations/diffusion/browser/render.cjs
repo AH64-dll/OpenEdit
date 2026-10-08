@@ -4,7 +4,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { chromium } = require('playwright-core');
 const esbuild = require('esbuild');
-const { compile } = require('./compile.cjs');
+const { compile, rewrite } = require('./compile.cjs');
 const delay = ms => new Promise(r => setTimeout(r, ms));
 let chrome; let browser;
 async function cleanup() {
@@ -15,15 +15,17 @@ process.on('SIGTERM', () => cleanup().finally(() => process.exit(143)));
 process.on('SIGINT', () => cleanup().finally(() => process.exit(130)));
 (async () => {
   const request = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
-  const { document, code } = await compile(request.source);
+  const source = request.edits !== undefined ? await rewrite(request.source, request.edits, request.scratch) : request.source;
+  const { document, code } = await compile(source);
   if (request.validate_only) {
-    process.stdout.write(JSON.stringify({ ok: true, document })); return;
+    process.stdout.write(JSON.stringify({ ok: true, document, source })); return;
   }
   const alias = {};
   for (const name of ['runtime', 'reconciler', 'encoder', 'assets', 'jsx']) alias[`@diffusionstudio/${name}`] = path.join(__dirname, 'vendor', name, 'src/index.ts');
   const bundled = await esbuild.build({ entryPoints: [path.join(__dirname, 'runtime.ts')], bundle: true,
     platform: 'browser', format: 'iife', target: 'chrome130', alias, conditions: ['browser'],
-    write: false, legalComments: 'inline', logLevel: 'silent' });
+    // Koota's numeric Entity prototype methods require primitive `this`.
+    write: false, banner: { js: '"use strict";' }, legalComments: 'inline', logLevel: 'silent' });
   const executable = process.env.OPEN_EDIT_CHROMIUM || chromium.executablePath();
   const profile = path.join(request.scratch, 'chromium'); await fs.mkdir(profile);
   chrome = spawn(executable, ['--headless', '--disable-gpu', '--disable-dev-shm-usage',

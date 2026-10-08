@@ -1,7 +1,7 @@
 """Revision-aware source and visual property writes through the MCP adapter."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from starlette.concurrency import run_in_threadpool
@@ -58,6 +58,21 @@ class GraphicsCommitRequest(BaseModel):
     position_sec: float = Field(default=0, ge=0, allow_inf_nan=False)
 
 
+@router.post('/api/projects/{project_id}/graphics/source')
+async def edit_graphics_source(project_id: str, req: AuthoringEditRequest) -> JSONResponse:
+    from open_edit.integrations.diffusion.graphics import rewrite_graphics_source
+
+    state = await _require_project(project_id)
+    try:
+        result = await run_in_threadpool(rewrite_graphics_source, state.path, source=req.source,
+                                         edits=req.edits, expected_revision=req.expected_revision)
+    except GraphRevisionConflict as exc:
+        return JSONResponse(status_code=409, content={'error_code': 'stale_revision', 'error': str(exc), 'graph_revision': exc.actual})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(result)
+
+
 @router.get('/api/projects/{project_id}/graphics')
 async def read_graphics(project_id: str, clip_id: str = 'graphics') -> dict:
     from open_edit.integrations.diffusion.graphics import get_graphics_view
@@ -84,7 +99,8 @@ async def write_graphics(project_id: str, req: GraphicsCommitRequest) -> JSONRes
 
 
 @router.get('/api/projects/{project_id}/graphics/{job_id}/poster')
-async def graphics_poster(project_id: str, job_id: str) -> FileResponse:
+@router.get('/api/projects/{project_id}/graphics/{job_id}/preview')
+async def graphics_poster(project_id: str, job_id: str, request: Request) -> FileResponse:
     from pathlib import Path
 
     from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
@@ -94,7 +110,8 @@ async def graphics_poster(project_id: str, job_id: str) -> FileResponse:
     job = DEFAULT_RENDER_JOB_SERVICE.get(root, job_id)
     if job is None or job.mode != 'graphics' or job.status != 'succeeded':
         raise HTTPException(status_code=404, detail='Completed graphics preview not found')
-    poster = Path((job.result or {}).get('poster_path', '')).resolve()
+    video = request.url.path.endswith('/preview')
+    poster = Path((job.result or {}).get('preview_path' if video else 'poster_path', '')).resolve()
     if not poster.is_relative_to(root / '.open_edit/graphics') or not poster.is_file():
         raise HTTPException(status_code=404, detail='Graphics poster not found')
-    return FileResponse(poster, media_type='image/png')
+    return FileResponse(poster, media_type='video/webm' if video else 'image/png')

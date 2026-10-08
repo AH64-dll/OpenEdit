@@ -47,3 +47,19 @@ def commit_graphics(args: dict, project_path: str) -> dict:
         return commit(project_path, **{k: v for k, v in args.items() if k != 'project_id'})
     except GraphRevisionConflict as exc:
         return {'status': 'error', 'error_code': 'stale_revision', 'error': str(exc), 'graph_revision': exc.actual}
+
+
+@tool_result
+def rewrite_graphics_source(args: dict, project_path: str) -> dict:
+    from open_edit.integrations.diffusion.graphics import rewrite_graphics_source as rewrite
+
+    _check_keys(args, {'source', 'edits', 'expected_revision'})
+    return rewrite(project_path, **{k: v for k, v in args.items() if k != 'project_id'})
+
+
+@tool_result
+def retime_asset(args: dict, project_path: str) -> dict:
+    from open_edit.integrations.diffusion.timing import bake_timing
+
+    _check_keys(args, {'asset_hash', 'source_in', 'source_out', 'playback_rate', 'segments', 'fps'})
+    return bake_timing(project_path, **{k: v for k, v in args.items() if k != 'project_id'})

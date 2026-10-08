@@ -14,6 +14,8 @@ from open_edit.agent.tools.pyagent_authoring import (
     commit_graphics,
     get_authoring_view,
     get_graphics_view,
+    retime_asset,
+    rewrite_graphics_source,
 )
 from open_edit.agent.tools.pyagent_capture_style_hint import capture_style_hint
 from open_edit.agent.tools.pyagent_generate_remotion_composition import (
@@ -80,6 +82,8 @@ __all__ = [
     "propose_silence_cuts",
     "remove_clip",
     "replace_clip_source",
+    "retime_asset",
+    "rewrite_graphics_source",
     "run_python",
     "run_script",
     "search_assets",
@@ -91,6 +95,8 @@ __all__ = [
 ]
 
 TOOL_TABLE: dict[str, Callable] = {
+    "retime_asset": retime_asset,
+    "rewrite_graphics_source": rewrite_graphics_source,
     "commit_graphics": commit_graphics,
     "get_graphics_view": get_graphics_view,
     "apply_authoring_edit": apply_authoring_edit,
