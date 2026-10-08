@@ -82,11 +82,17 @@ const { chromium } = require('playwright-core');
     await page.locator('#graphics-panel summary').click();
     const graphics = page.locator('#graphics-source');
     await page.waitForFunction(() => document.querySelector('#graphics-source').value.includes('Your title'));
-    await graphics.fill((await graphics.inputValue()).replace('Your title', 'OpenEdit graphics'));
+    await graphics.fill((await graphics.inputValue()).replace('Your title', 'OpenEdit graphics').replace('</scene>',
+      '<group id="group-contract" x={10} y={10} hidden><rect id="group-child" width={30} height={20}/></group></scene>'));
     await page.locator('#graphics-duration').fill('0.5');
     await page.locator('#graphics-preview').click();
     await page.waitForFunction(() => document.querySelector('#graphics-status').textContent.includes('passed quality'), null, { timeout: 120000 });
     await page.waitForFunction(() => document.querySelector('#graphics-video').readyState >= 2);
+    await page.locator('#graphics-element').selectOption('group-contract');
+    assert.ok(await page.locator('#graphics-properties input[name=width]').isDisabled());
+    await page.locator('#graphics-properties input[name=x]').fill('15');
+    await page.locator('#graphics-properties button').click();
+    await page.waitForFunction(() => document.querySelector('#graphics-source').value.includes('id="group-contract" x={15}'));
     await page.locator('#graphics-element').selectOption('title');
     await page.locator('#graphics-properties input[name=x]').fill('125');
     await page.locator('#graphics-properties button').click();

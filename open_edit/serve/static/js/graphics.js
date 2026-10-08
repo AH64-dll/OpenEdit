@@ -25,7 +25,13 @@ function controls() {
   el('commit').disabled = busy || d?.stale || !d?.accepted || d.acceptedSource !== d.source ||
     d.acceptedDuration !== Number(el('duration').value) || d.acceptedFps !== Number(el('fps').value);
   el('reload').disabled = busy || loading;
-  for (const input of form.elements) input.disabled = busy || d?.stale || !select.value;
+  const item = layer();
+  for (const input of form.elements) {
+    const derivedSize = item?.tag === 'group' && ['width', 'height'].includes(input.name);
+    const animated = d?.elements?.some(e => e.tag === 'keyframeTrack' && e.parent_id === item?.id && e.property === input.name);
+    input.disabled = busy || d?.stale || !select.value || derivedSize || animated;
+    input.title = derivedSize ? 'Group size comes from its children.' : animated ? 'Edit this animated property in the JSX keyframes.' : '';
+  }
   el('commit').textContent = d?.existing ? 'Update timeline clip' : 'Add to timeline';
 }
 function remember() {
@@ -138,7 +144,7 @@ async function preview() {
 }
 source.addEventListener('input', () => { const d = current(); if (!d) return; d.source = source.value; remember(); controls(); message('Unsaved graphics draft · render to check changes.'); });
 select.addEventListener('change', selectLayer);
-form.addEventListener('submit', event => { event.preventDefault(); rewrite(Object.fromEntries(['x', 'y', 'width', 'height'].map(k => [k, Number(form.elements[k].value)]))); });
+form.addEventListener('submit', event => { event.preventDefault(); rewrite(Object.fromEntries(['x', 'y', 'width', 'height'].filter(k => !form.elements[k].disabled).map(k => [k, Number(form.elements[k].value)]))); });
 el('preview').addEventListener('click', preview);
 el('reload').addEventListener('click', () => load(true));
 el('cancel').addEventListener('click', async () => {
@@ -166,6 +172,7 @@ canvas.addEventListener('pointerdown', event => {
     x >= (e.x || 0) && y >= (e.y || 0) && x <= (e.x || 0) + (e.width || 100) && y <= (e.y || 0) + (e.height || 60));
   if (!item) return;
   video.pause(); video.currentTime = 0; select.value = item.id; selectLayer();
+  if (form.elements.x.disabled || form.elements.y.disabled) { message('Edit animated position in the JSX keyframes.'); return; }
   drag = { x: item.x || 0, y: item.y || 0, startX: x, startY: y, originX: item.x || 0, originY: item.y || 0 };
   canvas.setPointerCapture(event.pointerId);
 });
