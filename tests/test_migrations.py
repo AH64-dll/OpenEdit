@@ -9,7 +9,7 @@ from open_edit.storage.migrations import (
 
 EXPECTED_TABLES = {
     "project_meta", "edits", "jobs", "edit_status_events", "commands",
-    "timeline_snapshots", "notes", "notes_archive", "render_snapshots",
+    "timeline_snapshots", "notes", "notes_archive", "render_snapshots", "authoring_views",
 }
 
 
@@ -25,7 +25,7 @@ def test_run_migrations_applies_initial():
     assert current_version(conn) == 0
     final = run_migrations(conn)
     assert final == CURRENT_VERSION
-    assert final == 5
+    assert final == 6
     assert current_version(conn) == final
     assert _tables(conn) >= EXPECTED_TABLES
 

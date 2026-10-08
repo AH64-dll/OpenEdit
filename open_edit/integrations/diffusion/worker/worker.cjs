@@ -45,7 +45,9 @@ function element(node, tag, allowed) {
     props[attr.name.name] = literal(attr.value);
   }
   if (typeof props.id !== 'string' || !props.id) throw new Error(`Every <${tag}> needs a stable string id`);
-  const children = node.children.filter(n => n.type !== 'JSXText' || n.value.trim());
+  const children = node.children.filter(n =>
+    !(n.type === 'JSXText' && !n.value.trim()) &&
+    !(n.type === 'JSXExpressionContainer' && n.expression.type === 'JSXEmptyExpression'));
   return { props, children };
 }
 
@@ -127,5 +129,5 @@ function validateEdits(edits) {
     presets: [[presetSolid, { generate: 'universal', moduleName: '@diffusionstudio/jsx' }], [presetTypescript, { onlyRemoveTypeImports: true }]],
   });
   const compiled = await esbuild.transform(transformed.code, { format: 'cjs', target: 'chrome130' });
-  process.stdout.write(JSON.stringify({ ok: true, protocol: 1, document, compiled_hash: crypto.createHash('sha256').update(compiled.code).digest('hex') }));
+  process.stdout.write(JSON.stringify({ ok: true, protocol: 1, document, source, compiled_hash: crypto.createHash('sha256').update(compiled.code).digest('hex') }));
 })().catch(error => { process.stdout.write(JSON.stringify({ ok: false, error: String(error.message).split('\n')[0].slice(0, 300) })); process.exitCode = 1; });

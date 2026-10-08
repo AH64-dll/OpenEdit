@@ -81,7 +81,7 @@ illustrative; always supply the actual exported value:
 }
 ```
 
-The upstream source writer applies each edit to a temporary canonical document.
+The upstream source writer applies each edit to a temporary source document.
 The host parses and compiles the result, validates every clip and commits the
 resulting IR operations in one SQLite transaction. `volume` is an **absolute
 decibel value**. The adapter accounts for existing cumulative gain effects.
@@ -129,8 +129,32 @@ view and reapply the intended changes. A stale unchanged document also fails.
   1,000 native source edits and a 20-second compiler timeout. Large projects can
   continue using the structured timeline tools.
 
-Source is regenerated from the committed graph on every read. Compilation
-errors, skipped source edits and timeouts leave that graph and its next source
-view unchanged. Persistent source formatting, browser graphics, canvas editing
-and playback-rate parity are later milestones in the
-[implementation plan](DIFFUSION_IMPLEMENTATION_PLAN.md).
+Accepted source formatting and comments are stored in SQLite with the exact
+graph revision, in the same transaction as the operations. A formatting-only
+save changes neither the graph nor its revision. The last eight accepted
+revision views are retained. After another editor mutates the graph, reads
+regenerate source from that new graph snapshot; an older source is never served
+as current. Compilation errors, skipped edits, timeouts and transaction failures
+preserve the last accepted source and graph.
+
+## Review Studio editor
+
+Open **JSX editor** below the preview to edit source or a selected clip's start,
+source range and volume. Both paths call the same revision-checked adapter as
+MCP. The clip controls show the first 50 clips; the code view covers the full
+supported document. Code drafts are kept in the browser tab's session storage.
+Apply or reload a code draft before using clip controls.
+
+If another editor changes the graph, the editor keeps your draft and disables
+Apply. Copy the intended changes before choosing **Reload source**, then reapply
+them to the latest document. Reload source explicitly discards the current
+draft. Compiler errors leave the text available for correction. Native UI
+changes are recorded with `author=user`.
+
+`GET /api/projects/{id}/authoring?include_source=true` and
+`POST /api/projects/{id}/authoring` expose the same adapter to the UI. Writes
+require an integer `expected_revision` and exactly one of `source` or `edits`;
+stale writes return HTTP 409 with the current graph revision.
+
+Browser graphics rendering, spatial canvas editing and playback-rate parity
+remain gated by the [implementation plan](DIFFUSION_IMPLEMENTATION_PLAN.md).

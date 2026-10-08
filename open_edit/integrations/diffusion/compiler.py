@@ -38,14 +38,14 @@ def parse_and_compile(source: str, *, edits: list | None = None) -> dict:
     payload = json.dumps(request, ensure_ascii=True, allow_nan=False).encode()
     if len(payload) > 2 * MAX_SOURCE_BYTES:
         raise CompilerError('Authoring request exceeds 1 MiB')
-    with tempfile.TemporaryDirectory(prefix='openedit-authoring-') as scratch:
+    with tempfile.TemporaryDirectory(prefix='openedit-authoring-') as scratch, tempfile.TemporaryFile() as output:
         proc = subprocess.Popen(
             [shutil.which('node'), str(worker_directory() / 'worker.cjs')],
-            cwd=scratch, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=scratch, stdin=subprocess.PIPE, stdout=output, stderr=subprocess.DEVNULL,
             start_new_session=os.name == 'posix',
         )
         try:
-            stdout, _ = proc.communicate(payload, timeout=WORKER_TIMEOUT_SEC)
+            proc.communicate(payload, timeout=WORKER_TIMEOUT_SEC)
         except subprocess.TimeoutExpired as exc:
             raise CompilerError('Diffusion compilation timed out; the graph was not changed') from exc
         finally:
@@ -53,8 +53,16 @@ def parse_and_compile(source: str, *, edits: list | None = None) -> dict:
                 with contextlib.suppress(ProcessLookupError):
                     os.killpg(proc.pid, signal.SIGKILL)
             elif proc.poll() is None:
+                # npm/esbuild can spawn descendants on Windows as well.
+                with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+                    subprocess.run(
+                        ['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+                    )
                 proc.kill()
             proc.communicate()
+        output.seek(0)
+        stdout = output.read(2 * MAX_SOURCE_BYTES + 1)
         if len(stdout) > 2 * MAX_SOURCE_BYTES:
             raise CompilerError('Diffusion worker response exceeds 1 MiB')
         try:
@@ -67,6 +75,9 @@ def parse_and_compile(source: str, *, edits: list | None = None) -> dict:
             raise CompilerError(str(result.get('error') or 'Diffusion worker failed')[:300])
         if result.get('protocol') != 1 or not isinstance(result.get('document'), dict):
             raise CompilerError('Unsupported Diffusion worker protocol')
+        rewritten = result.get('source')
+        if not isinstance(rewritten, str) or len(rewritten.encode('utf-8')) > MAX_SOURCE_BYTES:
+            raise CompilerError('Diffusion worker returned invalid source')
         digest = result.get('compiled_hash')
         if not isinstance(digest, str) or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
             raise CompilerError('Diffusion worker returned an invalid compilation hash')

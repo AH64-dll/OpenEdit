@@ -166,7 +166,13 @@ def get_authoring_view(project_path: str | Path, *, include_source: bool = False
         'limitations': ['literal media JSX only', 'playbackRate must be 1', 'track order is fixed', 'existing effects and overlays stay in the graph', 'canvas size is authoring metadata; rendering uses the existing profile'],
     }
     if include_source:
-        out['source'] = _source(document)
+        out['source'] = store.load_authoring_source(FORMAT, revision) or _source(document)
+        elements = [
+            {'source_id': f'index.tsx:{clip.id}', 'track_id': track.id, **clip.model_dump(by_alias=True)}
+            for track in document.tracks for clip in track.clips
+        ]
+        out['elements'] = elements[:50]
+        out['elements_truncated'] = len(elements) > 50
     return out
 
 
@@ -221,7 +227,9 @@ def _validate_target(target: _Document, before: _Document, timeline, assets):
     return records
 
 
-def apply_authoring_edit(project_path, *, expected_revision, source=None, edits=None) -> dict:
+def apply_authoring_edit(project_path, *, expected_revision, source=None, edits=None, author='ai') -> dict:
+    if author not in {'ai', 'user'}:
+        raise ValueError('author must be ai or user')
     if type(expected_revision) is not int or expected_revision < 0:
         raise ValueError('expected_revision must be a nonnegative integer')
     if (source is None) == (edits is None):
@@ -230,7 +238,8 @@ def apply_authoring_edit(project_path, *, expected_revision, source=None, edits=
     if revision != expected_revision:
         raise GraphRevisionConflict(expected_revision, revision)
     before = _document(timeline, assets)
-    compiled = parse_and_compile(source if source is not None else _source(before), edits=edits)
+    base_source = store.load_authoring_source(FORMAT, revision) or _source(before)
+    compiled = parse_and_compile(source if source is not None else base_source, edits=edits)
     try:
         target = _Document.model_validate(compiled['document'])
     except ValidationError as exc:
@@ -238,25 +247,28 @@ def apply_authoring_edit(project_path, *, expected_revision, source=None, edits=
         raise ValueError(f'Invalid authoring field {error["loc"]}: {error["msg"]}') from exc
     records = _validate_target(target, before, timeline, assets)
     old = {c.clip_id: c for t in timeline.tracks for c in t.clips}
-    ops = [RemoveClipOp(author='ai', clip_id=id_) for id_ in old if id_ not in records]
+    ops = [RemoveClipOp(author=author, clip_id=id_) for id_ in old if id_ not in records]
     for clip_id, (clip, track_id, kind, asset_hash) in records.items():
         original = old.get(clip_id)
         if original is None:
-            ops.append(AddClipOp(author='ai', clip_id=clip_id, asset_hash=asset_hash, track_id=track_id, track_kind=kind, position_sec=clip.start, in_point_sec=clip.source_in, out_point_sec=clip.source_out))
+            ops.append(AddClipOp(author=author, clip_id=clip_id, asset_hash=asset_hash, track_id=track_id, track_kind=kind, position_sec=clip.start, in_point_sec=clip.source_in, out_point_sec=clip.source_out))
             old_gain = 0.0
         else:
             if original.track_kind != kind:
                 raise ValueError('Moving a clip between audio and video tracks is unsupported')
             if original.asset_hash != asset_hash:
-                ops.append(ReplaceClipSourceOp(author='ai', clip_id=clip_id, new_asset_hash=asset_hash))
+                ops.append(ReplaceClipSourceOp(author=author, clip_id=clip_id, new_asset_hash=asset_hash))
             if original.position_sec != clip.start or original.track_id != track_id:
-                ops.append(MoveClipOp(author='ai', clip_id=clip_id, new_track_id=track_id, new_position_sec=clip.start))
+                ops.append(MoveClipOp(author=author, clip_id=clip_id, new_track_id=track_id, new_position_sec=clip.start))
             if original.in_point_sec != clip.source_in or original.out_point_sec != clip.source_out:
-                ops.append(TrimClipOp(author='ai', clip_id=clip_id, new_in_point_sec=clip.source_in, new_out_point_sec=clip.source_out))
+                ops.append(TrimClipOp(author=author, clip_id=clip_id, new_in_point_sec=clip.source_in, new_out_point_sec=clip.source_out))
             old_gain = _gain_db(original)
         if not math.isclose(clip.volume, old_gain, rel_tol=1e-10, abs_tol=1e-8):
-            ops.append(SetAudioGainOp(author='ai', clip_id=clip_id, gain_db=clip.volume - old_gain))
-    store.append_many(ops, expected_revision=expected_revision)
+            ops.append(SetAudioGainOp(author=author, clip_id=clip_id, gain_db=clip.volume - old_gain))
+    store.append_many(
+        ops, expected_revision=expected_revision,
+        authoring_view=(FORMAT, compiled['source']),
+    )
     changed = list(dict.fromkeys(op.clip_id for op in ops))
     return {
         'status': 'ok', 'format': FORMAT, 'graph_revision': expected_revision + len(ops),

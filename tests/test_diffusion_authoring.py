@@ -81,6 +81,97 @@ def test_noop_round_trip_does_not_increment_revision(project, real_worker):
     assert view(path)['source'] == before['source']
 
 
+def test_formatting_and_comments_persist_across_reload_and_native_edits(project, real_worker):
+    path, store = project
+    before = view(path)
+    source = '// A hand-authored cut\n' + before['source'].replace(
+        '        <group id="t-main">',
+        '        {/* Keep the hero on its own track. */}\n        <group id="t-main">',
+    )
+    result = authoring.apply_authoring_edit(path, expected_revision=before['graph_revision'], source=source)
+    assert result['ops_appended'] == 0
+    assert store.graph_revision() == before['graph_revision']
+    assert view(path)['source'] == source
+    result = edit(path, store, [{'kind': 'set', 'source': 'index.tsx:c-hero', 'props': {'start': 2}}])
+    assert result['ops_appended'] == 1
+    after = authoring.get_authoring_view(path, include_source=True)
+    assert '// A hand-authored cut' in after['source']
+    assert 'Keep the hero on its own track.' in after['source']
+    assert 'start={2}' in after['source']
+    assert EditGraphStore(store.db_path).load_authoring_source(authoring.FORMAT, after['graph_revision']) == after['source']
+
+
+def test_external_mutation_refreshes_source_without_reusing_stale_formatting(project, real_worker):
+    path, store = project
+    before = view(path)
+    source = '// Custom formatting\n' + before['source']
+    authoring.apply_authoring_edit(path, expected_revision=before['graph_revision'], source=source)
+    store.append(SetAudioGainOp(author='ai', clip_id='hero', gain_db=-6))
+    current = view(path)
+    assert current['graph_revision'] == before['graph_revision'] + 1
+    assert 'Custom formatting' not in current['source']
+    hero = next(item for item in current['elements'] if item['id'] == 'c-hero')
+    assert hero['volume'] == pytest.approx(-6)
+    assert store.load_authoring_source(authoring.FORMAT, before['graph_revision']) == source
+    with pytest.raises(GraphRevisionConflict):
+        authoring.apply_authoring_edit(path, expected_revision=before['graph_revision'], source=source)
+
+
+def test_failure_keeps_last_good_source_and_transaction_rolls_back(project, real_worker, monkeypatch):
+    path, store = project
+    before = view(path)
+    source = '// Last good cut\n' + before['source']
+    authoring.apply_authoring_edit(path, expected_revision=before['graph_revision'], source=source)
+    with pytest.raises(compiler.CompilerError):
+        authoring.apply_authoring_edit(path, expected_revision=before['graph_revision'], source='invalid JSX')
+    assert view(path)['source'] == source
+    original = EditGraphStore._save_authoring_source
+    def fail_after_save(conn, authoring_view):
+        original(conn, authoring_view)
+        raise RuntimeError('source storage failed')
+    monkeypatch.setattr(EditGraphStore, '_save_authoring_source', staticmethod(fail_after_save))
+    with pytest.raises(RuntimeError, match='source storage failed'):
+        edit(path, store, [{'kind': 'set', 'source': 'index.tsx:c-hero', 'props': {'start': 2}}])
+    assert store.graph_revision() == before['graph_revision']
+    assert view(path)['source'] == source
+
+
+@pytest.mark.parametrize('worker_code', [
+    'process.exit(9);',
+    'process.stdout.write("x".repeat(1024 * 1024 + 1));',
+])
+def test_worker_crash_and_oversized_response_preserve_source_then_recover(project, real_worker, monkeypatch, worker_code):
+    path, store = project
+    before = view(path)
+    accepted = '// Last accepted source\n' + before['source']
+    authoring.apply_authoring_edit(path, expected_revision=before['graph_revision'], source=accepted)
+    broken_worker = path / 'broken-worker'
+    (broken_worker / 'node_modules/ts-morph').mkdir(parents=True)
+    (broken_worker / 'worker.cjs').write_text(worker_code)
+    with monkeypatch.context() as patch:
+        patch.setenv('OPEN_EDIT_DIFFUSION_WORKER_DIR', str(broken_worker))
+        with pytest.raises(compiler.CompilerError):
+            edit(path, store, [{'kind': 'set', 'source': 'index.tsx:c-hero', 'props': {'start': 2}}])
+    assert store.graph_revision() == before['graph_revision']
+    assert view(path)['source'] == accepted
+    assert edit(path, store, [{'kind': 'set', 'source': 'index.tsx:c-hero', 'props': {'start': 2}}])['ops_appended'] == 1
+
+
+def test_source_history_is_bounded_and_old_revisions_are_not_reused(project):
+    _, store = project
+    first = store.graph_revision()
+    for i in range(12):
+        store.append_many(
+            [SetAudioGainOp(author='ai', clip_id='hero', gain_db=-1)],
+            expected_revision=first + i, authoring_view=(authoring.FORMAT, f'accepted source {i}'),
+        )
+    assert store.load_authoring_source(authoring.FORMAT, first + 4) is None
+    assert store.load_authoring_source(authoring.FORMAT, first + 5) == 'accepted source 4'
+    assert store.load_authoring_source(authoring.FORMAT, first + 12) == 'accepted source 11'
+    store.append(SetAudioGainOp(author='ai', clip_id='hero', gain_db=-1))
+    assert store.load_authoring_source(authoring.FORMAT, store.graph_revision()) is None
+
+
 def test_actual_writeback_moves_trims_and_sets_absolute_volume(project, real_worker):
     path, store = project
     store.append(SetAudioGainOp(author='ai', clip_id='hero', gain_db=-3))

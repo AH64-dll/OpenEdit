@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=20260814-notes-mcp">
+  <link rel="stylesheet" href="/style.css?v=20261008-authoring">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%2228%22%20height%3D%2219%22%20rx%3D%224%22%20fill%3D%22%232779c3%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%2210%22%20width%3D%2218%22%20height%3D%229%22%20rx%3D%221.5%22%20fill%3D%22%230b1015%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2227%22%20width%3D%2212%22%20height%3D%223%22%20rx%3D%221.5%22%20fill%3D%22%23182027%22%2F%3E%3C%2Fsvg%3E">
 </head>
 <body class="has-timeline">
@@ -154,6 +154,28 @@
           <span class="transport-time" aria-label="Preview time"><strong id="tc-current">00:00.00</strong><span class="transport-total"> / —</span></span>
         </div>
       </div>
+
+      <details id="authoring-panel" class="authoring-panel">
+        <summary>JSX editor</summary>
+        <div class="authoring-toolbar">
+          <button id="authoring-reload" class="btn btn-ghost btn-xs" type="button">Reload source</button>
+          <button id="authoring-apply" class="btn btn-primary btn-xs" type="button" disabled>Apply source</button>
+          <span id="authoring-status" role="status" aria-live="polite">Select a project to edit.</span>
+        </div>
+        <div class="authoring-workspace">
+          <label class="authoring-code">Source
+            <textarea id="authoring-source" spellcheck="false" aria-label="Project JSX source" disabled></textarea>
+          </label>
+          <form id="authoring-properties" class="authoring-properties">
+            <label>Clip <select id="authoring-clip" aria-label="Clip to edit"></select></label>
+            <label>Start (s) <input name="start" type="number" min="0" step="any" required></label>
+            <label>Source in (s) <input name="sourceIn" type="number" min="0" step="any" required></label>
+            <label>Source out (s) <input name="sourceOut" type="number" min="0" step="any" required></label>
+            <label>Volume (dB) <input name="volume" type="number" min="-120" max="24" step="any" required></label>
+            <button id="authoring-apply-properties" class="btn btn-secondary btn-xs" type="submit" disabled>Apply clip</button>
+          </form>
+        </div>
+      </details>
 
       <div id="chat-log" class="chat-log agent-only">
         <div class="empty-state">
@@ -337,5 +359,6 @@
   <div id="toast" class="toast hidden"></div>
 
   <script type="module" src="/app.js?v=20260814-notes-mcp"></script>
+  <script type="module" src="/js/authoring.js?v=20261008"></script>
 </body>
 </html>

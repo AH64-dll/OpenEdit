@@ -88,6 +88,33 @@ class EditGraphStore:
             revision = self._revision_in(conn)
             return revision, self._load_all_in(conn)
 
+    def load_authoring_source(self, format: str, revision: int) -> str | None:
+        """Read a derived view for an exact snapshot, never for another revision."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT source FROM authoring_views WHERE format = ? AND graph_revision = ?",
+                (format, revision),
+            ).fetchone()
+            return row[0] if row else None
+
+    @staticmethod
+    def _save_authoring_source(conn: sqlite3.Connection, view: tuple[str, str] | None) -> None:
+        if view is None:
+            return
+        format, source = view
+        revision = EditGraphStore._revision_in(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO authoring_views (format, graph_revision, source) VALUES (?, ?, ?)",
+            (format, revision, source),
+        )
+        # Retain a bounded last-good history without growing the operation log.
+        conn.execute(
+            "DELETE FROM authoring_views WHERE format = ? AND graph_revision NOT IN "
+            "(SELECT graph_revision FROM authoring_views WHERE format = ? "
+            "ORDER BY graph_revision DESC LIMIT 8)",
+            (format, format),
+        )
+
     @property
     def project_id(self) -> str:
         """Return the stable project ID, safely creating it on first access."""
@@ -156,6 +183,7 @@ class EditGraphStore:
     def append_many(
         self, ops: list[OperationUnion], *, command_id: str | None = None,
         expected_revision: int | None = None, sequence_num: int | None = None,
+        authoring_view: tuple[str, str] | None = None,
     ) -> list[int]:
         """Append a batch in one transaction, or leave the graph unchanged.
 
@@ -173,6 +201,7 @@ class EditGraphStore:
             if expected_revision is not None and current_revision != expected_revision:
                 raise GraphRevisionConflict(expected_revision, current_revision)
             if not ops:
+                self._save_authoring_source(conn, authoring_view)
                 return []
             current_ops = self._load_all_in(conn)
             view = SimpleNamespace(
@@ -206,6 +235,7 @@ class EditGraphStore:
                 current_ops.append(op)
                 sequences.append(next_sequence)
                 next_sequence += 1
+            self._save_authoring_source(conn, authoring_view)
         return sequences
 
     @staticmethod

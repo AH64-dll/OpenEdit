@@ -40,7 +40,7 @@ from .auth import TokenAuthMiddleware, _websocket_auth_error  # noqa: F401 (re-e
 from .diagnostics import collect_diagnostics
 from .diagnostics import get_health as _collect_health
 from .logging_setup import CorrelationIdMiddleware, setup_logging
-from .routers import assets, config, ops, preview_chunks, projects, renders
+from .routers import assets, authoring, config, ops, preview_chunks, projects, renders
 from .ws import chat as chat_mod
 
 
@@ -146,6 +146,7 @@ app.include_router(preview_chunks.router)
 app.include_router(ops.router)
 app.include_router(config.router)
 app.include_router(assets.router)
+app.include_router(authoring.router)
 app.include_router(chat_mod.router)
 
 
