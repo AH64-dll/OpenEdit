@@ -8,6 +8,15 @@ Cursor (or another MCP host) at `open-edit-mcp`.
 You also need a separate **edit project** directory (created with
 `open_edit init`) where media and the edit graph live.
 
+After installing Python, run `open_edit doctor` or open **Setup** in the local
+workspace. Install optional editing capabilities explicitly with
+`open_edit setup media`, `open_edit setup graphics`, `open_edit setup html`, or
+`open_edit setup legacy-remotion`. The default package and MCP startup do not
+install Remotion/React. Full FFmpeg with libx264 and MLT/melt enables timeline
+preview and export; optional workers use Node.js 24. See
+[the workspace guide](docs/EDITING_WORKSPACE.md) for readiness, automatic preview
+and shared Undo/Redo.
+
 More MCP detail: [`docs/MCP.md`](docs/MCP.md).
 
 ## Option 0 — let your agent install it

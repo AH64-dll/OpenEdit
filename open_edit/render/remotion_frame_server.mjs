@@ -4,12 +4,7 @@ import {relative, resolve, sep} from "node:path";
 import {once} from "node:events";
 import readline from "node:readline";
 
-import {bundle} from "@remotion/bundler";
-import {
-  makeCancelSignal,
-  renderStill,
-  selectComposition,
-} from "@remotion/renderer";
+import {remotionRuntime} from './remotion_runtime.mjs';
 
 // Remotion's progress/browser messages use console.log in some releases.
 // Stdout is reserved for the binary protocol; diagnostics belong on stderr.
@@ -259,6 +254,7 @@ function withTimeout(work, timeoutMs, onTimeout) {
 
 const config = parseArgs(process.argv.slice(2));
 const {projectRoot, remotionRoot} = await resolveProjectRoots(config.projectRoot);
+const {bundle, makeCancelSignal, renderStill, selectComposition, webpackOverride} = remotionRuntime(remotionRoot);
 const bundleCache = new Map();
 const compositionCache = new Map();
 let activeCancel = null;
@@ -268,6 +264,7 @@ async function getBundle(entryPoint) {
   if (!bundleCache.has(entryPoint)) {
     const pending = bundle({
       entryPoint,
+      webpackOverride,
       onProgress: () => {},
     }).catch((error) => {
       bundleCache.delete(entryPoint);

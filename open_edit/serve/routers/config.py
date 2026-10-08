@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .. import llm_config as llm_config_mod
 from ..auth import _check_rate_limit
 from ..review_mode import (
     auto_preview_enabled,
@@ -48,19 +47,32 @@ def _require_agent_mode() -> None:
 @router.get("/api/ui-config")
 async def get_ui_config() -> dict[str, Any]:
     """Frontend mode flags (review studio vs full agent UI)."""
+    from open_edit.integrations.readiness import readiness
+
+    setup = await asyncio.to_thread(readiness)
     return {
         "mode": "review" if is_review_only() else "full",
         "review_only": is_review_only(),
         "auto_proxy": auto_proxy_enabled(),
         "auto_preview": auto_preview_enabled(),
         "preview_chunks": preview_chunks_enabled(),
+        "capabilities": setup['capabilities'],
     }
+
+
+@router.get('/api/setup')
+async def get_setup() -> dict:
+    from open_edit.integrations.readiness import readiness
+
+    return await asyncio.to_thread(readiness)
 
 
 @router.get("/api/projects/{project_id}/llm-config")
 async def get_llm_config(project_id: str) -> LLMConfigResponse:
     """Return the project's LLM provider + model config."""
     _require_agent_mode()
+    from .. import llm_config as llm_config_mod
+
     state = await _require_project(project_id)
     project_path = Path(state.path)
     from .. import providers as providers_mod
@@ -94,6 +106,7 @@ async def get_llm_config(project_id: str) -> LLMConfigResponse:
 async def put_llm_config(project_id: str, req: LLMConfigRequest) -> LLMConfigResponse:
     """Persist the project's LLM provider + model config."""
     _require_agent_mode()
+    from .. import llm_config as llm_config_mod
     from .. import providers as providers_mod
 
     visible = [s.name for s in providers_mod.list_visible_providers()]

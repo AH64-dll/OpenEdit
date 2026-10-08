@@ -5,6 +5,19 @@ https://github.com/AH64-dll/OpenEdit/releases for downloads.
 
 ## Unreleased
 
+- Add Review/Graphics/Code workspaces, clip/layer inspectors, readable clip and
+  output names, shared action history, keyboard Undo/Redo and guided Setup.
+  Remove the placeholder Style panel and duplicate main video controls.
+- Update cached timeline previews automatically; retain checked media while
+  updating, cancel obsolete UI-owned jobs, and show Current/Updating/Outdated.
+  Default export to automatic hardware selection with CPU fallback.
+- Persist atomic action Undo/Redo across UI, CLI and MCP, preserving authored
+  comments and rejecting stale writers. Safely migrate older project history.
+- Lazy-load built-in chat and provider dependencies only in optional agent
+  mode. Separate pinned Remotion/React compatibility dependencies from the
+  normal Node package; retain old project installations and explicit wrappers.
+  Add fresh TSX and frame-pull browser compatibility acceptance.
+
 - Remove the Pi extension, bridge and provider. MCP is included in the default
   package; built-in chat SDKs remain optional and the UI defaults to review mode.
 - Remove generated graph indexes, task scratch files, UI backups and personal

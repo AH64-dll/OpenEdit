@@ -20,6 +20,7 @@ Inspect project state. Sub-queries:
 | `analyze_narrative` | `asset_hash` | Rule-based narrative segments. |
 | `get_transcript_packed` | `asset_hash` (or omit for whole timeline) | Word-level alignment in a compact form. |
 | `get_graphics_view` | Optional `clip_id`, `include_source` | Compact graphics revision, worker readiness and last good preview; source on request. |
+| `get_history` | None | Revision, recent actions and next atomic Undo/Redo. |
 | `get_authoring_view` | Optional `include_source` (default false) | Revision and compact Diffusion media summary; literal JSX only on request. |
 
 **Common mistake:** calling these without the required params and then
@@ -42,6 +43,9 @@ Mutations:
   project-local template and timing.
 - `remove_clip` / `set_audio_gain` / `apply_silence_gaps` — remove, mute,
   and apply silence-cut proposals without `run_script`.
+- `undo` / `redo` — restore one whole edit action using `expected_revision`
+  from `get_history`. A new edit abandons the redo branch; direct legacy
+  status/reorder/delete changes form a history barrier.
 - `apply_generated_ops` — commit a list of IR ops (`AddClipOp`,
   `AddEffectOp`, `AddTransitionOp`, `HtmlOverlay`, `RawMltXmlOp`,
   `FreeFormCodeOp`, `NormalizeAudioOp`).
@@ -64,6 +68,9 @@ Mutations:
   or `segments=[{source_in,source_out,rate}]`, optionally `fps`. Returns a
   checked asset URL without graph mutation. Existing speed ops retain their
   old semantics; interpolated speed ramps are not mapped automatically.
+
+Diffusion is the default editable graphics path. HTML overlays are advanced;
+Remotion is legacy compatibility (`open_edit setup legacy-remotion`).
 
 For graphics, install `python -m open_edit.integrations.diffusion.setup
 --graphics --chromium`, query `get_graphics_view` with `include_source=true`,

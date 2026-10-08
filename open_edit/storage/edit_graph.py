@@ -19,6 +19,7 @@ from pydantic import TypeAdapter
 from open_edit.ir import validate as _ir_validate
 from open_edit.ir.ids import now_iso8601
 from open_edit.ir.types import OperationUnion, new_id
+from open_edit.storage import history as _history
 from open_edit.storage import ordering as _ordering
 from open_edit.storage.commands import CommandStore
 from open_edit.storage.db import open_conn
@@ -184,6 +185,7 @@ class EditGraphStore:
         self, ops: list[OperationUnion], *, command_id: str | None = None,
         expected_revision: int | None = None, sequence_num: int | None = None,
         authoring_view: tuple[str, str] | None = None,
+        action_label: str | None = None,
     ) -> list[int]:
         """Append a batch in one transaction, or leave the graph unchanged.
 
@@ -236,7 +238,16 @@ class EditGraphStore:
                 sequences.append(next_sequence)
                 next_sequence += 1
             self._save_authoring_source(conn, authoring_view)
+            _history.record(conn, ops, action_label, current_revision)
         return sequences
+
+    def history(self) -> dict:
+        with self._conn() as conn:
+            conn.execute('BEGIN')
+            return {'graph_revision': self._revision_in(conn), **_history.summary(conn)}
+
+    def history_step(self, direction: str, expected_revision: int) -> dict:
+        return _history.step(self, direction, expected_revision)
 
     @staticmethod
     def _load_all_in(conn: sqlite3.Connection) -> list[OperationUnion]:
@@ -281,6 +292,7 @@ class EditGraphStore:
             if row is None:
                 raise LookupError(f"operation not found: {edit_id}")
             from_status = row[0]
+            _history.invalidate(conn)
             conn.execute(
                 "UPDATE edits SET status = ? WHERE edit_id = ?",
                 (new_status, edit_id),

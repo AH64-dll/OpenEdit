@@ -22,8 +22,8 @@ def auto_proxy_enabled() -> bool:
 
 def auto_preview_enabled() -> bool:
     """When set, the review UI may enqueue preview chunks automatically."""
-    raw = (os.environ.get("OPEN_EDIT_AUTO_PREVIEW") or "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    raw = (os.environ.get("OPEN_EDIT_AUTO_PREVIEW") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def preview_chunks_enabled() -> bool:

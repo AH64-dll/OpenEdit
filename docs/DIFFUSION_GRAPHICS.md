@@ -36,8 +36,9 @@ Chromium's sandbox.
 
 ## Studio workflow
 
-Open **Graphics studio** below the preview. Edit the JSX, select a layer and
-change its properties, or drag a direct scene child on the canvas. Canvas
+Open **Graphics** in the workspace bar. Select a layer in the right inspector
+and change its properties, or drag a direct scene child on the canvas.
+Expand **Edit graphics source** to edit JSX directly. Canvas
 placement is evaluated at frame zero; nested elements remain editable through
 their parent-relative properties/source. The pinned source writer changes the
 same JSX shown in the code pane.

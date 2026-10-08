@@ -47,7 +47,7 @@ jobs:
       - run: python -m open_edit.integrations.diffusion.setup
       - run: python -m open_edit.integrations.diffusion.setup --graphics
       - run: pytest tests/test_diffusion_graphics.py tests/test_diffusion_graphics_contract.py tests/test_diffusion_setup.py -m "not browser" --timeout=40 --timeout-method=thread
-      - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py tests/test_action_history.py tests/test_editing_setup.py --timeout=40 --timeout-method=thread
       - if: matrix.os != 'ubuntu-latest'
         run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
       - if: matrix.os != 'ubuntu-latest'
@@ -88,7 +88,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           SDL_VIDEODRIVER: dummy
         run: pytest tests/test_e2e_render.py tests/test_graphics_overlay.py tests/test_remotion_proxy_golden.py --timeout=180 --timeout-method=thread
-      - name: Install pinned legacy graphics dependencies
+      - name: Install pinned advanced HTML dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Actual HyperFrames browser and FFmpeg replay
         env:
@@ -97,6 +97,13 @@ jobs:
         run: |
           export HYPERFRAMES_BROWSER_PATH="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
           pytest tests/test_html_overlay.py -m browser --timeout=180 --timeout-method=thread
+      - name: Install independent legacy Remotion compatibility
+        run: open_edit setup legacy-remotion
+      - name: Actual optional Remotion TSX and frame-pull compatibility
+        run: |
+          export OPEN_EDIT_REMOTION_BROWSER="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
+          export OPEN_EDIT_REMOTION_CHROME_BIN="$OPEN_EDIT_REMOTION_BROWSER"
+          pytest tests/test_legacy_remotion_browser.py -m browser --timeout=240 --timeout-method=thread
       - uses: actions/upload-artifact@v4
         if: always()
         with:

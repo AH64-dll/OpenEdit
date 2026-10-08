@@ -19,6 +19,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import {remotionRuntime} from './remotion_runtime.mjs';
 
 function argValue(flag) {
   const i = process.argv.indexOf(flag);
@@ -80,16 +81,13 @@ if (propsFile) {
 
 fs.mkdirSync(path.dirname(absOut), { recursive: true });
 
-const remotionBinUnix = path.join(absRoot, "node_modules", ".bin", "remotion");
-const remotionBinWin = path.join(absRoot, "node_modules", ".bin", "remotion.cmd");
-const remotionBin =
-  process.env.OPEN_EDIT_REMOTION_CLI ||
-  (process.platform === "win32" && fs.existsSync(remotionBinWin)
-    ? remotionBinWin
-    : remotionBinUnix);
-const fallbackNpx = !fs.existsSync(remotionBin);
-
-const cmd = fallbackNpx ? "npx" : remotionBin;
+const binName = process.platform === "win32" ? "remotion.cmd" : "remotion";
+const remotionBin = process.env.OPEN_EDIT_REMOTION_CLI || [
+  path.join(absRoot, 'node_modules', '.bin', binName),
+  path.join(path.dirname(absRoot), 'node_modules', '.bin', binName),
+  path.join(path.dirname(path.dirname(absRoot)), 'node_modules', '.bin', binName),
+].find(candidate => fs.existsSync(candidate));
+const cmd = remotionBin;
 const extraArgs = [
   ...(pixelFormat ? [`--pixel-format=${pixelFormat}`] : []),
   ...(imageFormat ? [`--image-format=${imageFormat}`] : []),
@@ -99,34 +97,13 @@ const extraArgs = [
     ? [`--browser-executable=${browserExecutable}`]
     : []),
 ];
-const args = fallbackNpx
-  ? [
-      "--yes",
-      "remotion",
-      "render",
-      entryPoint,
-      compositionId,
-      absOut,
-      `--props=${propsFile || ""}`,
-      `--width=${width}`,
-      `--height=${height}`,
-      `--fps=${fps}`,
-      `--codec=${codec}`,
-      ...extraArgs,
-    ].filter((a) => a !== "--props=")
-  : [
-      "render",
-      entryPoint,
-      compositionId,
-      absOut,
-      ...(propsFile ? [`--props=${propsFile}`] : []),
-      `--width=${width}`,
-      `--height=${height}`,
-      `--fps=${fps}`,
-      `--codec=${codec}`,
-      ...extraArgs,
-    ];
+const args = [
+  'render', entryPoint, compositionId, absOut,
+  ...(propsFile ? [`--props=${propsFile}`] : []),
+  `--width=${width}`, `--height=${height}`, `--fps=${fps}`, `--codec=${codec}`, ...extraArgs,
+];
 
+if (remotionBin) {
 const result = spawnSync(cmd, args, {
   cwd: absRoot,
   encoding: "utf8",
@@ -141,6 +118,24 @@ if (result.status !== 0) {
     stderr: (result.stderr || "").slice(-4000),
     stdout: (result.stdout || "").slice(-2000),
   });
+}
+} else {
+  // A project without its own install uses the independent compatibility
+  // package. Add its module directory to Webpack without changing the project.
+  for (const method of ['log', 'info', 'warn', 'debug']) console[method] = (...values) => console.error(...values);
+  try {
+    const {bundle, selectComposition, renderMedia, webpackOverride} = remotionRuntime(absRoot);
+    const serveUrl = await bundle({entryPoint: absEntry, webpackOverride, onProgress: () => {}});
+    const inputProps = JSON.parse(propsJson);
+    const composition = await selectComposition({serveUrl, id: compositionId, inputProps,
+      ...(browserExecutable ? {browserExecutable} : {}), logLevel: 'error'});
+    await renderMedia({serveUrl, composition: {...composition, width: Number(width), height: Number(height), fps: Number(fps)},
+      inputProps, outputLocation: absOut, codec,
+      ...(pixelFormat ? {pixelFormat} : {}), ...(imageFormat ? {imageFormat} : {}),
+      ...(proresProfile ? {proResProfile: proresProfile} : {}),
+      ...(concurrency ? {concurrency: Number(concurrency)} : {}),
+      ...(browserExecutable ? {browserExecutable} : {}), logLevel: 'error'});
+  } catch (error) { fail('Legacy Remotion render failed', {detail: String(error.message).slice(-4000)}); }
 }
 
 if (!fs.existsSync(absOut) || fs.statSync(absOut).size === 0) {

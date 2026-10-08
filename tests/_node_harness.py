@@ -98,6 +98,8 @@ _HARNESS_TEMPLATE = r"""
   const appUrl = pathToFileURL(appPath).href;
   try {
     await import(appUrl);
+    // Optional-agent contracts explicitly load their frontend extension.
+    await (await import(new URL('./js/agent-extension.js', appUrl).href)).loadAgentExtension();
   } catch (e) {
     console.error('IMPORT_FAILED:', e && (e.stack || e.message || e));
     process.exit(2);

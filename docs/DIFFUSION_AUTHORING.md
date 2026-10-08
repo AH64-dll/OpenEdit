@@ -143,8 +143,8 @@ preserve the last accepted source and graph.
 
 ## Review Studio editor
 
-Open **JSX editor** below the preview to edit source or a selected clip's start,
-source range, playback rate and volume. Both paths call the same revision-checked adapter as
+Open **Code** to edit project source. Select a timeline clip to adjust its start,
+source range, playback rate and volume in the right inspector. Both paths call the same revision-checked adapter as
 MCP. The clip controls show the first 50 clips; the code view covers the full
 supported document. Code drafts are kept in the browser tab's session storage.
 Apply or reload a code draft before using clip controls.

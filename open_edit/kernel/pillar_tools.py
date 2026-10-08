@@ -85,6 +85,9 @@ def _with_project_id(params: dict[str, Any], project_path: Path) -> dict[str, An
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch a query to one of the 6 read-only tools."""
+    if query == 'get_history':
+        from open_edit.kernel.edit_graph_service import open_store
+        return {'status': 'ok', **open_store(project_path).history()}
     fn = TOOL_TABLE[_QUERY_ROUTING[query]] if query in _QUERY_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown query: {query!r}"}
@@ -94,6 +97,16 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
 
 def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch an edit operation to the corresponding tool."""
+    if operation in ('undo', 'redo'):
+        from open_edit.kernel.edit_graph_service import open_store
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        revision = params.get('expected_revision')
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+            return {'status': 'error', 'error': 'expected_revision must be a nonnegative integer'}
+        try:
+            return {'status': 'ok', **open_store(project_path).history_step(operation, revision)}
+        except (ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if operation == "apply_generated_ops":
         return _apply_generated_ops(dict(params) if params else {}, project_path)
     fn = TOOL_TABLE[_EDIT_ROUTING[operation]] if operation in _EDIT_ROUTING else None

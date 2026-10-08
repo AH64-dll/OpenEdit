@@ -19,7 +19,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-CURRENT_VERSION: int = 6
+CURRENT_VERSION: int = 7
 
 MIGRATIONS_DIR = Path(__file__).parent
 _MIGRATION_RE = re.compile(r"^(\d{4})_.*\.sql$")

@@ -25,6 +25,7 @@ _QUERY_PROJECT_DESC = (
     " Use params.offset/limit for paged assets (default limit 50); follow next_offset."
     " Packed transcripts use word offset/limit (default 500, max 2000); follow next_offset."
     " get_authoring_view exports an optional Diffusion JSX media view; params.include_source=true returns source."
+    " get_history returns complete editing actions and the current Undo/Redo choices."
     " get_graphics_view returns a revision-safe graphics view; params.clip_id selects a graphics clip."
 )
 
@@ -46,7 +47,8 @@ _EDIT_PROJECT_DESC = (
     "``operation=ingest_local`` ingests any readable absolute local media "
     "path and copies it into the project CAS. "
     "``operation=add_hyperframes_overlay`` adds native HTML/CSS/JS "
-    "graphics. New motion graphics should use HyperFrames, not Remotion. "
+    "graphics. Prefer Diffusion for editable titles/shapes/animation; use HyperFrames for advanced HTML. "
+    "undo/redo require params.expected_revision from get_history and reverse a complete editing action. "
     "``generate=remotion`` appends a legacy AddRemotionCompositionOp "
     "(materializes on proxy/final render; graphics burned via ffmpeg). "
     "``generate=init_remotion`` scaffolds ``.open_edit/remotion/``. "
@@ -107,6 +109,7 @@ class QueryProjectArgs(BaseModel):
         "get_timeline_view",
         "get_authoring_view",
         "get_graphics_view",
+        "get_history",
     ]
     params: dict = {}
 

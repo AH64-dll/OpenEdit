@@ -30,6 +30,32 @@ class ReorderOpsRequest(BaseModel):
     expected_revision: int | None = None
 
 
+class HistoryRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+
+
+@router.get('/api/projects/{project_id}/history')
+async def get_history(project_id: str) -> dict:
+    state = await _require_project(project_id)
+    from open_edit.kernel.edit_graph_service import open_store
+
+    return open_store(Path(state.path)).history()
+
+
+@router.post('/api/projects/{project_id}/history/{direction}')
+async def step_history(project_id: str, direction: str, req: HistoryRequest) -> dict:
+    state = await _require_project(project_id)
+    from open_edit.kernel.edit_graph_service import open_store
+    from open_edit.storage.edit_graph import GraphRevisionConflict
+
+    try:
+        return open_store(Path(state.path)).history_step(direction, req.expected_revision)
+    except GraphRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/api/projects/{project_id}/ops")
 async def post_timeline_command(
     project_id: str, req: TimelineCommandRequest,

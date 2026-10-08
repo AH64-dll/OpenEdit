@@ -39,9 +39,9 @@ from . import projects as projects_mod
 from .auth import TokenAuthMiddleware, _websocket_auth_error  # noqa: F401 (re-exported for tests)
 from .diagnostics import collect_diagnostics
 from .diagnostics import get_health as _collect_health
+from .extensions import agent as chat_mod
 from .logging_setup import CorrelationIdMiddleware, setup_logging
 from .routers import assets, authoring, config, ops, preview_chunks, projects, renders
-from .ws import chat as chat_mod
 
 
 @asynccontextmanager
@@ -72,7 +72,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Open Edit Server",
     version="0.1.0",
-    description="Chat-driven backend for the Open Edit AI-native video editor.",
+    description="Project editing, review and rendering for the Open Edit MCP server.",
     lifespan=_lifespan,
 )
 

@@ -31,9 +31,8 @@ openai = ["openai>=1.30"]
 whisper = [
     "faster-whisper>=1.0.0",
 ]
-serve = [
-    "anthropic>=0.39",
-]
+agent = ["anthropic>=0.39", "openai>=1.30"]
+serve = ["anthropic>=0.39"]  # legacy alias for built-in agent dependencies
 mcp = []  # compatibility alias: MCP is the primary interface
 
 [project.scripts]

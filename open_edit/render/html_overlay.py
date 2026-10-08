@@ -82,6 +82,9 @@ def _resolve_hyperframes_bin() -> str:
     pinned = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / name
     if pinned.is_file():
         return str(pinned.resolve())
+    optional = Path(__file__).resolve().parents[1] / 'integrations/hyperframes/node_modules/.bin' / name
+    if optional.is_file():
+        return str(optional.resolve())
     installed = shutil.which("hyperframes")
     if installed:
         return installed

@@ -39,6 +39,13 @@ argument.
 
 ## Motion graphics
 
+Default to Diffusion for editable titles, shapes and supported animations:
+query `get_graphics_view` with `include_source`, author the literal JSX,
+`trigger_render mode=graphics`, review the checked preview, then explicitly
+`commit_graphics` with the expected revision. Use HyperFrames for advanced
+HTML/CSS/JS compositions. Ordinary users choose a graphics action, not a backend.
+Optional installation is `open_edit setup graphics` or `open_edit setup html`.
+
 Use `edit_project` operation `add_hyperframes_overlay` for new HTML/CSS/JS
 motion graphics. Parameters:
 
@@ -59,8 +66,16 @@ animation in `window.__timelines`, or use `data-no-timeline` for static content.
 Run HyperFrames lint before rendering.
 
 Existing `remotion` generation is migration-only. Do not create new Remotion
-operations. Port old compositions to HyperFrames, preserve timing and alpha,
+operations. Install compatibility only when needed with `open_edit setup legacy-remotion`. Port old compositions to supported Diffusion or advanced HTML, preserve timing and alpha,
 then compare representative frames before deleting legacy source or graph ops.
+
+## Editing history
+
+`query_project query=get_history` returns grouped actions and graph revision.
+`edit_project operation=undo|redo` requires `params.expected_revision`; it reverses
+one complete committed batch. New edits clear the redo branch. Formatting-only
+source saves do not add an editing action. Legacy status/reorder APIs form a safe
+history barrier; use grouped history for ordinary Undo/Redo.
 
 ## Render products
 

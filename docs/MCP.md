@@ -334,8 +334,9 @@ Operator controls are configured through:
 - `OPEN_EDIT_PROXY_QC_POLICY` (`always`, `skip_on_hit`, or `never`) as the
   M1 compatibility override for proxy QC.
 - `OPEN_EDIT_AUTO_PROXY=1` keeps the existing auto-proxy behavior; it is
-  independent from `OPEN_EDIT_AUTO_PREVIEW=1`, which permits automatic
-  preview-chunk requests after graph changes.
+  independent from `OPEN_EDIT_AUTO_PREVIEW` (default on), which updates dirty
+  timeline ranges automatically. Set it to `0` for manual updates. Automatic
+  range previews take precedence over whole-file auto-proxy requests.
 - `OPEN_EDIT_PREVIEW_CACHE_MAX_BYTES` (512 MiB by default) caps preview
   artifacts, and `OPEN_EDIT_PREVIEW_CACHE_MAX_AGE_SEC` (7 days by default)
   controls preview artifact TTL.

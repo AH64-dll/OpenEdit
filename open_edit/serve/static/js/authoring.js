@@ -15,7 +15,14 @@ let fetching = false;
 
 function current() { return drafts.get(state.currentProjectId); }
 function dirty(d) { return d && d.source !== d.baseline; }
-function message(text) { status.textContent = text; }
+function message(text) {
+  status.textContent = text;
+  const hint = document.getElementById('clip-inspector-status');
+  if (hint) hint.textContent = text.startsWith('Revision') ? 'Adjust the selected clip.' :
+    text.startsWith('Saved') ? 'Clip changes saved.' :
+    text.startsWith('Unsaved') ? 'Apply or reload your source draft before changing clip properties.' :
+    text.startsWith('Source available') ? 'Open Setup to enable clip properties.' : text;
+}
 function controls() {
   const d = current();
   source.disabled = !d || d.busy;
@@ -40,10 +47,12 @@ function paint() {
   const selectedClip = clips.value;
   source.value = d?.source || '';
   clips.replaceChildren();
-  for (const clip of d?.elements || []) {
+  for (const [index, clip] of (d?.elements || []).entries()) {
     const option = document.createElement('option');
     option.value = clip.source_id;
-    option.textContent = `${clip.tag} · ${decodeURIComponent(clip.id.slice(2))}`;
+    const hash = decodeURIComponent((clip.src || '').replace(/^asset:\/\//, ''));
+    const asset = (state.currentProjectState?.assets || []).find(a => (a.hash || a.asset_hash) === hash);
+    option.textContent = asset?.filename || `${clip.tag === 'audio' ? 'Audio' : 'Video'} clip ${index + 1}`;
     clips.append(option);
   }
   if ([...clips.options].some(option => option.value === selectedClip)) clips.value = selectedClip;
@@ -152,11 +161,21 @@ panel.addEventListener('toggle', () => { if (panel.open) load(); });
 document.getElementById('project-select').addEventListener('change', () => {
   shownProject = state.currentProjectId;
   paint();
-  if (panel.open) load();
+  load();
 });
 setInterval(() => {
-  if (!panel.open || fetching || current()?.busy) return;
+  if (fetching || current()?.busy) return;
   if (shownProject !== state.currentProjectId) { shownProject = state.currentProjectId; paint(); }
   if (state.currentProjectId) load();
 }, 5000);
 controls();
+
+window.addEventListener('openedit:snapshot', () => {
+  if (shownProject !== state.currentProjectId || current()?.graph_revision !== state.currentProjectState?.graph_revision) {
+    shownProject = state.currentProjectId; load();
+  }
+});
+window.addEventListener('openedit:inspect-clip', event => {
+  const item = current()?.elements?.find(c => decodeURIComponent(c.id.slice(2)) === event.detail.clipId);
+  if (item) { clips.value = item.source_id; selectClip(); }
+});
