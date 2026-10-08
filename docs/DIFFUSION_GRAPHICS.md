@@ -42,6 +42,10 @@ placement is evaluated at frame zero; nested elements remain editable through
 their parent-relative properties/source. The pinned source writer changes the
 same JSX shown in the code pane.
 
+Group sizes come from their children, so group width/height controls are disabled.
+Keyframed properties remain editable in JSX; their numeric controls and animated
+position dragging are disabled to preserve the animation.
+
 Choose **Render preview**, inspect the transparent preview or play its
 animation, then **Add to timeline**. Updating an existing graphics clip retains
 its placement, effects and explicit trims. A full-source clip follows the new

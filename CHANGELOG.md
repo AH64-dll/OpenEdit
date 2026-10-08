@@ -43,6 +43,8 @@ worker and versioned CAS previews.
   drafts and outputs; only explicit authoring saves or graphics commits edit IR.
 - Graphics studio in the review UI: source/editor, canvas selection of
   direct scene children, parent-relative nested edits and live preview.
+- Preserve square-pixel graphics geometry through the MLT frame server;
+  explicitly set the raw-video consumer's sample/display aspect ratios.
 - Pinned browser worker renders literal JSX graphics through the vendored
   Diffusion runtime; a pinned compiler worker translates authored JSX back
   into graph operations.
