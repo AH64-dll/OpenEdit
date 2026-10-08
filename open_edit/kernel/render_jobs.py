@@ -220,6 +220,14 @@ class RenderJobService:
             ).fetchall()
         return [self._row(row) for row in rows]
 
+    def latest_succeeded(self, project_path: Path, mode: str) -> RenderJob | None:
+        """Read one last-good preview without loading the whole durable history."""
+        with self._connect(project_path) as con:
+            con.row_factory = sqlite3.Row
+            row = con.execute('SELECT * FROM render_jobs WHERE mode=? AND status=\'succeeded\' '
+                              'ORDER BY updated_at DESC LIMIT 1', (mode,)).fetchone()
+        return self._row(row) if row else None
+
     def _update(self, project_path: Path, job_id: str, status: JobStatus, *,
                 output_path: str | None = None, error: str | None = None,
                 result: dict | None = None, qc_report: dict | None = None) -> None:

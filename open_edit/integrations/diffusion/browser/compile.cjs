@@ -4,6 +4,14 @@ const esbuild = require('esbuild');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const solid = require('babel-preset-solid');
+function upstream(name) {
+  const module = { exports: {} };
+  const bundled = esbuild.buildSync({ entryPoints: [path.join(__dirname, '../worker/vendor/desktop', `${name}.ts`)],
+    bundle: true, platform: 'node', format: 'cjs', packages: 'external', write: false,
+    alias: { '@diffusionstudio/jsx': path.join(__dirname, 'vendor/jsx/src/index.ts') }, logLevel: 'silent', legalComments: 'inline' });
+  new Function('require', 'module', 'exports', bundled.outputFiles[0].text)(require, module, module.exports);
+  return module.exports;
+}
 const common = ['id', 'x', 'y', 'width', 'height', 'rotation', 'scale', 'scaleX', 'scaleY',
   'opacity', 'cornerRadius', 'start', 'end', 'sourceIn', 'sourceOut', 'playbackRate', 'hidden', 'fill', 'transition'];
 const props = {
@@ -82,7 +90,7 @@ function parse(source) {
       if (!/^asset:\/\/[a-f0-9]{64}$/.test(values.src || '')) throw new Error('Images must reference project CAS asset:// URLs');
       assets.add(values.src.slice(8));
     }
-    if (values.fontFamily && values.fontFamily !== 'OpenEdit Sans') throw new Error('Use the bundled OpenEdit Sans font for reproducible text');
+    if (tag === 'text' && values.fontFamily !== 'OpenEdit Sans') throw new Error('Text requires the bundled fontFamily="OpenEdit Sans" for reproducible capture');
     if (tag === 'animation' && !['fade', 'grow', 'shrink', 'slideLeft', 'slideRight', 'slideUp', 'slideDown', 'spin'].includes(values.type)) throw new Error('Unsupported animation preset');
     if (values.phase && !['in', 'out'].includes(values.phase)) throw new Error('Animation phase must be in or out');
     if (tag === 'keyframeTrack' && !['x', 'y', 'width', 'height', 'rotation', 'scale', 'opacity', 'color'].includes(values.property)) throw new Error('Unsupported keyframe property');
@@ -104,7 +112,9 @@ function parse(source) {
 }
 async function compile(source) {
   const document = parse(source);
+  const { sourcePlugin, canonicalizeTagsPlugin } = upstream('source');
   const transformed = await babel.transformAsync(source, { filename: 'index.tsx', configFile: false, babelrc: false,
+    plugins: [[sourcePlugin, { file: 'index.tsx' }], canonicalizeTagsPlugin],
     presets: [[solid, { generate: 'universal', moduleName: '@diffusionstudio/jsx' }]] });
   const compiled = await esbuild.transform(transformed.code, { format: 'cjs', target: 'chrome130' });
   return { document, code: compiled.code };
@@ -123,13 +133,8 @@ async function rewrite(source, edits, scratch) {
     }
   }
   if (!edits.length) return source;
-  const module = { exports: {} };
-  const bundled = esbuild.buildSync({ entryPoints: [path.join(__dirname, '../worker/vendor/desktop/edit.ts')],
-    bundle: true, platform: 'node', format: 'cjs', packages: 'external', write: false,
-    alias: { '@diffusionstudio/jsx': path.join(__dirname, 'vendor/jsx/src/index.ts') }, logLevel: 'silent', legalComments: 'inline' });
-  new Function('require', 'module', 'exports', bundled.outputFiles[0].text)(require, module, module.exports);
   await fs.writeFile(path.join(scratch, 'index.tsx'), source, 'utf8');
-  const result = await module.exports.applyEdits({ dir: scratch }, edits);
+  const result = await upstream('edit').applyEdits({ dir: scratch }, edits);
   if (result.error || result.skipped.length) throw new Error(result.error || 'Graphics source edit could not be applied');
   const rewritten = await fs.readFile(path.join(scratch, 'index.tsx'), 'utf8');
   parse(rewritten);

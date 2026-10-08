@@ -88,6 +88,11 @@ async function load(discard = false) {
     }
     if (id !== state.currentProjectId) return;
     shown = id;
+    if (d.last_good_job_id && !video.getAttribute('src')) {
+      video.src = endpoint(id, `/graphics/${d.last_good_job_id}/preview`);
+      video.poster = endpoint(id, `/graphics/${d.last_good_job_id}/poster`);
+      video.load();
+    }
     paint(); message(d.stale ? 'Project changed. Your graphics draft is kept; copy it before reloading.' :
       d.worker_ready ? `Revision ${d.graph_revision} · render a preview, then add it to the timeline.` : 'Install the optional graphics worker to render this source.');
   } catch (error) { if (id === state.currentProjectId) message(error.message); }

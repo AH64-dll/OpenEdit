@@ -23,6 +23,10 @@ EXPECTED_TOOL_NAMES = {
     "add_marker",
     "analyze_narrative",
     "apply_authoring_edit",
+    "commit_graphics",
+    "get_graphics_view",
+    "rewrite_graphics_source",
+    "retime_asset",
     "capture_style_hint",
     "generate_remotion_composition",
     "generate_visual_for_segment",
@@ -159,6 +163,34 @@ def test_every_tool_table_callable_has_functional_invocation(
         result = fn({"expected_revision": 1, "edits": []}, str(project))
         assert result["error_code"] == "stale_revision"
         assert result["graph_revision"] == 0
+        return
+
+    elif name == 'get_graphics_view':
+        _graph(project)
+        result = fn({}, str(project))
+        assert result['graph_revision'] == 0
+        assert result['existing'] is False
+        assert 'source' not in result
+
+    elif name == 'commit_graphics':
+        _graph(project)
+        result = fn({'job_id': 'missing', 'expected_revision': 0}, str(project))
+        assert result['status'] == 'error'
+        assert 'succeeded graphics job' in result['error']
+        return
+
+    elif name == 'rewrite_graphics_source':
+        _graph(project)
+        result = fn({'source': '', 'edits': [], 'expected_revision': 1}, str(project))
+        assert result['status'] == 'error'
+        assert 'stale graph revision' in result['error']
+        return
+
+    elif name == 'retime_asset':
+        _graph(project)
+        result = fn({'asset_hash': 'missing'}, str(project))
+        assert result['status'] == 'error'
+        assert 'pinned project CAS' in result['error']
         return
 
     elif name == "ingest_local":

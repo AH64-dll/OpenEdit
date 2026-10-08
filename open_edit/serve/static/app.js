@@ -66,7 +66,7 @@ export async function refreshProjects() {
   }
 }
 
-window.addEventListener('openedit:graph-changed', event => {
+window.addEventListener?.('openedit:graph-changed', event => {
   if (event.detail?.projectId === state.currentProjectId) loadProjectState();
 });
 

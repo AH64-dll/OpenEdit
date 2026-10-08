@@ -25,6 +25,14 @@ jobs:
       - run: python -m open_edit.integrations.diffusion.setup --graphics
       - run: pytest tests/test_diffusion_graphics.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py --timeout=40 --timeout-method=thread
+      - if: matrix.os != 'ubuntu-latest'
+        run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
+      - if: matrix.os != 'ubuntu-latest'
+        env:
+          OPEN_EDIT_CHROMIUM_NO_SANDBOX: "1"
+        run: pytest tests/test_diffusion_graphics.py -m browser --timeout=240 --timeout-method=thread
+      - if: matrix.os != 'ubuntu-latest'
+        run: pytest tests/test_diffusion_timing.py --timeout=60 --timeout-method=thread
   browser:
     runs-on: ubuntu-latest
     env:
@@ -37,7 +45,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg melt
       - run: pip install -e ".[dev]"
       - run: python -m open_edit.integrations.diffusion.setup
       - run: npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund
@@ -46,6 +54,12 @@ jobs:
       - run: pytest tests/test_diffusion_graphics.py -m browser --timeout=240 --timeout-method=thread
       - run: node tests/browser/authoring.cjs
       - run: pytest tests/test_diffusion_timing.py --timeout=60 --timeout-method=thread
+      - run: python tools/benchmark_diffusion.py --render > tests/browser/artifacts/benchmark.json
+      - name: Existing render and legacy replay acceptance
+        env:
+          QT_QPA_PLATFORM: offscreen
+          SDL_VIDEODRIVER: dummy
+        run: pytest tests/test_e2e_render.py tests/test_graphics_overlay.py tests/test_remotion_proxy_golden.py --timeout=180 --timeout-method=thread
       - uses: actions/upload-artifact@v4
         if: always()
         with:

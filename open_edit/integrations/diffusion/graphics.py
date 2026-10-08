@@ -122,7 +122,21 @@ def _runtime_digest() -> str:
         if path.is_file() and 'node_modules' not in path.parts:
             digest.update(str(path.relative_to(root)).encode())
             digest.update(path.read_bytes())
+    registry = root / 'node_modules/playwright-core/browsers.json'
+    if registry.is_file():
+        digest.update(registry.read_bytes())
+    custom_browser = os.environ.get('OPEN_EDIT_CHROMIUM')
+    if custom_browser:
+        version = subprocess.run([custom_browser, '--version'], capture_output=True, timeout=10, check=True)
+        digest.update(custom_browser.encode())
+        digest.update(version.stdout)
     return digest.hexdigest()
+
+
+def _publish_last_good(cache: Path, key: str) -> None:
+    temporary = cache / 'last-good.tmp'
+    temporary.write_text(json.dumps({'content_key': key}))
+    temporary.replace(cache / 'last-good.json')
 
 
 def _quality_check(path: Path, *, width: int, height: int, duration: float, fps: int) -> dict:
@@ -166,7 +180,9 @@ def materialize(project_path: str | Path, params: dict) -> dict:
         record = json.loads(record_path.read_text())
         hash_ = record['asset_hash']
         cas_path = paths.assets_dir / hash_[:2] / hash_
-        if cas_path.is_file() and _hash_file(cas_path) == hash_:
+        if (cas_path.is_file() and _hash_file(cas_path) == hash_ and
+                Path(record.get('poster_path', '')).is_file() and Path(record.get('preview_path', '')).is_file()):
+            _publish_last_good(cache, key)
             return {**record, 'ok': True, 'cache_hit': True, 'output_path': str(cas_path)}
     with tempfile.TemporaryDirectory(prefix='capture-', dir=cache) as directory:
         scratch = Path(directory)
@@ -203,9 +219,7 @@ def materialize(project_path: str | Path, params: dict) -> dict:
         temporary.write_text(json.dumps(record), encoding='utf-8')
         temporary.replace(record_path)
         # This pointer changes only after complete output, QC and CAS ingestion.
-        last_good = cache / 'last-good.tmp'
-        last_good.write_text(json.dumps({'content_key': key}))
-        last_good.replace(cache / 'last-good.json')
+        _publish_last_good(cache, key)
     return {**record, 'ok': True, 'cache_hit': False, 'output_path': asset.stored_path}
 
 
@@ -237,8 +251,20 @@ def commit_graphics(project_path, *, job_id, expected_revision, clip_id='graphic
     if existing:
         if existing.asset_hash not in assets or assets[existing.asset_hash].provider != 'diffusion':
             raise ValueError('Cannot replace a non-graphics clip through the graphics adapter')
-        ops = [ReplaceClipSourceOp(author=author, clip_id=clip_id, new_asset_hash=asset.asset_hash),
-               TrimClipOp(author=author, clip_id=clip_id, new_in_point_sec=0, new_out_point_sec=duration)]
+        old_asset = assets[existing.asset_hash]
+        full_window = existing.in_point_sec == 0 and abs(existing.out_point_sec - old_asset.duration_sec) <= 1 / (old_asset.fps or 30) + 1e-6
+        new_in, new_out = (0.0, duration) if full_window else (existing.in_point_sec, existing.out_point_sec)
+        if new_out > duration + 1e-6:
+            raise ValueError('New graphics is shorter than the existing trim; adjust the trim explicitly first')
+        track = next(t for t in timeline.tracks if t.track_id == existing.track_id)
+        if any(c.clip_id != clip_id and existing.position_sec < c.position_sec + c.out_point_sec - c.in_point_sec and
+               existing.position_sec + new_out - new_in > c.position_sec for c in track.clips):
+            raise ValueError('Updated graphics would overlap another clip on the same track')
+        ops = []
+        if existing.asset_hash != asset.asset_hash:
+            ops.append(ReplaceClipSourceOp(author=author, clip_id=clip_id, new_asset_hash=asset.asset_hash))
+        if existing.in_point_sec != new_in or existing.out_point_sec != new_out:
+            ops.append(TrimClipOp(author=author, clip_id=clip_id, new_in_point_sec=new_in, new_out_point_sec=new_out))
     else:
         track = next((t for t in timeline.tracks if t.track_id == track_id), None)
         if track is not None and track.kind != 'video':
@@ -266,6 +292,10 @@ DEFAULT_SOURCE = '''export default function Graphics() {
 
 def get_graphics_view(project_path, *, clip_id='graphics', include_source=False) -> dict:
     from open_edit.integrations.diffusion.authoring import _snapshot
+    from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
+
+    if type(include_source) is not bool or not isinstance(clip_id, str) or not 0 < len(clip_id) <= 128:
+        raise ValueError('Use a bounded clip_id and boolean include_source')
 
     store, revision, timeline, assets = _snapshot(project_path)
     clip = next((c for t in timeline.tracks for c in t.clips if c.clip_id == clip_id), None)
@@ -283,6 +313,9 @@ def get_graphics_view(project_path, *, clip_id='graphics', include_source=False)
         source = store.load_authoring_source(f'{GRAPHICS_FORMAT}:{clip_id}', revision) or json.loads(record.read_text())['source']
     out = {'status': 'ok', 'format': GRAPHICS_FORMAT, 'graph_revision': revision, 'clip_id': clip_id,
            'worker_ready': graphics_ready(), 'existing': clip is not None}
+    last_good = DEFAULT_RENDER_JOB_SERVICE.latest_succeeded(Path(project_path), 'graphics')
+    if last_good:
+        out['last_good_job_id'] = last_good.job_id
     if include_source:
         out['source'] = source
     return out

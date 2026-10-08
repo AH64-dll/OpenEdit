@@ -155,6 +155,46 @@ async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project
 
 @pytest.mark.browser
 @pytest.mark.asyncio
+async def test_browser_cas_image_and_sequence_transition(graphics_project, graphics_worker):
+    from open_edit.kernel.render_jobs import RenderJobService
+    from open_edit.storage.assets import AssetStore
+
+    root, store = graphics_project
+    image = root / 'reference.png'
+    Image.new('RGBA', (40, 40), (255, 128, 0, 255)).save(image)
+    asset = AssetStore(root / '.open_edit/assets').ingest(str(image), transcribe=False)
+    source = GOLDEN_SOURCE.replace('</scene>', f'''<image id="reference" src="asset://{asset.asset_hash}" x={{270}} y={{50}} width={{40}} height={{40}} end={{2}} />
+     <sequence id="cuts"><rect id="outgoing" x={{110}} y={{60}} width={{40}} height={{40}} fill="#0000ff" sourceOut={{1}} transition={{{{type: "dissolve", duration: 0.4}}}} />
+     <rect id="incoming" x={{110}} y={{60}} width={{40}} height={{40}} fill="#ff0000" sourceOut={{1}} /></sequence></scene>''')
+    service = RenderJobService(timeout_s=180)
+    params = {'source': source, 'duration_sec': 2, 'fps': 20}
+    job = service.enqueue('graphics-project', root, 'graphics', expected_revision=store.graph_revision(), params=params)
+    done = await service.wait(root, job.job_id)
+    assert done.status == 'succeeded', done.error
+    def frame(index):
+        raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', done.output_path, '-vf', f'select=eq(n\\,{index})',
+                                       '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'])
+        return Image.frombytes('RGBA', (320, 180), raw)
+    start, cut, end = frame(0), frame(20), frame(30)
+    assert start.getpixel((280, 70)) == (255, 128, 0, 255)
+    assert start.getpixel((130, 80)) == (0, 0, 255, 255)
+    red, green, blue, alpha = cut.getpixel((130, 80))
+    assert 80 <= red <= 180 and green == 0 and 80 <= blue <= 180 and alpha > 200
+    assert end.getpixel((130, 80)) == (255, 0, 0, 255)
+    cut.save(Path('tests/browser/artifacts') / 'graphics-transition.png')
+    assert store.graph_revision() == 0
+    # A modified CAS file invalidates even a previously successful cached render.
+    (root / '.open_edit/assets' / asset.asset_hash[:2] / asset.asset_hash).write_bytes(b'corrupt')
+    failed = service.enqueue('graphics-project', root, 'graphics', expected_revision=0, params=params)
+    rejected = await service.wait(root, failed.job_id)
+    assert rejected.status == 'failed'
+    assert 'hash mismatch' in rejected.error
+    assert service.latest_succeeded(root, 'graphics').job_id == done.job_id
+    await service.shutdown()
+
+
+@pytest.mark.browser
+@pytest.mark.asyncio
 async def test_cancel_reaps_chromium_and_restart(graphics_project, graphics_worker):
     import asyncio
 
@@ -178,10 +218,15 @@ async def test_cancel_reaps_chromium_and_restart(graphics_project, graphics_work
     cancelled = await service.wait(root, job.job_id)
     assert cancelled.status == 'cancelled'
     for _ in range(100):
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            break
+        if os.name == 'nt':
+            listed = subprocess.check_output(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV'], text=True)
+            if f'"{pid}"' not in listed:
+                break
+        else:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
         await asyncio.sleep(0.05)
     else:
         pytest.fail(f'Chromium child {pid} survived cancellation')
