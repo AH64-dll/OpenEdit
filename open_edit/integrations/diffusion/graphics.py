@@ -30,7 +30,15 @@ def browser_directory() -> Path:
 
 def graphics_ready() -> bool:
     directory = browser_directory()
-    return bool(shutil.which('node') and (directory / 'node_modules/playwright-core').is_dir())
+    if not (shutil.which('node') and (directory / 'node_modules/playwright-core').is_dir()):
+        return False
+    # The pinned runtime needs the upstream koota Or-across-generations fix
+    # (browser/patches/koota+0.6.6.patch). An npm ci that skipped it leaves a
+    # worker that renders empty frames, so 'ready' requires the marker.
+    dist = directory / 'node_modules/koota/dist'
+    return dist.is_dir() and any(
+        'staticOrMatched' in path.read_text(errors='replace')
+        for path in dist.glob('*.js') if path.stat().st_size < 8 * 1024 * 1024)
 
 
 def validate_params(params: dict) -> dict:
@@ -160,13 +168,21 @@ def materialize(project_path: str | Path, params: dict) -> dict:
     document = inspect_source(params['source'])
     assets = {a.asset_hash: a for a in list_assets_from_disk(paths.root)}
     manifest = []
+    total_bytes, total_pixels = 0, 0
     for hash_ in document['assets']:
         asset = assets.get(hash_)
         if asset is None or asset.type != 'image':
             raise ValueError('Graphics image must reference an image in the pinned project CAS')
         cas_path = paths.assets_dir / hash_[:2] / hash_
-        if not cas_path.is_file() or cas_path.stat().st_size > 32 * 1024 * 1024 or _hash_file(cas_path) != hash_:
+        size = cas_path.stat().st_size if cas_path.is_file() else 0
+        if not size or size > 32 * 1024 * 1024 or _hash_file(cas_path) != hash_:
             raise ValueError('Graphics CAS asset is missing, too large, or has a content hash mismatch')
+        if not (asset.width and asset.height):
+            raise ValueError('Graphics CAS image lacks probed pixel dimensions')
+        total_bytes += size
+        total_pixels += asset.width * asset.height
+        if total_bytes > 64 * 1024 * 1024 or total_pixels > 32_000_000 or len(manifest) >= 64:
+            raise ValueError('Graphics assets exceed the 64 MiB, 32 megapixel or 64 image budget')
         manifest.append({'id': hash_, 'type': 'IMAGE', 'path': hash_, 'source': hash_, 'createdAt': '',
                          'mimeType': mimetypes.guess_type(asset.original_path)[0] or 'image/png',
                          'width': asset.width, 'height': asset.height, 'file': str(cas_path)})
@@ -178,6 +194,9 @@ def materialize(project_path: str | Path, params: dict) -> dict:
     record_path = cache / f'{key}.json'
     if record_path.is_file():
         record = json.loads(record_path.read_text())
+        # Projects can move. Preview paths always resolve in this project.
+        record['poster_path'] = str(cache / f'{key}.png')
+        record['preview_path'] = str(cache / f'{key}.webm')
         hash_ = record['asset_hash']
         cas_path = paths.assets_dir / hash_[:2] / hash_
         if (cas_path.is_file() and _hash_file(cas_path) == hash_ and

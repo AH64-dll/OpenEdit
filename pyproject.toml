@@ -2,8 +2,8 @@
 name = "open_edit"
 version = "1.3.1"
 description = "AI-native video editor — IR, MCP server, render (melt/ffmpeg/Remotion)"
-license = "MIT AND MPL-2.0"
-license-files = ["LICENSE", "open_edit/integrations/diffusion/worker/vendor/LICENSE"]
+license = "MIT AND MPL-2.0 AND OFL-1.1"
+license-files = ["LICENSE", "open_edit/integrations/diffusion/worker/vendor/LICENSE", "open_edit/integrations/diffusion/browser/fonts/OFL.txt"]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

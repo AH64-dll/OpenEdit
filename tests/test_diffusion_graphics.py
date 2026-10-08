@@ -86,8 +86,9 @@ GOLDEN_SOURCE = '''export default function Golden() {
   </rect>
   <rect id="behind" x={200} y={10} width={40} height={30} fill="#0000ff" end={1}/>
   <rect id="front" x={220} y={10} width={40} height={30} fill="#00ff00" end={1}/>
-  <group id="masked" x={200} y={60} width={60} height={40} fill="#ff00ff" end={1}>
+  <group id="masked" x={200} y={60} end={1}>
    <rect id="matte" width={30} height={40} clipPath />
+   <rect id="panel" width={60} height={40} fill="#ff00ff" />
   </group>
   <text id="title" x={10} y={110} width={280} height={40} fontFamily="OpenEdit Sans" fontSize={24} color="#ffffff" end={1}>OpenEdit</text>
  </scene></stage>;
@@ -116,6 +117,10 @@ async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project
                                         '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'])
         return Image.frombytes('RGBA', (320, 180), data)
     start, middle = decoded(0), decoded(15)
+    artifacts = Path('tests/browser/artifacts')
+    artifacts.mkdir(exist_ok=True)
+    start.save(artifacts / 'graphics-golden-start.png')
+    middle.save(artifacts / 'graphics-golden-middle.png')
     assert start.getpixel((20, 20)) == (255, 0, 0, 255)
     assert middle.getpixel((20, 20))[3] == 0
     assert middle.getpixel((70, 20)) == (255, 0, 0, 255)
@@ -124,10 +129,6 @@ async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project
     assert start.getpixel((245, 70))[3] == 0
     assert start.getpixel((310, 170))[3] == 0
     assert sum(1 for r, g, b, a in start.crop((10, 110, 290, 150)).getdata() if r > 200 and g > 200 and b > 200 and a) > 100
-    artifacts = Path('tests/browser/artifacts')
-    artifacts.mkdir(exist_ok=True)
-    start.save(artifacts / 'graphics-golden-start.png')
-    middle.save(artifacts / 'graphics-golden-middle.png')
     # A fresh service can use the durable job and the verified cache.
     again = service.enqueue('graphics-project', root, 'graphics', expected_revision=revision, params=params)
     cached = await service.wait(root, again.job_id)
@@ -164,8 +165,8 @@ async def test_browser_cas_image_and_sequence_transition(graphics_project, graph
     Image.new('RGBA', (40, 40), (255, 128, 0, 255)).save(image)
     asset = AssetStore(root / '.open_edit/assets').ingest(str(image), transcribe=False)
     source = GOLDEN_SOURCE.replace('</scene>', f'''<image id="reference" src="asset://{asset.asset_hash}" x={{270}} y={{50}} width={{40}} height={{40}} end={{2}} />
-     <sequence id="cuts"><rect id="outgoing" x={{110}} y={{60}} width={{40}} height={{40}} fill="#0000ff" sourceOut={{1}} transition={{{{type: "dissolve", duration: 0.4}}}} />
-     <rect id="incoming" x={{110}} y={{60}} width={{40}} height={{40}} fill="#ff0000" sourceOut={{1}} /></sequence></scene>''')
+     <sequence id="cuts"><rect id="outgoing" x={{110}} y={{60}} width={{40}} height={{40}} fill="#0000ff" end={{1}} transition={{{{type: "dissolve", duration: 0.4}}}} />
+     <rect id="incoming" x={{110}} y={{60}} width={{40}} height={{40}} fill="#ff0000" start={{1}} end={{2}} /></sequence></scene>''')
     service = RenderJobService(timeout_s=180)
     params = {'source': source, 'duration_sec': 2, 'fps': 20}
     job = service.enqueue('graphics-project', root, 'graphics', expected_revision=store.graph_revision(), params=params)
@@ -176,12 +177,14 @@ async def test_browser_cas_image_and_sequence_transition(graphics_project, graph
                                        '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'])
         return Image.frombytes('RGBA', (320, 180), raw)
     start, cut, end = frame(0), frame(20), frame(30)
+    artifacts = Path('tests/browser/artifacts')
+    artifacts.mkdir(exist_ok=True)
+    cut.save(artifacts / 'graphics-transition.png')
     assert start.getpixel((280, 70)) == (255, 128, 0, 255)
     assert start.getpixel((130, 80)) == (0, 0, 255, 255)
     red, green, blue, alpha = cut.getpixel((130, 80))
     assert 80 <= red <= 180 and green == 0 and 80 <= blue <= 180 and alpha > 200
     assert end.getpixel((130, 80)) == (255, 0, 0, 255)
-    cut.save(Path('tests/browser/artifacts') / 'graphics-transition.png')
     assert store.graph_revision() == 0
     # A modified CAS file invalidates even a previously successful cached render.
     (root / '.open_edit/assets' / asset.asset_hash[:2] / asset.asset_hash).write_bytes(b'corrupt')

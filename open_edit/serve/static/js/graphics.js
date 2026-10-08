@@ -38,7 +38,7 @@ function remember() {
 function layer() { return current()?.elements?.find(e => e.id === select.value); }
 function outline() {
   const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const item = layer(); if (!item) return;
+  const item = layer(); if (!item || item.parent_id !== current()?.scene?.id) return;
   const d = drag || item;
   ctx.strokeStyle = '#55b5ff'; ctx.lineWidth = 2 * canvas.width / Math.max(canvas.clientWidth, 1);
   ctx.strokeRect(d.x || 0, d.y || 0, item.width || 100, item.height || 60);
@@ -162,7 +162,7 @@ for (const id of ['duration', 'fps']) el(id).addEventListener('input', () => { r
 canvas.addEventListener('pointerdown', event => {
   const d = current(); if (!d || d.busy || d.stale) return;
   const rect = canvas.getBoundingClientRect(), x = (event.clientX - rect.left) * canvas.width / rect.width, y = (event.clientY - rect.top) * canvas.height / rect.height;
-  const item = [...(d.elements || [])].reverse().find(e => ['rect', 'text', 'image', 'group'].includes(e.tag) && !e.clipPath &&
+  const item = [...(d.elements || [])].reverse().find(e => e.parent_id === d.scene?.id && ['rect', 'text', 'image', 'group'].includes(e.tag) && !e.clipPath &&
     x >= (e.x || 0) && y >= (e.y || 0) && x <= (e.x || 0) + (e.width || 100) && y <= (e.y || 0) + (e.height || 60));
   if (!item) return;
   video.pause(); video.currentTime = 0; select.value = item.id; selectLayer();

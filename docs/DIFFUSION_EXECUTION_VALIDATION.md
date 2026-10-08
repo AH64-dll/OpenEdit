@@ -1,58 +1,80 @@
-# Diffusion execution follow-up — 2026-10-08
+# Diffusion execution and acceptance — 2026-10-08
 
-This follow-up builds on `b32c0ab918c62ce8ac7ee179441a984d57630be4`
-from `feat/diffusion-authoring`. The implementation plan is retained unchanged.
+The integration builds on `b32c0ab918c62ce8ac7ee179441a984d57630be4` on
+`feat/diffusion-authoring`. The implementation plan remains unchanged. All four
+milestones are implemented; final cross-platform browser acceptance is in progress.
 
-## Delivered
+## Delivered behavior
 
-- Accepted JSX, including formatting and comments, is persisted with its graph
-  revision in the same SQLite transaction as the IR batch. Formatting-only
-  saves remain graph no-ops. The last eight accepted revision views are kept.
-- Other editors' graph changes cause a fresh source export. Stale, invalid,
-  crashed and timed-out writes preserve the last-good source and operations.
-- Review Studio provides a source editor and clip property controls using the
-  same adapter as MCP, with HTTP 409 conflicts, retained drafts and `author=user`.
-- Compiler output reads are bounded in memory. Windows timeout cleanup also
-  requests descendant termination. Optional setup and six MCP tools remain.
-- Dedicated CI covers the real compiler on Linux, Windows and macOS, plus a
-  real Chromium/HTTP/compiler/SQLite browser flow with screenshots.
+- Literal media JSX supports stable CAS references, media add/remove, move,
+  trim, replacement, cumulative-gain-aware absolute dB volume and constant
+  playback rates. SQLite operations remain authoritative; accepted source and
+  its entire operation batch commit together at the expected graph revision.
+  Formatting-only changes save without incrementing the revision. The last
+  eight accepted source revisions are retained.
+- Optional, separately locked Node compiler and browser workers use pinned
+  upstream sources. Ordinary Python editing starts neither worker. Input,
+  output, time, scene, asset and frame budgets bound authoring/rendering work.
+  Wheels include source, locks, provenance and licenses, excluding node_modules
+  and downloaded browsers.
+- The graphics worker captures text, shapes, keyframes, preset animations,
+  project CAS images, masks, compositing order and sequence transitions in
+  Chromium. It creates silent RGBA CAS video, browser preview and poster only
+  after successful render/decode/duration/alpha checks. Durable jobs support
+  cancellation, restart, checked cache reuse and last-good preview preservation.
+  Adding or updating a timeline clip requires an explicit revision-checked
+  commit of a succeeded job.
+- Review Studio provides media JSX/property editing and graphics source,
+  preview, layer properties and canvas dragging. Both use the same kernel
+  adapters as MCP. A stale revision retains drafts and requires reload; another
+  editor's operations are never silently overwritten.
+- Constant-rate and piecewise-rate CAS baking preserves source-in offsets,
+  still-image timing and audio pitch. Fixtures cover 24 and 30000/1001 fps,
+  video with audio, audio-only and transparent stills. Existing speed/speed-ramp
+  operations keep their prior replay semantics; arbitrary interpolated legacy
+  ramps are not converted automatically to the piecewise source-time format.
 
-## Local evidence
+## Review and acceptance
 
-Fedora Linux, Python 3.12.13, Node 22.23.3, pinned compiler dependencies. The
-repository archive's Git tree and original commit were verified against GitHub
-before restoring the local shallow checkout.
+OMP contributed camera-reset and required upstream koota patch handling,
+corrected group/sequence fixtures, asset-budget contracts and mirrored tool
+instructions. Independent review checked those changes against pinned upstream
+behavior. The installer now reproduces the upstream dependency patch exactly;
+repeat installation and cross-trait-generation queries have direct coverage.
+Groups derive their bounds from children; group box/fill props are rejected.
+Sequence children have explicit timing instead of implicit stacking.
 
-- Full Python regression: **1,468 passed, 18 skipped, 1 deselected**, 105.74 s.
-  The 18 skips require `melt`; the deselection is the existing browser render.
-- After adding crash/output-limit/history coverage, the focused authoring,
-  HTTP and migration suite passed **43 tests** in 18.99 s, with no skips.
-  This includes a real stdio MCP initialization, six tools, source export,
-  atomic mutation and stale rejection.
-- Ruff, JavaScript syntax and Git whitespace checks pass.
-- Built wheel and source distribution; verified compiler source, lockfile,
-  MPL license, UI module and migration inclusion, and absence of node_modules
-  and bytecode. A fresh default wheel install outside the checkout loads its
-  MCP entry point and packaged skills and installs the optional worker offline
-  from integrity-verified locked dependency tarballs.
+Before that follow-up, the full local Python regression passed **1,487 tests**,
+with **18 skipped** because `melt` is unavailable and **4 browser tests deselected**.
+A new complete run includes the reviewed dependency and asset contracts.
+Ruff passes. Final run totals, browser captures, package-install results and
+platform lifecycle checks will be recorded after the acceptance workflows finish.
 
-The execution sandbox denies socket creation and wakeup sends. Local async
-tests used a temporary external test-host helper that bounds selector polling
-and forwards that helper to stdio test children. This helper is not shipped or
-used in CI. Tests used the machine's full FFmpeg from `~/.local/bin`, since the
-system FFmpeg lacks the `libx264` encoder required by the fixtures.
+Local tests use Python 3.12.13, Node 24.18.0 and the full FFmpeg in
+`~/.local/bin` (the system FFmpeg lacks libx264). This execution sandbox blocks
+socket wakeups and Chromium startup. An external, unshipped test helper bounds
+selector polling for async tests; CI uses neither that helper nor local stubs.
+Actual browser verification therefore runs in GitHub Actions.
 
-Chromium fails at startup in this sandbox with `setsockopt: Operation not
-permitted`. Browser screenshots and native Windows/macOS results therefore
-require the dedicated CI acceptance workflow; local source edits alone are
-not visual approval.
+The dedicated acceptance workflow exercises real compiler/source writeback on
+Linux, Windows and macOS, browser render/cache/cancel/restart on all three,
+Linux HTTP/UI/canvas flows and existing MLT/overlay/legacy replay fixtures.
+FFmpeg is provisioned explicitly on each platform. Frame and UI captures are
+uploaded as workflow artifacts even when an assertion fails.
 
-## Release boundary
+## Performance and upgrade boundaries
 
-This delivers source synchronization and initial UI writeback on top of the
-plan's initial media-authoring release. It does **not** enable a Diffusion
-browser graphics renderer, materialized graphics CAS assets, spatial canvas
-editing or expanded speed/audio/compositing mappings. Milestones 3 and the
-remaining parity checks in milestone 4 remain gated by their frame, encode,
-audio, cancellation and compatibility acceptance tests. Existing media,
-HyperFrames and legacy Remotion rendering paths retain their own requirements.
+The initial local benchmark measured a **663-byte** fresh-project authoring
+summary, **902-byte** source response and **3,802-byte** six-tool schema;
+compiler startup was **0.265 seconds** and graphics compilation **0.415 seconds**.
+Peak child RSS was **163,412 KiB**: this is the largest completed child, not total
+concurrent browser/process memory. The acceptance workflow also benchmarks
+actual graphics render and cache reuse.
+
+See [graphics usage and limits](DIFFUSION_GRAPHICS.md) and
+[media authoring](DIFFUSION_AUTHORING.md). Runtime/browser/FFmpeg versions,
+source and referenced CAS hashes enter cache identity. Existing graph databases
+migrate source-view storage transactionally, projects can move without retaining
+old preview paths, and unchanged source is a no-op. Dynamic JS/imports, remote
+assets, arbitrary fonts and dynamic audio gain are rejected. Existing
+HyperFrames and Remotion backends retain their own setup and replay behavior.

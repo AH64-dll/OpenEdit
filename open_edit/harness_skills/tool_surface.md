@@ -19,6 +19,7 @@ Inspect project state. Sub-queries:
 | `get_style_profile` | `op_type` | Style guidance for the given op type (cut, transition, effect, etc.). |
 | `analyze_narrative` | `asset_hash` | Rule-based narrative segments. |
 | `get_transcript_packed` | `asset_hash` (or omit for whole timeline) | Word-level alignment in a compact form. |
+| `get_graphics_view` | Optional `clip_id`, `include_source` | Compact graphics revision, worker readiness and last good preview; source on request. |
 | `get_authoring_view` | Optional `include_source` (default false) | Revision and compact Diffusion media summary; literal JSX only on request. |
 
 **Common mistake:** calling these without the required params and then
@@ -48,10 +49,27 @@ Mutations:
   `expected_revision` from `get_authoring_view` and exactly one of full JSX
   `source` or native `edits` (`set`, `remove`, `move`, using source IDs such as
   `index.tsx:c-hero`). Supports media add/remove/move/trim/source replacement and
-  absolute `volume` in dB. Literal props, playbackRate=1, existing CAS assets and
+  absolute `volume` in dB and constant playbackRate 0.125..8 (checked CAS bake). Literal props, existing CAS assets and
   non-overlapping tracks only; preserves other graph features. Stale or invalid
   batches append nothing. Requires the optional pinned Node worker installed
   with `python -m open_edit.integrations.diffusion.setup`.
+
+- `rewrite_graphics_source` — use `source`, `edits` and `expected_revision` to
+  rewrite literal graphics properties through stable `index.tsx:ID` addresses.
+  This prepares a draft; it does not mutate the graph.
+- `commit_graphics` — apply a succeeded `mode=graphics` job with its
+  `expected_revision`, optional `clip_id`, `track_id` and `position_sec`.
+  Only complete CAS output with passing QC can enter the graph.
+- `retime_asset` — bake a CAS asset's `source_in`, `source_out`, `playback_rate`
+  or `segments=[{source_in,source_out,rate}]`, optionally `fps`. Returns a
+  checked asset URL without graph mutation. Existing speed ops retain their
+  old semantics; interpolated speed ramps are not mapped automatically.
+
+For graphics, install `python -m open_edit.integrations.diffusion.setup
+--graphics --chromium`, query `get_graphics_view` with `include_source=true`,
+then `trigger_render` with `mode=graphics`, `expected_revision` and
+`graphics={source,duration_sec,fps}`. Poll normally; commit only after review.
+The same six MCP tools remain; optional integrations are loaded on request.
 
 Creative generation (use these INSTEAD of hand-rolling):
 

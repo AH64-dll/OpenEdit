@@ -159,10 +159,22 @@ Bugs, ideas, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTIN
 ## License
 
 OpenEdit's own code is MIT — see [LICENSE](LICENSE). The optional Diffusion
-worker includes unchanged MPL-2.0 source with its license and provenance in
-`open_edit/integrations/diffusion/worker/NOTICE.md`.
+workers include unchanged MPL-2.0 source with licenses and provenance in
+`open_edit/integrations/diffusion/worker/NOTICE.md` and
+`open_edit/integrations/diffusion/browser/vendor/NOTICE.md`. The graphics font
+is covered by `open_edit/integrations/diffusion/browser/fonts/OFL.txt`.
 Experimental prototype; behavior may change between
 releases. Motion graphics use the bundled HyperFrames engine (HTML/CSS/JS,
 pinned in this repo; install with `npm ci`). Remotion is legacy/migration-only.
 Legacy Remotion templates may require a company license — see
 [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md).
+
+### Optional Diffusion authoring and graphics
+
+The [JSX editor](docs/DIFFUSION_AUTHORING.md) and
+[Graphics studio](docs/DIFFUSION_GRAPHICS.md) edit the same revision-checked
+SQLite graph as MCP. Install the compiler with
+`python -m open_edit.integrations.diffusion.setup`; add `--graphics --chromium`
+for text, shapes, animation and canvas previews. Python media workflows remain
+usable without Node. See the [execution and validation report](docs/DIFFUSION_EXECUTION_VALIDATION.md)
+for platform coverage, timing boundaries and upgrade behavior.

@@ -16,7 +16,9 @@ const common = ['id', 'x', 'y', 'width', 'height', 'rotation', 'scale', 'scaleX'
   'opacity', 'cornerRadius', 'start', 'end', 'sourceIn', 'sourceOut', 'playbackRate', 'hidden', 'fill', 'transition'];
 const props = {
   stage: ['id'], scene: ['id', 'width', 'height', 'active', 'fill'],
-  group: common, rect: [...common, 'clipPath'],
+  // Upstream groups have no box or fill of their own: they fit their children.
+  group: ['id', 'x', 'y', 'rotation', 'scale', 'scaleX', 'scaleY', 'opacity', 'start', 'end', 'hidden'],
+  rect: [...common, 'clipPath'],
   text: [...common, 'color', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'textBaseline'],
   image: [...common, 'src', 'fit'], sequence: ['id'],
   animation: ['id', 'type', 'phase', 'duration', 'delay'],
@@ -58,7 +60,7 @@ function parse(source) {
   const fn = decl.declaration;
   if (fn.async || fn.generator || fn.params.length || fn.body.body.length !== 1 || fn.body.body[0].type !== 'ReturnStatement') throw new Error('Graphics functions may only return literal JSX');
   const ids = new Set(); const assets = new Set(); const elements = [];
-  function visit(node, parent, depth = 0) {
+  function visit(node, parent, depth = 0, parentId = null) {
     const tag = node?.openingElement?.name?.name;
     if (node?.type !== 'JSXElement' || node.openingElement.name.type !== 'JSXIdentifier' || !props[tag] || (parent && !children[parent].includes(tag))) throw new Error(`Unsupported graphics element or nesting: ${tag}`);
     if (depth > 20 || elements.length >= 500) throw new Error('Graphics supports at most 500 elements and 20 nesting levels');
@@ -95,12 +97,12 @@ function parse(source) {
     if (values.phase && !['in', 'out'].includes(values.phase)) throw new Error('Animation phase must be in or out');
     if (tag === 'keyframeTrack' && !['x', 'y', 'width', 'height', 'rotation', 'scale', 'opacity', 'color'].includes(values.property)) throw new Error('Unsupported keyframe property');
     if (values.easing && !['linear', 'easeIn', 'easeOut', 'easeInOut'].includes(values.easing)) throw new Error('Unsupported easing');
-    const entry = { tag, ...values }; elements.push(entry);
+    const entry = { tag, ...values, parent_id: parentId }; elements.push(entry);
     for (const child of node.children) {
       if (child.type === 'JSXText') {
         if (child.value.trim() && tag !== 'text') throw new Error('Only text elements can contain text');
       } else if (child.type === 'JSXExpressionContainer' && child.expression.type === 'JSXEmptyExpression') continue;
-      else visit(child, tag, depth + 1);
+      else visit(child, tag, depth + 1, values.id);
     }
     return entry;
   }

@@ -3,7 +3,8 @@
 The optional authoring adapter exports OpenEdit media clips as literal JSX and
 translates edits back into the existing operation graph. SQLite remains the
 source of truth. It uses the pinned Diffusion Studio compiler and AST source
-writer; it does not run the Electron editor or render through Diffusion.
+writer. The separate optional [graphics worker](DIFFUSION_GRAPHICS.md) uses the pinned
+Diffusion runtime; the Electron application is not required.
 
 ## Setup
 
@@ -114,8 +115,11 @@ view and reapply the intended changes. A stale unchanged document also fails.
   within a track and known project assets. Put simultaneous media on separate
   tracks. Audio/video ranges must fit asset duration.
 - Supported changes: add, remove, move, trim, replace source and constant
-  volume from -120 to +24 dB. Images have no audio volume. Playback rate must
-  remain 1; speed ramps, normalized volume and keyframed gain are unsupported.
+  volume from -120 to +24 dB and playback rates from 0.125 to 8. Images have no
+  audio volume. Non-unity rates first materialize lossless, pitch-preserving CAS
+  media and pass duration/audio/decode checks. At most 20 changed retimed clips
+  per transaction, 60 seconds and 1,800 frames per output. Existing legacy speed
+  effects, normalized volume and keyframed gain remain outside this view.
 - Source is one default function returning one stage, one scene, track groups
   and media leaves with literal props. Imports, calls, arbitrary expressions,
   spreads, loops, text, shapes and component expansion are rejected. Project
@@ -140,7 +144,7 @@ preserve the last accepted source and graph.
 ## Review Studio editor
 
 Open **JSX editor** below the preview to edit source or a selected clip's start,
-source range and volume. Both paths call the same revision-checked adapter as
+source range, playback rate and volume. Both paths call the same revision-checked adapter as
 MCP. The clip controls show the first 50 clips; the code view covers the full
 supported document. Code drafts are kept in the browser tab's session storage.
 Apply or reload a code draft before using clip controls.
@@ -156,5 +160,10 @@ changes are recorded with `author=user`.
 require an integer `expected_revision` and exactly one of `source` or `edits`;
 stale writes return HTTP 409 with the current graph revision.
 
-Browser graphics rendering, spatial canvas editing and playback-rate parity
-remain gated by the [implementation plan](DIFFUSION_IMPLEMENTATION_PLAN.md).
+For text, shapes, masks, basic animations and sequence transitions, use the
+separate [Graphics studio and MCP workflow](DIFFUSION_GRAPHICS.md). Constant JSX
+rates retain their original asset/range in versioned CAS provenance; another
+editor trimming that baked clip is reflected back into original source time.
+Older `change_clip_speed` and speed-ramp operations keep their original replay
+semantics. `retime_asset` can explicitly bake piecewise-constant source segments
+without changing the graph. See [validation](DIFFUSION_EXECUTION_VALIDATION.md).
