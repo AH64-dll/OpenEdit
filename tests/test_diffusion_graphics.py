@@ -169,6 +169,11 @@ async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project
         # This scaled H.264 proxy is lossy; exact RGBA is checked above.
         assert red > 200 and green < 25 and blue < 25
         assert max(frame.getpixel((310, 170))) < 25
+        # A PAL-pixel consumer shifts the left edge to x=20; square pixels
+        # preserve the authored x=10 through the entire timeline export.
+        red_x = [x for x in range(80) if frame.getpixel((x, 20))[0] > 170
+                 and max(frame.getpixel((x, 20))[1:]) < 40]
+        assert red_x and abs(min(red_x) - 10) <= 2
     await service.shutdown()
 
 

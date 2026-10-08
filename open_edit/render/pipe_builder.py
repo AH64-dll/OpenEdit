@@ -169,6 +169,12 @@ def build_pipe_commands(
         f"s={size}",
         f"frame_rate_num={profile.frame_rate_num}",
         f"frame_rate_den={profile.frame_rate_den}",
+        # avformat consumers otherwise retain MLT's PAL pixel aspect (16:15),
+        # squeezing square-pixel graphics even when s= and the XML match.
+        "sample_aspect_num=1",
+        "sample_aspect_den=1",
+        f"display_aspect_num={profile.width}",
+        f"display_aspect_den={profile.height}",
         "progressive=1",
         "colorspace=709",
     ]

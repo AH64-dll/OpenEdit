@@ -30,18 +30,19 @@ jobs:
           # choco exits 0 on feed timeouts; retry, then verify ffmpeg exists.
           foreach ($attempt in 1..3) {
             choco install ffmpeg --yes --no-progress
-            if (Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue) { break }
+            if (@(Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue).Count -eq 2) { break }
             Start-Sleep -Seconds 20
           }
-          if (-not (Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue)) {
+          if (@(Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue).Count -ne 2) {
             winget install --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements --silent
             $links = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"
             if (Test-Path $links) { $env:Path += ";$links"; Add-Content $env:GITHUB_PATH $links }
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") + ";$links"
           }
-          if (-not (Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue)) {
+          if (@(Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue).Count -ne 2) {
             throw "ffmpeg/ffprobe still missing after choco and winget"
           }
+          $global:LASTEXITCODE = 0
       - run: pip install -e ".[dev]"
       - run: python -m open_edit.integrations.diffusion.setup
       - run: python -m open_edit.integrations.diffusion.setup --graphics
