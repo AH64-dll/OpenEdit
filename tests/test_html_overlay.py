@@ -974,44 +974,38 @@ def test_end_to_end_overlay_composite(tmp_path):
     timeline = _timeline([_overlay(
         template_path="my.html", position_sec=0.0, duration_sec=1.0,
     )])
-    # Create a fake bg.mp4 (any non-empty file works for the orchestrator's
-    # subprocess return-code path; the real ffmpeg would fail without a valid
-    # MP4, so we mock ffmpeg for the integration test).
+    # Replay through the real browser and compositor, including source audio.
     bg = tmp_path / "bg.mp4"
-    bg.write_bytes(b"x" * 1000)
-    bg_renderer = mock.Mock(return_value=bg)
+    subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                    'color=c=blue:s=640x360:r=30', '-f', 'lavfi', '-i',
+                    'sine=frequency=440:sample_rate=48000', '-t', '1',
+                    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(bg)],
+                   check=True)
+    result = asyncio.run(html_overlay.render_composited(
+        timeline=timeline,
+        project_workdir=project_dir,
+        render_spec=_render_spec(
+            hyperframes_bin=str(_REPO_ROOT / "node_modules" / ".bin" / "hyperframes"),
+            tmpdir=project_dir, duration_sec=1.0, width=640, height=360,
+        ),
+        bg_renderer=lambda: bg,
+    ))
+    from PIL import Image
 
-    # Only the hyperframes call is real; ffmpeg is mocked (we don't need
-    # to verify ffmpeg here — that's covered by tests 27-29 with a mock).
-    from open_edit.render import html_overlay as ho
-    real_popen = ho.subprocess.Popen
-    calls = {"count": 0}
+    from open_edit.storage.assets import _probe_media
 
-    def fake_popen(cmd, **kwargs):
-        calls["count"] += 1
-        if "hyperframes" in cmd[0]:
-            # First call is the hyperframes render — invoke the real one.
-            return real_popen(cmd, **kwargs)
-        # Second call is ffmpeg — fake success and write the output file.
-        for a in cmd:
-            if a == str(bg.with_name("final.mp4")) or a.endswith("final.mp4"):
-                Path(a).write_bytes(b"x" * 1000)
-        return _FakePopen(cmd, returncode=0)
-
-    with mock.patch("subprocess.Popen", side_effect=fake_popen):
-        result = asyncio.run(html_overlay.render_composited(
-            timeline=timeline,
-            project_workdir=project_dir,
-            render_spec=_render_spec(
-                # Use an absolute path so the test works regardless of pytest's CWD.
-                hyperframes_bin=str(_REPO_ROOT / "node_modules" / ".bin" / "hyperframes"),
-                tmpdir=project_dir,
-                duration_sec=1.0,
-            ),
-            bg_renderer=bg_renderer,
-        ))
-    assert result is not None
-    assert Path(result).is_file()
+    info = _probe_media(str(result))
+    assert info['has_audio'] and abs(info['duration_sec'] - 1) < 0.1
+    raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(result),
+                                   '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])
+    frame = Image.frombytes('RGB', (640, 360), raw)
+    red, green, blue = frame.getpixel((100, 50))
+    assert red > 220 and green < 30 and blue < 30
+    red, green, blue = frame.getpixel((500, 300))
+    assert blue > 220 and red < 30 and green < 30
+    artifacts = _REPO_ROOT / 'tests/browser/artifacts'
+    artifacts.mkdir(exist_ok=True)
+    frame.save(artifacts / 'hyperframes-replay.png')
 
 
 # ---------------------------------------------------------------------------

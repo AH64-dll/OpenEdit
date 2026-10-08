@@ -151,7 +151,8 @@ async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project
     assert updated.status == 'succeeded', updated.error
     assert not updated.result['cache_hit']
     assert updated.result['content_key'] != done.result['content_key']
-    if shutil.which('melt'):
+    # This acceptance path provisions MLT on Linux; other OS jobs cover workers.
+    if os.name == 'posix' and shutil.which('melt'):
         from open_edit.render.orchestrator import render_project
 
         monkeypatch.setenv('QT_QPA_PLATFORM', 'offscreen')
@@ -163,10 +164,11 @@ async def test_browser_graphics_golden_cache_commit_and_failure(graphics_project
         raw = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', exported.output_path,
                                        '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])
         frame = Image.frombytes('RGB', (320, 180), raw)
-        # melt's proxy encode quantizes color; verify red dominance loosely.
-        assert red > 190 and green < 40 and blue < 40
-        assert max(frame.getpixel((310, 170))) < 40
         frame.save(artifacts / 'graphics-timeline-export.png')
+        red, green, blue = frame.getpixel((20, 20))
+        # This scaled H.264 proxy is lossy; exact RGBA is checked above.
+        assert red > 200 and green < 25 and blue < 25
+        assert max(frame.getpixel((310, 170))) < 25
     await service.shutdown()
 
 

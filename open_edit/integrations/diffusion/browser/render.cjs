@@ -33,7 +33,8 @@ process.on('SIGINT', () => cleanup().finally(() => process.exit(130)));
     ...(process.env.OPEN_EDIT_CHROMIUM_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])],
     { stdio: 'ignore', detached: false });
   chrome.on('error', () => {});
-  await fs.writeFile(path.join(request.scratch, 'processes.json'), JSON.stringify({ node: process.pid, chromium: chrome.pid }));
+  await fs.writeFile(path.join(request.scratch, 'processes.tmp'), JSON.stringify({ node: process.pid, chromium: chrome.pid }));
+  await fs.rename(path.join(request.scratch, 'processes.tmp'), path.join(request.scratch, 'processes.json'));
   let port;
   for (let i = 0; i < 300; i++) {
     if (chrome.exitCode !== null) throw new Error('Chromium exited before capture; install browser dependencies');

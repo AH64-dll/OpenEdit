@@ -71,6 +71,15 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           SDL_VIDEODRIVER: dummy
         run: pytest tests/test_e2e_render.py tests/test_graphics_overlay.py tests/test_remotion_proxy_golden.py --timeout=180 --timeout-method=thread
+      - name: Install pinned legacy graphics dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Actual HyperFrames browser and FFmpeg replay
+        env:
+          HYPERFRAMES_NO_TELEMETRY: "1"
+          DO_NOT_TRACK: "1"
+        run: |
+          export HYPERFRAMES_BROWSER_PATH="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
+          pytest tests/test_html_overlay.py -m browser --timeout=180 --timeout-method=thread
       - uses: actions/upload-artifact@v4
         if: always()
         with:
