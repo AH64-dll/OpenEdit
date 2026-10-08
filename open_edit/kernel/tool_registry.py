@@ -24,6 +24,7 @@ _QUERY_PROJECT_DESC = (
     "to include Remotion rematerialized CAS."
     " Use params.offset/limit for paged assets (default limit 50); follow next_offset."
     " Packed transcripts use word offset/limit (default 500, max 2000); follow next_offset."
+    " get_authoring_view exports an optional Diffusion JSX media view; params.include_source=true returns source."
 )
 
 _EDIT_PROJECT_DESC = (
@@ -34,6 +35,7 @@ _EDIT_PROJECT_DESC = (
     "change_clip_speed, remove_clip, set_audio_gain, apply_silence_gaps, "
     "auto_color_grade, apply_generated_ops. Prefer these timeline ops over "
     "run_script. "
+    "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
     "Use ``generate`` for creative suggestions (SFX, music, visuals, "
     "remotion, silence_cuts) — review then commit via "
     "``operation=\"apply_generated_ops\"`` (or apply_silence_gaps for cuts). "
@@ -97,6 +99,7 @@ class QueryProjectArgs(BaseModel):
         "get_transcript_packed",
         "get_silence_gaps",
         "get_timeline_view",
+        "get_authoring_view",
     ]
     params: dict = {}
 

@@ -81,6 +81,13 @@ class EditGraphStore:
         with self._conn() as conn:
             return self._revision_in(conn)
 
+    def read_snapshot(self) -> tuple[int, list[OperationUnion]]:
+        """Read a revision and its operations from one SQLite snapshot."""
+        with self._conn() as conn:
+            conn.execute("BEGIN")
+            revision = self._revision_in(conn)
+            return revision, self._load_all_in(conn)
+
     @property
     def project_id(self) -> str:
         """Return the stable project ID, safely creating it on first access."""
@@ -156,8 +163,6 @@ class EditGraphStore:
         inserts, including earlier operations in this batch. This prevents a
         failed late operation or concurrent removal from leaving partial edits.
         """
-        if not ops:
-            return []
         from types import SimpleNamespace
 
         project_id = self.project_id
@@ -167,6 +172,8 @@ class EditGraphStore:
             current_revision = self._revision_in(conn)
             if expected_revision is not None and current_revision != expected_revision:
                 raise GraphRevisionConflict(expected_revision, current_revision)
+            if not ops:
+                return []
             current_ops = self._load_all_in(conn)
             view = SimpleNamespace(
                 db_path=self.db_path, project_id=project_id,

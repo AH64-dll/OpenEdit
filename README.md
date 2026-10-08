@@ -147,6 +147,8 @@ The product is documented and illustrated in the live guide: **[open-edit guide]
 - [docs/MCP.md](docs/MCP.md) — MCP tools, Cursor config, review UI, render workflow
 - [skills/](skills/) — agent playbook and harness skills (also shipped in the wheel)
 - [docs/DIFFUSION_INTEGRATION.md](docs/DIFFUSION_INTEGRATION.md) — compiler reuse assessment and adapter contract
+- [docs/DIFFUSION_AUTHORING.md](docs/DIFFUSION_AUTHORING.md) — optional JSX media editing through MCP
+- [docs/DIFFUSION_IMPLEMENTATION_PLAN.md](docs/DIFFUSION_IMPLEMENTATION_PLAN.md) — remaining integration milestones and acceptance checks
 - [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md) — Remotion licensing
 
 ## Contributing
@@ -156,7 +158,10 @@ Bugs, ideas, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTIN
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Experimental prototype; behavior may change between
+OpenEdit's own code is MIT — see [LICENSE](LICENSE). The optional Diffusion
+worker includes unchanged MPL-2.0 source with its license and provenance in
+`open_edit/integrations/diffusion/worker/NOTICE.md`.
+Experimental prototype; behavior may change between
 releases. Motion graphics use the bundled HyperFrames engine (HTML/CSS/JS,
 pinned in this repo; install with `npm ci`). Remotion is legacy/migration-only.
 Legacy Remotion templates may require a company license — see

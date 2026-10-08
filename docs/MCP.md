@@ -155,6 +155,16 @@ Restart Cursor (or reload MCP servers) after editing the config.
 | `get_render_job` | Poll a durable render job by `job_id` |
 | `cancel_render_job` | Cancel a queued/running job |
 
+### Optional JSX media authoring
+
+`query_project` with `query="get_authoring_view"` returns a compact summary and
+graph revision; set `params.include_source=true` to export literal media JSX.
+`edit_project` with `operation="apply_authoring_edit"` accepts that revision as
+`params.expected_revision` plus either `params.source` or `params.edits`.
+The batch commits atomically and rejects stale revisions. Applying edits needs
+the optional pinned Node worker; exporting works without it. See
+[setup, examples and supported features](DIFFUSION_AUTHORING.md).
+
 ### Local media ingest
 
 ```json

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "fix/**"]
+    branches: [main, "fix/**", "feat/**"]
   pull_request:
 
 jobs:
@@ -29,6 +29,8 @@ jobs:
           sudo apt-get install -y ffmpeg
           python -m pip install -U pip
           pip install -e ".[dev,serve,openai]" build
+      - name: Install optional authoring compiler
+        run: python -m open_edit.integrations.diffusion.setup
       - name: Lint
         run: ruff check open_edit tests
       - name: Python and frontend regression tests
@@ -44,3 +46,6 @@ jobs:
           cd /tmp
           /tmp/openedit-smoke/bin/open-edit-mcp --help
           /tmp/openedit-smoke/bin/python -c "from open_edit.mcp.skills import load_skill; assert load_skill('open-edit-mcp')"
+          /tmp/openedit-smoke/bin/python -c "from open_edit.integrations.diffusion.compiler import worker_directory, worker_ready; assert (worker_directory() / 'vendor' / 'LICENSE').is_file(); assert not worker_ready()"
+          /tmp/openedit-smoke/bin/python -m open_edit.integrations.diffusion.setup
+          /tmp/openedit-smoke/bin/python -c 'from open_edit.integrations.diffusion.compiler import parse_and_compile; result = parse_and_compile("export default function Project() { return <stage id=\"openedit\"><scene id=\"main\" width={1920} height={1080} active /></stage>; }"); assert result["document"]["tracks"] == []'

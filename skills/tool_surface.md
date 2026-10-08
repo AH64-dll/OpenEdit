@@ -19,6 +19,7 @@ Inspect project state. Sub-queries:
 | `get_style_profile` | `op_type` | Style guidance for the given op type (cut, transition, effect, etc.). |
 | `analyze_narrative` | `asset_hash` | Rule-based narrative segments. |
 | `get_transcript_packed` | `asset_hash` (or omit for whole timeline) | Word-level alignment in a compact form. |
+| `get_authoring_view` | Optional `include_source` (default false) | Revision and compact Diffusion media summary; literal JSX only on request. |
 
 **Common mistake:** calling these without the required params and then
 concluding the tool is broken. Read the error — it tells you which
@@ -43,6 +44,14 @@ Mutations:
 - `apply_generated_ops` — commit a list of IR ops (`AddClipOp`,
   `AddEffectOp`, `AddTransitionOp`, `HtmlOverlay`, `RawMltXmlOp`,
   `FreeFormCodeOp`, `NormalizeAudioOp`).
+- `apply_authoring_edit` — optional Diffusion media authoring: provide
+  `expected_revision` from `get_authoring_view` and exactly one of full JSX
+  `source` or native `edits` (`set`, `remove`, `move`, using source IDs such as
+  `index.tsx:c-hero`). Supports media add/remove/move/trim/source replacement and
+  absolute `volume` in dB. Literal props, playbackRate=1, existing CAS assets and
+  non-overlapping tracks only; preserves other graph features. Stale or invalid
+  batches append nothing. Requires the optional pinned Node worker installed
+  with `python -m open_edit.integrations.diffusion.setup`.
 
 Creative generation (use these INSTEAD of hand-rolling):
 
