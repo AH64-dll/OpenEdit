@@ -1,10 +1,7 @@
-"""Local stdio MCP server — Open Edit as an agent plugin.
+"""Local MCP server for Open Edit.
 
-Exposes the pillar tools so an external agent host (Cursor, Claude Code,
-Pi, …) owns the LLM loop while Open Edit remains the editing/render backend.
-
-Harness skills (playbooks) live in repo ``skills/`` and are also exposed as
-MCP instructions / resources / prompts — see ``open_edit.mcp.skills``.
+External MCP clients own the LLM loop; Open Edit supplies editing and rendering
+against the project pinned at server startup.
 """
 from __future__ import annotations
 

@@ -1,12 +1,11 @@
 """Phase 4.5 W3: silence cutter skill."""
-import pytest
 
-from open_edit.ir.types import Asset, WordAlignment
 from open_edit.agent.skills.silence_cutter import (
     find_silence_gaps,
     no_word_split_check,
     propose_cuts,
 )
+from open_edit.ir.types import Asset, WordAlignment
 
 
 def _make_asset(alignment, duration_sec=10.0):
@@ -141,7 +140,7 @@ def test_no_word_split_qc_check_inter_word_passes():
         WordAlignment(word="hello", t_start=0.0, t_end=0.5, confidence=1.0),
     ])
     # Cut at 0.5 (inter-word) should pass
-    passed, detail = no_word_split_check(asset, t_start=0.5, t_end=1.0)
+    passed, _detail = no_word_split_check(asset, t_start=0.5, t_end=1.0)
     assert passed is True
 
 

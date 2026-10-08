@@ -4,9 +4,8 @@ Per phase4-design-revised.md §3.4 (T4).
 """
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +13,7 @@ from open_edit.ir.ids import new_version_id, now_iso8601
 from open_edit.storage.db import open_conn
 
 
-class RenderStatus(str, Enum):
+class RenderStatus(StrEnum):
     rendering = "rendering"
     ready = "ready"
     failed = "failed"
@@ -71,12 +70,12 @@ class RenderSnapshotStore:
             for r in rows
         ]
 
-    def latest_ready(self, project_id: str) -> Optional[RenderSnapshot]:
+    def latest_ready(self, project_id: str) -> RenderSnapshot | None:
         snaps = self.list_for_project(project_id)
         ready = [s for s in snaps if s.status == RenderStatus.ready]
         return ready[-1] if ready else None
 
-    def latest_for_project(self, project_id: str) -> Optional[RenderSnapshot]:
+    def latest_for_project(self, project_id: str) -> RenderSnapshot | None:
         """Return the most recent snapshot for the project, regardless of status.
 
         Used by the chat UI's `commit_feedback` handler to broadcast

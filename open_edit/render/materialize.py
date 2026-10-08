@@ -342,7 +342,7 @@ def materialize_remotion_compositions(
                 profile=item.profile,
                 asset_hash=composition.asset_hash,
             )
-            for composition, item in zip(compositions, prepared)
+            for composition, item in zip(compositions, prepared, strict=True)
         ]
         report.elapsed_sec = time.monotonic() - started
     # Compositions remain on the timeline for inspection, but clips are now

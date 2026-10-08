@@ -123,7 +123,7 @@ def skipped_qc_report(
     *,
     policy: QCPolicy,
     reason: str,
-) -> "QCReport":
+) -> QCReport:
     """Return a stable, explicit report without decoding the whole video."""
     # Import lazily to avoid the policy ↔ gate import cycle.
     from open_edit.qc.gate import QCCheck, QCReport

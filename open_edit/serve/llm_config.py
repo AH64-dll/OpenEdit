@@ -27,7 +27,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from .providers import (
     PROVIDERS,
-    list_provider_ids,
     provider_default_model,
 )
 

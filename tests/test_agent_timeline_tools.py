@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from open_edit.agent.tools._helpers import load_project
 from open_edit.agent.tools.pyagent_timeline_ops import (
     add_clip,
     apply_silence_gaps,
@@ -12,7 +13,6 @@ from open_edit.agent.tools.pyagent_timeline_ops import (
     set_audio_gain,
     trim_clip,
 )
-from open_edit.agent.tools._helpers import load_project
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddClipOp,

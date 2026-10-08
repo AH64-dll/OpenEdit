@@ -1,12 +1,13 @@
 """Phase 4 Task 5: RenderSnapshotStore + max-versions cap + status states."""
-import json
 import tempfile
 import unittest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from open_edit.storage.render_snapshots import (
-    RenderSnapshot, RenderSnapshotStore, RenderStatus,
+    RenderSnapshot,
+    RenderSnapshotStore,
+    RenderStatus,
 )
 
 
@@ -16,7 +17,7 @@ def _make_snapshot(project_id: str = "p1", status: RenderStatus = RenderStatus.r
         project_id=project_id,
         edit_graph_hash="abc123",
         render_path=Path(f"/tmp/render_{age_days}.mp4"),
-        created_at=(datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat(),
+        created_at=(datetime.now(UTC) - timedelta(days=age_days)).isoformat(),
         status=status,
         label=f"v{age_days}",
     )

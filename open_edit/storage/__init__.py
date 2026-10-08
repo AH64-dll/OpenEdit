@@ -1,15 +1,21 @@
 from open_edit.storage.notes import (
-    NotesStore, ReviewNote, TimestampAnchor, RegionAnchor, OpAnchor,
-    NoteSource, NoteStatus, NoteAnchor,
+    NoteAnchor,
+    NoteSource,
+    NotesStore,
+    NoteStatus,
+    OpAnchor,
+    RegionAnchor,
+    ReviewNote,
+    TimestampAnchor,
 )
 
 __all__ = [
-    "NotesStore",
-    "ReviewNote",
-    "TimestampAnchor",
-    "RegionAnchor",
-    "OpAnchor",
+    "NoteAnchor",
     "NoteSource",
     "NoteStatus",
-    "NoteAnchor",
+    "NotesStore",
+    "OpAnchor",
+    "RegionAnchor",
+    "ReviewNote",
+    "TimestampAnchor",
 ]

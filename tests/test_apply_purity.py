@@ -1,6 +1,8 @@
 from copy import deepcopy
-from open_edit.ir.types import Timeline, Track, Clip, AddClipOp
+
 from open_edit.ir.apply import apply_operation
+from open_edit.ir.types import AddClipOp, Timeline
+
 
 def test_apply_operation_does_not_mutate_input():
     base = Timeline(tracks=[])
@@ -17,5 +19,5 @@ def test_apply_operation_does_not_mutate_input():
         out_point_sec=10.0,
     )
 
-    result = apply_operation(base, op)
+    apply_operation(base, op)
     assert base == original, "apply_operation mutated the input timeline"

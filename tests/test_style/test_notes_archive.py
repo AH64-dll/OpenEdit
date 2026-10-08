@@ -1,6 +1,6 @@
 """Phase 4 Task 8: notes DB archival on commit_feedback completion."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from open_edit.storage.notes import (
     NoteSource,
@@ -18,8 +18,8 @@ def _make_processed_note(text: str, age_days: int) -> ReviewNote:
         text=text,
         source=NoteSource.typed,
         status=NoteStatus.processed,
-        created_at=(datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat(),
-        processed_at=datetime.now(timezone.utc).isoformat(),
+        created_at=(datetime.now(UTC) - timedelta(days=age_days)).isoformat(),
+        processed_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -53,7 +53,7 @@ def test_pending_never_archived(tmp_path):
         text="pending old note",
         source=NoteSource.typed,
         status=NoteStatus.pending,
-        created_at=(datetime.now(timezone.utc) - timedelta(days=45)).isoformat(),
+        created_at=(datetime.now(UTC) - timedelta(days=45)).isoformat(),
     )
     store.append(note)
     archived = store.archive_old_processed(retention_days=30)

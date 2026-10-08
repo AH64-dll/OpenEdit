@@ -5,23 +5,21 @@ These tests exercise the new verification stage that runs after every
 tool executor (via ``_execute_tool``), and ``ffmpeg`` / ``ffprobe`` (via
 ``subprocess.run`` patches).
 """
+
 from __future__ import annotations
 
-import asyncio
 import json
-import sys
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest import mock
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from open_edit.serve import agent as agent_mod
+from open_edit.serve import projects as projects_mod
 
-from open_edit.serve import agent as agent_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 
 def _fake_mp4(path: Path, duration_s: float = 10.0) -> None:
@@ -73,7 +71,7 @@ def _make_mock_stream(turns: list[list[dict[str, Any]]]):
     return _gen, state
 
 
-# A "fake" trigger_render tool result (what pi's extension would return).
+# A fake trigger_render tool result from the kernel.
 # Agent loop in v1.5 reshapes this into a verification block.
 _FAKE_RENDER_OK = {
     "output_path": "/tmp/render/r.mp4",
@@ -125,6 +123,10 @@ def _patched_agent_with_render(monkeypatch, tmp_path, *, render_result=None, ffp
         return m
 
     monkeypatch.setattr("subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr(
+        agent_mod, "_execute_tool",
+        lambda name, args, path, command_id=None: render_result,
+    )
     return render_result
 
 

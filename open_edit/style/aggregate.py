@@ -8,10 +8,10 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from open_edit.storage.config import get_config_dir, get_profile_path, _default_profile
+from open_edit.storage.config import _default_profile, get_config_dir, get_profile_path
 
 
 def _load_profile() -> dict[str, Any]:
@@ -54,7 +54,7 @@ def capture_hint(
         "text": hint,
         "category": category,
         "source": source,
-        "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "captured_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     if key:
         entry["key"] = key
@@ -100,7 +100,7 @@ def _touch_meta(profile: dict[str, Any]) -> None:
     if not isinstance(meta, dict):
         meta = {}
         profile["meta"] = meta
-    meta["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta["updated_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     meta["sample_size"] = int(meta.get("sample_size") or 0) + 1
 
 

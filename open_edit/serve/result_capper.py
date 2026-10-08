@@ -1,53 +1,50 @@
-"""Cap oversized tool results before they enter conversation history.
-
-Called from the agent loop, ``history_store`` and ``pi_bridge.py`` to
-proactively limit tool result size, preventing ``LimitOverrunError`` in
-the pi subprocess pipe and keeping the conversation history lean.
-"""
+"""Bound diagnostic tool output before it enters the model context."""
 from __future__ import annotations
 
 from typing import Any
 
-
 _MAX_ITEM_CHARS = 10_000
 _MAX_LIST_ITEMS = 20
+# Operation proposals are inputs to apply_generated_ops, not display rows.
+_ACTION_FIELDS = frozenset({"ops", "suggested_ops", "proposed_ops"})
 
 
 def cap_tool_result(result: dict[str, Any], max_chars: int = _MAX_ITEM_CHARS) -> dict[str, Any]:
-    """Return a copy of ``result`` with oversized fields truncated.
+    """Copy and recursively cap display data while retaining executable ops.
 
-    * Truncates ``stdout``, ``stderr``, ``error`` to ``max_chars`` each.
-    * Caps list fields to 20 items (with ``...[N more]`` marker).
-    * For ``trigger_render`` results: strips ``stdout``/``stderr`` entirely
-      (they are debugging-only).
-    * Adds ``_truncated: true`` when any truncation occurs.
+    Render diagnostics are removed on success, retained (bounded) on failure.
+    Nested query results and transcript strings follow the same limits as
+    stdout, avoiding the former unbounded nested-payload loophole.
     """
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
     truncated = False
-    out = dict(result)
 
-    is_render = out.get("output_path") is not None and out.get("status") in ("ok", "error")
-
-    for field in ("stdout", "stderr"):
-        if field in out:
-            if is_render:
+    def cap(value: Any, field: str = "") -> Any:
+        nonlocal truncated
+        if field in _ACTION_FIELDS:
+            from copy import deepcopy
+            return deepcopy(value)
+        if isinstance(value, str) and len(value) > max_chars:
+            truncated = True
+            return value[:max_chars] + "\n... [truncated]"
+        if isinstance(value, dict):
+            return {key: cap(item, key) for key, item in value.items()}
+        if isinstance(value, list):
+            items = [cap(item) for item in value[:_MAX_LIST_ITEMS]]
+            if len(value) > _MAX_LIST_ITEMS:
                 truncated = True
+                items.append(f"... [{len(value) - _MAX_LIST_ITEMS} more items]")
+            return items
+        return value
+
+    out = cap(result)
+    is_successful_render = out.get("output_path") is not None and out.get("status") == "ok"
+    if is_successful_render:
+        for field in ("stdout", "stderr"):
+            if field in out:
                 del out[field]
-            elif isinstance(out[field], str) and len(out[field]) > max_chars:
-                out[field] = out[field][:max_chars] + "\n... [truncated]"
                 truncated = True
-
-    for field in ("error",):
-        if isinstance(out.get(field), str) and len(out[field]) > max_chars:
-            out[field] = out[field][:max_chars] + "\n... [truncated]"
-            truncated = True
-
-    for field in list(out.keys()):
-        if isinstance(out[field], list) and len(out[field]) > _MAX_LIST_ITEMS:
-            n_more = len(out[field]) - _MAX_LIST_ITEMS
-            out[field] = out[field][:_MAX_LIST_ITEMS] + [f"... [{n_more} more items]"]
-            truncated = True
-
     if truncated:
         out["_truncated"] = True
-
     return out

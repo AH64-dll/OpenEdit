@@ -2,14 +2,13 @@
 import shutil
 import subprocess
 import sys
-from types import SimpleNamespace
-import wave
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from open_edit.render.melt_runner import PipeRunError, run_pipe
 from open_edit.render.encoder import select_encoder
+from open_edit.render.melt_runner import PipeRunError, run_pipe
 from open_edit.render.pipe_builder import PipeCommands, build_pipe_commands
 from open_edit.render.profiles import select_profile
 from open_edit.render.remotion.frame_feeder import FrameOverlaySpec

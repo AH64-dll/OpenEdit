@@ -6,7 +6,7 @@ import logging
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -50,7 +50,7 @@ async def _require_project(project_id: str) -> projects_mod.ProjectState:
     try:
         return await projects_mod.get_project_state(project_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def _notes_store_for(project_path: Path):
@@ -85,7 +85,7 @@ async def post_create_project(req: CreateProjectRequest) -> Any:
     try:
         return await projects_mod.create_project(req.name)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         return JSONResponse(
             status_code=500,
@@ -102,14 +102,14 @@ async def get_project(project_id: str) -> projects_mod.ProjectState:
     try:
         return await projects_mod.get_project_state(project_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/api/projects/{project_id}/ingest", status_code=202)
 async def post_ingest(
     project_id: str,
-    files: list[UploadFile] = File(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
+    background_tasks: BackgroundTasks,
+    files: Annotated[list[UploadFile], File()],
 ) -> dict[str, Any]:
     """Ingest one or more files under the canonical ``files`` form field.
 
@@ -137,7 +137,7 @@ async def post_ingest(
         try:
             await asyncio.to_thread(_copy_upload_limited, upload.file, temp_path, max_bytes)
             asset = await asyncio.to_thread(store.ingest, str(temp_path), False)
-        except subprocess.CalledProcessError as exc:
+        except subprocess.CalledProcessError:
             _LOG.info("rejected invalid media upload %s", safe_name)
             rejected.append({"filename": safe_name, "error": "not a recognised media file"})
         except UploadTooLargeError as exc:
@@ -224,7 +224,7 @@ async def post_project_note(project_id: str, req: CreateNoteRequest) -> JSONResp
             track_id=track_id,
         ),
         text=text,
-        source=NoteSource.typed if req.source == "typed" else NoteSource.typed,
+        source=NoteSource.typed,
         status=NoteStatus.pending,
         created_at=now_iso8601(),
     )

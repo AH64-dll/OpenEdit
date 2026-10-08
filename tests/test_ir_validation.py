@@ -1,8 +1,12 @@
-# open_edit/tests/test_ir_validation.py
+
 import pytest
 
-from open_edit.ir.types import Timeline, Track, Clip
-from open_edit.ir.validate import validate_timeline
+from open_edit.ir.derive import derive_timeline
+from open_edit.ir.types import Clip, Project, Timeline, Track
+from open_edit.ir.validate import TimelineValidationError, validate_timeline
+
+# open_edit/tests/test_ir_validation.py
+
 
 
 def _clip(clip_id, start, in_p, out_p):
@@ -37,9 +41,6 @@ def test_validate_timeline_clean():
     assert validate_timeline(tl) == []
 
 
-from open_edit.ir.derive import derive_timeline
-from open_edit.ir.validate import TimelineValidationError
-from open_edit.ir.types import Project
 
 
 def _overlapping_project():

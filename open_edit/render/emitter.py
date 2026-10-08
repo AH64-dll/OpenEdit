@@ -7,10 +7,8 @@ from __future__ import annotations
 
 import math
 
-from typing import Optional
-
-from pydantic import BaseModel, Field
 from lxml import etree
+from pydantic import BaseModel, Field
 
 from open_edit.ir.types import Effect, Timeline
 
@@ -29,7 +27,7 @@ class EmitterConfig(BaseModel):
 
 def _format_timecode(seconds: float, fps_num: int, fps_den: int) -> str:
     """Convert seconds to MLT frame count (integer)."""
-    return str(int(round(seconds * fps_num / fps_den)))
+    return str(round(seconds * fps_num / fps_den))
 
 
 def _amp_to_db(amplitude: float) -> float:
@@ -62,15 +60,15 @@ def _emit_audio_micro_fade(
     if clip_dur_sec < 0.060:
         fade_dur = clip_dur_sec / 2.0
 
-    clip_in_frame = int(round(clip_in_sec * fps_num / fps_den))
-    clip_end_frame = int(round(clip_dur_sec * fps_num / fps_den))
+    clip_in_frame = round(clip_in_sec * fps_num / fps_den)
+    clip_end_frame = round(clip_dur_sec * fps_num / fps_den)
 
     if clip_end_frame == 0:
         # 1-frame clip: preserve full volume 1.0 (not muted)
         deduped = [(clip_in_frame + 0, 1.0)]
     else:
-        fade_in_end_frame = int(round(fade_dur * fps_num / fps_den))
-        fade_out_start_frame = int(round((clip_dur_sec - fade_dur) * fps_num / fps_den))
+        fade_in_end_frame = round(fade_dur * fps_num / fps_den)
+        fade_out_start_frame = round((clip_dur_sec - fade_dur) * fps_num / fps_den)
 
         if fade_in_end_frame == 0:
             fade_in_end_frame = 1
@@ -151,8 +149,9 @@ def _emit_filter(
 def _catalog_spec(effect_type: str):
     """Load the catalog spec for an effect type, or None."""
     try:
-        from open_edit.ir.catalog.loader import EffectCatalog
         from pathlib import Path
+
+        from open_edit.ir.catalog.loader import EffectCatalog
 
         catalog = EffectCatalog(Path(__file__).resolve().parent.parent / "ir" / "catalog")
         return catalog.get(effect_type)
@@ -213,8 +212,8 @@ def _emit_transition(
 
 def emit_timeline(
     timeline: Timeline,
-    config: Optional[EmitterConfig] = None,
-    asset_paths: Optional[dict[str, str]] = None,
+    config: EmitterConfig | None = None,
+    asset_paths: dict[str, str] | None = None,
     *,
     hwaccel: bool = False,
 ) -> str:

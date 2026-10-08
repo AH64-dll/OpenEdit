@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from open_edit.render.profiles import RenderProfile
+from open_edit.render.remotion.safety import ALPHA_POLICY_VERSION as ALPHA_POLICY_VERSION
 from open_edit.render.remotion.safety import (
-    ALPHA_POLICY_VERSION,
     RemotionRenderError,
     composition_cache_key,
     composition_source_bundle,

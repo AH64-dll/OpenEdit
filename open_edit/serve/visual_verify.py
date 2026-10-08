@@ -5,7 +5,7 @@ Pure (or near-pure) functions for the post-render verification stage:
   * :func:`sample_frames` — tiered frame timestamps (spec §3)
   * :func:`encode_jpeg` — ffmpeg wrapper for downscaled JPEG extraction
   * :func:`model_capability` — multimodal / image-capable check via
-    ``~/.pi/agent/models-store.json``
+    ``~/.config/open_edit/models-store.json``
   * :func:`build_verification_tool_result` — assemble the structured
     ``trigger_render`` tool result (spec §4)
   * :func:`build_failure_tool_result` — failure shapes (no verification
@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
+from open_edit.kernel.tool_result import build_failure_tool_result as build_failure_tool_result
 
 _VERDICT_RE = re.compile(r"^\s*verification\s*:\s*(pass|fail|uncertain)\b", re.IGNORECASE | re.MULTILINE)
 
@@ -74,12 +75,10 @@ def sample_frames(duration_s: float, override_count: int | None = None) -> list[
         the env-var ``OPEN_EDIT_VERIFY_FRAMES`` is the override).
     """
     d = float(duration_s)
-    for max_d, default_n, ratios in _TIERS:
-        if d <= max_d:
-            n = override_count or default_n
-            break
-    else:
-        n = override_count or 5
+    _max_d, default_n, ratios = next(
+        (tier for tier in _TIERS if d <= tier[0]), _TIERS[-1],
+    )
+    n = override_count or default_n
 
     raw = [r * d for r in ratios[:n]]
     clamped = [min(max(t, 0.05), max(0.05, d - 0.05)) for t in raw]
@@ -140,7 +139,7 @@ def encode_jpeg(
 
 
 # ---------------------------------------------------------------------------
-# Model capability — read ~/.pi/agent/models-store.json
+# Model capability — read ~/.config/open_edit/models-store.json
 # ---------------------------------------------------------------------------
 
 _DEFAULT_CAP = {
@@ -152,35 +151,54 @@ _DEFAULT_CAP = {
 
 
 def model_capability(model_id: str, models_store_path: Path | None = None) -> dict[str, Any]:
-    """Return the multimodal / image capability of a model.
+    """Read local capability overrides, then the known provider registry.
 
-    Never raises — unknown models return ``{"supports_images": False, ...,
-    "source": "unknown"}``. The default fallback (``models_store_path=None``
-    or the file doesn't exist) is multimodal-capable, since ``minimax-m3``
-    is the default and the agent would otherwise skip verification for an
-    unsupported reason.
+    Unknown models remain text-only. Missing or malformed override files must
+    not disable verification for a known image-capable SDK model.
     """
+    from .providers import PROVIDERS
+
+    fallback = {**_DEFAULT_CAP, "source": "unknown"}
+    for spec in PROVIDERS.values():
+        if model_id in spec.models:
+            images = spec.supports_images and model_id not in spec.text_only_models
+            fallback = {
+                "supports_images": images,
+                "input_modalities": ["text", "image"] if images else ["text"],
+                "max_image_count": 8 if images else 0,
+                "source": "provider_registry",
+            }
+            break
     if models_store_path is None:
-        models_store_path = Path.home() / ".pi" / "agent" / "models-store.json"
+        models_store_path = Path.home() / ".config" / "open_edit" / "models-store.json"
     if not models_store_path.exists():
-        return {**_DEFAULT_CAP, "source": "default"}
+        return fallback
     try:
         data = json.loads(models_store_path.read_text())
     except (OSError, json.JSONDecodeError):
-        return {**_DEFAULT_CAP, "source": "default"}
+        return fallback
+    if not isinstance(data, dict):
+        return fallback
     for _provider, payload in data.items():
         if not isinstance(payload, dict):
             continue
-        for model in payload.get("models", []):
+        models = payload.get("models", [])
+        if not isinstance(models, list):
+            continue
+        for model in models:
+            if not isinstance(model, dict):
+                continue
             if model.get("id") == model_id:
                 inputs = model.get("input", ["text"])
+                if not isinstance(inputs, list) or any(not isinstance(item, str) for item in inputs):
+                    return fallback
                 return {
                     "supports_images": "image" in inputs,
                     "input_modalities": list(inputs),
                     "max_image_count": 8 if "image" in inputs else 0,
                     "source": "models_store",
                 }
-    return {**_DEFAULT_CAP, "source": "unknown"}
+    return fallback
 
 
 # ---------------------------------------------------------------------------
@@ -307,11 +325,6 @@ def build_verification_tool_result(
             "prompt": _verification_prompt(render_id, frames, mode, qc_evidence),
         },
     }
-
-
-from open_edit.kernel.tool_result import (  # noqa: F401  (re-exported for serve consumers)
-    build_failure_tool_result,
-)
 
 
 # ---------------------------------------------------------------------------

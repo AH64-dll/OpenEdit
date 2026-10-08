@@ -21,7 +21,6 @@ class ErrorCodes:
     CONFLICT = "conflict"
     PERMISSION_DENIED = "permission_denied"
     AUTH_REQUIRED = "auth_required"
-    SANDBOX_UNAVAILABLE = "sandbox_unavailable"
     RENDER_FAILED = "render_failed"
     PROVIDER_ERROR = "provider_error"
     RATE_LIMITED = "rate_limited"

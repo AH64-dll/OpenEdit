@@ -16,7 +16,6 @@ from open_edit.render.orchestrator import render_project
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 
-
 _FAKE_REMOTION = textwrap.dedent(
     """\
     #!/usr/bin/env python3

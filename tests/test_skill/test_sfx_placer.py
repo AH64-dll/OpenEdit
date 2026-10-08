@@ -1,9 +1,8 @@
 """Phase 4.5 W6: SFX placer skill."""
 from pathlib import Path
 
-import pytest
 from open_edit.agent.skills.narrative_analyzer import NarrativeSegment
-from open_edit.agent.skills.sfx_placer import place, SfxClip
+from open_edit.agent.skills.sfx_placer import SfxClip, place
 from open_edit.ir.catalog.loader import EffectCatalog
 from open_edit.ir.types import Project
 from open_edit.ir.validate import validate_op

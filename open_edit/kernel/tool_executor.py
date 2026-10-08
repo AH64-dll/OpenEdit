@@ -1,34 +1,13 @@
-"""Shared tool execution (Wave 3.2).
+"""Shared tool execution for MCP and the optional built-in agent.
 
-The agent loop (``agent.py``) and the TS-extension shim
-(``pi_bridge.py``) both need to run tools on the server side. Before
-this module existed, ``agent.py`` had its own ``_execute_agent_tool``
-and ``_execute_trigger_render`` functions, and ``pi_bridge.py`` had a
-parallel copy of the trigger-render logic. The two could drift
-(``agent.py`` accepts a ``mode`` field, ``pi_bridge.py`` rejected it,
-etc.), and the bug was a latent source of "the agent sees different
-behavior than the TS extension" reports.
-
-This module owns the canonical implementations. Both callers import
-from here. If the behavior needs to change, it changes in one place.
-
-v1.6 note: ``execute_trigger_render`` preserves the three-way split
-between ``proxy``, ``final`` (shell out to ``open_edit render`` CLI)
-and ``overlay`` (delegate to ``kernel.render_overlay.run_trigger_render``
-for the composited HTML-overlay path). The proxy/final branch is
-intentionally NOT collapsed into the overlay branch: those paths write
-different ``render_id`` shapes and the agent's verification stage reads them
-differently (see test_serve_agent.py V4 tests).
-
-v1.7+ polish: ``execute_trigger_render`` is async and uses
-``asyncio.create_subprocess_exec`` so the event loop stays responsive
-during long renders. This is what makes the Stop button interrupt
-a render cleanly: the previous synchronous ``subprocess.run`` blocked
-the WS task for the full ``RENDER_TIMEOUT_S`` window.
+Owns argument validation, idempotency, pillar dispatch, and render-job
+execution. All callers use this implementation and the same result envelopes.
+Rendering is asynchronous so cancellation and other requests stay responsive.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import inspect
 import json
@@ -38,11 +17,10 @@ from typing import Any
 
 # NOTE: kernel must not import the serve package (layering invariant).
 from open_edit.ir.hash import compute_edit_graph_hash
-from open_edit.storage.edit_graph import EditGraphStore
-from open_edit.storage.paths import ProjectPaths
-
 from open_edit.kernel.schema_validator import validate_or_error
 from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
+from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.paths import ProjectPaths
 
 # Tools whose argument schemas come from the registry (TOOL_SCHEMAS).
 # These declare no ``project_id`` field, but the agent loop injects it
@@ -149,10 +127,8 @@ def _record_done_command(
             command_id, status="done",
             result_json=json.dumps(result, default=str),
         )
-        try:
+        with contextlib.suppress(Exception):
             store.set_edit_graph_hash(compute_edit_graph_hash(store.load_all()))
-        except Exception:
-            pass
     except Exception:
         pass
 
@@ -167,17 +143,16 @@ def _cached_done_result(
     except Exception:
         return None, None, False
     try:
-        if store.command_exists(command_id):
-            if (store.get_command_status(command_id) or "") == "done":
-                cached = store.get_command_result(command_id)
-                if cached is not None:
-                    return store, json.loads(cached), True
+        if store.command_exists(command_id) and (store.get_command_status(command_id) or "") == "done":
+            cached = store.get_command_result(command_id)
+            if cached is not None:
+                return store, json.loads(cached), True
     except Exception:
         return None, None, False
     return store, None, False
 
 
-class ToolNotFound(LookupError):  # noqa: N818
+class ToolNotFound(LookupError):  # noqa: N818 - public compatibility name
     """Raised by :func:`execute_tool` when the named tool is not
     registered in ``open_edit.agent.tools.TOOL_TABLE``."""
 
@@ -274,9 +249,7 @@ def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, 
     if err is not None:
         return err
 
-    # Render-job helpers: same dispatch and envelope shapes as
-    # ``mcp/adapters.py`` (which keeps its own branches for MCP callers;
-    # this is the kernel-side dispatch for the agent loop and pi_bridge).
+    # Render-job helpers share validation and result envelopes across callers.
     if name == "get_render_job":
         job_id = args.get("job_id")
         if not job_id or not isinstance(job_id, str):
@@ -293,7 +266,7 @@ def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, 
         job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, job_id)
         if job is None:
             return {"ok": False, "error": f"render job not found: {job_id}"}
-        return {"ok": True, **public_job(job)}
+        return {"ok": True, **public_job(job, include_details=args.get("include_details", False))}
 
     if name == "cancel_render_job":
         job_id = args.get("job_id")
@@ -312,12 +285,12 @@ def _run_tool(name: str, args: dict[str, Any], project_path: Path) -> dict[str, 
             job = await DEFAULT_RENDER_JOB_SERVICE.cancel(project_path, job_id)
             if job is None:
                 return {"ok": False, "error": f"render job not found: {job_id}"}
-            return {"ok": True, **public_job(job)}
+            return {"ok": True, **public_job(job, include_details=False)}
 
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            # Sync caller (e.g. pi_bridge CLI): no loop to await on.
+            # Synchronous caller: no loop to await on.
             return asyncio.run(_do_cancel())
         # Async caller (agent loop): hand back the awaitable; the loop
         # awaits it (see loop.py ``_execute_tool``).
@@ -352,10 +325,10 @@ async def execute_trigger_render(
 
     v1.6: ``mode=="overlay"`` is the composited HTML-overlay path. We
     delegate to ``kernel.render_overlay.run_trigger_render`` so the
-    in-process agent loop and the TS extension see identical behavior.
+    MCP client and optional agent loop see identical behavior.
 
     v1.6 V4: the returned dict must use the same structured shape as
-    the pi subprocess path (``{output_path, mode, duration_s, render_id}``)
+    the shared render contract (``{output_path, mode, duration_s, render_id}``)
     so the verification stage's ``result.get("render_id", ...)`` always
     sees a real render id (not "render_unknown") regardless of which
     path was taken.

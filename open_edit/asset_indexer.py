@@ -7,18 +7,17 @@ and outputs open_edit/assets_manifest.json as the single source of truth.
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any
 
 # Semantic Mapping Dictionaries for AI Triggers, Tags, and Blend Modes
-TAG_RULES: Dict[str, List[str]] = {
+TAG_RULES: dict[str, list[str]] = {
     "explosion": ["action", "combat", "cinematic", "fire", "battle", "danger", "impact"],
     "impact": ["action", "hit", "collision", "heavy", "boom"],
     "whoosh": ["transition", "camera", "fast", "action", "pass_by", "sweep"],
@@ -36,7 +35,7 @@ TAG_RULES: Dict[str, List[str]] = {
     "callout": ["motion_graphics", "annotation", "arrow", "highlight"],
 }
 
-TRIGGER_RULES: Dict[str, List[str]] = {
+TRIGGER_RULES: dict[str, list[str]] = {
     "explosion": ["dramatic_reveal", "action_collision", "explosion_event"],
     "impact": ["dramatic_moment", "heavy_hit", "scene_emphasis"],
     "whoosh": ["scene_transition", "fast_camera_move", "text_slide_in"],
@@ -50,7 +49,7 @@ TRIGGER_RULES: Dict[str, List[str]] = {
     "fire": ["flame_effect", "burn_scene"],
 }
 
-BLEND_MODE_RULES: Dict[str, Tuple[str, str]] = {
+BLEND_MODE_RULES: dict[str, tuple[str, str]] = {
     "light_leak": ("Screen", "Add"),
     "fire": ("Screen", "Add"),
     "smoke": ("Screen", "Add"),
@@ -64,7 +63,7 @@ BLEND_MODE_RULES: Dict[str, Tuple[str, str]] = {
 }
 
 
-def run_ffprobe(filepath: str) -> Optional[Dict[str, Any]]:
+def run_ffprobe(filepath: str) -> dict[str, Any] | None:
     """Runs ffprobe on a media file and returns parsed JSON output."""
     if not shutil.which("ffprobe"):
         return None
@@ -96,12 +95,12 @@ def parse_fps(fps_str: str) -> float:
         return 0.0
 
 
-def extract_file_metadata(filepath: str) -> Dict[str, Any]:
+def extract_file_metadata(filepath: str) -> dict[str, Any]:
     """Extracts technical audio/video metadata from media files."""
     ext = os.path.splitext(filepath)[1].lower()
     probe_data = run_ffprobe(filepath)
 
-    meta: Dict[str, Any] = {
+    meta: dict[str, Any] = {
         "duration_sec": 0.0,
         "media_type": "unknown",
     }
@@ -132,10 +131,8 @@ def extract_file_metadata(filepath: str) -> Dict[str, Any]:
     if probe_data:
         format_info = probe_data.get("format", {})
         if "duration" in format_info:
-            try:
+            with contextlib.suppress(ValueError):
                 meta["duration_sec"] = round(float(format_info["duration"]), 2)
-            except ValueError:
-                pass
 
         streams = probe_data.get("streams", [])
         for stream in streams:
@@ -157,7 +154,7 @@ def extract_file_metadata(filepath: str) -> Dict[str, Any]:
     return meta
 
 
-def derive_tags_and_triggers(filename: str, rel_path: str) -> Tuple[List[str], List[str], Tuple[str, str]]:
+def derive_tags_and_triggers(filename: str, rel_path: str) -> tuple[list[str], list[str], tuple[str, str]]:
     """Derives semantic tags, AI trigger events, and blend mode recommendations."""
     clean_name = os.path.splitext(filename)[0].lower()
     tokens = re.split(r"[_\-\s]+", clean_name) + [p.lower() for p in rel_path.split(os.sep)]
@@ -185,13 +182,13 @@ def derive_tags_and_triggers(filename: str, rel_path: str) -> Tuple[List[str], L
     if not triggers_set:
         triggers_set.add("general_use")
 
-    return sorted(list(tags_set)), sorted(list(triggers_set)), blend_modes
+    return sorted(tags_set), sorted(triggers_set), blend_modes
 
 
-def index_assets(assets_dir: str) -> List[Dict[str, Any]]:
+def index_assets(assets_dir: str) -> list[dict[str, Any]]:
     """Scans directory and builds structured asset records."""
     assets_dir_path = Path(assets_dir)
-    manifest_records: List[Dict[str, Any]] = []
+    manifest_records: list[dict[str, Any]] = []
 
     if not assets_dir_path.exists():
         return manifest_records
@@ -222,7 +219,7 @@ def index_assets(assets_dir: str) -> List[Dict[str, Any]]:
                 category = parts[1]  # audio / video
                 subcategory = parts[2]  # sfx / overlays / transitions / etc.
 
-            record: Dict[str, Any] = {
+            record: dict[str, Any] = {
                 "asset_id": filename_no_ext,
                 "category": category,
                 "subcategory": subcategory,

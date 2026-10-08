@@ -58,7 +58,7 @@ def test_adjacent_reorder_changes_hash(tmp_path) -> None:
 
 
 def test_delete_op_changes_hash(tmp_path) -> None:
-    store, a, b = _make_store(tmp_path)
+    store, a, _b = _make_store(tmp_path)
 
     h_before = compute_edit_graph_hash(store.load_all())
 

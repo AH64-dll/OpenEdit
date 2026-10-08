@@ -9,7 +9,6 @@ from open_edit.agent.skills.motion_graphics.templates.scope import scope_zoom_te
 from open_edit.agent.skills.motion_graphics.templates.tease import tease_glimpse
 from open_edit.agent.skills.motion_graphics.templates.turn import turn_slide_text
 
-
 __all__ = [
     "button_cta",
     "cost_warning",

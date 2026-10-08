@@ -5,19 +5,18 @@ LLM ``tool_use_id``. ``execute_tool`` dedupes on that ``command_id`` so a
 previously successful call is short-circuited to its cached result rather
 than re-applied.
 """
+
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from open_edit.kernel.tool_executor import ToolNotFound, execute_tool
+from open_edit.storage.edit_graph import EditGraphStore
 
-from open_edit.kernel.tool_executor import ToolNotFound, execute_tool  # noqa: E402
-from open_edit.storage.edit_graph import EditGraphStore  # noqa: E402
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 
 @pytest.fixture

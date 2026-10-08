@@ -4,7 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from open_edit.storage.render_snapshots import (
-    RenderSnapshot, RenderSnapshotStore, RenderStatus,
+    RenderSnapshot,
+    RenderSnapshotStore,
+    RenderStatus,
 )
 
 

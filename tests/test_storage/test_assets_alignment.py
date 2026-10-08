@@ -1,12 +1,11 @@
 """Phase 4.5 W1: Asset.alignment field + AssetStore integration."""
-import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from open_edit.ir.types import Asset, WordAlignment
-from open_edit.storage.assets import AssetStore, _probe_media
+from open_edit.storage.assets import AssetStore
 
 
 class TestAssetsAlignment(unittest.TestCase):

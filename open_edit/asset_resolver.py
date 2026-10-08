@@ -8,8 +8,7 @@ Resolves natural language queries, triggers, categories, and tags to indexed med
 import json
 import os
 import re
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class AssetResolver:
@@ -17,7 +16,7 @@ class AssetResolver:
 
     def __init__(self, manifest_path: str = "open_edit/assets_manifest.json"):
         self.manifest_path = manifest_path
-        self.assets: List[Dict[str, Any]] = []
+        self.assets: list[dict[str, Any]] = []
         self.load_manifest()
 
     def load_manifest(self) -> None:
@@ -27,13 +26,13 @@ class AssetResolver:
             return
 
         try:
-            with open(self.manifest_path, "r", encoding="utf-8") as f:
+            with open(self.manifest_path, encoding="utf-8") as f:
                 data = json.load(f)
                 self.assets = data.get("assets", [])
         except (json.JSONDecodeError, OSError):
             self.assets = []
 
-    def resolve_by_trigger(self, trigger_name: str, media_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def resolve_by_trigger(self, trigger_name: str, media_type: str | None = None) -> dict[str, Any] | None:
         """Finds the best matching asset for a given AI trigger event."""
         trigger_lower = trigger_name.lower().strip()
         candidates = []
@@ -50,14 +49,14 @@ class AssetResolver:
 
     def resolve(
         self,
-        category: Optional[str] = None,
-        subcategory: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        media_type: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        category: str | None = None,
+        subcategory: str | None = None,
+        tags: list[str] | None = None,
+        media_type: str | None = None
+    ) -> list[dict[str, Any]]:
         """Filters assets by category, subcategory, tags, or media_type."""
         results = []
-        req_tags = set(t.lower() for t in tags) if tags else set()
+        req_tags = {t.lower() for t in tags} if tags else set()
 
         for asset in self.assets:
             if category and asset.get("category", "").lower() != category.lower():
@@ -68,7 +67,7 @@ class AssetResolver:
                 continue
 
             if req_tags:
-                asset_tags = set(t.lower() for t in asset.get("tags", []))
+                asset_tags = {t.lower() for t in asset.get("tags", [])}
                 if not req_tags.intersection(asset_tags):
                     continue
 
@@ -76,7 +75,7 @@ class AssetResolver:
 
         return results
 
-    def query(self, prompt_text: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def query(self, prompt_text: str, limit: int = 5) -> list[dict[str, Any]]:
         """Ranks and retrieves top assets matching a natural language prompt."""
         tokens = set(re.findall(r"\w+", prompt_text.lower()))
         scored_assets = []
@@ -84,8 +83,8 @@ class AssetResolver:
         for asset in self.assets:
             score = 0
             asset_id = asset.get("asset_id", "").lower()
-            tags = set(t.lower() for t in asset.get("tags", []))
-            triggers = set(t.lower() for t in asset.get("ai_triggers", []))
+            tags = {t.lower() for t in asset.get("tags", [])}
+            triggers = {t.lower() for t in asset.get("ai_triggers", [])}
             file_path = asset.get("file_path", "").lower()
 
             for token in tokens:
@@ -108,7 +107,7 @@ class AssetResolver:
 
 
 # Module-level convenience functions
-_default_resolver: Optional[AssetResolver] = None
+_default_resolver: AssetResolver | None = None
 
 
 def get_resolver(manifest_path: str = "open_edit/assets_manifest.json") -> AssetResolver:

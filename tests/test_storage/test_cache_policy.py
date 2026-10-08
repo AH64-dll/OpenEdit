@@ -10,8 +10,8 @@ from open_edit.storage.assets import AssetStore
 from open_edit.storage.cache_policy import (
     DEFAULT_CACHE_MAX_AGE_SEC,
     DEFAULT_CACHE_MIN_FREE_BYTES,
-    DEFAULT_RENDER_CACHE_MAX_BYTES,
     DEFAULT_REMOTION_CACHE_MAX_BYTES,
+    DEFAULT_RENDER_CACHE_MAX_BYTES,
     DEFAULT_SOURCE_PROXY_MAX_BYTES,
     CacheSettings,
     enforce_project_cache,

@@ -9,8 +9,8 @@ import pytest
 from open_edit.ir.hash import compute_edit_graph_hash
 from open_edit.ir.types import AddClipOp
 from open_edit.render.cache import (
-    DEFAULT_TTL_SEC,
     DEFAULT_RENDER_CACHE_MAX_BYTES,
+    DEFAULT_TTL_SEC,
     RenderCache,
     cache_max_bytes,
     cache_ttl_sec,

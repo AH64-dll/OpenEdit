@@ -8,6 +8,25 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 
+@pytest.fixture(autouse=True)
+def disable_dependency_telemetry(monkeypatch):
+    monkeypatch.setenv("HYPERFRAMES_NO_TELEMETRY", "1")
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+
+
+@pytest.fixture(autouse=True)
+def optional_agent_ui(request, monkeypatch):
+    """Tests of optional chat/config endpoints explicitly enable that mode."""
+    if request.node.get_closest_marker("agent_ui"):
+        monkeypatch.setenv("OPEN_EDIT_REVIEW_ONLY", "0")
+
+
+@pytest.fixture
+def manual_source_proxies(monkeypatch):
+    """Direct encoder tests own their jobs instead of racing ingest workers."""
+    monkeypatch.setenv("OPEN_EDIT_SOURCE_PROXY_AUTO", "0")
+
+
 @pytest.fixture
 def tmp_notes_db(tmp_path):
     """An isolated notes database file under a fresh tmp dir."""

@@ -70,7 +70,7 @@ def transcribe(
         kwargs: dict = {"word_timestamps": True}
         if lang:
             kwargs["language"] = lang
-        segments, info = model.transcribe(str(src), **kwargs)
+        segments, _info = model.transcribe(str(src), **kwargs)
         alignments = []
         for segment in segments:
             if segment.words:
@@ -129,10 +129,7 @@ def pack_transcript(
         end_fmt = format_timestamp(t_end)
         ts_hdr = f"[{start_fmt} - {end_fmt}]"
 
-        if speaker:
-            line = f"{ts_hdr} [{speaker}] {words_str}"
-        else:
-            line = f"{ts_hdr} {words_str}"
+        line = f"{ts_hdr} [{speaker}] {words_str}" if speaker else f"{ts_hdr} {words_str}"
         lines.append(line)
 
     for word_obj in alignment:

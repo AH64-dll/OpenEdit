@@ -4,13 +4,14 @@
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 from pathlib import Path
 from typing import Any
 
 from open_edit.kernel.tool_executor import execute_tool, execute_trigger_render
 from open_edit.kernel.tool_registry import TOOL_REGISTRY, build_tool_schemas
-
 
 HELPER_TOOL_NAMES = frozenset({"get_render_job", "cancel_render_job"})
 
@@ -34,6 +35,8 @@ async def dispatch_mcp_tool(
 
     Returns a JSON-serializable dict (success or structured error).
     """
+    if arguments is not None and not isinstance(arguments, dict):
+        return {"ok": False, "error": "arguments must be an object", "error_code": "schema_validation_failed"}
     args = dict(arguments or {})
 
     if name == "trigger_render":
@@ -42,45 +45,14 @@ async def dispatch_mcp_tool(
         except Exception as exc:
             return {"ok": False, "error": str(exc), "error_code": "render_failed"}
 
-    if name == "get_render_job":
-        job_id = args.get("job_id")
-        if not job_id or not isinstance(job_id, str):
-            return {
-                "ok": False,
-                "error": "job_id is required",
-                "expected_keys": ["job_id"],
-            }
-        from open_edit.kernel.render_jobs import (
-            DEFAULT_RENDER_JOB_SERVICE,
-            public_job,
-        )
-
-        job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, job_id)
-        if job is None:
-            return {"ok": False, "error": f"render job not found: {job_id}"}
-        return {"ok": True, **public_job(job)}
-
-    if name == "cancel_render_job":
-        job_id = args.get("job_id")
-        if not job_id or not isinstance(job_id, str):
-            return {
-                "ok": False,
-                "error": "job_id is required",
-                "expected_keys": ["job_id"],
-            }
-        from open_edit.kernel.render_jobs import (
-            DEFAULT_RENDER_JOB_SERVICE,
-            public_job,
-        )
-
-        job = await DEFAULT_RENDER_JOB_SERVICE.cancel(project_path, job_id)
-        if job is None:
-            return {"ok": False, "error": f"render job not found: {job_id}"}
-        return {"ok": True, **public_job(job)}
-
     if name in TOOL_REGISTRY:
         try:
-            return execute_tool(name, args, project_path)
+            result = (
+                execute_tool(name, args, project_path)
+                if name == "cancel_render_job"
+                else await asyncio.to_thread(execute_tool, name, args, project_path)
+            )
+            return await result if inspect.isawaitable(result) else result
         except Exception as exc:
             return {"ok": False, "error": str(exc), "error_code": "tool_failed"}
 

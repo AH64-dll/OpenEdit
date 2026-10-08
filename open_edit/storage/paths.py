@@ -31,7 +31,7 @@ class ProjectPaths:
 
     @classmethod
     def for_workdir(cls, workdir: str | Path) -> ProjectPaths:
-        """Resolve from a sandbox workdir.
+        """Resolve from a script workdir.
 
         A workdir is the directory that directly contains ``edit_graph.db``:
         ``<root>/.open_edit`` in the canonical layout, ``<root>`` in the
@@ -73,7 +73,7 @@ class ProjectPaths:
 
     @property
     def workdir(self) -> Path:
-        """The sandbox workdir: the directory that directly contains
+        """The script workdir: the directory that directly contains
         ``edit_graph.db`` (``<root>/.open_edit`` canonical, ``<root>``
         legacy)."""
         return self.db_path.parent

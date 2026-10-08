@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import os
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -13,6 +12,7 @@ from typing import Any
 from open_edit.kernel.render_overlay import _probe_duration
 
 from .. import visual_verify
+from ..llm_config import load_llm_config
 
 
 def _render_failure_source(error_msg: str) -> str:
@@ -139,7 +139,7 @@ async def _maybe_verify_render(
         return events, invalid, None
 
     frames_ts = visual_verify.sample_frames(duration_s, override_count=cfg["frames"])
-    model_id = os.environ.get("OPEN_EDIT_LLM_MODEL", "minimax-m3")
+    model_id = load_llm_config(project_path).model
     cap = visual_verify.model_capability(model_id)
     supports_images = bool(cap.get("supports_images", False))
 

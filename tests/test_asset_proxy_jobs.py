@@ -1,7 +1,6 @@
 """Tests for durable host-side source-proxy jobs."""
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import threading
 from pathlib import Path
@@ -9,10 +8,10 @@ from unittest import mock
 
 import pytest
 
+from open_edit.ir.types import Asset
 from open_edit.kernel.asset_proxy_jobs import AssetProxyJobService
 from open_edit.render.source_proxy import SourceProxyResult
 from open_edit.storage.assets import AssetStore
-from open_edit.ir.types import Asset
 
 
 def seed_high_res_asset(project_path: Path) -> str:

@@ -8,13 +8,14 @@ Run as a standalone script:
 Or as part of the pytest suite:
     python -m pytest tests/eval_scenarios.py -v
 """
+
 from __future__ import annotations
 
 import sys
+import sys as _sys
 import traceback
-from typing import Callable
+from collections.abc import Callable
 
-from open_edit.ir.apply import apply_operation
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddClipOp,
@@ -32,14 +33,12 @@ from open_edit.ir.types import (
     ReplaceClipSourceOp,
     RippleDeleteClipOp,
     SetAudioGainOp,
-    SetEffectParamOp,
     SetKeyframeOp,
     SlipClipOp,
     SplitClipOp,
     Timeline,
     TrimClipOp,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -484,7 +483,7 @@ def _make_test(scenario_fn: Callable):
 
 
 # Inject test_* functions into module namespace for pytest discovery
-import sys as _sys
+
 _module = _sys.modules[__name__]
 for _scenario in SCENARIOS:
     _test = _make_test(_scenario)

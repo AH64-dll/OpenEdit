@@ -1,7 +1,6 @@
 """The agent loop: ``run_agent_turn``.
 
-Runs the LLM streaming loop for SDK providers and diverts CLI
-providers (pi) to ``_run_cli_owned_turn``. Patchable seams
+Runs SDK tool loops and optional CLI chat turns. Patchable seams
 (``stream_chat``, ``_execute_tool``, ``effective_provider``,
 ``_resolve_project_path``) are looked up through the package
 namespace so tests that patch ``open_edit.serve.agent`` observe
@@ -16,13 +15,14 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from open_edit.serve import agent as _agent_pkg
-
 from open_edit.kernel.tool_executor import (
     execute_tool as _execute_agent_tool,
+)
+from open_edit.kernel.tool_executor import (
     execute_trigger_render as _execute_trigger_render,
 )
 from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
+from open_edit.serve import agent as _agent_pkg
 
 from .. import cli_adapter as cli_adapter_mod
 from .. import projects as projects_mod
@@ -31,7 +31,6 @@ from ..llm import _coerce_event
 from ..providers import resolve_provider
 from ..result_capper import cap_tool_result
 from ..serve_env import get_visual_verify_config
-
 from .cost_sidecar import (
     _SOURCE_PRIORITY,
     _load_cost_state,
@@ -192,29 +191,10 @@ async def run_agent_turn(
             pass
         return False
 
-    # v1.9: CLI providers (pi, opencode, ...) run a COMPLETE agent loop
-    # per subprocess call — they execute tools themselves and stream both
-    # tool_use and tool_result events. The loop below must NOT re-execute
-    # those tools or re-iterate (that double-executed every mutation and
-    # ended every pi turn with a spurious "no user message found" error).
-    # Divert to the single-stream implementation and return.
     try:
         provider_spec = resolve_provider(provider_name)
     except KeyError:
         provider_spec = None
-    if provider_spec is not None and provider_spec.agent_mode == "external_loop":
-        async for event in _agent_pkg._run_cli_owned_turn(
-            project_id=project_id,
-            project_path=project_path,
-            conv_id=conv_id,
-            conversation_history=conversation_history,
-            system_prompt=system_prompt,
-            should_cancel=should_cancel,
-            _is_cancelled=_is_cancelled,
-            cost_ctx=turn_cost,
-        ):
-            yield event
-        return
 
     # Chat-only providers may answer questions, but cannot truthfully claim
     # to edit a project. Never expose mutation schemas to them and reject a
@@ -282,12 +262,8 @@ async def run_agent_turn(
                         "input": event.get("input", {}),
                     })
                 elif etype == "tool_result":
-                    # SDK providers (anthropic/openai) never emit this —
-                    # the agent loop executes tools itself. CLI providers
-                    # are diverted to ``_run_cli_owned_turn`` before the
-                    # loop, so receiving one here means a provider is
-                    # misbehaving; ignore it rather than corrupt the
-                    # execution state.
+                    # The kernel executes tools. Provider-supplied results
+                    # cannot substitute for actual editing tool execution.
                     pass
                 elif etype == "usage":
                     # v1.4 P1-3: aggregate per-call cost data into
@@ -359,7 +335,7 @@ async def run_agent_turn(
 
         # Execute tool calls. v1.5: reorder so mutations run before
         # ``trigger_render``, and only the last ``trigger_render`` in a
-        # batch is executed (pi may emit several in one turn; the
+        # batch is executed (a model may request several in one turn; the
         # first ones are short-circuited).
         tool_result_messages: list[dict[str, Any]] = []
         mutations = [tu for tu in tool_use_blocks if tu["name"] != "trigger_render"]

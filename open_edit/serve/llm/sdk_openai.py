@@ -6,8 +6,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from .. import cost as cost_mod
-from .keys import _api_key, _model
 from .events import StreamEvent
+from .keys import _api_key, _model
 
 
 async def _stream_openai(

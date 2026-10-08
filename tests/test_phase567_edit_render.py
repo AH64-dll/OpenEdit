@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import tempfile
 import uuid
 from pathlib import Path
 
@@ -10,10 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from open_edit.ir.types import AddClipOp
-from open_edit.serve import projects as projects_mod
-from open_edit.serve.app import app
 from open_edit.kernel.edit_graph_service import apply_command
 from open_edit.kernel.render_jobs import RenderEnqueueError, RenderJobService
+from open_edit.serve import projects as projects_mod
+from open_edit.serve.app import app
 from open_edit.storage.edit_graph import EditGraphStore, GraphRevisionConflict
 
 client = TestClient(app)

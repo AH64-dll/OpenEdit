@@ -81,8 +81,8 @@ Recommended workflow for any free-form op:
 
 - `open_edit/ir/types.py:287` — `class RawMltXmlOp`
 - `open_edit/ir/types.py:293` — `class FreeFormCodeOp`
-- `open_edit/agent/sandbox/bridge.py` — `run_free_form` (free-form
-  execution facade; backends live in `open_edit/agent/sandbox/backends.py`)
+- `open_edit/agent/script_runner/bridge.py` — `run_free_form` (free-form
+  execution facade; subprocess execution lives in `open_edit/agent/script_runner/execution.py`)
 - `open_edit/ir/validate.py:452` — `RawMltXmlOp` / `FreeFormCodeOp`
   bypass the reference check
 - `open_edit/ir/catalog/effects/` — the structured effect catalog

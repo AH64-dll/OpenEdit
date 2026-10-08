@@ -74,13 +74,16 @@ Preview chunks use native HyperFrames graphics on the host render worker.
 M3 uses sequential self-contained MP4 chunks by default; each yellow chunk
 keeps an exact same-range fallback while it bakes. Proxy and final use
 HyperFrames graphics plus MLT/FFmpeg base A/V during migration. `run_script`
-never renders media or writes preview files. GPU and Chromium stay outside the
-sandbox. A live MLT consumer remains a later M4 decision.
+never renders media or writes preview files. GPU and Chromium run on the render worker. A live MLT consumer remains a later M4 decision.
 
 ## Token rule
 
-Read this playbook, then only `docs/PIPELINE_ARCHITECTURE_MAP.md` and files it
-names for the active operation. Never scan the repository to rediscover tools.
+Load only the guide needed for the current operation. Use the tools to discover
+project state. Read source only when debugging Open Edit itself.
+
+`list_assets` returns at most 50 assets by default (maximum 500). Follow
+`next_offset` using `params.offset`. `get_transcript_packed` returns at most
+500 words by default (maximum 2000); follow its `next_offset` the same way.
 
 ## Common reads
 
@@ -112,4 +115,5 @@ ffmpeg silence detection when `generate=silence_cuts` exists.
 ## Render workflow
 
 Use `trigger_render` with `wait=false` by default. Save `job_id`, poll
-`get_render_job`, inspect diagnostics and QC, and only run `final` after review.
+`get_render_job` for status and QC. Set `include_details=true` when debugging
+render diagnostics; only run `final` after review.

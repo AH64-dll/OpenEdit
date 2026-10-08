@@ -1,7 +1,7 @@
 """Phase 3 Task 3: parse_header + version_supported + lib_version_supported."""
 import pytest
 
-from open_edit.agent.exceptions import SandboxError
+from open_edit.agent.exceptions import ScriptValidationError
 from open_edit.agent.libs import (
     ALLOWED_LIBS_PATH,
     lib_version_supported,
@@ -26,14 +26,14 @@ def test_parse_header_with_libs():
 
 def test_parse_header_missing_raises():
     code = "import os  # no header"
-    with pytest.raises(SandboxError, match="missing or malformed"):
+    with pytest.raises(ScriptValidationError, match="missing or malformed"):
         parse_header(code)
 
 
 def test_parse_header_unquoted_keys_raises():
     """H8: ast.literal_eval rejects unquoted dict keys."""
     code = "# ir_api_version: 0.1; libs: {numpy: 1.26.4}"
-    with pytest.raises(SandboxError, match="not valid Python"):
+    with pytest.raises(ScriptValidationError, match="not valid Python"):
         parse_header(code)
 
 

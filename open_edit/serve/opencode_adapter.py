@@ -1,28 +1,7 @@
-"""v1.7 — opencode CLI event normalizer.
+"""OpenCode CLI event normalization for optional chat.
 
-Reads a sequence of bytes from an ``opencode run --format json``
-subprocess stdout and yields ``StreamEvent``-shaped dicts (the same
-shape ``open_edit.serve.llm._stream_pi`` yields).
-
-The captured spike output (see design spec §2, Q1) shows the
-opencode event vocabulary is different from pi's:
-
-- ``step_start`` / ``step_finish`` bracket a turn (we ignore
-  step_start; step_finish carries tokens + cost + stop reason).
-- ``text`` carries the actual model output text in
-  ``part.text``.
-- ``error`` is a top-level event; we forward the message.
-
-We deliberately do NOT implement tool-call parsing here — the
-opencode adapter has ``supports_tools() == False`` in v1.7, so
-the chat frontend never offers tool-triggering actions. If a
-``toolCall`` event ever does arrive, it is ignored (logged to
-stderr for debugging).
-
-v1.9 (task 5.3): the per-line mapping lives in
-``normalize_opencode_line`` so both ``parse_opencode_events`` (raw
-byte-stream framing, kept for tests) and the ``_OpenCodeAdapter``
-(which feeds the generic CLI driver) share one implementation.
+Maps step_finish usage, text and error events to the shared StreamEvent
+contract. CLI chat has no editing tool support; external agents edit over MCP.
 """
 from __future__ import annotations
 

@@ -12,7 +12,6 @@ from open_edit.render.timeline_plan import (
 )
 from open_edit.storage.assets import AssetStore
 
-
 SOURCE_PROXY_PROFILE = "source_proxy_360_v1"
 
 

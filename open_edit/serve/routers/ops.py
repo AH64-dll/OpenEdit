@@ -78,6 +78,8 @@ async def update_op_status(
         revision = store.update_status(edit_id, req.status, expected_revision=req.expected_revision)
     except GraphRevisionConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse({"edit_id": edit_id, "status": req.status, "graph_revision": revision})
 
 
@@ -110,6 +112,8 @@ async def delete_op(project_id: str, edit_id: str, expected_revision: int | None
         )
     except GraphRevisionConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return JSONResponse({"edit_id": edit_id, "status": "reverted", "deleted": False, "graph_revision": revision})
 
 

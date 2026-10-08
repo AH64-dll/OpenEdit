@@ -19,10 +19,11 @@ Layout (mirrors video-use):
 """
 from __future__ import annotations
 
+import itertools
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # ---- layout constants (from video-use) ----
 FRAME_H = 180
@@ -99,7 +100,7 @@ def find_silences(
     # lead-in gap
     if kept[0].t_start - start >= threshold_s:
         gaps.append((start, kept[0].t_start))
-    for prev, curr in zip(kept, kept[1:]):
+    for prev, curr in itertools.pairwise(kept):
         gap = curr.t_start - prev.t_end
         if gap >= threshold_s:
             gaps.append((prev.t_end, curr.t_start))
@@ -124,13 +125,13 @@ def build_timeline_view(
     video: Path,
     start: float,
     end: float,
-    words: Optional[list[Any]] = None,
+    words: list[Any] | None = None,
     n_frames: int = 10,
     width: int = CANVAS_MIN_W,
-    out_path: Optional[Path] = None,
+    out_path: Path | None = None,
 ) -> Path:
     """Build the composite PNG. Returns the output path."""
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     duration = max(end - start, 0.001)
     frames = extract_frames(video, start, end, n_frames=n_frames)
@@ -138,7 +139,7 @@ def build_timeline_view(
 
     # filmstrip
     strips = [Image.open(f).convert("RGB") for f in frames]
-    max_h = max(im.height for im in strips) or 1
+    max(im.height for im in strips) or 1
     strip_w = sum(im.width for im in strips) + 4 * (len(strips) - 1)
     scale = 1.0
     if strip_w > width - 100:
@@ -187,7 +188,7 @@ def build_timeline_view(
             continue
         label = str(w.word)
         bb = draw.textbbox((0, 0), label, font=label_font)
-        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        tw, _th = bb[2] - bb[0], bb[3] - bb[1]
         tx = min(max(cx - tw / 2, 16), width - 16 - tw)
         draw.line([cx, WAVE_Y + WAVE_H, cx, WAVE_Y + WAVE_H + 8], fill=WAVE_COLOR, width=2)
         draw.text((tx, LABEL_Y), label, fill=FG, font=label_font)

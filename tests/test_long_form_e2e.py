@@ -35,7 +35,6 @@ from open_edit.agent.skills.silence_cutter import find_silence_gaps
 from open_edit.ir.types import Asset, WordAlignment
 from open_edit.storage.edit_graph import EditGraphStore
 
-
 # 15-minute wall-clock budget for the long-form pipeline (per §6 + §9.8).
 _LONG_FORM_TIMEOUT_S = 900
 

@@ -1,11 +1,6 @@
 """Tests for the ContextBudget module."""
 from __future__ import annotations
 
-import json
-import os
-
-import pytest
-
 from open_edit.serve.context_budget import (
     ContextBudget,
     compact_history,

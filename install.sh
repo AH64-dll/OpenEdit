@@ -297,11 +297,6 @@ if ! "$VENV_PY" -m pip install -e ".[mcp]"; then
   die "pip install -e '.[mcp]' failed. See the output above; check your network and Python setup, then re-run."
 fi
 
-say "Installing optional extras (.[mcp,serve]) ..."
-if ! "$VENV_PY" -m pip install -e ".[mcp,serve]"; then
-  warn ".[mcp,serve] (review UI) extras install failed; continuing without the review UI."
-fi
-
 say "Installing optional extras (.[mcp,whisper]) ..."
 if ! "$VENV_PY" -m pip install -e ".[mcp,whisper]"; then
   warn ".[mcp,whisper] (local transcription) extras install failed; continuing without whisper support."
@@ -314,24 +309,24 @@ fi
 HYPERFRAMES_BIN="$INSTALL_DIR/node_modules/.bin/hyperframes"
 if command -v npm >/dev/null 2>&1; then
   say "Installing npm dependencies (hyperframes + remotion pinned in package.json) ..."
-  if (cd "$INSTALL_DIR" && npm install --no-audit --no-fund); then
+  if (cd "$INSTALL_DIR" && npm ci --no-audit --no-fund); then
     :
   else
-    warn "npm install failed. Retry with:  cd \"$INSTALL_DIR\" && npm install --no-audit --no-fund"
+    warn "npm ci failed. Retry with:  cd \"$INSTALL_DIR\" && npm ci --no-audit --no-fund"
   fi
   if [ -f "$HYPERFRAMES_BIN" ]; then
     say "hyperframes ready at $HYPERFRAMES_BIN"
     if ! "$HYPERFRAMES_BIN" --version >/dev/null 2>&1; then
       warn "node_modules/.bin/hyperframes exists but could not run (is Node 22+ active?)."
-      warn "Rendering will fall back to 'npx hyperframes' (network resolution + version drift risk)."
+      warn "Install the pinned engine with npm ci or set OPEN_EDIT_HYPERFRAMES_BIN to an installed engine."
     fi
   else
-    warn "node_modules/.bin/hyperframes was not created by npm install."
-    warn "Rendering will fall back to 'npx hyperframes' (network resolution + version drift risk)."
+    warn "node_modules/.bin/hyperframes was not created by npm ci."
+    warn "Install the pinned engine with npm ci or set OPEN_EDIT_HYPERFRAMES_BIN to an installed engine."
   fi
 else
-  warn "npm was not found on PATH; skipping npm install (hyperframes rendering unavailable)."
-  warn "Install Node.js 22+ (see above), then run:  cd \"$INSTALL_DIR\" && npm install --no-audit --no-fund"
+  warn "npm was not found on PATH; skipping npm ci (hyperframes rendering unavailable)."
+  warn "Install Node.js 22+ (see above), then run:  cd \"$INSTALL_DIR\" && npm ci --no-audit --no-fund"
 fi
 
 # ---- Verify the MCP server -------------------------------------------------
@@ -502,7 +497,7 @@ if [ -f "$HYPERFRAMES_BIN" ]; then
   HF_STATUS="READY"; HF_DETAIL="$HYPERFRAMES_BIN"
 else
   HF_STATUS="MANUAL STEPS"
-  HF_DETAIL="cd \"$INSTALL_DIR\" && npm install --no-audit --no-fund (render falls back to npx hyperframes)"
+  HF_DETAIL="cd \"$INSTALL_DIR\" && npm ci --no-audit --no-fund (set OPEN_EDIT_HYPERFRAMES_BIN for another installed engine)"
 fi
 if [ -n "$CHROME_BIN" ]; then
   CHROME_STATUS="READY"; CHROME_DETAIL="$CHROME_BIN"

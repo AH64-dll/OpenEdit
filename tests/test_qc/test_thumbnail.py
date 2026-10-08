@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from open_edit.qc.thumbnail import get_thumbnail, ThumbnailResult
-
+from open_edit.qc.thumbnail import ThumbnailResult, get_thumbnail
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 

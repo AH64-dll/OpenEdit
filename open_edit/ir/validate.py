@@ -5,8 +5,9 @@ includes a `fix:` line per the spec.
 """
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from open_edit.ir.types import (
     AddClipOp,
@@ -33,6 +34,7 @@ from open_edit.ir.types import (
     SetTransitionPropertyOp,
     SlipClipOp,
     SplitClipOp,
+    Timeline,
     TrimClipOp,
     UngroupEditsOp,
 )
@@ -41,10 +43,10 @@ if TYPE_CHECKING:
     from open_edit.ir.catalog.loader import EffectCatalog
 
 
-_DEFAULT_CATALOG: Optional["EffectCatalog"] = None
+_DEFAULT_CATALOG: EffectCatalog | None = None
 
 
-def _get_default_catalog() -> "EffectCatalog":
+def _get_default_catalog() -> EffectCatalog:
     """Load the bundled effect catalog once, on first use, and cache it."""
     global _DEFAULT_CATALOG
     if _DEFAULT_CATALOG is None:
@@ -75,7 +77,7 @@ def _known_effect_ids(project: Project) -> set[str]:
 def validate_op(
     op: OperationUnion,
     project: Project,
-    catalog: Optional["EffectCatalog"] = None,
+    catalog: EffectCatalog | None = None,
 ) -> list[str]:
     """Validate an operation against the project. Returns a list of errors.
 
@@ -214,7 +216,7 @@ def validate_timeline(timeline: Timeline) -> list[str]:
     eps = 1e-6
     for track in timeline.tracks:
         clips = sorted(track.clips, key=lambda c: c.position_sec)
-        for prev, cur in zip(clips, clips[1:]):
+        for prev, cur in itertools.pairwise(clips):
             prev_end = prev.position_sec + (prev.out_point_sec - prev.in_point_sec)
             if prev_end > cur.position_sec + eps:
                 hint = (
@@ -301,10 +303,10 @@ def _timeline_ids(timeline) -> tuple[set[str], set[str], set[str]]:
 
 
 def _validate_references_strict(op: OperationUnion, project: Project, timeline) -> list[str]:
-    """Strict reference checks (sandbox parity), returning error strings.
+    """Strict reference checks (script reference validation), returning error strings.
 
     This is the historical ``_validate_references`` from
-    ``agent/sandbox/staging.py`` transcribed verbatim (raise -> error string):
+    ``agent/script_runner/staging.py`` transcribed verbatim (raise -> error string):
     identity is timeline-derived (a batch op referencing a clip created
     earlier in the SAME batch passes because the caller passes the growing
     timeline), asset existence is enforced for ``AddClipOp`` /
@@ -329,14 +331,12 @@ def _validate_references_strict(op: OperationUnion, project: Project, timeline) 
         TrimClipOp, MoveClipOp, RemoveClipOp,
         SlipClipOp, RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
         SetClipSpeedRampOp, SetAudioGainOp,
-    )):
-        if op.clip_id not in clip_ids:
-            errors.append(f"clip_id {op.clip_id!r} not in project")
+    )) and op.clip_id not in clip_ids:
+        errors.append(f"clip_id {op.clip_id!r} not in project")
 
     # ---- AddClipOp: asset must exist; track is auto-created ----
-    if isinstance(op, AddClipOp):
-        if op.asset_hash not in asset_hashes:
-            errors.append(f"asset_hash {op.asset_hash!r} not in project")
+    if isinstance(op, AddClipOp) and op.asset_hash not in asset_hashes:
+        errors.append(f"asset_hash {op.asset_hash!r} not in project")
         # AddClipOp auto-creates the track via _get_or_create_track, so we
         # do NOT pre-validate track_id here. The first op on a new track
         # would otherwise be rejected before the track is created.
@@ -347,11 +347,9 @@ def _validate_references_strict(op: OperationUnion, project: Project, timeline) 
             errors.append(f"clip_a_id {op.clip_a_id!r} not in project")
         if op.clip_b_id not in clip_ids:
             errors.append(f"clip_b_id {op.clip_b_id!r} not in project")
-    if isinstance(op, (RemoveTransitionOp, SetTransitionPropertyOp)):
-        # Transitions are stored as Effects on clip_a (effect_type starts
-        # with "transition_"). Validate against effect_ids which includes them.
-        if op.transition_id not in effect_ids:
-            errors.append(f"transition_id {op.transition_id!r} not in project")
+    # Transitions are effects on clip_a and share the effect ID namespace.
+    if isinstance(op, (RemoveTransitionOp, SetTransitionPropertyOp)) and op.transition_id not in effect_ids:
+        errors.append(f"transition_id {op.transition_id!r} not in project")
 
     # ---- effects ----
     if isinstance(op, AddEffectOp):
@@ -394,9 +392,8 @@ def _validate_references_strict(op: OperationUnion, project: Project, timeline) 
                 )
 
     # ---- keyframes ----
-    if isinstance(op, SetKeyframeOp):
-        if op.effect_id not in effect_ids:
-            errors.append(f"effect_id {op.effect_id!r} not in project")
+    if isinstance(op, SetKeyframeOp) and op.effect_id not in effect_ids:
+        errors.append(f"effect_id {op.effect_id!r} not in project")
     if isinstance(op, RemoveKeyframeOp):
         if op.effect_id not in effect_ids:
             errors.append(f"effect_id {op.effect_id!r} not in project")
@@ -420,12 +417,11 @@ def _validate_references_strict(op: OperationUnion, project: Project, timeline) 
                         break
                 if target is not None:
                     break
-        if target is not None:
-            if op.param not in target.keyframes:
-                errors.append(
-                    f"param {op.param!r} not in effect {op.effect_id!r} "
-                    f"keyframes (has: {sorted(target.keyframes.keys())})"
-                )
+        if target is not None and op.param not in target.keyframes:
+            errors.append(
+                f"param {op.param!r} not in effect {op.effect_id!r} "
+                f"keyframes (has: {sorted(target.keyframes.keys())})"
+            )
 
     # ---- source-replacement ----
     if isinstance(op, ReplaceClipSourceOp):
@@ -453,9 +449,8 @@ def _validate_references_strict(op: OperationUnion, project: Project, timeline) 
         for eid in op.edit_ids:
             if eid not in edit_ids:
                 errors.append(f"edit_id {eid!r} not in project edit_graph")
-    if isinstance(op, UngroupEditsOp):
-        if op.label not in group_labels:
-            errors.append(f"group label {op.label!r} not in project")
+    if isinstance(op, UngroupEditsOp) and op.label not in group_labels:
+        errors.append(f"group label {op.label!r} not in project")
 
     # ---- RawMltXmlOp + FreeFormCodeOp: no reference check (free-form) ----
 
@@ -480,11 +475,11 @@ def validate_op_references(
     ``SplitClipOp`` and effects produced by speed-ramp / normalize ops are
     recognised — a ``split → trim the left half`` workflow must not be
     rejected. Deliberately does NOT check asset existence or effect-catalog
-    membership — those are enforced by the sandbox layer and at render time,
+    membership — those are enforced by the script runner and at render time,
     so the agent stays free to operate. Returns a list of error strings
     (empty = valid).
 
-    With ``strict=True`` the full sandbox-parity check set runs instead
+    With ``strict=True`` the full strict reference check set runs instead
     (timeline-derived clip / effect / track identity, asset existence,
     transition-id, effect-index / param_name, group-label and parent-id
     checks; see ``_validate_references_strict``). ``timeline`` may be passed
@@ -505,11 +500,10 @@ def validate_op_references(
         RippleDeleteClipOp, ChangeClipSpeedOp, SplitClipOp,
         ReplaceClipSourceOp, SetClipSpeedRampOp, SetAudioGainOp,
     )
-    if isinstance(op, clip_targeting):
-        if op.clip_id not in known_clips:
-            errors.append(
-                f"{type(op).__name__}: clip_id {op.clip_id!r} not found in project."
-            )
+    if isinstance(op, clip_targeting) and op.clip_id not in known_clips:
+        errors.append(
+            f"{type(op).__name__}: clip_id {op.clip_id!r} not found in project."
+        )
 
     if isinstance(op, AddTransitionOp):
         if op.clip_a_id not in known_clips:
@@ -521,17 +515,15 @@ def validate_op_references(
                 f"AddTransitionOp: clip_b_id {op.clip_b_id!r} not found in project."
             )
 
-    if isinstance(op, AddEffectOp) and op.target_kind == "clip":
-        if op.target_id not in known_clips:
-            errors.append(
-                f"AddEffectOp: target clip {op.target_id!r} not found in project."
-            )
+    if isinstance(op, AddEffectOp) and op.target_kind == "clip" and op.target_id not in known_clips:
+        errors.append(
+            f"AddEffectOp: target clip {op.target_id!r} not found in project."
+        )
 
-    if isinstance(op, SetKeyframeOp):
-        if op.effect_id not in known_effects:
-            errors.append(
-                f"SetKeyframeOp: effect_id {op.effect_id!r} not found in project."
-            )
+    if isinstance(op, SetKeyframeOp) and op.effect_id not in known_effects:
+        errors.append(
+            f"SetKeyframeOp: effect_id {op.effect_id!r} not found in project."
+        )
 
     return errors
 
@@ -569,12 +561,11 @@ def validate_op_for_append(op: OperationUnion, store) -> list[str]:
                 "composition_id is required. "
                 "fix: pass the Remotion <Composition id>."
             )
-    if isinstance(op, RemoveRemotionCompositionOp):
-        if not (op.composition_uid or "").strip():
-            errors.append(
-                "composition_uid is required. "
-                "fix: pass the uid returned by add_remotion_composition."
-            )
+    if isinstance(op, RemoveRemotionCompositionOp) and not (op.composition_uid or "").strip():
+        errors.append(
+            "composition_uid is required. "
+            "fix: pass the uid returned by add_remotion_composition."
+        )
 
     ops = store.load_all()
     project = Project(

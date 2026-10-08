@@ -1,100 +1,15 @@
-"""Generic subprocess driver for CLI providers (pi, opencode, antigravity,
-jcode) + the pi cost-extraction wrapper.
-
-The driver is adapter-generic: it builds the prompt per the provider's
-``context_strategy``, spawns the binary, and feeds the raw stdout line
-stream to ``adapter.stream_events()`` (which by default loops
-``adapter.normalize_event(line)``).  Adapter behaviour differences that
-used to be per-provider name branches in the driver are now adapter
-attributes/methods:
-
-- ``defers_done``     — the adapter's caller (pi cost wrapper) owns the
-                        trailing ``done``; the driver must not emit one.
-- ``check_exit_status`` — surface non-zero exit + stderr as an error when
-                        the adapter didn't already own terminal semantics.
-- ``extension_path()`` — adapter-specific TS extension path (pi only).
-"""
+"""Subprocess streaming for optional CLI chat providers."""
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from ... import cost as cost_mod
-from ...cli_adapter import CLIAdapter, get_adapter
+from ...cli_adapter import CLIAdapter
 from ..dispatcher import _message_plain_text, _serialize_cli_conversation
-from ..keys import _model
-
-_LOG = logging.getLogger("open_edit.serve.llm")
-
-
-# ---------------------------------------------------------------------------
-# Pi implementation
-# ---------------------------------------------------------------------------
-
-async def _stream_pi(
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]],
-    system: str,
-    session_id: str | None,
-    project_path: str | None = None,
-    model: str | None = None,
-) -> AsyncIterator[dict]:
-    """Pi provider — delegates to _stream_cli with the PiAdapter.
-
-    After _stream_cli finishes, we read the pi session JSONL delta to
-    extract the per-call cost (v1.4 P1-3). The opencode provider does
-    not need this — it reports cost directly in step_finish events.
-
-    Event order: text_deltas → tool_use → tool_result → ``usage`` →
-    ``done``. _stream_cli deliberately does NOT emit a trailing
-    ``done`` for the pi branch — the cost-extraction-and-done
-    responsibility is owned by this wrapper, so the agent loop sees
-    a single ``done`` at the very end, after the ``usage`` event.
-    """
-    sid = session_id or f"oe-{os.getpid()}"
-
-    # Pi stores sessions in ~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<sid>.jsonl.
-    # Capture its current byte position before the call so the usage event is
-    # strictly this turn's delta rather than a cumulative session total.
-    sessions_dir = cost_mod.default_pi_sessions_dir()
-    pre_turn_session = cost_mod.find_pi_session_file(sid, sessions_dir)
-    baseline_size = 0
-    if pre_turn_session is not None:
-        try:
-            baseline_size = pre_turn_session.stat().st_size
-        except OSError:
-            # A concurrent rotation is handled by the parser's reset logic.
-            baseline_size = 0
-
-    adapter = get_adapter("pi")
-    async for ev in _stream_cli(
-        adapter, model or _model(), messages, tools, system, session_id, project_path,
-    ):
-        yield ev
-
-    # Cost extraction (v1.4 P1-3). _stream_cli did NOT emit a trailing
-    # ``done`` for the pi branch — we own it here so the final order is
-    # usage → done. Pi cost is read from the session JSONL delta.
-    session_path = cost_mod.find_pi_session_file(sid, sessions_dir)
-    if session_path is None or not session_path.exists():
-        yield {
-            "type": "usage", "source": "unavailable",
-            "tokens": 0, "cost_usd": 0.0, "usage": {},
-        }
-    else:
-        delta = cost_mod.parse_pi_session_usage_delta(session_path, last_size=baseline_size)
-        yield {
-            "type": "usage", "source": "pi",
-            "tokens": delta["tokens"], "cost_usd": delta["cost_usd"], "usage": {},
-        }
-
-    yield {"type": "done", "stop_reason": "end_turn"}
-
 
 # ---------------------------------------------------------------------------
 # Generic CLI subprocess driver
@@ -109,7 +24,7 @@ async def _stream_cli(
     session_id: str | None,
     project_path: str | None,
 ) -> AsyncIterator[dict]:
-    """Generic subprocess driver for any CLIAdapter (pi, opencode, ...).
+    """Generic subprocess driver for any CLIAdapter.
 
     Builds the prompt according to the provider's ``context_strategy``:
     session-backed adapters receive only the latest user turn; others
@@ -141,13 +56,11 @@ async def _stream_cli(
         return
 
     sid = session_id or f"oe-{os.getpid()}"
-    extension_path = adapter.extension_path()
 
     cmd = adapter.build_command(
         model=model,
         user_text=user_text,
         session_id=sid,
-        extension_path=extension_path,
         system_prompt=system,
         project_path=project_path,
     )
@@ -167,79 +80,88 @@ async def _stream_cli(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
-            limit=16 * 1024 * 1024,
+            limit=65536,
         )
     except FileNotFoundError as exc:
         yield {"type": "error", "message": f"{adapter.name} binary not found: {exc}"}
         yield {"type": "done", "stop_reason": "error"}
         return
 
-    async def _read_with_timeout() -> AsyncIterator[bytes]:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + adapter.default_timeout_s
+    stderr_tail = bytearray()
+
+    async def drain_stderr() -> None:
+        if proc.stderr is None:
+            return
+        while chunk := await proc.stderr.read(65536):
+            stderr_tail.extend(chunk)
+            del stderr_tail[:-65536]
+
+    stderr_task = asyncio.create_task(drain_stderr())
+
+    async def read_lines() -> AsyncIterator[bytes]:
         assert proc.stdout is not None
-        buf = b""
-        max_line_bytes = 1_048_576  # 1 MB
+        buf = bytearray()
+        max_line_bytes = 1_048_576
         while True:
-            try:
-                chunk = await asyncio.wait_for(proc.stdout.read(65536), timeout=adapter.default_timeout_s)
-            except TimeoutError:
-                with suppress(ProcessLookupError):
-                    proc.kill()
-                raise
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError
+            chunk = await asyncio.wait_for(proc.stdout.read(65536), timeout=remaining)
             if not chunk:
                 if buf:
-                    yield buf
+                    yield bytes(buf)
                 return
-            buf += chunk
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                if len(line) > max_line_bytes:
-                    _LOG.warning("oversized CLI line (%d bytes), truncating", len(line))
-                    line = line[:max_line_bytes] + b"... [truncated]"
-                yield line + b"\n"
+            buf.extend(chunk)
+            while (newline := buf.find(b"\n")) != -1:
+                if newline > max_line_bytes:
+                    raise ValueError("CLI output line exceeds the 1 MiB limit")
+                yield bytes(buf[:newline + 1])
+                del buf[:newline + 1]
+            if len(buf) > max_line_bytes:
+                raise ValueError("CLI output line exceeds the 1 MiB limit")
 
     saw_text = False
-    saw_done = False
+    stop_reason = "end_turn"
     try:
-        async for ev in adapter.stream_events(_read_with_timeout()):
+        async for ev in adapter.stream_events(read_lines()):
             if ev.get("type") == "text_delta":
                 saw_text = True
             if ev.get("type") == "done":
-                saw_done = True
+                stop_reason = ev.get("stop_reason", "end_turn")
+                continue
             yield ev
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise TimeoutError
+        await asyncio.wait_for(proc.wait(), timeout=remaining)
+        await asyncio.wait_for(asyncio.shield(stderr_task), timeout=max(0.01, deadline - loop.time()))
+        if adapter.check_exit_status and proc.returncode != 0 and not saw_text:
+            yield {
+                "type": "error",
+                "message": stderr_tail.decode("utf-8", errors="replace").strip()
+                or f"{adapter.name} exited {proc.returncode}",
+            }
+            stop_reason = "error"
     except TimeoutError:
-        with suppress(ProcessLookupError):
-            proc.kill()
         yield {
             "type": "error",
             "message": f"{adapter.name} timeout: timed out after {adapter.default_timeout_s}s",
         }
-        yield {"type": "done", "stop_reason": "error"}
-        return
-    except asyncio.CancelledError:
-        with suppress(Exception):
-            proc.kill()
-        raise
-
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=5.0)
-    except TimeoutError:
-        proc.kill()
-
-    if adapter.check_exit_status and proc.returncode != 0 and not saw_text:
-        stderr_data = b""
-        if proc.stderr is not None:
-            with suppress(Exception):
-                stderr_data = await proc.stderr.read()
-        stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
-        yield {
-            "type": "error",
-            "message": stderr_text or f"{adapter.name} exited {proc.returncode}",
-        }
-        yield {"type": "done", "stop_reason": "error"}
-        return
-
-    # Exactly one trailing ``done`` unless the adapter's normalizer
-    # already emitted one (opencode step_finish) or the adapter defers
-    # it to its caller (pi cost wrapper).
-    if not saw_done and not adapter.defers_done:
-        yield {"type": "done", "stop_reason": "end_turn"}
+        stop_reason = "error"
+    except ValueError as exc:
+        yield {"type": "error", "message": str(exc)}
+        stop_reason = "error"
+    finally:
+        if proc.returncode is None:
+            with suppress(ProcessLookupError):
+                proc.kill()
+        stderr_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await stderr_task
+        # Drain both pipes after killing; otherwise Process.wait can hang on
+        # buffered stdout during cancellation or an oversized output line.
+        with suppress(TimeoutError):
+            await asyncio.wait_for(proc.communicate(), timeout=5)
+    yield {"type": "done", "stop_reason": stop_reason}

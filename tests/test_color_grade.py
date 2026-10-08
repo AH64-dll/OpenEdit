@@ -13,7 +13,6 @@ from open_edit.render.color_grade import (
     preset_eq_params,
 )
 
-
 # -------- decision rules (pure math, no ffmpeg) -----------------------------
 
 
@@ -81,7 +80,6 @@ def test_auto_grade_params_probes_duration_when_missing():
 
 
 def test_sample_frame_stats_parses_bitdepth_normalized_values(tmp_path):
-    from open_edit.render import color_grade as cg
 
     meta = tmp_path / "meta.txt"
     meta.write_text(
@@ -92,14 +90,6 @@ def test_sample_frame_stats_parses_bitdepth_normalized_values(tmp_path):
         "lavfi.signalstats.YMAX=200.0\n"
         "lavfi.signalstats.SATAVG=50.0\n"
     )
-    with mock.patch("subprocess.run", return_value=mock.Mock()) as run, mock.patch(
-        "tempfile.NamedTemporaryFile",
-        return_value=mock.MagicMock(name=f.name) if False else __import__("tempfile").NamedTemporaryFile,
-    ):
-        pass
-    # Simpler: patch subprocess to no-op and point metadata at our file.
-    with mock.patch("subprocess.run", return_value=None):
-        stats = cg._sample_frame_stats.__wrapped__ if hasattr(cg._sample_frame_stats, "__wrapped__") else None
     # Direct unit test of the parser through a tiny wrapper:
     def _parse(meta_path: Path):
         y_avgs, y_mins, y_maxs, sat_avgs, bit_depth = [], [], [], [], 8

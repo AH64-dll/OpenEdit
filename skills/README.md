@@ -1,7 +1,7 @@
 # Open Edit harness skills
 
 Markdown skills for **any** agent host that drives Open Edit (MCP, built-in
-serve agent, Pi, Claude Code, Cursor, custom loops). Prefer these files over
+serve agent, Claude Code, Cursor, custom loops). Prefer these files over
 exploring `open_edit/**` source.
 
 > Generated — edit `skills/` only. `open_edit/harness_skills/` ships
@@ -35,10 +35,9 @@ exploring `open_edit/**` source.
    `open-edit://skills/review-notes`, etc.
 3. **MCP prompts:** `open-edit-playbook`, `open-edit-reference`,
    `open-edit-review-notes`, `open-edit-style-memory`, …
-4. **MCP instructions (mandatory on connect):** the server embeds
-   `open-edit-mcp`, `tool_surface`, `edit-planning`, `review-notes`, and
-   `style-memory` into initialize `instructions` so harnesses do not need to
-   explore the repository.
+4. **MCP instructions:** initialization provides a short workflow and links
+   to these resources. Load the guide needed for the current operation;
+   full playbooks are not inserted into every session's startup context.
 
 Python helper: `open_edit.mcp.skills.load_skill("open-edit-mcp")`.
 

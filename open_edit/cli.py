@@ -13,7 +13,7 @@ from open_edit.ir.derive import derive_timeline
 from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
-
+from open_edit.storage.notes import NotesStore
 
 PROJECT_SUBDIR = ".open_edit"
 
@@ -203,7 +203,6 @@ def cmd_asset_proxy(args: argparse.Namespace) -> int:
 
     from open_edit.kernel.asset_proxy_jobs import (
         DEFAULT_ASSET_PROXY_JOB_SERVICE,
-        AssetProxyJobService,
     )
 
     # Both call forms work: project root (canonical) or the .open_edit dir
@@ -345,10 +344,10 @@ def cmd_render(args: argparse.Namespace) -> int:
     if project_dir is None:
         print("error: no open_edit project found", file=sys.stderr)
         return 1
-    from open_edit.render.orchestrator import render_project
-    from open_edit.render.diagnostics import StageRecorder
     from open_edit.qc.gate import run_qc_gate
     from open_edit.qc.policy import resolve_qc_policy
+    from open_edit.render.diagnostics import StageRecorder
+    from open_edit.render.orchestrator import render_project
     overrides = {k: v for k, v in (
         ("crf", args.crf), ("vb", args.vb), ("preset", args.preset),
         ("scale", args.scale), ("codec", args.codec),
@@ -462,11 +461,13 @@ def cmd_render(args: argparse.Namespace) -> int:
 
 
 def cmd_free_form(args: argparse.Namespace) -> int:
-    """Run a free-form Python script in the sandbox against a project."""
-    from open_edit.agent.sandbox import run_free_form
+    """Run a free-form Python script in a subprocess against a project."""
+    from open_edit.agent.script_runner import run_free_form
     from open_edit.storage.edit_graph import EditGraphStore
     code = Path(args.code_file).read_text()
-    db_path = Path(args.project_dir) / "edit_graph.db"
+    from open_edit.storage.paths import ProjectPaths
+    paths = ProjectPaths.for_project(args.project_dir)
+    db_path = paths.db_path
     if not db_path.exists():
         print(f"error: project db not found: {db_path}", file=sys.stderr)
         return 1
@@ -476,7 +477,7 @@ def cmd_free_form(args: argparse.Namespace) -> int:
     from open_edit.ir.types import new_id
     parent_id = new_id()
     result = run_free_form(
-        code, Path(args.project_dir),
+        code, paths.workdir,
         project_id=store.project_id,
         parent_op_id=parent_id,
         timeout=args.timeout,
@@ -489,13 +490,12 @@ def cmd_free_form(args: argparse.Namespace) -> int:
         )
         return 1
     print(f"free-form run completed: {len(result.ops)} ops in {result.duration_s:.2f}s")
-    for op in result.ops:
-        store.append(op)
+    store.append_many(result.ops)
     print(f"appended {len(result.ops)} ops to {db_path}")
     return 0
 
 
-def _notes_store(project_dir_arg: str) -> tuple["NotesStore", Path] | None:  # noqa: F821
+def _notes_store(project_dir_arg: str) -> tuple[NotesStore, Path] | None:
     """Resolve the project dir + open a NotesStore; prints an error and returns
     None on bad input."""
     from open_edit.storage.notes import NotesStore
@@ -528,8 +528,13 @@ def cmd_notes_list(args: argparse.Namespace) -> int:
 def cmd_notes_add(args: argparse.Namespace) -> int:
     """`open_edit notes add` — append a note to a project (M1)."""
     from open_edit.storage.notes import (
-        ReviewNote, NoteSource, NoteStatus,
-        TimestampAnchor, RegionAnchor, OpAnchor, NoteAnchor,
+        NoteAnchor,
+        NoteSource,
+        NoteStatus,
+        OpAnchor,
+        RegionAnchor,
+        ReviewNote,
+        TimestampAnchor,
     )
     got = _notes_store(args.project_dir)
     if got is None:
@@ -591,13 +596,13 @@ def cmd_notes(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    """Start the chat-driven FastAPI backend (uvicorn)."""
+    """Start the review UI, with optional explicitly enabled chat."""
     try:
         import uvicorn
     except ImportError:
         print(
             "ERROR: uvicorn is not installed. Run `pip install 'uvicorn[standard]'` "
-            "or `pip install -e '.[serve]'`.",
+            "or reinstall Open Edit with `pip install -e .`.",
             file=sys.stderr,
         )
         return 1
@@ -740,7 +745,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_preview_chunks.set_defaults(func=cmd_preview_chunks)
 
-    p_freeform = sub.add_parser("free-form", help="Run a free-form Python script in the sandbox against a project")
+    p_freeform = sub.add_parser("free-form", help="Run a free-form Python script in a subprocess against a project")
     p_freeform.add_argument("code_file", help="path to the Python script to run")
     p_freeform.add_argument("project_dir", help="path to the open_edit project directory")
     p_freeform.add_argument("--timeout", type=int, default=30, help="wall-clock timeout in seconds (default: 30)")

@@ -15,7 +15,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-
 # Single source of truth for the render subprocess timeout. Both
 # ``render_overlay._run_mlt_only_render`` (subprocess path) and
 # ``agent._execute_trigger_render`` (in-process path) must use this

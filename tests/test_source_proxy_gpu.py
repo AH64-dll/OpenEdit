@@ -5,7 +5,6 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -17,11 +16,13 @@ from open_edit.render.source_proxy import (
 )
 from open_edit.storage.assets import AssetStore
 
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg and ffprobe are required",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+        reason="ffmpeg and ffprobe are required",
+    ),
+    pytest.mark.usefixtures("manual_source_proxies"),
+]
 
 
 def _make_source(tmp_path: Path) -> str:
@@ -29,7 +30,7 @@ def _make_source(tmp_path: Path) -> str:
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i",
-            f"testsrc=size=1280x720:rate=24:duration=1",
+            "testsrc=size=1280x720:rate=24:duration=1",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             str(tmp_path / "source.mp4"),
         ],

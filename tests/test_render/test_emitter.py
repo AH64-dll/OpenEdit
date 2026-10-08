@@ -1,15 +1,17 @@
 """Tests for the MLT XML emitter."""
 from pathlib import Path
 
-import pytest
-
 from open_edit.ir.apply import apply_operation
-from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
-    AddClipOp, AddEffectOp, AddTransitionOp, Asset, Project,
-    SetKeyframeOp, Timeline, Track, Clip,
+    AddClipOp,
+    AddEffectOp,
+    AddTransitionOp,
+    Asset,
+    Clip,
+    Timeline,
+    Track,
 )
-from open_edit.render.emitter import emit_timeline, EmitterConfig
+from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.timeline_plan import build_render_plan
 from open_edit.storage.assets import AssetStore
 

@@ -17,6 +17,7 @@ call and reports diagnostics through ``CudaFastPathResult``.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import subprocess
@@ -139,9 +140,7 @@ def timeline_supports_cuda_fastpath(timeline: Any) -> bool:
     # Overlays / remotion / hyperframes would need melt composition.
     if getattr(timeline, "overlays", None):
         return False
-    if getattr(timeline, "remotion_compositions", None):
-        return False
-    return True
+    return not getattr(timeline, "remotion_compositions", None)
 
 
 def build_cuda_fastpath_command(
@@ -310,15 +309,11 @@ def run_cuda_fastpath(
                 error=f"audio mux failed: {(mux_proc.stderr or '')[-512:]}",
                 output_path=str(output_mp4), ffmpeg_cmd=mux_cmd,
             )
-        try:
+        with contextlib.suppress(OSError):
             raw_output.unlink(missing_ok=True)
-        except OSError:
-            pass
     else:
-        try:
+        with contextlib.suppress(OSError):
             raw_output.replace(output_mp4)
-        except OSError:
-            pass
     duration = duration_sec or max(
         float(getattr(timeline, "duration_sec", 0.0)), 1e-9
     )

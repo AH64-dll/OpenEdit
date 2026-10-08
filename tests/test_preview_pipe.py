@@ -1,5 +1,4 @@
 """Command construction for independent preview video and audio planes."""
-from pathlib import Path
 
 import pytest
 

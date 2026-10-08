@@ -13,7 +13,7 @@ auto-assigns. ``get_asset_store`` locates the project's asset CAS.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from open_edit.ir.api import IR
 from open_edit.ir.types import Project
@@ -85,7 +85,7 @@ def load_project(project_path: str | Path) -> Project:
     return project
 
 
-def make_ir(project_path: str | Path, parent_op_id: Optional[str] = None) -> IR:
+def make_ir(project_path: str | Path, parent_op_id: str | None = None) -> IR:
     """Create an IR instance backed by the project's EditGraphStore.
 
     For mutating operations. The returned IR appends ops directly to
@@ -103,3 +103,14 @@ def make_ir(project_path: str | Path, parent_op_id: Optional[str] = None) -> IR:
 def get_asset_store(project_path: str | Path) -> AssetStore:
     """Return the AssetStore rooted at <project>/.open_edit/assets."""
     return AssetStore(ProjectPaths.for_project(project_path).assets_dir)
+
+
+def page_window(args: dict, *, default_limit: int = 50, max_limit: int = 500) -> tuple[int, int]:
+    """Validate bounded pagination without coercing booleans or fractions."""
+    offset = args.get("offset", 0)
+    limit = args.get("limit", default_limit)
+    if type(offset) is not int or offset < 0:
+        raise ValueError("offset must be a nonnegative integer")
+    if type(limit) is not int or not 1 <= limit <= max_limit:
+        raise ValueError(f"limit must be an integer between 1 and {max_limit}")
+    return offset, limit

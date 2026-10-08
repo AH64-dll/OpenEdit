@@ -3,16 +3,14 @@ from __future__ import annotations
 
 import pytest
 
+from open_edit.ir.apply import apply_operation
+from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
     AddHtmlOverlayOp,
-    HtmlOverlay,
     Project,
     RemoveHtmlOverlayOp,
     Timeline,
 )
-from open_edit.ir.apply import apply_operation
-from open_edit.ir.derive import derive_timeline
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -23,12 +21,12 @@ def _base_project(*ops) -> Project:
 
 
 def _overlay_op(**kwargs) -> AddHtmlOverlayOp:
-    defaults = dict(
-        author="ai",
-        template_path="templates/lower_third.html",
-        position_sec=5.0,
-        duration_sec=3.0,
-    )
+    defaults = {
+        "author": "ai",
+        "template_path": "templates/lower_third.html",
+        "position_sec": 5.0,
+        "duration_sec": 3.0,
+    }
     defaults.update(kwargs)
     return AddHtmlOverlayOp(**defaults)
 

@@ -7,6 +7,7 @@ publish a partial green chunk.
 """
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -142,7 +143,7 @@ class PreviewChunkCache:
         root: Path,
         *,
         max_bytes: int | None = None,
-        max_age_sec: int | None | object = _UNSET,
+        max_age_sec: int | object | None = _UNSET,
         min_free_bytes: int | None = None,
     ) -> None:
         self.root = Path(root).resolve()
@@ -239,10 +240,8 @@ class PreviewChunkCache:
         except OSError:
             # The index may contain extra entries, but it cannot publish a
             # green chunk by itself. Restore the previous index when possible.
-            try:
+            with contextlib.suppress(OSError):
                 self._write_index(self._index)
-            except OSError:
-                pass
             raise
         self._index = next_index
 
@@ -320,17 +319,13 @@ class PreviewChunkCache:
             temp_path = None
             self._fsync_directory(destination.parent)
         except OSError:
-            try:
+            with contextlib.suppress(OSError):
                 self._write_index(previous_index)
-            except OSError:
-                pass
             raise
         finally:
             if temp_path is not None:
-                try:
+                with contextlib.suppress(OSError):
                     temp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
         self._index = next_index
         return artifact
 
@@ -498,10 +493,8 @@ class PreviewChunkCache:
             key=lambda item: len(item.parts),
             reverse=True,
         ):
-            try:
+            with contextlib.suppress(OSError):
                 directory.rmdir()
-            except OSError:
-                pass
 
         result["remaining_bytes"] = sum(
             self._file_size(path) for path in self._artifact_files()
@@ -524,10 +517,8 @@ class PreviewChunkCache:
             try:
                 if path.is_symlink() or path.is_file():
                     result["removed_files"] += 1
-                    try:
+                    with contextlib.suppress(OSError):
                         result["removed_bytes"] += path.stat().st_size
-                    except OSError:
-                        pass
                     path.unlink()
                 elif path.is_dir():
                     path.rmdir()
@@ -598,10 +589,8 @@ class PreviewChunkCache:
             PreviewChunkCache._fsync_directory(path.parent)
         finally:
             if temporary is not None:
-                try:
+                with contextlib.suppress(OSError):
                     temporary.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
@@ -687,10 +676,8 @@ class PreviewChunkCache:
                 self._index[artifact.artifact_id] = entry
                 changed = True
         if changed and persist:
-            try:
+            with contextlib.suppress(OSError):
                 self._write_index(self._index)
-            except OSError:
-                pass
 
     @staticmethod
     def _manifest_artifacts(

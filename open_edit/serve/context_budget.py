@@ -1,138 +1,140 @@
-"""Token counting and sliding-window history truncation for context budget management."""
+"""Bound model context while retaining complete tool-call exchanges."""
 from __future__ import annotations
 
+import json
 import os
+from copy import deepcopy
 from typing import Any
+
+_IMAGE_TOKENS = 1_024
 
 
 def _has_tool_result(content: Any) -> bool:
-    """True if a message ``content`` carries a ``tool_result`` block.
-
-    tool_result blocks live inside user-role messages and must stay distinct
-    from plain user text for the Anthropic tool_use/tool_result pairing.
-    """
-    if not isinstance(content, list):
-        return False
-    return any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+    return isinstance(content, list) and any(
+        isinstance(block, dict) and block.get("type") == "tool_result"
+        for block in content
+    )
 
 
 def compact_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not history:
-        return history
+    """Merge plain user messages without mutating persisted conversation data.
 
+    Tool-only assistant messages are essential: dropping them leaves orphaned
+    results and makes subsequent function-calling requests invalid.
+    """
     out: list[dict[str, Any]] = []
-    for msg in history:
-        role = msg.get("role", "")
+    for original in history:
+        msg = deepcopy(original)
         content = msg.get("content", "")
-
-        if role == "assistant" and isinstance(content, list):
-            has_text = any(
-                isinstance(b, dict) and b.get("type") == "text"
-                for b in content
-            )
-            if not has_text:
+        if msg.get("role") == "user" and out and out[-1].get("role") == "user":
+            previous = out[-1].get("content", "")
+            if not _has_tool_result(previous) and not _has_tool_result(content):
+                if isinstance(previous, str) and isinstance(content, str):
+                    out[-1]["content"] = previous + "\n" + content
+                else:
+                    def blocks(value: Any) -> list:
+                        return value if isinstance(value, list) else [{"type": "text", "text": str(value)}]
+                    out[-1]["content"] = blocks(previous) + blocks(content)
                 continue
-
-        if role == "user" and out and out[-1].get("role") == "user":
-            prev = out[-1]
-            prev_content = prev.get("content", "")
-            # Never merge a tool_result message into a neighbouring user
-            # message -- that would corrupt the tool_use/tool_result pairing
-            # the Anthropic API relies on.
-            if _has_tool_result(prev_content) or _has_tool_result(content):
-                out.append(msg)
-                continue
-            if isinstance(prev_content, str) and isinstance(content, str):
-                prev["content"] = prev_content + "\n" + content
-            elif isinstance(prev_content, list) and isinstance(content, list):
-                prev["content"] = prev_content + content
-            elif isinstance(prev_content, str):
-                prev["content"] = [{"type": "text", "text": prev_content}] + (content if isinstance(content, list) else [{"type": "text", "text": content}])
-            else:
-                prev["content"] = (prev_content if isinstance(prev_content, list) else [{"type": "text", "text": str(prev_content)}]) + (content if isinstance(content, list) else [{"type": "text", "text": str(content)}])
-            continue
-
         out.append(msg)
-
     return out
 
 
 def count_tokens(text: str) -> int:
-    """Approximate token count (1 token ≈ 4 chars for English text)."""
-    return max(1, len(text) // 4)
+    """Conservative byte-based estimate; accounts for non-English text too."""
+    return max(1, len(text.encode("utf-8")) // 4)
+
+
+def _count_value(value: Any) -> int:
+    if isinstance(value, dict):
+        if value.get("type") in {"image", "image_url"}:
+            # Base64 is transport encoding, not text supplied to the model.
+            return _IMAGE_TOKENS
+        return sum(count_tokens(str(key)) + _count_value(item) for key, item in value.items())
+    if isinstance(value, list):
+        return sum(_count_value(item) for item in value)
+    return count_tokens(value if isinstance(value, str) else json.dumps(value, default=str))
 
 
 def count_tokens_message(msg: dict[str, Any]) -> int:
-    """Count tokens in a single conversation message (role + content)."""
-    total = count_tokens(msg.get("role", ""))
-    content = msg.get("content", "")
-    if isinstance(content, str):
-        total += count_tokens(content)
-    elif isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict):
-                total += count_tokens(str(block.get("text", "")))
-                if block.get("type") == "tool_result":
-                    inner = block.get("content")
-                    if isinstance(inner, str):
-                        total += count_tokens(inner)
-                    elif isinstance(inner, list):
-                        for b2 in inner:
-                            if isinstance(b2, dict):
-                                total += count_tokens(str(b2.get("text", "")))
-    return total
+    """Include tool inputs, results, images and per-message framing."""
+    return 4 + _count_value(msg)
 
 
 def count_tokens_history(history: list[dict[str, Any]]) -> int:
-    """Count tokens in full conversation history."""
-    return sum(count_tokens_message(m) for m in history)
+    return sum(count_tokens_message(msg) for msg in history)
+
+
+def _exchange_groups(history: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Keep each assistant tool call together with all of its results."""
+    groups: list[list[dict[str, Any]]] = []
+    pending: set[str] = set()
+    for msg in history:
+        content = msg.get("content")
+        results = set()
+        calls = set()
+        if isinstance(content, list):
+            calls = {b.get("id") for b in content if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")}
+            results = {b.get("tool_use_id") for b in content if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id")}
+        if msg.get("role") == "tool":
+            results.add(msg.get("tool_call_id"))
+        calls.update(call["id"] for call in (msg.get("tool_calls") or []) if isinstance(call, dict) and call.get("id"))
+        if pending.intersection(results):
+            groups[-1].append(msg)
+            pending.difference_update(results)
+        else:
+            groups.append([msg])
+            pending = set()
+        pending.update(calls)
+    return groups
 
 
 class ContextBudget:
-    """Sliding-window context budget manager."""
+    """Sliding context window that never splits a tool-call exchange."""
 
-    def __init__(
-        self,
-        max_tokens: int = 0,
-        reserve_tokens: int = 4000,
-    ):
+    def __init__(self, max_tokens: int = 0, reserve_tokens: int = 4000):
         if max_tokens == 0:
-            max_tokens = int(os.environ.get("OPEN_EDIT_CONTEXT_MAX_TOKENS", "32000"))
+            try:
+                max_tokens = int(os.environ.get("OPEN_EDIT_CONTEXT_MAX_TOKENS", "32000"))
+            except ValueError:
+                max_tokens = 32000
+        if max_tokens <= 0 or reserve_tokens < 0 or reserve_tokens >= max_tokens:
+            raise ValueError("context limit must exceed a nonnegative token reserve")
         self.max_tokens = max_tokens
         self.reserve_tokens = reserve_tokens
 
     def truncate(self, history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Apply sliding-window truncation.
+        """Retain the opening request, current request and complete exchanges.
 
-        Always keeps the first user message. Removes earlier turns when
-        the total exceeds budget, replacing them with a placeholder.
+        An indivisible newest exchange or user request may exceed the configured
+        estimate. Preserve it rather than silently losing the current task or
+        corrupting tool arguments; tool results should be capped beforehand.
         """
         budget = self.max_tokens - self.reserve_tokens
-        if budget <= 0:
+        if count_tokens_history(history) <= budget:
             return history
-
-        total = count_tokens_history(history)
-        if total <= budget:
-            return history
-
-        keep: list[dict[str, Any]] = []
-        if history:
-            keep.append(history[0])
-
-        kept_tokens = count_tokens_message(history[0]) if history else 0
-        for msg in reversed(history[1:]):
-            msg_tokens = count_tokens_message(msg)
-            if kept_tokens + msg_tokens > budget:
+        groups = _exchange_groups(history)
+        if not groups:
+            return []
+        current = next((i for i in range(len(groups) - 1, -1, -1) if any(
+            msg.get("role") == "user" and not _has_tool_result(msg.get("content"))
+            for msg in groups[i]
+        )), 0)
+        required = {0, current, len(groups) - 1}
+        used = sum(count_tokens_history(groups[i]) for i in required)
+        marker = {"role": "user", "content": f"[{len(history)} earlier messages truncated]"}
+        overhead = count_tokens_message(marker)
+        for i in range(len(groups) - 2, 0, -1):
+            if i in required:
+                continue
+            cost = count_tokens_history(groups[i])
+            if used + cost + overhead > budget:
                 break
-            keep.insert(1, msg)
-            kept_tokens += msg_tokens
-
-        removed = len(history) - len(keep)
-        if removed > 0:
-            placeholder: dict[str, Any] = {
-                "role": "user",
-                "content": f"[{removed} earlier messages truncated]",
-            }
-            keep.insert(1, placeholder)
-
-        return keep
+            required.add(i)
+            used += cost
+        selected = [msg for i, group in enumerate(groups) if i in required for msg in group]
+        removed = len(history) - len(selected)
+        if removed:
+            marker["content"] = f"[{removed} earlier messages truncated]"
+            return [*groups[0], marker, *selected[len(groups[0]):]]
+        return selected

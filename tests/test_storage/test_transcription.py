@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from open_edit.storage.transcription import transcribe, _has_whisper
+from open_edit.storage.transcription import transcribe
 
 
 class TestTranscription(unittest.TestCase):
@@ -52,11 +52,11 @@ class TestTranscription(unittest.TestCase):
             "OPEN_EDIT_WHISPER_MODEL": "small",
         }), \
              patch("open_edit.storage.transcription._has_whisper", return_value=True), \
-             patch("open_edit.storage.transcription.WhisperModel", return_value=fake_model) as WM:
+             patch("open_edit.storage.transcription.WhisperModel", return_value=fake_model) as whisper_model_mock:
             result = transcribe(self.tmp_path / "ar.mp4")
         self.assertEqual(len(result), 1)
-        WM.assert_called_once()
-        self.assertEqual(WM.call_args.args[0], "small")
+        whisper_model_mock.assert_called_once()
+        self.assertEqual(whisper_model_mock.call_args.args[0], "small")
         self.assertEqual(fake_model.transcribe.call_args.kwargs.get("language"), "ar")
 
     def test_transcribe_returns_empty_on_internal_failure(self) -> None:

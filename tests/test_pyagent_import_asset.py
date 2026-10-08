@@ -13,28 +13,24 @@ The HTTP download is mocked via ``unittest.mock.patch`` so tests don't
 talk to the real internet. The CAS is real (``AssetStore`` + sidecar
 JSONs) so we exercise the full ingest path.
 """
+
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.agent.tools import pyagent_import_asset as mod  # noqa: E402
-from open_edit.agent.tools.pyagent_import_asset import (  # noqa: E402
-    import_asset,
-    _http_download,
+from open_edit.agent.tools import pyagent_import_asset as mod
+from open_edit.agent.tools.pyagent_import_asset import (
     _lookup_result,
+    import_asset,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +48,7 @@ _REAL_MP4 = (
 def _bootstrap_project(project_path: Path) -> None:
     """Create a real Open Edit project at ``project_path``.
 
-    Mirrors the helper in ``test_serve_pi_bridge.py`` so the import
+    Creates a minimal project so the import
     tests can run end-to-end against a real ``edit_graph.db`` (needed
     because the tool is project-scoped and writes to the project CAS).
     """

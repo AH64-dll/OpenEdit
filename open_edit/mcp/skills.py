@@ -42,16 +42,6 @@ MCP_SKILL_STEMS: tuple[str, ...] = (
     "asset_catalog_guide",
 )
 
-# Stems embedded into MCP initialize `instructions` so any harness that
-# honors server instructions gets them without exploring the repo.
-MANDATORY_SKILL_STEMS: tuple[str, ...] = (
-    "open-edit-mcp",
-    "tool_surface",
-    "edit-planning",
-    "review-notes",
-    "style-memory",
-)
-
 RESOURCE_URI_PREFIX = "open-edit://skills/"
 
 
@@ -136,38 +126,22 @@ def stem_from_uri(uri: str) -> str | None:
     return stem if stem in SKILL_FILES else None
 
 
-def _strip_frontmatter(body: str) -> str:
-    if body.startswith("---"):
-        end = body.find("\n---", 3)
-        if end != -1:
-            return body[end + 4 :].lstrip("\n")
-    return body
-
-
 @lru_cache(maxsize=1)
 def mcp_instructions() -> str:
-    """Mandatory skill pack injected on MCP initialize for any harness."""
-    parts: list[str] = [
-        "Open Edit MCP — mandatory skills (follow these; do not explore "
-        "source to rediscover tools or workflows):\n",
-    ]
-    loaded = 0
-    for stem in MANDATORY_SKILL_STEMS:
-        try:
-            body = _strip_frontmatter(load_skill(stem))
-        except FileNotFoundError:
-            continue
-        parts.append(f"\n## Skill: {stem}\n\n{body.strip()}\n")
-        loaded += 1
-    if loaded == 0:
-        return _FALLBACK_INSTRUCTIONS
-    parts.append(
-        "\nAdditional skills are available as MCP resources "
-        f"(`{RESOURCE_URI_PREFIX}*`) and prompts "
-        "(open-edit-playbook, open-edit-reference, open-edit-style-memory, "
-        "open-edit-review-notes). Prefer tools over reading the repo.\n"
+    """Keep startup context small; expose detailed playbooks on demand."""
+    return _FALLBACK_INSTRUCTIONS + (
+        "Read the playbook when needed: open-edit-playbook prompt or "
+        f"{resource_uri('open-edit-mcp')}.\n"
+        "Skill: review-notes — query_project query=get_pending_notes before "
+        "acting on review feedback. Honor track_kind and track_id.\n"
+        "Use get_style_profile for preferences; capture confirmed hints.\n"
+        "Detailed IR recipes, edit planning, review notes, style memory, "
+        "HyperFrames, and QC guides are MCP resources under "
+        f"{RESOURCE_URI_PREFIX}. Load only the guide needed for the task.\n"
+        "Prefer native HyperFrames for new graphics; preserve legacy graph ops.\n"
+        "Renders return job_id by default. Poll get_render_job when needed "
+        "and wait for completion before requesting another render.\n"
     )
-    return "".join(parts)
 
 
 _FALLBACK_INSTRUCTIONS = """\

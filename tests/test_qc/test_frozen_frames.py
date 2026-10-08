@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from open_edit.qc.frozen_frames import list_frozen_frames, FrozenFramesResult
-
+from open_edit.qc.frozen_frames import list_frozen_frames
 
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 

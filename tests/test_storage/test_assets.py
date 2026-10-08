@@ -6,7 +6,6 @@ from pathlib import Path
 
 from open_edit.storage.assets import AssetStore, _probe_media
 
-
 TESTDATA = Path(__file__).parent.parent / "testdata" / "raw_videos"
 
 

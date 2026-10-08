@@ -14,11 +14,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from open_edit.agent.exceptions import FreeFormResult
 from open_edit.agent.tools import TOOL_TABLE
 from open_edit.agent.tools.pyagent_search_assets import _cache_clear
-from open_edit.agent.exceptions import FreeFormResult
 from open_edit.storage.edit_graph import EditGraphStore
-
 
 EXPECTED_TOOL_NAMES = {
     "add_marker",

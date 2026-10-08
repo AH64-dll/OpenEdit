@@ -15,26 +15,23 @@ Expected AgentEvent sequence:
   text "You have 2 assets."
   done end_turn
 """
+
 from __future__ import annotations
 
-import asyncio
 import importlib
-import json
-import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 from unittest import mock
 
 import pytest
 
+from open_edit.serve import agent as agent_mod
+from open_edit.serve import projects as projects_mod
+from open_edit.serve.llm import StreamEvent
+
 _THIS_DIR = Path(__file__).resolve()
 _REPO_ROOT = _THIS_DIR.parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.serve import agent as agent_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
-from open_edit.serve.llm import StreamEvent  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +160,7 @@ async def test_agent_loop_two_turn_with_tool_call(patched_agent):
     assert events[3]["text"] == "You have 2 assets."
 
     # Verify tool_start / tool_result
-    # project_id is auto-injected by the agent loop (matches pi_bridge behavior)
+    # project_id is auto-injected by the agent loop (matches MCP behavior)
     assert events[1]["name"] == "list_assets"
     assert events[1]["input"] == {"project_id": "testproject"}
     assert events[2]["name"] == "list_assets"
@@ -304,7 +301,7 @@ async def test_system_prompt_is_deterministic(patched_agent):
 
 # ---------------------------------------------------------------------------
 # v1.6 V4 bugfix: in-process trigger_render must return the same
-# structured shape as the pi subprocess path ({output_path, mode,
+# structured shape as the shared render contract ({output_path, mode,
 # duration_s, render_id}). The verification stage reads
 # ``result.get("render_id", ...)``; without these fields, the in-process
 # path always falls back to "render_unknown" and breaks observability.
@@ -315,7 +312,7 @@ async def test_system_prompt_is_deterministic(patched_agent):
 async def test_execute_trigger_render_in_process_returns_structured_shape(tmp_path):
     """V4: ``_execute_trigger_render`` (in-process agent path) must
     return a dict with ``render_id`` and ``duration_s`` for non-overlay
-    modes, matching the pi subprocess path. The verification stage
+    modes, matching the shared render contract. The verification stage
     reads these fields via ``result.get('render_id', ...)``.
 
     v1.7+: the render is enqueued on the durable RenderJobService; the
@@ -334,7 +331,7 @@ async def test_execute_trigger_render_in_process_returns_structured_shape(tmp_pa
     with mock.patch("open_edit.kernel.render_jobs.DEFAULT_RENDER_JOB_SERVICE._launch", fake_launch):
         out = await agent._execute_trigger_render({"mode": "proxy", "wait": True}, tmp_path)
 
-    # Required structured fields (must match pi subprocess shape)
+    # Required structured fields (must match shared render shape)
     assert "output_path" in out
     assert out["output_path"] == str(fake)
     assert "mode" in out

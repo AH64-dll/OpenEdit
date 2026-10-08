@@ -42,7 +42,7 @@ Existing `add_remotion_composition` graph operations are migration inputs. Do no
 - HyperFrames owns HTML/CSS/JS graphics capture and its MP4/MOV/PNG output.
 - MLT remains the base timeline/audio compositor during migration.
 - FFmpeg remains the final mux/composite boundary until HyperFrames A/V parity is proven.
-- GPU encoding is host-worker only. Never place HyperFrames, Chrome, FFmpeg, or GPU access in `run_script` sandbox.
+- GPU encoding is host-worker only. Use the render worker for HyperFrames, Chrome, FFmpeg, and GPU execution.
 - Preview and final use separate profiles and caches. Preview invalidates dirty ranges; final uses canonical original assets.
 
 ## Token rule

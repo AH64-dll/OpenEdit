@@ -1,5 +1,5 @@
-from open_edit.ir.types import Timeline, Track, Clip, Project
-from open_edit.render.emitter import emit_timeline, EmitterConfig
+from open_edit.ir.types import Clip, Timeline, Track
+from open_edit.render.emitter import emit_timeline
 
 
 def test_emitter_includes_clip_positions():

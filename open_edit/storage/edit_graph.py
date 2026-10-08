@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from pydantic import TypeAdapter
 
@@ -26,7 +27,7 @@ from open_edit.storage.timeline_cache import TimelineSnapshotStore
 _APPEND_LOCK = threading.Lock()
 
 
-class GraphRevisionConflict(RuntimeError):
+class GraphRevisionConflict(RuntimeError):  # noqa: N818 - public compatibility name
     """Raised when a mutation was composed against an obsolete graph revision."""
 
     def __init__(self, expected: int, actual: int) -> None:
@@ -82,23 +83,24 @@ class EditGraphStore:
 
     @property
     def project_id(self) -> str:
-        """Return the stable project_id for this db file. Generated on first open.
-
-        Phase 3 Task 1: stored in the project_meta table. Stable across reopens.
-        """
+        """Return the stable project ID, safely creating it on first access."""
         with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT value FROM project_meta WHERE key = 'project_id'"
-            )
-            row = cur.fetchone()
-            if row is not None:
-                return row[0]
-            pid = new_id()
-            conn.execute(
-                "INSERT INTO project_meta (key, value) VALUES ('project_id', ?)",
-                (pid,),
-            )
-            return pid
+            return self._project_id_in(conn)
+
+    @staticmethod
+    def _project_id_in(conn: sqlite3.Connection) -> str:
+        row = conn.execute(
+            "SELECT value FROM project_meta WHERE key = 'project_id'"
+        ).fetchone()
+        if row is not None:
+            return row[0]
+        conn.execute(
+            "INSERT OR IGNORE INTO project_meta (key, value) VALUES ('project_id', ?)",
+            (new_id(),),
+        )
+        return conn.execute(
+            "SELECT value FROM project_meta WHERE key = 'project_id'"
+        ).fetchone()[0]
 
     def get_project_meta(self) -> dict[str, Any]:
         """Return the project_meta table as a dict. Empty if no rows.
@@ -126,10 +128,7 @@ class EditGraphStore:
         Non-string values are JSON-encoded so that the table round-trips
         native types (int, float, list, dict) through TEXT.
         """
-        if isinstance(value, str):
-            raw = value
-        else:
-            raw = json.dumps(value)
+        raw = value if isinstance(value, str) else json.dumps(value)
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO project_meta (key, value) VALUES (?, ?) "
@@ -141,44 +140,81 @@ class EditGraphStore:
         self, op: OperationUnion, sequence_num: int | None = None,
         command_id: str | None = None, expected_revision: int | None = None,
     ) -> int:
-        """Append an operation. Returns the assigned sequence_num.
+        """Validate and atomically append one operation."""
+        return self.append_many(
+            [op], command_id=command_id, expected_revision=expected_revision,
+            sequence_num=sequence_num,
+        )[0]
 
-        Validates the op against the current project state (shape +
-        references) before persisting. Raises OpValidationError on failure;
-        the op is NOT written.
+    def append_many(
+        self, ops: list[OperationUnion], *, command_id: str | None = None,
+        expected_revision: int | None = None, sequence_num: int | None = None,
+    ) -> list[int]:
+        """Append a batch in one transaction, or leave the graph unchanged.
+
+        Reference validation uses the same locked SQLite snapshot as the
+        inserts, including earlier operations in this batch. This prevents a
+        failed late operation or concurrent removal from leaving partial edits.
         """
-        errors = _ir_validate.validate_op_for_append(op, self)
-        if errors:
-            raise _ir_validate.OpValidationError("; ".join(errors))
-        with _APPEND_LOCK:
-            with self._conn() as conn:
-                if sequence_num is None:
-                    cur = conn.execute(
-                        "SELECT COALESCE(MAX(sequence_num), -1) + 1 FROM edits"
-                    )
-                    sequence_num = cur.fetchone()[0]
+        if not ops:
+            return []
+        from types import SimpleNamespace
+
+        project_id = self.project_id
+        sequences: list[int] = []
+        with _APPEND_LOCK, self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current_revision = self._revision_in(conn)
+            if expected_revision is not None and current_revision != expected_revision:
+                raise GraphRevisionConflict(expected_revision, current_revision)
+            current_ops = self._load_all_in(conn)
+            view = SimpleNamespace(
+                db_path=self.db_path, project_id=project_id,
+                load_all=lambda: current_ops,
+            )
+            next_sequence = sequence_num
+            if next_sequence is None:
+                next_sequence = conn.execute(
+                    "SELECT COALESCE(MAX(sequence_num), -1) + 1 FROM edits"
+                ).fetchone()[0]
+            for op in ops:
+                errors = _ir_validate.validate_op_for_append(op, view)
+                if errors:
+                    raise _ir_validate.OpValidationError("; ".join(errors))
                 conn.execute(
                     "INSERT INTO edits "
                     "(edit_id, parent_id, kind, author, timestamp, status, "
-                    " sequence_num, payload) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        op.edit_id, op.parent_id, op.kind, op.author, op.timestamp,
-                        op.status, sequence_num, op.model_dump_json(),
-                    ),
+                    " sequence_num, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (op.edit_id, op.parent_id, op.kind, op.author, op.timestamp,
+                     op.status, next_sequence, op.model_dump_json()),
                 )
-                self._check_and_bump_revision(conn, expected_revision)
+                self._check_and_bump_revision(conn, None)
                 conn.execute(
                     "INSERT INTO edit_status_events "
                     "(event_id, edit_id, from_status, to_status, command_id, "
-                    " reason, changed_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        new_id(), op.edit_id, None, op.status or "applied",
-                        command_id, "append", op.timestamp or now_iso8601(),
-                    ),
+                    " reason, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (new_id(), op.edit_id, None, op.status or "applied",
+                     command_id, "append", op.timestamp or now_iso8601()),
                 )
-        return sequence_num
+                current_ops.append(op)
+                sequences.append(next_sequence)
+                next_sequence += 1
+        return sequences
+
+    @staticmethod
+    def _load_all_in(conn: sqlite3.Connection) -> list[OperationUnion]:
+        rows = conn.execute(
+            "SELECT payload, status, parent_id, sequence_num FROM edits ORDER BY sequence_num"
+        )
+        adapter = TypeAdapter(OperationUnion)
+        ops: list[OperationUnion] = []
+        for row in rows:
+            op = adapter.validate_json(row[0])
+            op.status = row[1]
+            op.parent_id = row[2]
+            object.__setattr__(op, "sequence_num", row[3])
+            ops.append(op)
+        return ops
 
     def load_all(self) -> list[OperationUnion]:
         """Load all operations in sequence_num order.
@@ -189,18 +225,7 @@ class EditGraphStore:
         serializations (API payloads, stored op JSON).
         """
         with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT payload, status, parent_id, sequence_num FROM edits "
-                "ORDER BY sequence_num"
-            )
-            ops: list[OperationUnion] = []
-            for row in cur.fetchall():
-                op = TypeAdapter(OperationUnion).validate_json(row[0])
-                op.status = row[1]
-                op.parent_id = row[2]
-                object.__setattr__(op, "sequence_num", row[3])
-                ops.append(op)
-            return ops
+            return self._load_all_in(conn)
 
     def update_status(
         self, edit_id: str, new_status: str,
@@ -208,12 +233,17 @@ class EditGraphStore:
         expected_revision: int | None = None,
     ) -> int:
         """Update an operation's status (e.g. for undo/revert or supersede)."""
+        if new_status not in ("applied", "reverted", "superseded"):
+            raise ValueError(f"invalid operation status: {new_status!r}")
         with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             cur = conn.execute(
                 "SELECT status FROM edits WHERE edit_id = ?", (edit_id,)
             )
             row = cur.fetchone()
-            from_status = row[0] if row is not None else None
+            if row is None:
+                raise LookupError(f"operation not found: {edit_id}")
+            from_status = row[0]
             conn.execute(
                 "UPDATE edits SET status = ? WHERE edit_id = ?",
                 (new_status, edit_id),

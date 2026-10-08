@@ -3,9 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from open_edit.agent.tools.pyagent_timeline_ops import add_hyperframes_overlay
 from open_edit.ir.types import HtmlOverlay, Timeline
 from open_edit.render.hyperframes import materialize_hyperframes_overlays
+
+
+@pytest.fixture(autouse=True)
+def _stub_engine_identity(monkeypatch):
+    # Cache tests mock the renderer and must not require an installed engine.
+    monkeypatch.setattr("open_edit.render.hyperframes._hyperframes_bin", lambda: "test-hyperframes")
 
 
 def _timeline(template: str) -> Timeline:

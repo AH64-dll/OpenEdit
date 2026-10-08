@@ -1,10 +1,15 @@
 """Tests for render profile selection and MLT arg generation."""
+
 import pytest
+from pydantic import ValidationError
 
 from open_edit.render.profiles import (
     DEFAULT_PROFILES,
     RenderProfile,
+    profile_fingerprint,
     profile_to_mlt_args,
+    profile_with_quality,
+    resolve_encoder_args,
     select_profile,
 )
 
@@ -66,13 +71,7 @@ def test_profile_to_mlt_args_includes_aspect_and_colorspace() -> None:
 
 
 """Quality fields, resolution, fingerprint."""
-import pytest
-from pydantic import ValidationError
 
-from open_edit.render.profiles import (
-    RenderProfile, profile_fingerprint, profile_with_quality,
-    resolve_encoder_args, select_profile,
-)
 
 
 @pytest.fixture(autouse=True)

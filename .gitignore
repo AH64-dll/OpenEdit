@@ -26,7 +26,15 @@ projects/
 # Local env
 .env
 *.log
-.venv/
 .worktrees
 .superpowers
 testrun/
+
+# Generated repository indexes, agent run state, and UI backups
+graphify-out/
+.agents/
+static.bak.*/
+.commandcode_*.py
+.commandcode/
+docs/superpowers/tmp/
+research/diffusion-compiler/.check-*/

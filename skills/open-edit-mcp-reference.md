@@ -132,7 +132,7 @@ Use `run_script` only when pillar ops cannot express the edit:
 - Raw MLT / free-form escape hatches
 - Ops not listed above (move, ripple, transitions, effects, etc.)
 
-Sandbox header is auto-injected — do not add it manually.
+IR version header is auto-injected — do not add it manually.
 
 ## IR op kinds (high level)
 

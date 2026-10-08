@@ -2,11 +2,9 @@
 import json
 from pathlib import Path
 
-import pytest
-
-from open_edit.ir.types import Project, OperationUnion
 from pydantic import TypeAdapter
 
+from open_edit.ir.types import Project
 
 GOLDEN_DIR = Path(__file__).parent.parent / "testdata" / "golden_11clip"
 

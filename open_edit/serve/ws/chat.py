@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from typing import Any
@@ -65,17 +66,15 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
         nonlocal current_turn_task
         if current_turn_task and not current_turn_task.done():
             current_turn_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await current_turn_task
-            except (asyncio.CancelledError, Exception):
-                pass
         current_turn_task = None
 
     try:
         while True:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), timeout=30)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 await websocket.send_text(json.dumps({"type": "ping"}))
                 continue
             max_message_bytes = int(os.environ.get("OPEN_EDIT_WS_MAX_MESSAGE_BYTES", "65536"))
@@ -127,6 +126,12 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
                 return
 
             conv_id = payload.get("conv_id") or agent_mod.new_conversation_id()
+            from ..agent.history_store import validate_conversation_id
+            try:
+                validate_conversation_id(conv_id)
+            except ValueError as exc:
+                await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
+                continue
 
             # Load conversation from disk (if any) and cache it.
             if conv_id not in conversations:

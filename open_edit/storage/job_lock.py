@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from open_edit.ir.ids import now_iso8601
 from open_edit.storage.db import open_conn
@@ -21,7 +21,7 @@ STALE_LOCK_TIMEOUT_SEC = 3600
 
 
 class JobLock:
-    """Single-slot lock for sandbox runs, renders, and migrations."""
+    """Single-slot lock for script runs, renders, and migrations."""
 
     def __init__(self, edit_graph: EditGraphStore):
         self.db_path = edit_graph.db_path
@@ -30,7 +30,7 @@ class JobLock:
 
             ensure_schema(conn)
 
-    def try_acquire(self, kind: str) -> Optional[str]:
+    def try_acquire(self, kind: str) -> str | None:
         _release_stale_locks(self.db_path)
         with open_conn(self.db_path) as conn:
             job_id = str(uuid.uuid4())
@@ -72,7 +72,7 @@ class JobLock:
 def _release_stale_locks(db_path: str | Path) -> None:
     """Release locks older than STALE_LOCK_TIMEOUT_SEC."""
     from datetime import timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_LOCK_TIMEOUT_SEC)
+    cutoff = datetime.now(UTC) - timedelta(seconds=STALE_LOCK_TIMEOUT_SEC)
     cutoff_iso = cutoff.isoformat()
     with open_conn(db_path) as conn:
         conn.execute(

@@ -1,11 +1,10 @@
-"""Tests for conversation sync between JSONL and pi session."""
+"""Conversation JSONL persistence regression tests.
+"""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from unittest import mock
-
-import pytest
 
 from open_edit.serve.agent import append_to_conversation, load_conversation
 

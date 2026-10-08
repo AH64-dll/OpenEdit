@@ -1,12 +1,10 @@
 """CLI tests for `open_edit notes` (Phase 4 T6, M1: add + dismiss actions)."""
 import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
-from open_edit.storage.notes import NotesStore, NoteStatus, TimestampAnchor, ReviewNote, NoteSource
-from datetime import datetime, timezone
+from open_edit.storage.notes import NoteSource, NotesStore, NoteStatus, ReviewNote, TimestampAnchor
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
@@ -25,7 +23,7 @@ def test_notes_list_subcommand(tmp_path: Path) -> None:
         text="hi",
         source=NoteSource.typed,
         status=NoteStatus.pending,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     ))
     result = _run("notes", "list", "p1", "--project-dir", str(project_dir))
     assert result.returncode == 0, result.stderr
@@ -60,7 +58,7 @@ def test_notes_dismiss_subcommand(tmp_path: Path) -> None:
         text="dismiss me",
         source=NoteSource.typed,
         status=NoteStatus.pending,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     ))
     result = _run(
         "notes", "dismiss", "p1", note_id,

@@ -13,30 +13,22 @@ Covers:
 These tests use the real Open Edit storage classes directly so they
 exercise the actual integration with the real schema.
 """
+
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import os
-import shutil
-import sqlite3
-import subprocess
-import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 from unittest import mock
 
 import pytest
 
+from open_edit.serve import projects as projects_mod
+from open_edit.storage.assets import list_assets_from_disk
+
 # Make the ``open_edit`` package importable from the repo root.
 _THIS_DIR = Path(__file__).resolve()
 _REPO_ROOT = _THIS_DIR.parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.serve import projects as projects_mod  # noqa: E402
-from open_edit.storage.assets import list_assets_from_disk  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +93,7 @@ def _make_real_asset(
     return media_file
 
 
-def _make_real_op(project_path: Path, edit_id: str, kind: str, parent_id: str = None) -> None:
+def _make_real_op(project_path: Path, edit_id: str, kind: str, parent_id: str | None = None) -> None:
     """Append a real op to the project's edit_graph.db."""
     from open_edit.ir.types import AddClipOp
     from open_edit.storage.edit_graph import EditGraphStore
@@ -127,7 +119,11 @@ def _make_real_note(project_path: Path, text: str, status_value: str = "pending"
     """Append a real review note to the project's notes.db."""
     from open_edit.storage.edit_graph import EditGraphStore
     from open_edit.storage.notes import (
-        NotesStore, ReviewNote, TimestampAnchor, NoteSource, NoteStatus,
+        NoteSource,
+        NotesStore,
+        NoteStatus,
+        ReviewNote,
+        TimestampAnchor,
     )
     # Notes are scoped to a project_id; we use the edit_graph.db's project_id.
     db_path = project_path / ".open_edit" / "edit_graph.db"
@@ -177,8 +173,8 @@ async def test_create_project_creates_folder_and_db(projects_root_tmp):
 @pytest.mark.asyncio
 async def test_list_returns_two_created_projects(projects_root_tmp):
     """Every successful project creation is immediately listed."""
-    a = await projects_mod.create_project("alpha")
-    b = await projects_mod.create_project("beta")
+    await projects_mod.create_project("alpha")
+    await projects_mod.create_project("beta")
 
     listed = await projects_mod.list_projects()
     assert len(listed) == 2
@@ -286,8 +282,9 @@ async def test_get_project_state_fresh_init_no_errors(projects_root_tmp):
     freshly-initialized project must yield a valid empty state with no
     error events.
     """
-    from open_edit.cli import cmd_init
     import argparse
+
+    from open_edit.cli import cmd_init
 
     # Run the real `open_edit init` against a fresh folder under the
     # projects root. This is exactly the workflow described in the
@@ -427,13 +424,12 @@ def test_agent_reads_verify_disabled_from_project_meta(tmp_path):
 @pytest.mark.asyncio
 async def test_create_project_rolls_back_when_initialization_fails(projects_root_tmp, caplog):
     """Initialization failure never publishes a phantom project directory."""
-    with mock.patch(
-        "open_edit.serve.projects._initialise_project",
-        side_effect=RuntimeError("schema creation failed"),
+    with (
+        mock.patch('open_edit.serve.projects._initialise_project', side_effect=RuntimeError('schema creation failed')),
+        caplog.at_level(logging.WARNING, logger='open_edit.serve.projects'),
+        pytest.raises(RuntimeError, match='project initialization failed'),
     ):
-        with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
-            with pytest.raises(RuntimeError, match="project initialization failed"):
-                await projects_mod.create_project("broken")
+        await projects_mod.create_project("broken")
     assert not (projects_root_tmp / "broken").exists()
     assert await projects_mod.list_projects() == []
     matching = [r for r in caplog.records if r.levelno >= logging.ERROR]

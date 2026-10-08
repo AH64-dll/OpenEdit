@@ -1,5 +1,5 @@
-from open_edit.ir.types import Timeline, Track, Clip, Effect, SplitClipOp
 from open_edit.ir.apply import apply_operation
+from open_edit.ir.types import Clip, Effect, SplitClipOp, Timeline, Track
 
 
 def test_split_clip_effects_are_independent():

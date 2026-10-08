@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
-from enum import Enum
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,7 +19,7 @@ from open_edit.ir.ids import new_note_id, now_iso8601
 from open_edit.storage.db import open_conn
 
 
-class NoteSource(str, Enum):
+class NoteSource(StrEnum):
     typed = "typed"
     voice = "voice"
     region = "region"
@@ -27,7 +27,7 @@ class NoteSource(str, Enum):
     form_correction = "form_correction"
 
 
-class NoteStatus(str, Enum):
+class NoteStatus(StrEnum):
     pending = "pending"
     processed = "processed"
     dismissed = "dismissed"
@@ -41,7 +41,7 @@ class TimestampAnchor(BaseModel):
     # actionable for either audio or visual; this only records where the
     # reviewer clicked. Default "any" preserves legacy notes.
     track_kind: Literal["video", "audio", "any"] = "any"
-    track_id: Optional[str] = None
+    track_id: str | None = None
 
 
 class RegionAnchor(BaseModel):
@@ -53,7 +53,7 @@ class RegionAnchor(BaseModel):
     t_start: float
     t_end: float
     track_kind: Literal["video", "audio", "any"] = "any"
-    track_id: Optional[str] = None
+    track_id: str | None = None
 
 
 class OpAnchor(BaseModel):
@@ -62,7 +62,7 @@ class OpAnchor(BaseModel):
 
 
 NoteAnchor = Annotated[
-    Union[TimestampAnchor, RegionAnchor, OpAnchor],
+    TimestampAnchor | RegionAnchor | OpAnchor,
     Field(discriminator="anchor_type"),
 ]
 
@@ -75,8 +75,8 @@ class ReviewNote(BaseModel):
     source: NoteSource
     status: NoteStatus = NoteStatus.pending
     created_at: str = Field(default_factory=now_iso8601)
-    processed_at: Optional[str] = None
-    commit_token: Optional[str] = None
+    processed_at: str | None = None
+    commit_token: str | None = None
     resulting_op_ids: list[str] = []
 
 
@@ -132,7 +132,7 @@ class NotesStore:
             )
         return note.note_id
 
-    def list_all(self, project_id: str, status: Optional[NoteStatus] = None) -> list[ReviewNote]:
+    def list_all(self, project_id: str, status: NoteStatus | None = None) -> list[ReviewNote]:
         with open_conn(self.db_path) as con:
             if status is None:
                 rows = con.execute(
@@ -175,8 +175,10 @@ class NotesStore:
         return [self._row_to_note(r) for r in rows]
 
     def mark_processed(self, note_ids: list[str], resulting_op_ids: list[str]) -> None:
+        if len(note_ids) != len(resulting_op_ids):
+            raise ValueError("each processed note must have a resulting operation ID")
         with open_conn(self.db_path) as con:
-            for note_id, op_id in zip(note_ids, resulting_op_ids):
+            for note_id, op_id in zip(note_ids, resulting_op_ids, strict=True):
                 con.execute(
                     "UPDATE notes SET status = 'processed', processed_at = ?, resulting_op_ids = ? "
                     "WHERE note_id = ?",
@@ -211,7 +213,7 @@ class NotesStore:
 
     def archive_old_processed(self, retention_days: int = 30) -> int:
         """Per audit M3: move processed notes older than retention_days to notes_archive."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat()
         with open_conn(self.db_path) as con:
             rows = con.execute(
                 "SELECT note_id, project_id, anchor_type, anchor, text, source, status, "
@@ -231,7 +233,7 @@ class NotesStore:
             )
         return len(rows)
 
-    def get(self, note_id: str) -> Optional[ReviewNote]:
+    def get(self, note_id: str) -> ReviewNote | None:
         """Return one note by id, or None."""
         with open_conn(self.db_path) as con:
             row = con.execute(
@@ -287,6 +289,6 @@ class _NoteUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    text: Optional[str] = None
-    status: Optional[NoteStatus] = None
-    anchor: Optional[NoteAnchor] = None
+    text: str | None = None
+    status: NoteStatus | None = None
+    anchor: NoteAnchor | None = None

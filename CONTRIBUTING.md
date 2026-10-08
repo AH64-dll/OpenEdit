@@ -11,7 +11,7 @@ keep it maintainable.
 2. Make your change. Keep it focused — one logical change per PR.
 3. Open a **pull request** to `main`. Fill in the PR template (what changed,
    why, how you verified it).
-4. CI runs on every PR (`pytest` on the core suite). A green check is required
+4. CI runs on every PR (lint, the full non-browser Python suite, and package builds). A green check is required
    before merge.
 
 Alternatively, if the change is small and you'd rather discuss first, open an
@@ -25,8 +25,8 @@ cd OpenEdit
 python3 -m venv .venv
 source .venv/bin/activate            # Windows: .\.venv\Scripts\Activate.ps1
 pip install -U pip
-pip install -e ".[mcp,dev]"          # includes test deps
-npm install --no-audit --no-fund     # HyperFrames overlay engine (Node 22+)
+pip install -e ".[dev,serve,openai]"          # includes test deps
+npm ci --no-audit --no-fund     # HyperFrames overlay engine (Node 22+)
 ```
 
 > Node.js 22+ is required for motion-graphics rendering (pinned
@@ -34,12 +34,16 @@ npm install --no-audit --no-fund     # HyperFrames overlay engine (Node 22+)
 
 ## Before opening a PR
 
-- Run the CI test set locally:
+- Run the checks locally:
   ```bash
-  pytest -q tests/test_tool_executor.py tests/test_ir tests/test_storage \
-    tests/test_mcp_server.py --tb=short
+  ruff check open_edit tests
+  pytest -m "not browser" --timeout=30 --timeout-method=thread --tb=short
+  python -m build
   ```
-  (CI runs the full list in `.github/workflows/ci.yml`.)
+  Install `ffmpeg`/`ffprobe` for media tests and Node.js for frontend tests.
+  Melt, browser, GPU and Rust sandbox integrations require their own runtimes;
+  the `browser` marker keeps downloads out of the standard unit suite.
+  See `.github/workflows/ci.yml` for CI prerequisites.
 - Keep diffs focused; no unrelated reformatting.
 - **No secrets.** Never commit tokens, keys, or credentials — anywhere.
 

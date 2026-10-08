@@ -1,21 +1,21 @@
 """Tests for the EditGraphStore (SQLite-backed edit graph)."""
-import sqlite3
 import tempfile
 import unittest
-import pytest
 from pathlib import Path
+
+import pytest
 
 from open_edit.ir.types import (
     AddClipOp,
-    RemoveClipOp,
-    MoveClipOp,
-    TrimClipOp,
-    AddTransitionOp,
     AddEffectOp,
-    SetKeyframeOp,
-    GroupEditsOp,
-    RawMltXmlOp,
+    AddTransitionOp,
     FreeFormCodeOp,
+    GroupEditsOp,
+    MoveClipOp,
+    RawMltXmlOp,
+    RemoveClipOp,
+    SetKeyframeOp,
+    TrimClipOp,
 )
 from open_edit.storage.edit_graph import EditGraphStore
 
@@ -246,7 +246,7 @@ class TestEditGraphStore(unittest.TestCase):
         loaded_ops = self.store.load_all()
         self.assertEqual(len(loaded_ops), len(ops))
 
-        for idx, (original, loaded, expected_cls) in enumerate(zip(ops, loaded_ops, expected_classes)):
+        for original, loaded, expected_cls in zip(ops, loaded_ops, expected_classes, strict=True):
             self.assertIsInstance(loaded, expected_cls)
             self.assertEqual(loaded.edit_id, original.edit_id)
             self.assertEqual(loaded.kind, original.kind)
@@ -345,8 +345,8 @@ if __name__ == "__main__":
 
 def test_reorder_rejects_stale_graph_revision(tmp_path):
     """An optimistic reorder cannot overwrite a newer graph state."""
-    from open_edit.storage.edit_graph import GraphRevisionConflict
     from open_edit.ir.types import AddClipOp
+    from open_edit.storage.edit_graph import GraphRevisionConflict
 
     store = EditGraphStore(tmp_path / "edit_graph.db")
     first = AddClipOp(author="user", asset_hash="first", track_id="v1", position_sec=0.0)

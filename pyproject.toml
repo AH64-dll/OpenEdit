@@ -11,38 +11,29 @@ dependencies = [
     "lxml>=5.0",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
-    "anthropic>=0.39",
+    "mcp>=1.30,<2",
     "python-multipart>=0.0.9",
     "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
-ui = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
-    "python-multipart>=0.0.9",
-]
+ui = []  # compatibility alias: the review UI is included in the core package
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
     "pytest-cov>=4.0",
     "pytest-timeout>=2.0",
+    "ruff>=0.16,<0.17",
 ]
 openai = ["openai>=1.30"]
 whisper = [
     "faster-whisper>=1.0.0",
 ]
 serve = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
     "anthropic>=0.39",
-    "python-multipart>=0.0.9",
-    "pillow>=10.0",
 ]
-mcp = [
-    "mcp>=1.0,<2",
-]
+mcp = []  # compatibility alias: MCP is the primary interface
 
 [project.scripts]
 open_edit = "open_edit.cli:main"
@@ -56,8 +47,8 @@ build-backend = "hatchling.build"
 packages = ["open_edit"]
 
 # Lean source distribution: only the package + build essentials. Without
-# this hatchling packs the whole working tree (graphify-out, testrun,
-# node_modules...) and the sdist blows past PyPI's 100 MB file limit.
+# this hatchling packs the whole working tree, including node_modules and
+# local test outputs.
 [tool.hatch.build.targets.sdist]
 only-include = [
   "open_edit",
@@ -66,8 +57,6 @@ only-include = [
   "LICENSE",
 ]
 exclude = [
-  "open_edit/graphify-out/**",
-  "open_edit/.agents/**",
   "open_edit/**/__pycache__/**",
   "open_edit/**/*.pyc",
 ]
@@ -91,6 +80,10 @@ exclude = [
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra -q"
+markers = [
+    "agent_ui: exercise optional built-in chat and provider routes",
+    "browser: render with HyperFrames/Chrome; may download browser dependencies",
+]
 
 [tool.ruff]
 line-length = 100

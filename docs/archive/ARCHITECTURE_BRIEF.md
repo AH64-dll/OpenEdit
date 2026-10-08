@@ -1,5 +1,9 @@
 # Open Edit — Full Technical Architecture Brief
 
+Historical snapshot; its Pi integration and some file paths have been removed.
+See [the current architecture](../../architecture/BLUEPRINT.md) for the supported
+MCP implementation.
+
 ## 1. Elevator Pitch
 
 AI-native video editor. Core: append-only edit graph (SQLite) stores typed operations

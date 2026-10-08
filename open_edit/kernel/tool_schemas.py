@@ -10,7 +10,7 @@ tools** (Plan D, pillar-tool-consolidation):
 
 - ``query_project`` — 5 read-only queries
 - ``edit_project`` — all mutations + creative generation
-- ``run_script`` — sandboxed Python (renamed from ``run_python``)
+- ``run_script`` — trusted Python (renamed from ``run_python``)
 - ``trigger_render`` — server-side render (unchanged)
 
 Each schema follows the Anthropic tools shape::
@@ -80,9 +80,9 @@ Use this for ALL project edits:
 - Generated ops are returned for review; commit them with operation="apply_generated_ops"
 
 ## 3. run_script (only when edit_project can't do it)
-Write Python that calls the ir module. The sandbox header is auto-injected.
+Write Python that calls the ir module. The IR version header is auto-injected.
 For complex multi-step edits that can't be expressed as a single edit_project operation.
-If sandbox is unavailable, operators set OPEN_EDIT_SANDBOX_BACKEND=dev.
+Scripts run with the MCP host account permissions and a bounded timeout.
 
 ## 4. trigger_render (when you need to see the result)
 Render the current timeline to a video file for preview or verification.
@@ -163,7 +163,7 @@ by ``EditGraphStore``), ``payload`` (JSON blob of op-specific data).
 op type has a method on the ``IR`` class (e.g. ``ir.add_clip(...)``,
 ``ir.add_remotion_composition(...)``, ``ir.add_html_overlay(...)``). The
 agent's ``run_script`` tool gives you access to ``IR`` and the op classes
-inside the bwrap sandbox.
+in the script subprocess.
 
 **Review notes** are NOT ops. They live in ``notes.db`` (table ``notes``)
 with fields ``note_id, project_id, anchor_type, anchor, text, source,

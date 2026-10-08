@@ -2,7 +2,9 @@
 import pytest
 
 from open_edit.render.encoder import (
-    TIERS, apply_overrides, select_encoder,
+    TIERS,
+    apply_overrides,
+    select_encoder,
 )
 
 
@@ -22,7 +24,7 @@ def test_legacy_final_maps_to_standard():
     # final=True must equal old _SPECS final rows (bit-identical)
     assert select_encoder("gpu", final=True).vcodec == "h264_nvenc"
     spec = select_encoder("gpu", final=True)
-    assert ("b=10M", "maxrate=14M") == (spec.melt_args[1], spec.melt_args[2])
+    assert (spec.melt_args[1], spec.melt_args[2]) == ("b=10M", "maxrate=14M")
 
 
 def test_legacy_proxy_maps_to_fast():

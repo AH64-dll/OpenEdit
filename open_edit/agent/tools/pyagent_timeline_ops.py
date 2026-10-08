@@ -19,6 +19,8 @@ from open_edit.ir.types import (
     TrimClipOp,
     new_id,
 )
+from open_edit.storage.edit_graph import EditGraphStore
+from open_edit.storage.paths import ProjectPaths
 
 
 @tool_result
@@ -73,7 +75,6 @@ def add_clip(args: dict, project_path: str) -> dict[str, Any]:
     # Reject unknown/truncated hashes up front: a bad hash used to surface
     # only at render time as an opaque melt "failed to load producer" error.
     from open_edit.storage.assets import list_assets_from_disk
-    from open_edit.storage.paths import ProjectPaths
 
     project_root = ProjectPaths.for_project(project_path).root
     known = {a.asset_hash for a in list_assets_from_disk(project_root)}
@@ -181,10 +182,7 @@ def set_audio_gain(args: dict, project_path: str) -> dict[str, Any]:
         gain_db = float(args["gain_db"])
     elif args.get("gain") is not None:
         gain = float(args["gain"])
-        if gain <= 0.0:
-            gain_db = -120.0
-        else:
-            gain_db = 20.0 * math.log10(gain)
+        gain_db = -120.0 if gain <= 0.0 else 20.0 * math.log10(gain)
     else:
         return {"status": "error", "error": "gain or gain_db is required"}
     ir = make_ir(project_path, parent_op_id=None)
@@ -351,7 +349,6 @@ def apply_silence_gaps(args: dict, project_path: str) -> dict[str, Any]:
     alignment: list[Any] | None = None
     if snap_to_words or padding_ms:
         from open_edit.storage.assets import list_assets_from_disk
-        from open_edit.storage.paths import ProjectPaths
 
         project_root = ProjectPaths.for_project(project_path).root
         for asset in list_assets_from_disk(project_root):
@@ -374,22 +371,21 @@ def apply_silence_gaps(args: dict, project_path: str) -> dict[str, Any]:
     if not keeps:
         return {"status": "error", "error": "gaps remove the entire clip; refusing"}
 
-    ir = make_ir(project_path, parent_op_id=None)
-    ir._ops.append(
+    ops = [
         RemoveClipOp(
             edit_id=new_id(),
             author="ai",
             parent_id=None,
             clip_id=str(clip_id),
         )
-    )
+    ]
 
     new_ids: list[str] = []
     pos = float(clip.position_sec)
     for inn, outt in keeps:
         nid = new_id()
         new_ids.append(nid)
-        ir._ops.append(
+        ops.append(
             AddClipOp(
                 edit_id=new_id(),
                 author="ai",
@@ -404,7 +400,7 @@ def apply_silence_gaps(args: dict, project_path: str) -> dict[str, Any]:
             )
         )
         pos += float(outt) - float(inn)
-
+    EditGraphStore(ProjectPaths.for_project(project_path).db_path).append_many(ops)
     return {
         "status": "ok",
         "kind": "apply_silence_gaps",
@@ -465,7 +461,6 @@ def auto_color_grade(args: dict, project_path: str) -> dict[str, Any]:
 
     # load_project deliberately keeps assets empty; pull the CAS index here.
     from open_edit.storage.assets import list_assets_from_disk
-    from open_edit.storage.paths import ProjectPaths
 
     project_root = ProjectPaths.for_project(project_path).root
     asset_index = {a.asset_hash: a for a in list_assets_from_disk(project_root)}
@@ -480,7 +475,7 @@ def auto_color_grade(args: dict, project_path: str) -> dict[str, Any]:
     if not targets:
         return {"status": "error", "error": "no matching video clips in timeline"}
 
-    ir = make_ir(project_path, parent_op_id=None)
+    ops = []
     applied: list[dict[str, Any]] = []
     for _track, clip in targets:
         asset = asset_index.get(clip.asset_hash)
@@ -515,7 +510,7 @@ def auto_color_grade(args: dict, project_path: str) -> dict[str, Any]:
             continue  # preset "none" (skip)
 
         effect_id = new_id()
-        ir._ops.append(
+        ops.append(
             AddEffectOp(
                 edit_id=new_id(),
                 author="ai",
@@ -535,4 +530,5 @@ def auto_color_grade(args: dict, project_path: str) -> dict[str, Any]:
 
     if not applied:
         return {"status": "error", "error": "no gradeable clips found (missing asset paths)"}
+    EditGraphStore(ProjectPaths.for_project(project_path).db_path).append_many(ops)
     return {"status": "ok", "kind": "auto_color_grade", "applied": applied, "preset": preset}

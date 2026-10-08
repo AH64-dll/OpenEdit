@@ -70,9 +70,10 @@ The overlay engine is **HyperFrames** (HTML/CSS/JS motion graphics, pinned
 `hyperframes@0.7.65` in `package.json`) — it ships inside the repo, so
 `npm install` inside the clone is all that is needed. Remotion is legacy.
 
-On Windows, `run_script` defaults to unsandboxed `dev` mode. Moviepy
-`generate_visual_for_segment` is unsupported on Windows. The Rust bwrap
-sandbox is **not** shipped in this repo.
+`run_script` and MoviePy graphics execute in Python subprocesses on all platforms.
+They inherit the MCP server account permissions; timeouts and edit validation
+remain enabled. No Rust executables, Bubblewrap, or backend environment flags
+are required. Only run the MCP server for agents you trust.
 
 **Same codebase for Linux and Windows.** Platform-specific behavior is gated
 in code (not separate trees):
@@ -81,7 +82,7 @@ in code (not separate trees):
 |---|---|---|
 | Remotion alpha overlays | WebM / VP8 (`libvpx`) | ProRes 4444 (WebM alpha is unreliable) |
 | Remotion CLI | `node_modules/.bin/remotion` | prefers `remotion.cmd` + `shell` spawn |
-| Sandbox default | `bwrap` when available | `dev` subprocess |
+| Script execution | Python subprocess | Python subprocess |
 | GPU encode | NVENC / VAAPI / QSV when present | NVENC / AMF / QSV when present |
 | Render runtime | installers check ffmpeg/melt/chrome, auto-install Node + npm deps | installers check ffmpeg/melt/chrome, auto-install Node + npm deps |
 
@@ -117,14 +118,14 @@ cd C:\OpenEdit
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -e ".[mcp]"
+pip install -e .
 ```
 
 Optional:
 
 ```bash
-pip install -e ".[mcp,serve]"     # review UI
-pip install -e ".[mcp,whisper]"   # local transcription
+pip install -e ".[serve]"         # optional built-in Anthropic chat
+pip install -e ".[whisper]"   # local transcription
 ```
 
 ### Windows (PowerShell)
@@ -133,7 +134,7 @@ pip install -e ".[mcp,whisper]"   # local transcription
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-pip install -e ".[mcp]"
+pip install -e .
 ```
 
 If activation is blocked:
@@ -222,7 +223,6 @@ Tools: `query_project`, `edit_project`, `run_script`, `trigger_render`,
 
 ```bash
 source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
-pip install -e ".[mcp,serve]"
 open_edit serve --review-only --port 8000
 ```
 
@@ -246,8 +246,8 @@ Open `http://127.0.0.1:8000` and select the same project.
 cd OpenEdit
 git pull
 source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
-pip install -e ".[mcp]"
-npm install --no-audit --no-fund   # refresh the HyperFrames overlay engine deps
+pip install -e .
+npm ci --no-audit --no-fund   # refresh the HyperFrames overlay engine deps
 ```
 
 Reload MCP in Cursor.

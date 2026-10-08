@@ -14,31 +14,27 @@ This module pins down the v1.4 contract: REST errors come back as
 as a WS ``error`` event with a clean, actionable message (no
 ``"LLM stream error: "`` prefix).
 """
-from __future__ import annotations
 
-from types import SimpleNamespace
+from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
 import types
 from pathlib import Path
-from typing import Any, AsyncIterator
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
 
+from open_edit.serve import agent as agent_mod
+from open_edit.serve import app as app_mod
+from open_edit.serve import projects as projects_mod
+from open_edit.serve.llm import StreamEvent
+
 _THIS_DIR = Path(__file__).resolve()
 _REPO_ROOT = _THIS_DIR.parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from open_edit.serve import app as app_mod  # noqa: E402
-from open_edit.serve import agent as agent_mod  # noqa: E402
-from open_edit.serve import projects as projects_mod  # noqa: E402
-from open_edit.serve.llm import StreamEvent  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +58,9 @@ def seeded_project(projects_root_tmp, tmp_path):
     """
     proj = projects_root_tmp / "p1"
     proj.mkdir()
-    from open_edit.cli import cmd_init
     import argparse
+
+    from open_edit.cli import cmd_init
     cmd_init(argparse.Namespace(folder=str(proj)))
     project_id = projects_mod._project_id_from_path(proj.resolve())
     return proj, project_id
@@ -240,7 +237,7 @@ async def test_llm_stream_openai_surfaces_clean_error(
         monkeypatch.setitem(sys.modules, "openai", fake_openai)
     else:
         # Ensure the real openai (if installed) isn't picked up.
-        monkeypatch.delitem(sys.modules, "openai", raising=False)
+        monkeypatch.setitem(sys.modules, "openai", None)
     events: list[StreamEvent] = []
     async for ev in agent_mod.stream_chat(
         messages=[{"role": "user", "content": "hi"}],
@@ -297,6 +294,7 @@ def test_cli_init_warns_when_folder_not_under_projects_root(
     (folder == root) and the "init somewhere else" case.
     """
     import argparse
+
     from open_edit.cli import cmd_init
 
     # The user runs `open_edit init /tmp/somewhere_else` (NOT under
@@ -319,6 +317,7 @@ def test_cli_init_silent_when_folder_is_under_projects_root(
     CLI does NOT print the warning on stderr — only a confirmation on
     stdout."""
     import argparse
+
     from open_edit.cli import cmd_init
 
     proj = projects_root_tmp / "good-project"
@@ -388,8 +387,9 @@ def test_unhandled_exception_handler_does_not_swallow_websocket_disconnect(
     response is meaningless for a WS, and printing a traceback makes
     real failures hard to spot).
     """
-    from fastapi import WebSocketDisconnect
     import traceback as _traceback
+
+    from fastapi import WebSocketDisconnect
 
     handler = app_mod.app.exception_handlers[Exception]
 
@@ -422,3 +422,6 @@ def test_unhandled_exception_handler_still_handles_regular_exceptions(
     import json as _json
     body = _json.loads(response.body)
     assert body == {"error": "internal server error"}
+
+
+pytestmark = pytest.mark.agent_ui

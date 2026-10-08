@@ -27,7 +27,7 @@ def test_run_migrations_applies_initial():
     assert final == CURRENT_VERSION
     assert final == 5
     assert current_version(conn) == final
-    assert EXPECTED_TABLES <= _tables(conn)
+    assert _tables(conn) >= EXPECTED_TABLES
 
 
 def test_run_migrations_is_idempotent():
@@ -43,7 +43,7 @@ def test_ensure_schema_creates_all_tables():
     conn = sqlite3.connect(":memory:")
     version = ensure_schema(conn)
     assert version == CURRENT_VERSION
-    assert EXPECTED_TABLES <= _tables(conn)
+    assert _tables(conn) >= EXPECTED_TABLES
 
 
 def test_ensure_schema_idempotent_across_reopen(tmp_path):
@@ -55,5 +55,5 @@ def test_ensure_schema_idempotent_across_reopen(tmp_path):
     conn2 = sqlite3.connect(str(db))
     version = ensure_schema(conn2)
     assert version == CURRENT_VERSION
-    assert EXPECTED_TABLES <= _tables(conn2)
+    assert _tables(conn2) >= EXPECTED_TABLES
     conn2.close()

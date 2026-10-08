@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from open_edit.ir.types import AddClipOp, RemoveClipOp
+from open_edit.ir.types import AddClipOp
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.migrations import CURRENT_VERSION
 

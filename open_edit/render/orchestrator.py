@@ -12,7 +12,6 @@ structured RenderResult.
 """
 from __future__ import annotations
 
-import dataclasses
 import logging
 import math
 import os
@@ -21,14 +20,16 @@ import subprocess
 import time
 from collections.abc import Collection, Mapping
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-log = logging.getLogger(__name__)
-
 from open_edit.ir.types import Project
 from open_edit.render.cache import RenderCache, canonical_json_hash, render_cache_key
+from open_edit.render.cuda_fastpath import (
+    run_cuda_fastpath,
+    timeline_supports_cuda_fastpath,
+)
 from open_edit.render.diagnostics import (
     CANONICAL_STAGE_NAMES,
     LEGACY_STAGE_ALIASES,
@@ -37,6 +38,11 @@ from open_edit.render.diagnostics import (
 )
 from open_edit.render.emitter import EmitterConfig, emit_timeline
 from open_edit.render.encoder import resolve_backend
+from open_edit.render.hyperframes import (
+    HyperFramesRenderError,
+    hyperframes_reference_fingerprint,
+    materialize_hyperframes_overlays,
+)
 from open_edit.render.materialize import (
     MaterializeReport,
     RemotionMaterializeError,
@@ -44,16 +50,7 @@ from open_edit.render.materialize import (
     materialization_manifest_path,
     materialize_remotion_compositions,
 )
-from open_edit.render.hyperframes import (
-    HyperFramesRenderError,
-    hyperframes_reference_fingerprint,
-    materialize_hyperframes_overlays,
-)
 from open_edit.render.melt_runner import PipeRunError, run_pipe
-from open_edit.render.cuda_fastpath import (
-    run_cuda_fastpath,
-    timeline_supports_cuda_fastpath,
-)
 from open_edit.render.pipe_builder import OverlayClip, build_pipe_commands
 from open_edit.render.profiles import (
     RenderProfile,
@@ -84,6 +81,8 @@ from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 from open_edit.storage.timeline_cache import derive_or_load_timeline
 
+log = logging.getLogger(__name__)
+
 
 class RenderResult(BaseModel):
     """Outcome of a render operation."""
@@ -96,13 +95,13 @@ class RenderResult(BaseModel):
     cache_hit: bool = False
     edit_graph_hash: str = ""
     diagnostics: dict = Field(default_factory=dict)
-    error: Optional[str] = None
+    error: str | None = None
 
 
 def _contractualize_diagnostics(
     mode: str,
     profile: RenderProfile,
-    diagnostics: Optional[dict] = None,
+    diagnostics: dict | None = None,
 ) -> dict:
     """Normalize stage entries while retaining the pre-M0 names."""
     result = dict(diagnostics or {})
@@ -194,9 +193,7 @@ def encode_audio_aac_cache(
             ],
             capture_output=True, text=True, timeout=timeout_s,
         )
-        if proc.returncode != 0 or not aac_path.is_file():
-            return False
-        return True
+        return not (proc.returncode != 0 or not aac_path.is_file())
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -371,7 +368,6 @@ def _gpu_decode_available() -> bool:
         mlt.write_text(probe_mlt)
 
         def _run_cuda(enabled: bool) -> tuple[int, float]:
-            xml = mlt if enabled else None
             args = (
                 [melt_bin, str(mlt)]
                 if enabled
@@ -402,14 +398,14 @@ def render_project(
     project_dir: Path,
     workdir: Path,
     mode: Literal["proxy", "final"] = "proxy",
-    profile_name: Optional[str] = None,
-    quality: Optional[str] = None,
-    overrides: Optional[dict] = None,
+    profile_name: str | None = None,
+    quality: str | None = None,
+    overrides: dict | None = None,
     force: bool = False,
     force_remotion: bool = False,
     remotion_uids: Collection[str] = (),
     nice_level: int = 10,
-    encoder_backend: Optional[str] = None,
+    encoder_backend: str | None = None,
     emission_profile: EmissionProfile | None = None,
 ) -> RenderResult:
     """Render a project to an MP4.
@@ -432,18 +428,6 @@ def render_project(
 
     profile = profile_with_quality(profile_name, mode, quality, overrides)
     recorder = StageRecorder()
-    melt_bin = shutil.which("melt")
-    if melt_bin is None:
-        return RenderResult(
-            ok=False,
-            profile=profile.model_dump(),
-            mode=mode,
-            error="melt not on PATH",
-            diagnostics=_contractualize_diagnostics(
-                mode, profile, {"stages": recorder.stages},
-            ),
-        )
-
     project_path = project_dir / ".open_edit" / "edit_graph.db"
     store = EditGraphStore(project_path)
     ops = store.load_all()
@@ -455,6 +439,18 @@ def render_project(
             error="empty edit graph; nothing to render",
             profile=profile.model_dump(),
             mode=mode,
+            diagnostics=_contractualize_diagnostics(
+                mode, profile, {"stages": recorder.stages},
+            ),
+        )
+
+    melt_bin = shutil.which("melt")
+    if melt_bin is None:
+        return RenderResult(
+            ok=False,
+            profile=profile.model_dump(),
+            mode=mode,
+            error="melt not on PATH",
             diagnostics=_contractualize_diagnostics(
                 mode, profile, {"stages": recorder.stages},
             ),
@@ -805,10 +801,10 @@ def render_project(
             ),
         }
     materialized_bytes = sum(
-        getattr(ov, "media_path").stat().st_size
+        ov.media_path.stat().st_size
         for ov in plan.overlay_clips
         if getattr(ov, "media_path", None) is not None
-        and getattr(ov, "media_path").is_file()
+        and ov.media_path.is_file()
     )
     if not frame_pull_enabled:
         recorder.record(
@@ -1357,10 +1353,10 @@ def _fail(
     elapsed_sec: float,
     graph_hash: str,
     error: str,
-    project_dir: Optional[Path] = None,
-    project_id: Optional[str] = None,
+    project_dir: Path | None = None,
+    project_id: str | None = None,
     record_failed_snapshot: bool = False,
-    diagnostics: Optional[dict] = None,
+    diagnostics: dict | None = None,
 ) -> RenderResult:
     """Single failure path: produce the failure RenderResult.
 

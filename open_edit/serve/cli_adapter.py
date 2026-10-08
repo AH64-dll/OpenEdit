@@ -1,50 +1,14 @@
-"""v1.7 — CLI adapter interface.
-
-A ``CLIAdapter`` is a thin facade over a single CLI LLM backend
-(``pi``, ``opencode``, ``antigravity``, ``jcode``). The interface is
-deliberately minimal — every method exists because a real provider
-difference required it (see the design spec, §3).
-
-Adapters register themselves via ``_ADAPTERS`` and are looked up by
-``get_adapter(name)``. This is a plain dict, not a factory or DI
-container; adding a third CLI is one import + one entry.
-
-Per-adapter event normalization (v1.9, task 5.3)
-------------------------------------------------
-The generic CLI driver feeds raw stdout lines to
-``adapter.stream_events()`` (default: one line at a time through
-``adapter.normalize_event(line)``).  Provider-specific output shapes
-that used to be per-provider name branches in the driver now live
-here:
-
-- ``pi``          — JSON-lines; each line maps to 0..n events via the
-                    shared ``_pi_normalize_event`` helper.
-- ``opencode``    — JSON-lines; delegates to ``normalize_opencode_line``.
-- ``antigravity`` — plain text; each line is one ``text_delta``.
-- ``jcode``       — a single JSON blob on stdout (not line-streamed);
-                    overrides ``stream_events`` to accumulate.
-
-``defers_done`` — the pi adapter defers the terminal ``done`` to its
-caller (the cost-extraction wrapper); the driver must not emit one.
-``check_exit_status`` — pi surfaces non-zero exits via stderr; the
-other adapters own their terminal semantics and early-returned before
-the driver's exit check, so they keep that behaviour (no exit check).
-"""
+"""Optional CLI chat adapters. External editing harnesses use the MCP server."""
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import time
 from collections.abc import AsyncIterator
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from .opencode_adapter import normalize_opencode_line
-
-if TYPE_CHECKING:
-    from .llm.events import StreamEvent
 
 
 @runtime_checkable
@@ -53,7 +17,6 @@ class CLIAdapter(Protocol):
 
     name: str
     default_timeout_s: int
-    defers_done: bool
     check_exit_status: bool
 
     def default_model(self) -> str: ...
@@ -61,13 +24,11 @@ class CLIAdapter(Protocol):
     def supports_tools(self) -> bool: ...
     def supports_images(self) -> bool: ...
     def manages_own_auth(self) -> bool: ...
-    def extension_path(self) -> str | None: ...
     def build_command(
         self,
         model: str,
         user_text: str,
         session_id: str,
-        extension_path: str | None,
         system_prompt: str,
         project_path: str | None = None,
     ) -> list[str]: ...
@@ -87,7 +48,6 @@ class _BaseCLIAdapter:
     event normalization, auth).
     """
 
-    defers_done = False
     check_exit_status = False
 
     def _spec(self):
@@ -106,8 +66,6 @@ class _BaseCLIAdapter:
     def supports_images(self) -> bool:
         return self._spec().supports_images
 
-    def extension_path(self) -> str | None:
-        return None
 
     def normalize_event(self, line: str) -> list[dict[str, Any]]:
         return []
@@ -118,7 +76,7 @@ class _BaseCLIAdapter:
     ) -> AsyncIterator[dict[str, Any]]:
         """Default: decode each stdout line and map it via ``normalize_event``.
 
-        Lines are NOT stripped — adapters that care (pi, opencode) strip
+        Lines are NOT stripped — adapters that care (opencode) strip
         themselves; antigravity preserves the raw line (incl. newline)
         exactly as the pre-refactor driver yielded it.
         """
@@ -129,19 +87,8 @@ class _BaseCLIAdapter:
 
 # --- provider-specific helpers -----------------------------------------
 
-def _pi_binary() -> str:
-    return os.environ.get("OPEN_EDIT_PI_BINARY", "").strip() or shutil.which("pi") or "pi"
 
 
-def _pi_extension_path() -> str:
-    """Default: <open_edit>/serve/pi_extension/extension.ts"""
-    explicit = os.environ.get("OPEN_EDIT_PI_EXTENSION", "").strip()
-    if explicit:
-        return explicit
-    # This module is at <pkg>/open_edit/serve/cli_adapter.py; the
-    # extension is at <pkg>/open_edit/serve/pi_extension/extension.ts
-    here = Path(__file__).resolve()
-    return str(here.parent / "pi_extension" / "extension.ts")
 
 
 # --- opencode adapter: cheap shell-out to `opencode models` -----------
@@ -189,207 +136,10 @@ def _opencode_models_via_cli() -> list[str]:
 
 # --- adapter implementations ------------------------------------------
 
-class _PiAdapter(_BaseCLIAdapter):
-    name = "pi"
-    default_timeout_s = 3600
-    defers_done = True
-    check_exit_status = True
-
-    def manages_own_auth(self) -> bool:
-        return True  # reads ~/.pi/agent/auth.json
-
-    def extension_path(self) -> str | None:
-        return _pi_extension_path()
-
-    def build_command(
-        self,
-        model: str,
-        user_text: str,
-        session_id: str,
-        extension_path: str | None,
-        system_prompt: str,
-        project_path: str | None = None,
-    ) -> list[str]:
-        # Resolve the pi binary the same way the legacy _pi_binary() did:
-        # OPEN_EDIT_PI_BINARY env var (absolute path) wins; otherwise
-        # fall back to PATH lookup; otherwise just "pi" (which will
-        # surface a FileNotFoundError in _stream_cli if missing).
-        pi_bin = _pi_binary()
-        cmd = [
-            pi_bin,
-            "--provider", "opencode-go",
-            "--model", model,
-            "--mode", "json",
-            "--no-extensions",
-            "--print", user_text,
-            "--append-system-prompt", system_prompt,
-        ]
-        cmd += ["--session-id", session_id]
-        if extension_path:
-            # Insert --extension after --no-extensions so the user's
-            # extension wins over any default.
-            cmd[cmd.index("--no-extensions") + 1:cmd.index("--no-extensions") + 1] = [
-                "--extension", extension_path,
-            ]
-        return cmd
-
-    def normalize_event(self, line: str) -> list[dict[str, Any]]:
-        """Map one raw pi stdout line to 0..n StreamEvents.
-
-        JSON-lines input: decode + parse, then run the shared
-        ``_pi_normalize_event`` object normalizer. ``done`` events are
-        suppressed here — the pi cost wrapper owns the terminal ``done``
-        (it must come after the ``usage`` event).
-        """
-        line = line.strip()
-        if not line:
-            return []
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            return []
-        if not isinstance(obj, dict):
-            return []
-        return [
-            ev for ev in _normalize_pi_object(obj)
-            if ev.get("type") != "done"
-        ]
 
 
-def _normalize_pi_object(obj: dict[str, Any]) -> list[dict[str, Any]]:
-    """Map one parsed pi JSON event to one or more of our StreamEvent dicts.
-
-    Pi's event types we care about:
-    - ``message_update`` with ``assistantMessageEvent.type=text_delta`` and
-      ``delta: "..."`` → emit a ``text_delta``.
-    - ``message_end`` with ``role=assistant`` and ``content[*].type=toolCall``
-      → emit a ``tool_use`` (accumulated; tool name + id + parsed args).
-    - ``message_end`` with ``role=toolResult`` → emit a ``tool_result``
-      with the tool's output (we do NOT re-execute the tool; the pi
-      extension already ran it via the bridge).
-    - ``turn_end`` → caller derives ``done`` from the absence of tool_use.
-    - ``agent_end`` → already accounted for by the done emit.
-    - ``error`` → emit ``error``.
-
-    Tool inputs are emitted as already-parsed dicts (pi may emit the
-    arguments as a JSON string; we parse defensively).
-    """
-    et = obj.get("type")
-    if et == "message_update":
-        ame = obj.get("assistantMessageEvent") or {}
-        if ame.get("type") == "text_delta":
-            delta = ame.get("delta") or ""
-            if delta:
-                return [{"type": "text_delta", "text": delta}]
-        return []
-    if et == "message_end":
-        msg = obj.get("message") or {}
-        role = msg.get("role")
-        content = msg.get("content") or []
-        if not isinstance(content, list):
-            return []
-
-        # toolResult message: pi has already run the tool (via the
-        # extension), so we just forward the result to the agent loop.
-        if role == "toolResult":
-            tool_name = msg.get("toolName", "")
-            tool_call_id = msg.get("toolCallId", "")
-            is_error = bool(msg.get("isError"))
-            # The result content is typically a list of {type:"text", text:"..."}
-            # blocks; the first one is the JSON the bridge emitted.
-            result_text = ""
-            if content and isinstance(content[0], dict):
-                result_text = content[0].get("text", "")
-            # Parse the JSON if possible.
-            try:
-                parsed_result = json.loads(result_text) if result_text else {}
-            except json.JSONDecodeError:
-                parsed_result = {"raw": result_text}
-            if is_error:
-                err_msg = (
-                    parsed_result.get("error", "unknown")
-                    if isinstance(parsed_result, dict) else str(parsed_result)
-                )
-                return [{
-                    "type": "tool_result",
-                    "name": tool_name,
-                    "result": parsed_result if isinstance(parsed_result, dict) else {"value": parsed_result},
-                    "is_error": True,
-                    "tool_use_id": tool_call_id,
-                    "error_message": err_msg,
-                }]
-            return [{
-                "type": "tool_result",
-                "name": tool_name,
-                "result": parsed_result,
-                "tool_use_id": tool_call_id,
-            }]
-
-        if role != "assistant":
-            return []
-
-        # Surface provider-level errors (429 rate limits, auth failures,
-        # model unavailability, etc.). Pi emits these as message_end
-        # events with stopReason="error" and an errorMessage string —
-        # but with an empty content array, so without this check the
-        # error is silently swallowed and the user sees no response.
-        if msg.get("stopReason") == "error" and msg.get("errorMessage"):
-            err = msg["errorMessage"]
-            # Try to extract a human-readable message from the JSON
-            # error body that opencode-go returns (e.g. "429 {...}").
-            try:
-                # Strip the leading HTTP status code if present
-                if err[:4].strip().isdigit():
-                    err_json = json.loads(err.split(" ", 1)[1])
-                    err = (
-                        err_json.get("error", {}).get("message", "")
-                        or err_json.get("message", "")
-                        or err
-                    )
-            except (json.JSONDecodeError, IndexError, KeyError, TypeError):
-                pass  # use the raw errorMessage string
-            return [{"type": "error", "message": f"LLM provider error: {err}"}]
-
-        out: list[dict[str, Any]] = []
-        for blk in content:
-            if not isinstance(blk, dict):
-                continue
-            btype = blk.get("type")
-            if btype == "toolCall":
-                raw_args = blk.get("arguments", {})
-                if isinstance(raw_args, str):
-                    try:
-                        raw_args = json.loads(raw_args)
-                    except json.JSONDecodeError:
-                        raw_args = {"_raw": raw_args}
-                out.append({
-                    "type": "tool_use",
-                    "id": blk.get("id", ""),
-                    "name": blk.get("name", ""),
-                    "input": raw_args if isinstance(raw_args, dict) else {"value": raw_args},
-                })
-            elif btype == "text":
-                # Final text is also delivered via message_end; we
-                # already streamed the deltas, so we skip here to avoid
-                # duplicating the text in the UI.
-                pass
-        # If there was a toolCall, the assistant didn't return end_turn.
-        # The agent loop sees a tool_use and continues; we DON'T emit
-        # done here — the agent loop's logic handles stop_reason.
-        return out
-    if et == "error":
-        return [{"type": "error", "message": str(obj.get("error", "pi error"))}]
-    return []
 
 
-def _pi_normalize_event(obj: dict[str, Any]) -> list[dict[str, Any]]:
-    """Compat: normalize one parsed pi JSON object (dict → events).
-
-    Kept as a module-level function so existing callers (and the pi
-    event-mapping tests) don't need an adapter instance.  The
-    ``_PiAdapter.normalize_event`` line parser delegates here.
-    """
-    return _normalize_pi_object(obj)
 
 
 class _OpenCodeAdapter(_BaseCLIAdapter):
@@ -408,7 +158,6 @@ class _OpenCodeAdapter(_BaseCLIAdapter):
         model: str,
         user_text: str,
         session_id: str,
-        extension_path: str | None,
         system_prompt: str,
         project_path: str | None = None,
     ) -> list[str]:
@@ -425,9 +174,6 @@ class _OpenCodeAdapter(_BaseCLIAdapter):
             "--model", model,
             full_message,
         ]
-        if extension_path:
-            cmd.insert(cmd.index(full_message), "--extension")
-            cmd.insert(cmd.index("--extension") + 1, extension_path)
         return cmd
 
     def normalize_event(self, line: str) -> list[dict[str, Any]]:
@@ -459,7 +205,6 @@ class _JCodeAdapter(_BaseCLIAdapter):
         model: str,
         user_text: str,
         session_id: str,
-        extension_path: str | None,
         system_prompt: str,
         project_path: str | None = None,
     ) -> list[str]:
@@ -541,7 +286,6 @@ class _AntigravityAdapter(_BaseCLIAdapter):
         model: str,
         user_text: str,
         session_id: str,
-        extension_path: str | None,
         system_prompt: str,
         project_path: str | None = None,
     ) -> list[str]:
@@ -564,7 +308,6 @@ class _AntigravityAdapter(_BaseCLIAdapter):
 _ADAPTERS: dict[str, CLIAdapter] = {
     "anthropic": _AnthropicAdapter(),
     "openai": _OpenAIAdapter(),
-    "pi": _PiAdapter(),
     "opencode": _OpenCodeAdapter(),
     "jcode": _JCodeAdapter(),
     "antigravity": _AntigravityAdapter(),

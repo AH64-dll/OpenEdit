@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -175,7 +176,8 @@ def _record_failure(
     profile: SourceProxyProfile,
     error: str,
 ) -> None:
-    try:
+    # Keep the original render error if the sidecar is missing or corrupt.
+    with suppress(Exception):
         store.update_proxy_metadata(
             asset_hash,
             proxy_hash=None,
@@ -183,10 +185,6 @@ def _record_failure(
             status="failed",
             error=error,
         )
-    except Exception:
-        # The original generation error is more useful than a sidecar write
-        # error, and a missing/corrupt asset may not have a sidecar to update.
-        pass
 
 
 def generate_asset_proxy(

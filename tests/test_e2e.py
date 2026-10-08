@@ -10,12 +10,15 @@ import pytest
 
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import (
-    AddClipOp, AddEffectOp, AddTransitionOp, Project, RemoveClipOp, SetKeyframeOp,
+    AddClipOp,
+    AddEffectOp,
+    AddTransitionOp,
+    Project,
+    SetKeyframeOp,
 )
 from open_edit.ir.validate import validate_op
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
-
 
 TESTDATA = Path(__file__).parent / "testdata" / "raw_videos"
 
@@ -140,7 +143,7 @@ def test_e2e_ingest_add_three_clips_two_transitions_undo(tmp_path: Path) -> None
 def test_e2e_remove_unknown_clip_is_no_op(tmp_path: Path) -> None:
     """Removing a clip that was never added is a no-op (validate allows it)."""
     db_path = tmp_path / "edit_graph.db"
-    graph = EditGraphStore(db_path)
+    EditGraphStore(db_path)
     project = Project(name="e2e")
     op = AddClipOp(
         author="user", asset_hash="x", track_id="v1", position_sec=0.0,

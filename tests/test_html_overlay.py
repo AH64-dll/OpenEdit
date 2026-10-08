@@ -5,7 +5,7 @@ all of them in groups):
   * `generate_composition_html` — pure HTML generation, gotchas, template
   * `render_overlay_layer` + `composite_with_background` — subprocess wrappers
   * `render_composited` — async orchestrator with concurrent bg + overlay
-  * `_resolve_hyperframes_bin` — binary resolution (env var > pinned > npx)
+  * `_resolve_hyperframes_bin` — binary resolution (env var > pinned > PATH)
 
 Plus 1 exception class: `OverlayRenderError(message, bg_path=None)`.
 
@@ -13,30 +13,23 @@ All subprocess calls in the module are mocked in unit tests; only
 test 41 (the integration test, last in the file) actually runs
 hyperframes + ffmpeg, and it's skipped if hyperframes is missing.
 """
+
 from __future__ import annotations
 
 import asyncio
 import inspect
 import logging
-import os
-import shlex
-import shutil
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable
 from unittest import mock
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from open_edit.render import html_overlay
 
-from open_edit.render import html_overlay  # noqa: E402
-from open_edit.serve import serve_env  # noqa: E402
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +42,7 @@ def test_resolve_hyperframes_bin_prefers_pinned_binary(tmp_path, monkeypatch, ca
     pinned.parent.mkdir(parents=True)
     pinned.write_text("#!/bin/sh\necho hyperframes\n")
     pinned.chmod(0o755)
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(html_overlay, "__file__", str(tmp_path / "open_edit" / "render" / "html_overlay.py"))
     monkeypatch.delenv("OPEN_EDIT_HYPERFRAMES_BIN", raising=False)
     with caplog.at_level(logging.WARNING, logger="open_edit.render.html_overlay"):
         bin_path = html_overlay._resolve_hyperframes_bin()
@@ -58,20 +51,20 @@ def test_resolve_hyperframes_bin_prefers_pinned_binary(tmp_path, monkeypatch, ca
                    for r in caplog.records)
 
 
-def test_resolve_hyperframes_bin_falls_back_to_npx_with_warning(tmp_path, monkeypatch, caplog):
-    """No pinned binary → bare `npx hyperframes`, WARNING logged with the prescribed message."""
-    monkeypatch.chdir(tmp_path)  # no node_modules/.bin
+def test_resolve_hyperframes_bin_requires_an_installed_engine(tmp_path, monkeypatch):
+    """Missing dependencies produce an actionable error without downloading code."""
+    monkeypatch.setattr(html_overlay, "__file__", str(tmp_path / "open_edit" / "render" / "html_overlay.py"))
     monkeypatch.delenv("OPEN_EDIT_HYPERFRAMES_BIN", raising=False)
-    with caplog.at_level(logging.WARNING, logger="open_edit.render.html_overlay"):
-        bin_path = html_overlay._resolve_hyperframes_bin()
-    assert bin_path == "npx hyperframes"
-    # Spec §5 mandates the exact WARNING wording.
-    assert any(
-        "hyperframes pinned binary not found" in r.message
-        and "falling back to npx hyperframes" in r.message
-        and "version drift risk" in r.message
-        for r in caplog.records
-    )
+    monkeypatch.setattr(html_overlay.shutil, "which", lambda _: None)
+    with pytest.raises(html_overlay.OverlayRenderError, match="npm ci"):
+        html_overlay._resolve_hyperframes_bin()
+
+
+def test_resolve_hyperframes_bin_uses_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(html_overlay, "__file__", str(tmp_path / "open_edit" / "render" / "html_overlay.py"))
+    monkeypatch.delenv("OPEN_EDIT_HYPERFRAMES_BIN", raising=False)
+    monkeypatch.setattr(html_overlay.shutil, "which", lambda _: "/installed/hyperframes")
+    assert html_overlay._resolve_hyperframes_bin() == "/installed/hyperframes"
 
 
 def test_resolve_hyperframes_bin_respects_env_var_override(tmp_path, monkeypatch):
@@ -406,6 +399,8 @@ def test_render_overlay_layer_uses_argv_list_no_shell(tmp_path):
             ),
         )
     assert popen_mock.call_args.kwargs.get("shell", False) is False
+    assert popen_mock.call_args.kwargs["env"]["HYPERFRAMES_NO_TELEMETRY"] == "1"
+    assert popen_mock.call_args.kwargs["env"]["DO_NOT_TRACK"] == "1"
 
 
 def test_render_overlay_layer_uses_mov_format_not_mp4(tmp_path):
@@ -509,13 +504,15 @@ def test_render_overlay_layer_translates_file_not_found(tmp_path):
     """Test 24: FileNotFoundError → OverlayRenderError."""
     comp_html = tmp_path / "x.html"
     comp_html.write_text("<html></html>")
-    with mock.patch("subprocess.Popen", side_effect=FileNotFoundError("no hyperframes")):
-        with pytest.raises(html_overlay.OverlayRenderError, match="binary not found"):
-            html_overlay.render_overlay_layer(
-                comp_html_path=comp_html,
-                output_path=tmp_path / "out.mov",
-                render_spec=_render_spec(hyperframes_bin="/nope/hyperframes", tmpdir=tmp_path),
-            )
+    with (
+        mock.patch('subprocess.Popen', side_effect=FileNotFoundError('no hyperframes')),
+        pytest.raises(html_overlay.OverlayRenderError, match='binary not found'),
+    ):
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=tmp_path / "out.mov",
+            render_spec=_render_spec(hyperframes_bin="/nope/hyperframes", tmpdir=tmp_path),
+        )
 
 
 def test_render_overlay_layer_translates_timeout(tmp_path):
@@ -523,13 +520,15 @@ def test_render_overlay_layer_translates_timeout(tmp_path):
     comp_html = tmp_path / "x.html"
     comp_html.write_text("<html></html>")
     popen_inst = _make_popen_mock(communicate_side_effect=subprocess.TimeoutExpired(cmd="hf", timeout=5))
-    with mock.patch("subprocess.Popen", return_value=popen_inst):
-        with pytest.raises(html_overlay.OverlayRenderError, match="timed out"):
-            html_overlay.render_overlay_layer(
-                comp_html_path=comp_html,
-                output_path=tmp_path / "out.mov",
-                render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path, hyperframes_timeout_s=5),
-            )
+    with (
+        mock.patch('subprocess.Popen', return_value=popen_inst),
+        pytest.raises(html_overlay.OverlayRenderError, match='timed out'),
+    ):
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=tmp_path / "out.mov",
+            render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path, hyperframes_timeout_s=5),
+        )
 
 
 def test_render_overlay_layer_translates_nonzero_exit(tmp_path):
@@ -537,13 +536,15 @@ def test_render_overlay_layer_translates_nonzero_exit(tmp_path):
     comp_html = tmp_path / "x.html"
     comp_html.write_text("<html></html>")
     popen_inst = _make_popen_mock(returncode=1, stderr="lint error: bad HTML")
-    with mock.patch("subprocess.Popen", return_value=popen_inst):
-        with pytest.raises(html_overlay.OverlayRenderError, match="non-zero exit"):
-            html_overlay.render_overlay_layer(
-                comp_html_path=comp_html,
-                output_path=tmp_path / "out.mov",
-                render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path),
-            )
+    with (
+        mock.patch('subprocess.Popen', return_value=popen_inst),
+        pytest.raises(html_overlay.OverlayRenderError, match='non-zero exit'),
+    ):
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=tmp_path / "out.mov",
+            render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path),
+        )
 
 
 def test_render_overlay_layer_rejects_missing_output_file(tmp_path):
@@ -553,13 +554,15 @@ def test_render_overlay_layer_rejects_missing_output_file(tmp_path):
     out = tmp_path / "out.mov"
     # Do not create `out`; it is missing.
     popen_inst = _make_popen_mock(returncode=0)
-    with mock.patch("subprocess.Popen", return_value=popen_inst):
-        with pytest.raises(html_overlay.OverlayRenderError, match="output file is missing or empty"):
-            html_overlay.render_overlay_layer(
-                comp_html_path=comp_html,
-                output_path=out,
-                render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path),
-            )
+    with (
+        mock.patch('subprocess.Popen', return_value=popen_inst),
+        pytest.raises(html_overlay.OverlayRenderError, match='output file is missing or empty'),
+    ):
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=out,
+            render_spec=_render_spec(hyperframes_bin="/usr/local/bin/hyperframes", tmpdir=tmp_path),
+        )
 
 
 class _SlowPopen:
@@ -599,18 +602,20 @@ def test_render_overlay_layer_cancellation_kills_subprocess(tmp_path):
         cancel_flag["cancel"] = True
 
     threading.Thread(target=trigger_cancel).start()
-    with mock.patch("subprocess.Popen", side_effect=lambda cmd, **kw: _SlowPopen(cmd)):
-        with pytest.raises(html_overlay.OverlayRenderError, match="cancelled during overlay render"):
-            html_overlay.render_overlay_layer(
-                comp_html_path=comp_html,
-                output_path=out,
-                render_spec=_render_spec(
-                    hyperframes_bin="/usr/local/bin/hyperframes",
-                    tmpdir=tmp_path,
-                    hyperframes_timeout_s=10,
-                ),
-                should_cancel=should_cancel,
-            )
+    with (
+        mock.patch('subprocess.Popen', side_effect=lambda cmd, **kw: _SlowPopen(cmd)),
+        pytest.raises(html_overlay.OverlayRenderError, match='cancelled during overlay render'),
+    ):
+        html_overlay.render_overlay_layer(
+            comp_html_path=comp_html,
+            output_path=out,
+            render_spec=_render_spec(
+                hyperframes_bin="/usr/local/bin/hyperframes",
+                tmpdir=tmp_path,
+                hyperframes_timeout_s=10,
+            ),
+            should_cancel=should_cancel,
+        )
 
 
 def test_composite_with_background_cancellation_kills_subprocess(tmp_path):
@@ -629,13 +634,15 @@ def test_composite_with_background_cancellation_kills_subprocess(tmp_path):
         cancel_flag["cancel"] = True
 
     threading.Thread(target=trigger_cancel).start()
-    with mock.patch("subprocess.Popen", side_effect=lambda cmd, **kw: _SlowPopen(cmd)):
-        with pytest.raises(html_overlay.OverlayRenderError, match="cancelled during ffmpeg composite"):
-            html_overlay.composite_with_background(
-                bg_path=bg, overlay_path=overlay, output_path=out,
-                render_spec=_render_spec(hyperframes_timeout_s=10),
-                should_cancel=should_cancel,
-            )
+    with (
+        mock.patch('subprocess.Popen', side_effect=lambda cmd, **kw: _SlowPopen(cmd)),
+        pytest.raises(html_overlay.OverlayRenderError, match='cancelled during ffmpeg composite'),
+    ):
+        html_overlay.composite_with_background(
+            bg_path=bg, overlay_path=overlay, output_path=out,
+            render_spec=_render_spec(hyperframes_timeout_s=10),
+            should_cancel=should_cancel,
+        )
 
 
 def test_composite_with_background_uses_explicit_audio_map(tmp_path):
@@ -657,7 +664,7 @@ def test_composite_with_background_uses_explicit_audio_map(tmp_path):
     assert "-map" in argv
     map_indices = [i for i, a in enumerate(argv) if a == "-map"]
     assert len(map_indices) >= 2
-    assert argv[map_indices[0] + 1] == "0:a"
+    assert argv[map_indices[0] + 1] == "0:a?"
     assert argv[map_indices[1] + 1] == "[outv]"
     assert "-c:a" in argv
     ca_idx = argv.index("-c:a")
@@ -688,12 +695,14 @@ def test_composite_with_background_translates_ffmpeg_errors(tmp_path):
     overlay = tmp_path / "overlay.mov"
     out = tmp_path / "final.mp4"
     popen_inst = _make_popen_mock(returncode=1, stderr="ffmpeg: Invalid data found")
-    with mock.patch("subprocess.Popen", return_value=popen_inst):
-        with pytest.raises(html_overlay.OverlayRenderError, match="ffmpeg failed"):
-            html_overlay.composite_with_background(
-                bg_path=bg, overlay_path=overlay, output_path=out,
-                render_spec=_render_spec(),
-            )
+    with (
+        mock.patch('subprocess.Popen', return_value=popen_inst),
+        pytest.raises(html_overlay.OverlayRenderError, match='ffmpeg failed'),
+    ):
+        html_overlay.composite_with_background(
+            bg_path=bg, overlay_path=overlay, output_path=out,
+            render_spec=_render_spec(),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -703,7 +712,7 @@ def test_composite_with_background_translates_ffmpeg_errors(tmp_path):
 def test_disk_footprint_preflight_warns_at_500mb(tmp_path, caplog):
     """Test 33: 600 MB estimate → WARNING logged, render proceeds (no exception)."""
     # 600s of overlay at 1 MB/s = 600 MB. Use a single overlay spanning 10 minutes.
-    timeline = _timeline([_overlay(position_sec=0, duration_sec=600.0)])
+    _timeline([_overlay(position_sec=0, duration_sec=600.0)])
     import logging
     with caplog.at_level(logging.WARNING, logger="open_edit.render.html_overlay"):
         html_overlay._disk_footprint_check(estimated_mb=600, tmpdir=tmp_path)
@@ -843,14 +852,16 @@ def test_render_composited_cleans_up_composition_html_on_failure(tmp_path):
         # Make the hyperframes call fail.
         return _FakePopen(cmd, returncode=1, stderr="lint fail")
 
-    with mock.patch("subprocess.Popen", side_effect=fake_popen):
-        with pytest.raises(html_overlay.OverlayRenderError):
-            asyncio.run(html_overlay.render_composited(
-                timeline=timeline,
-                project_workdir=project_dir,
-                render_spec=_render_spec(hyperframes_bin="hyperframes", tmpdir=project_dir),
-                bg_renderer=bg_renderer,
-            ))
+    with (
+        mock.patch('subprocess.Popen', side_effect=fake_popen),
+        pytest.raises(html_overlay.OverlayRenderError),
+    ):
+        asyncio.run(html_overlay.render_composited(
+            timeline=timeline,
+            project_workdir=project_dir,
+            render_spec=_render_spec(hyperframes_bin="hyperframes", tmpdir=project_dir),
+            bg_renderer=bg_renderer,
+        ))
     # Even on failure, the temp composition HTML and overlay.mov are unlinked.
     assert not (project_dir / "overlay.html").exists()
 
@@ -897,15 +908,17 @@ def test_render_composited_raises_overlay_render_error_on_subprocess_failure(tmp
         # The second call is hyperframes — make it fail.
         return _FakePopen(cmd, returncode=1, stderr="hyperframes crash")
 
-    with mock.patch("subprocess.Popen", side_effect=fake_popen):
-        with pytest.raises(html_overlay.OverlayRenderError) as exc_info:
-            asyncio.run(html_overlay.render_composited(
-                timeline=timeline,
-                project_workdir=project_dir,
-                render_spec=_render_spec(hyperframes_bin="hyperframes", tmpdir=project_dir),
-                bg_renderer=bg_renderer,
-            ))
-    # bg_path is set on the exception so pi_bridge can return it without re-rendering.
+    with (
+        mock.patch('subprocess.Popen', side_effect=fake_popen),
+        pytest.raises(html_overlay.OverlayRenderError) as exc_info,
+    ):
+        asyncio.run(html_overlay.render_composited(
+            timeline=timeline,
+            project_workdir=project_dir,
+            render_spec=_render_spec(hyperframes_bin="hyperframes", tmpdir=project_dir),
+            bg_renderer=bg_renderer,
+        ))
+    # bg_path is set on the exception so the kernel can return it without re-rendering.
     assert exc_info.value.bg_path == bg
 
 
@@ -921,14 +934,16 @@ def test_render_composited_overlay_render_error_carries_bg_path(tmp_path):
         # The first subprocess call is hyperframes. Fail.
         return _FakePopen(cmd, returncode=1, stderr="crashed")
 
-    with mock.patch("subprocess.Popen", side_effect=fake_popen):
-        with pytest.raises(html_overlay.OverlayRenderError) as exc_info:
-            asyncio.run(html_overlay.render_composited(
-                timeline=timeline,
-                project_workdir=project_dir,
-                render_spec=_render_spec(hyperframes_bin="hyperframes", tmpdir=project_dir),
-                bg_renderer=bg_renderer,
-            ))
+    with (
+        mock.patch('subprocess.Popen', side_effect=fake_popen),
+        pytest.raises(html_overlay.OverlayRenderError) as exc_info,
+    ):
+        asyncio.run(html_overlay.render_composited(
+            timeline=timeline,
+            project_workdir=project_dir,
+            render_spec=_render_spec(hyperframes_bin="hyperframes", tmpdir=project_dir),
+            bg_renderer=bg_renderer,
+        ))
     assert exc_info.value.bg_path is not None
     assert exc_info.value.bg_path == bg
 
@@ -947,6 +962,7 @@ _HYPERFRAMES_AVAILABLE = (_REPO_ROOT / "node_modules" / ".bin" / "hyperframes").
     not _HYPERFRAMES_AVAILABLE,
     reason="hyperframes not installed (run 'npm install' at repo root)",
 )
+@pytest.mark.browser
 def test_end_to_end_overlay_composite(tmp_path):
     """Test 41: actually run hyperframes + ffmpeg on a real project. Skipped
     when hyperframes is missing."""
@@ -977,7 +993,7 @@ def test_end_to_end_overlay_composite(tmp_path):
             # First call is the hyperframes render — invoke the real one.
             return real_popen(cmd, **kwargs)
         # Second call is ffmpeg — fake success and write the output file.
-        for i, a in enumerate(cmd):
+        for a in cmd:
             if a == str(bg.with_name("final.mp4")) or a.endswith("final.mp4"):
                 Path(a).write_bytes(b"x" * 1000)
         return _FakePopen(cmd, returncode=0)
@@ -1059,18 +1075,17 @@ def test_render_composited_sibling_failure_raises_overlay_render_error(tmp_path)
     with mock.patch.object(
         html_overlay, "generate_composition_html",
         side_effect=RuntimeError("comp_html_task boom"),
-    ):
-        with pytest.raises(html_overlay.OverlayRenderError) as exc_info:
-            asyncio.run(html_overlay.render_composited(
-                timeline=timeline,
-                project_workdir=project_dir,
-                render_spec=_render_spec(
-                    hyperframes_bin="hyperframes", tmpdir=project_dir,
-                ),
-                bg_renderer=bg_renderer,
-            ))
+    ), pytest.raises(html_overlay.OverlayRenderError) as exc_info:
+        asyncio.run(html_overlay.render_composited(
+            timeline=timeline,
+            project_workdir=project_dir,
+            render_spec=_render_spec(
+                hyperframes_bin="hyperframes", tmpdir=project_dir,
+            ),
+            bg_renderer=bg_renderer,
+        ))
     # bg_renderer was running — its result should be propagated as bg_path on the
-    # exception so pi_bridge can use it for fallback. But since the bg_renderer
+    # exception so the kernel can use it for fallback. But since the bg_renderer
     # mock returns immediately and the exception came from comp_html_task before
     # bg completed, bg_path may be None. Just assert the orchestrator transformed
     # the exception correctly.
@@ -1104,16 +1119,15 @@ def test_render_composited_cancels_bg_when_comp_html_raises(tmp_path):
     with mock.patch.object(
         html_overlay, "generate_composition_html",
         side_effect=ValueError("comp_html boom"),
-    ):
-        with pytest.raises(html_overlay.OverlayRenderError):
-            asyncio.run(html_overlay.render_composited(
-                timeline=timeline,
-                project_workdir=project_dir,
-                render_spec=_render_spec(
-                    hyperframes_bin="hyperframes", tmpdir=project_dir,
-                ),
-                bg_renderer=bg_renderer,
-            ))
+    ), pytest.raises(html_overlay.OverlayRenderError):
+        asyncio.run(html_overlay.render_composited(
+            timeline=timeline,
+            project_workdir=project_dir,
+            render_spec=_render_spec(
+                hyperframes_bin="hyperframes", tmpdir=project_dir,
+            ),
+            bg_renderer=bg_renderer,
+        ))
 
     # bg_renderer was invoked (proving the task was running when comp_html failed).
     assert bg_called.is_set()
@@ -1140,16 +1154,18 @@ def test_render_composited_unlinks_partial_final_mp4_on_failure(tmp_path):
     def fake_popen(cmd, **kwargs):
         return _FakePopen(cmd, side_effect=side_effect)
 
-    with mock.patch("subprocess.Popen", side_effect=fake_popen):
-        with pytest.raises(html_overlay.OverlayRenderError):
-            asyncio.run(html_overlay.render_composited(
-                timeline=timeline,
-                project_workdir=project_dir,
-                render_spec=_render_spec(
-                    hyperframes_bin="hyperframes", tmpdir=project_dir,
-                ),
-                bg_renderer=bg_renderer,
-            ))
+    with (
+        mock.patch('subprocess.Popen', side_effect=fake_popen),
+        pytest.raises(html_overlay.OverlayRenderError),
+    ):
+        asyncio.run(html_overlay.render_composited(
+            timeline=timeline,
+            project_workdir=project_dir,
+            render_spec=_render_spec(
+                hyperframes_bin="hyperframes", tmpdir=project_dir,
+            ),
+            bg_renderer=bg_renderer,
+        ))
 
     # On failure, partial final.mp4 must be cleaned up so it doesn't accumulate
     # in a persistent tmpdir.
@@ -1160,7 +1176,7 @@ def test_render_composited_unlinks_partial_final_mp4_on_failure(tmp_path):
 
 def test_render_composited_preserves_bg_mp4_on_overlay_failure(tmp_path):
     """Persistent tmpdir cleanup: on overlay/subprocess failure, bg.mp4 is preserved
-    (not unlinked) so pi_bridge can return it via OverlayRenderError.bg_path fallback."""
+    (not unlinked) so the kernel can return it via OverlayRenderError.bg_path fallback."""
     timeline = _timeline([_overlay()])
     bg = tmp_path / "bg.mp4"
     bg.write_bytes(b"x" * 100)
@@ -1172,20 +1188,22 @@ def test_render_composited_preserves_bg_mp4_on_overlay_failure(tmp_path):
         # Make hyperframes fail.
         return _FakePopen(cmd, returncode=1, stderr="hyperframes crash")
 
-    with mock.patch("subprocess.Popen", side_effect=fake_popen):
-        with pytest.raises(html_overlay.OverlayRenderError) as exc_info:
-            asyncio.run(html_overlay.render_composited(
-                timeline=timeline,
-                project_workdir=project_dir,
-                render_spec=_render_spec(
-                    hyperframes_bin="hyperframes", tmpdir=project_dir,
-                ),
-                bg_renderer=bg_renderer,
-            ))
+    with (
+        mock.patch('subprocess.Popen', side_effect=fake_popen),
+        pytest.raises(html_overlay.OverlayRenderError) as exc_info,
+    ):
+        asyncio.run(html_overlay.render_composited(
+            timeline=timeline,
+            project_workdir=project_dir,
+            render_spec=_render_spec(
+                hyperframes_bin="hyperframes", tmpdir=project_dir,
+            ),
+            bg_renderer=bg_renderer,
+        ))
 
     # bg.mp4 must be preserved (bg_path is propagated for fallback).
     assert exc_info.value.bg_path == bg
-    assert bg.exists(), f"bg.mp4 was unlinked despite bg_path fallback being set"
+    assert bg.exists(), "bg.mp4 was unlinked despite bg_path fallback being set"
 
 
 # =========================================================================
@@ -1215,8 +1233,8 @@ def test_inline_variables_json_unserializable_raises():
 
 
 def test_generate_composition_html_caption_card_template(tmp_path):
+    from open_edit.ir.types import HtmlOverlay, Timeline
     from open_edit.render.html_overlay import generate_composition_html
-    from open_edit.ir.types import Timeline, HtmlOverlay
 
     timeline = Timeline(
         overlays=[

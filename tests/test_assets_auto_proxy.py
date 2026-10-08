@@ -11,7 +11,6 @@ import pytest
 
 from open_edit.storage.assets import AssetStore, source_proxy_auto_enqueue_enabled
 
-
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
     reason="ffmpeg and ffprobe are required",

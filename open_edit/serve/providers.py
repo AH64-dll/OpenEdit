@@ -11,7 +11,7 @@ dispatch all derive from this registry.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 
@@ -42,6 +42,7 @@ class ProviderSpec:
 
     supports_tools: bool = False
     supports_images: bool = False
+    text_only_models: tuple[str, ...] = ()
     supports_sessions: bool = False
     # How prior turns are supplied to the model:
     # - native_session: provider keeps state via session_id (send last turn)
@@ -60,14 +61,6 @@ def _openai_stream():
     return _stream_openai
 
 
-def _pi_stream():
-    """Pi's stream is its own wrapper (CLI driver + cost extraction)."""
-    from .llm import _stream_pi
-
-    async def _stream(messages, tools, system, model=None, session_id=None, project_path=None):
-        async for ev in _stream_pi(messages, tools, system, session_id, project_path, model):
-            yield ev
-    return _stream
 
 
 def _cli_stream_for(name: str):
@@ -77,8 +70,8 @@ def _cli_stream_for(name: str):
     shape ``(messages, tools, system, model, session_id=..., project_path=...)``;
     SDK streams take the 4 positional args, CLI streams this closure.
     """
-    from .llm import _stream_cli
     from .cli_adapter import get_adapter
+    from .llm import _stream_cli
 
     async def _stream(messages, tools, system, model=None, session_id=None, project_path=None):
         async for ev in _stream_cli(
@@ -128,32 +121,8 @@ PROVIDERS: dict[str, ProviderSpec] = {
         env_keys=("OPENAI_API_KEY",),
         supports_tools=True,
         supports_images=True,
+        text_only_models=("o3-mini",),
         context_strategy="full_history",
-    ),
-    "pi": ProviderSpec(
-        name="pi",
-        label="Pi Agent Engine",
-        transport="cli",
-        agent_mode="external_loop",
-        stream=_pi_stream(),
-        missing_error=(
-            "pi provider: `pi` binary not found on PATH. Install pi "
-            "(see https://github.com/badlogic/pi-mono) and ensure the "
-            "binary is on PATH, or set OPEN_EDIT_PI_BINARY."
-        ),
-        default_model="minimax-m3",
-        models=(
-            "minimax-m3",
-            "minimax-m2.7",
-            "deepseek-v4-flash",
-            "deepseek-v4-pro",
-        ),
-        binary_names=("pi",),
-        env_keys=("PI_API_KEY",),
-        supports_tools=True,
-        supports_images=True,
-        supports_sessions=True,
-        context_strategy="native_session",
     ),
     "opencode": ProviderSpec(
         name="opencode",

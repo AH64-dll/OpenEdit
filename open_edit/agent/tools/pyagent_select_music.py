@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from open_edit.agent.tools._contract import get_asset_or_error, tool_result
+
+if TYPE_CHECKING:
+    from open_edit.agent.skills.music_selector import MusicTrack
 
 
 @tool_result
@@ -31,15 +35,15 @@ def select_music(args: dict, project_path: str) -> dict:
     asset, err = get_asset_or_error(project_path, args["asset_hash"])
     if err:
         return err
-    from open_edit.agent.skills.narrative_analyzer import analyze
     from open_edit.agent.skills.music_selector import select
+    from open_edit.agent.skills.narrative_analyzer import analyze
     segments = analyze(asset, use_llm=False)
     library = _load_music_library(args.get("library_path"))
     ops = select(segments, library)
     return {"status": "ok", "ops": [op.model_dump() for op in ops]}
 
 
-def _load_music_library(path: str | None) -> list[MusicTrack]:  # noqa: F821
+def _load_music_library(path: str | None) -> list[MusicTrack]:
     """Load music library from a JSON file; empty list if not provided."""
     if not path:
         return []

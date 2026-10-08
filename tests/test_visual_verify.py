@@ -3,26 +3,24 @@
 The module is a collection of pure functions (or close to pure: each
 test sets up its own inputs and asserts the deterministic output).
 """
+
 from __future__ import annotations
 
-import base64
 import hashlib
-import io
 import json
 import os
-import struct
-import sys
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+from open_edit.serve import (
+    serve_env,
+    visual_verify,
+)
 
-from open_edit.serve import visual_verify  # noqa: E402
-from open_edit.serve import serve_env  # noqa: E402
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 
 def _project_state_hash(project_path: Path, render_mode: str, last_render_id: str | None) -> str:
@@ -102,8 +100,9 @@ def test_timestamps_clamped_to_safe_range():
 # ---------------------------------------------------------------------------
 
 def _write_minimal_png(path: Path, width: int = 1920, height: int = 1080) -> None:
-    """Write a 1×1 RGB PNG so the test doesn't need real media."""
-    import struct, zlib
+    """Write a 1x1 RGB PNG so the test doesn't need real media."""
+    import struct
+    import zlib
     def chunk(tag: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
     sig = b"\x89PNG\r\n\x1a\n"
@@ -119,10 +118,10 @@ def test_preserves_aspect_ratio_when_downscaling(monkeypatch, tmp_path):
     _write_minimal_png(src, 4000, 1000)  # 4:1 aspect
     out = tmp_path / "out.jpg"
     # We do not have ffmpeg on the test path; stub the ffmpeg call.
-    fake_jpeg = bytes(range(256)) * 16  # 4096 bytes
+    bytes(range(256)) * 16  # 4096 bytes
     fake_proc = mock.Mock(returncode=0, stdout=b"", stderr=b"")
     with mock.patch("subprocess.run", return_value=fake_proc) as run_mock:
-        n = visual_verify.encode_jpeg(src, out, max_edge_px=1024, jpeg_quality=85)
+        visual_verify.encode_jpeg(src, out, max_edge_px=1024, jpeg_quality=85)
     # ffmpeg is called once with -vf scale=...:1024 (long-edge scaling).
     call = run_mock.call_args
     argv = call.args[0]
@@ -166,7 +165,7 @@ def test_payload_size_caps_downscale(monkeypatch, tmp_path):
         Path(argv[0][-1]).write_bytes(big if counter["n"] == 1 else small)
         return mock.Mock(returncode=0, stdout=b"", stderr=b"")
     with mock.patch("subprocess.run", side_effect=fake_run) as rm:
-        n = visual_verify.encode_jpeg(src, out, 1024, 85, max_bytes=5_000_000)
+        visual_verify.encode_jpeg(src, out, 1024, 85, max_bytes=5_000_000)
     assert rm.call_count == 2
     second_vf = next(a for a in rm.call_args_list[1].args[0] if a.startswith("scale="))
     first_vf = next(a for a in rm.call_args_list[0].args[0] if a.startswith("scale="))

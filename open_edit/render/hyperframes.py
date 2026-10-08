@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Literal
 
 from open_edit.ir.types import Timeline
-from open_edit.render.html_overlay import generate_composition_html, render_overlay_layer
+from open_edit.render.html_overlay import (
+    OverlayRenderError,
+    _resolve_hyperframes_bin,
+    generate_composition_html,
+    render_overlay_layer,
+)
 
 
 class HyperFramesRenderError(RuntimeError):
@@ -27,19 +32,10 @@ class HyperFramesMaterializeResult:
 
 
 def _hyperframes_bin() -> str:
-    configured = os.environ.get("OPEN_EDIT_HYPERFRAMES_BIN", "").strip()
-    if configured:
-        return configured
-    repo_bin = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "hyperframes"
-    if repo_bin.is_file():
-        return str(repo_bin)
-    installed = shutil.which("hyperframes")
-    if installed:
-        return installed
-    raise HyperFramesRenderError(
-        "HyperFrames binary not found; install pinned hyperframes or set "
-        "OPEN_EDIT_HYPERFRAMES_BIN"
-    )
+    try:
+        return _resolve_hyperframes_bin()
+    except OverlayRenderError as exc:
+        raise HyperFramesRenderError(str(exc)) from exc
 
 
 def hyperframes_reference_fingerprint(
@@ -166,7 +162,7 @@ def _evict_hyperframes_cache(output_dir: Path, newest: Path) -> None:
         path for path in output_dir.glob("*.mov")
         if path.is_file() and path != newest
     ]
-    total = sum(path.stat().st_size for path in entries + [newest] if path.is_file())
+    total = sum(path.stat().st_size for path in [*entries, newest] if path.is_file())
     if total <= cap:
         return
     entries.sort(key=lambda path: (path.stat().st_mtime, path.name))

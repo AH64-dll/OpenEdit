@@ -15,6 +15,8 @@ speech fragments.
 """
 from __future__ import annotations
 
+import itertools
+
 from open_edit.ir.types import Asset, WordAlignment
 
 
@@ -52,7 +54,7 @@ def find_silence_gaps(
         gaps.append((0.0, first.t_start))
 
     # Inter-word gaps
-    for prev, curr in zip(alignment, alignment[1:]):
+    for prev, curr in itertools.pairwise(alignment):
         gap = curr.t_start - prev.t_end
         if gap >= threshold_s:
             gaps.append((prev.t_end, curr.t_start))

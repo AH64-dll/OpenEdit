@@ -10,7 +10,7 @@ Notes (mirroring Task 8's report):
   neither has a `project_id` field (Task 8's test_sandbox_bridge.py:6-7
   noted the same bug). We drop it.
 - `free_form.py` imports `run_free_form` at module level from
-  `open_edit.agent.sandbox`, so we patch at the point of use:
+  `open_edit.agent.script_runner`, so we patch at the point of use:
   `open_edit.agent.free_form.run_free_form`.
 """
 from unittest.mock import patch
@@ -21,7 +21,11 @@ from open_edit.agent.exceptions import FreeFormResult
 from open_edit.agent.free_form import run_free_form_code
 from open_edit.ir.apply import ApplyError
 from open_edit.ir.types import (
-    AddClipOp, Asset, FreeFormCodeOp, Project, new_id,
+    AddClipOp,
+    Asset,
+    FreeFormCodeOp,
+    Project,
+    new_id,
 )
 
 
@@ -80,9 +84,8 @@ def test_apply_free_form_code_raises_on_sandbox_failure(minimal_project):
     )
     mock_result = FreeFormResult.fail("timeout", "30s elapsed")
     with patch("open_edit.agent.free_form.run_free_form",
-               return_value=mock_result):
-        with pytest.raises(ApplyError, match="timeout"):
-            run_free_form_code(op, minimal_project)
+               return_value=mock_result), pytest.raises(ApplyError, match="timeout"):
+        run_free_form_code(op, minimal_project)
 
     assert minimal_project.edit_graph == []
 

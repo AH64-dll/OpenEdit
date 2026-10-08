@@ -14,7 +14,6 @@ from open_edit.render.remotion.renderer import remotion_profile_for_mode
 from open_edit.render.source_proxy import DEFAULT_SOURCE_PROXY_PROFILE
 from open_edit.storage.assets import AssetStore
 
-
 EmissionProfile = Literal[
     "final", "review-artifact", "proxy-edit", "preview-chunk",
 ]
