@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { studio, studioObject, studioRequest, commitStudio } from './studio-state.js';
 import { layerLocked } from './studio-geometry.js';
 import { keyframeEdits, animatedProperties } from './keyframes.js';
-import { showToast } from './dom.js';
+import { showToast, keepDrafts } from './dom.js';
 const section = document.createElement('section');
 section.id = 'graphics-animation';
 section.className = 'studio-animation';
@@ -64,6 +64,10 @@ async function rewrite(edits, label) {
 }
 let property = 'x';
 function render() {
+  keepDrafts(section, renderPanel);
+  for (const curve of section.querySelectorAll('canvas.bezier-editor')) curve.redraw?.();
+}
+function renderPanel() {
   const expanded = new Set([...section.querySelectorAll('details[open][data-keyframe-id]')].map(e=>e.dataset.keyframeId));
   section.replaceChildren(node('h3', 'Animation'));
   const auto = node('label', 'Auto-key '),
@@ -194,7 +198,8 @@ function render() {
   }
   section.append(timeline);
   const add = node('form', undefined, {
-      class: 'studio-control-form'
+      class: 'studio-control-form',
+      'data-draft-key': `keyframe-add:${selected.id}:${property}`
     }),
     value = field('Value', selected[property] ?? (property === 'opacity' || property === 'scale' ? 1 : property === 'color' ? '#ffffff' : 0), {
       name: 'value',
@@ -216,20 +221,24 @@ function render() {
     row.open=expanded.has(frame.id);
     row.append(node('summary', `${frame.time.toFixed(3)} s · ${frame.value}`));
     const form = node('form', undefined, {
-        class: 'studio-control-form'
+        class: 'studio-control-form',
+        'data-draft-key': `keyframe:${track.id}:${frame.id}`
       }),
       time = field('Time (s)', frame.time, {
+        name: 'time',
         type: 'number',
         step: 1 / current.data.fps,
         min: 0,
         max: duration
       }),
       val = field('Value', frame.value, {
+        name: 'value',
         type: property === 'color' ? 'text' : 'number',
         step: 'any'
       });
     const easing = node('select', undefined, {
-      'aria-label': 'Segment easing'
+      'aria-label': 'Segment easing',
+      name: 'easing'
     });
     for (const option of ['linear', 'easeIn', 'easeOut', 'easeInOut', 'cubicBezier']) easing.append(node('option', option, {
       value: option
@@ -238,6 +247,7 @@ function render() {
     const named={linear:'0,0,1,1',easeIn:'.42,0,1,1',easeOut:'0,0,.58,1',easeInOut:'.42,0,.58,1'};
     const points = (/^cubicBezier\(([^)]+)\)$/.exec(frame.easing || '')?.[1] || named[frame.easing || 'linear']).split(',').map(Number);
     const handles = points.map((v, i) => field(['X1', 'Y1', 'X2', 'Y2'][i], v, {
+      name: ['x1', 'y1', 'x2', 'y2'][i],
       type: 'number',
       step: .01,
       min: i % 2 ? -4 : 0,
@@ -301,6 +311,7 @@ function render() {
       dragHandle = undefined;
     });
     handles.forEach(h => h.input.addEventListener('input', draw));
+    curve.redraw = draw;
     form.append(time.wrap, val.wrap, easing, curve, ...handles.map(h => h.wrap));
     form.append(button('Update keyframe', () => {
       if (!form.reportValidity()) return;
@@ -344,22 +355,26 @@ function render() {
   section.append(presets);
   for (const preset of current.data.elements.filter(e => e.parent_id === selected.id && e.tag === 'animation')) {
     const form = node('form', undefined, {
-        class: 'studio-control-form'
+        class: 'studio-control-form',
+        'data-draft-key': `preset:${preset.id}`
       }),
       phase = node('select', undefined, {
-        'aria-label': 'Animation phase'
+        'aria-label': 'Animation phase',
+        name: 'phase'
       });
     for (const p of ['in', 'out']) phase.append(node('option', p, {
       value: p
     }));
     phase.value = preset.phase || 'in';
     const duration = field('Duration (s)', preset.duration ?? .5, {
+        name: 'duration',
         type: 'number',
         min: 0,
         max: 60,
         step: 1 / current.data.fps
       }),
       delay = field('Delay (s)', preset.delay || 0, {
+        name: 'delay',
         type: 'number',
         min: 0,
         max: 60,

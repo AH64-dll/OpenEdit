@@ -226,6 +226,16 @@
               <video id="graphics-video" muted loop playsinline hidden aria-label="Checked graphics preview"></video>
               <svg id="graphics-guides" viewBox="0 0 960 540" aria-hidden="true"></svg>
               <canvas id="graphics-canvas" width="960" height="540" aria-label="Graphics canvas; select a layer and drag to move it"></canvas>
+              <div id="graphics-empty" class="graphics-empty" hidden>
+                <div class="graphics-empty-card">
+                  <h4>No graphic yet</h4>
+                  <p class="muted small">Add text or a shape to start an editable graphic. Marks drawn on the video can also be converted into graphics.</p>
+                  <div class="graphics-empty-actions">
+                    <button id="graphics-empty-text" class="btn btn-secondary btn-xs" type="button">Add text</button>
+                    <button id="graphics-empty-shape" class="btn btn-secondary btn-xs" type="button">Add shape</button>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="studio-canvas-transport">
               <button id="graphics-play" class="btn btn-ghost btn-xs" type="button">Play / pause</button>
@@ -314,6 +324,7 @@
               <label>Text <textarea name="text" rows="3" maxlength="10000" aria-label="Layer text"></textarea></label>
               <button class="btn btn-secondary btn-xs" type="submit">Update layer</button>
             </form>
+            <p id="graphics-properties-hint" class="muted small" hidden>Select a layer to edit its properties.</p>
             <div class="studio-layer-actions">
               <label><input id="graphics-hidden" type="checkbox">Hidden</label>
               <label><input id="graphics-locked" type="checkbox">Locked</label>

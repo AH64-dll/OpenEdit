@@ -50,6 +50,7 @@ def readiness() -> dict:
     from open_edit.integrations.diffusion.compiler import worker_ready
     from open_edit.integrations.diffusion.graphics import graphics_ready
     from open_edit.render.html_overlay import OverlayRenderError, _resolve_hyperframes_bin
+    from open_edit.render.mlt_capability import mlt_audio_avfilter_supported, mlt_version
 
     binaries = {name: bool(shutil.which(name)) for name in ('ffmpeg', 'ffprobe', 'melt', 'node', 'npm')}
     base = binaries['ffmpeg'] and binaries['ffprobe'] and 'libx264' in _output('ffmpeg', '-hide_banner', '-encoders')
@@ -63,6 +64,7 @@ def readiness() -> dict:
     except OverlayRenderError:
         html = False
     legacy = Path(__file__).parent / 'remotion/node_modules/@remotion/cli/package.json'
+    mlt = mlt_version()
     return {
         'capabilities': {'timeline': timeline, 'media': media, 'graphics': graphics},
         'checks': [
@@ -78,5 +80,8 @@ def readiness() -> dict:
              'help': 'Only for advanced HTML/CSS/JS overlays: install Node.js 24 and npm, then run open_edit setup html.'},
             {'name': 'Legacy Remotion compatibility (optional)', 'ready': legacy.is_file(),
              'help': 'Only for existing Remotion projects: open_edit setup legacy-remotion'},
+            {'name': f"Audio EQ (MLT {'.'.join(map(str, mlt)) if mlt else 'version unknown'})",
+             'ready': timeline and mlt_audio_avfilter_supported(),
+             'help': 'Audio EQ needs MLT 7.28 or newer (Ubuntu 24.04 ships 7.22); install a newer MLT to render EQ.'},
         ],
     }

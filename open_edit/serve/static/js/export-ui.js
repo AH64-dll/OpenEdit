@@ -53,7 +53,7 @@ function button(text, fn, attrs = {}) {
 function field(section, key, label, options, attrs = {}) {
   const numeric = typeof model[key] === 'number',
     check = typeof model[key] === 'boolean';
-  const wrap = node('label', label),
+  const wrap = node('label', label, check ? { class: 'export-check' } : {}),
     el = node(options ? 'select' : 'input', undefined, {
       name: key,
       ...(!options ? {
@@ -119,19 +119,26 @@ function build() {
   }), button('Close', () => dialog.close(), {
     'aria-label': 'Close export settings'
   }));
-  dialog.append(header);
-  dialog.append(node('p', `Export revision ${revision}. Later edits remain available while this version renders.`, {
+  const body = node('div', undefined, {
+    class: 'export-body'
+  });
+  dialog.append(header, body);
+  body.append(node('p', `Export revision ${revision}. Later edits remain available while this version renders.`, {
     class: 'muted small'
   }));
   const form = node('form', undefined, {
     id: 'export-form',
     class: 'export-grid'
   });
-  dialog.append(form);
+  body.append(form);
   const destination = group(form, 'Save locally');
   field(destination, 'filename', 'Filename');
-  field(destination, 'folder', 'Folder');
-  destination.append(button('Use Desktop', () => {
+  const folderRow = node('div', undefined, {
+    class: 'export-inline'
+  });
+  destination.append(folderRow);
+  field(folderRow, 'folder', 'Folder');
+  folderRow.append(button('Use Desktop', () => {
     model.folder = defaults.settings.folder;
     fields.get('folder').value = model.folder;
   }));
@@ -236,16 +243,14 @@ function build() {
   field(audio, 'audio_sample_rate', 'Sample rate', [44100, 48000, 96000]);
   field(audio, 'audio_channels', 'Channels', [[1, 'Mono'], [2, 'Stereo']]);
   field(group(form, 'Captions'), 'captions', 'Captions', [['burn', 'Include visible captions'], ['none', 'Exclude captions']]);
-  dialog.append(node('p', '', {
-    id: 'export-summary',
-    class: 'export-summary'
-  }), node('p', '', {
-    id: 'export-status',
-    role: 'status',
-    'aria-live': 'polite'
-  }));
   const actions = node('div', undefined, {
       class: 'export-actions'
+    }),
+    meta = node('div', undefined, {
+      class: 'export-meta'
+    }),
+    buttons = node('div', undefined, {
+      class: 'export-buttons'
     }),
     submit = node('button', 'Export video', {
       id: 'export-submit',
@@ -253,12 +258,21 @@ function build() {
       form: 'export-form',
       class: 'btn btn-primary'
     });
-  actions.append(button('Cancel export', () => activeJob && request(`/render_jobs/${activeJob}/cancel`, {}), {
-    id: 'export-cancel-job'
-  }), submit);
-  dialog.append(actions, node('div', undefined, {
+  meta.append(node('p', '', {
+    id: 'export-summary',
+    class: 'export-summary'
+  }), node('p', '', {
+    id: 'export-status',
+    role: 'status',
+    'aria-live': 'polite'
+  }), node('div', undefined, {
     id: 'export-result'
   }));
+  buttons.append(button('Cancel export', () => activeJob && request(`/render_jobs/${activeJob}/cancel`, {}), {
+    id: 'export-cancel-job'
+  }), submit);
+  actions.append(meta, buttons);
+  dialog.append(actions);
   form.addEventListener('submit', safe(async event => {
     event.preventDefault();
     if (busy || activeJob) return;

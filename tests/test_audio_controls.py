@@ -13,7 +13,13 @@ from lxml import etree
 from open_edit.ir.derive import derive_timeline
 from open_edit.ir.types import AddClipOp, Project
 from open_edit.kernel.studio_service import commit_studio
+from open_edit.render import mlt_capability
 from open_edit.render.emitter import EmitterConfig, emit_timeline
+from open_edit.render.mlt_capability import (
+    audio_eq_warnings,
+    mlt_audio_avfilter_supported,
+    parse_mlt_version,
+)
 from open_edit.storage.assets import AssetStore
 from open_edit.storage.edit_graph import EditGraphStore
 
@@ -154,6 +160,48 @@ def test_audio_parameter_mapping_and_explicit_fade_ranges(tmp_path):
     assert props("audio_fade_out")["level"] == "12=0;36=0;48=-80"
 
 
+def test_parse_mlt_version_reads_first_line_of_melt_version():
+    assert parse_mlt_version("melt 7.41.0\nCopyright (C) 2002-2026 Meltytech, LLC\n") == (7, 41, 0)
+    assert parse_mlt_version("melt 7.22.0\n") == (7, 22, 0)
+    assert parse_mlt_version("melt 7.28\n") == (7, 28, 0)
+    assert parse_mlt_version("ffmpeg version 6.1\n") is None
+    assert parse_mlt_version("") is None
+
+
+@pytest.mark.parametrize(
+    ("version", "supported"),
+    [((7, 22, 0), False), ((7, 27, 9), False), ((7, 28, 0), True), ((7, 41, 0), True), (None, True)],
+)
+def test_audio_avfilter_gate_is_mlt_7_28(monkeypatch, version, supported):
+    monkeypatch.setattr(mlt_capability, "mlt_version", lambda: version)
+    assert mlt_audio_avfilter_supported() is supported
+
+
+def _eq_timeline(enabled=True):
+    from open_edit.ir.types import Clip, Effect, Timeline, Track
+
+    effect = Effect(effect_id="eq", effect_type="eq", params={"gain": -12}, enabled=enabled)
+    clip = Clip(
+        clip_id="c", asset_hash="h", track_id="a", track_kind="audio",
+        position_sec=0, in_point_sec=0, out_point_sec=1, effects=[effect],
+    )
+    return Timeline(tracks=[Track(track_id="a", kind="audio", clips=[clip])])
+
+
+def test_eq_warning_emitted_on_old_mlt(monkeypatch):
+    monkeypatch.setattr(mlt_capability, "mlt_audio_avfilter_supported", lambda: False)
+    monkeypatch.setattr(mlt_capability, "mlt_version", lambda: (7, 22, 0))
+    warnings = audio_eq_warnings(_eq_timeline())
+    assert len(warnings) == 1
+    assert "7.28" in warnings[0] and "7.22.0" in warnings[0] and "without EQ" in warnings[0]
+    assert audio_eq_warnings(_eq_timeline(enabled=False)) == []
+
+
+def test_eq_warning_absent_when_mlt_supports_avfilter_audio(monkeypatch):
+    monkeypatch.setattr(mlt_capability, "mlt_audio_avfilter_supported", lambda: True)
+    assert audio_eq_warnings(_eq_timeline()) == []
+
+
 @pytest.mark.browser
 def test_actual_mlt_gain_fades_pan_and_eq(tmp_path, monkeypatch):
     if not shutil.which("melt"):
@@ -167,6 +215,8 @@ def test_actual_mlt_gain_fades_pan_and_eq(tmp_path, monkeypatch):
     query = subprocess.run(['melt', '-query', 'filter=avfilter.equalizer'], capture_output=True, env=os.environ)
     (artifacts / 'audio-eq-service.log').write_bytes(query.stdout + query.stderr)
 
+    eq_warnings = []
+
     def render(kind=None, params=None):
         timeline = base.model_copy(deep=True)
         if kind:
@@ -175,6 +225,8 @@ def test_actual_mlt_gain_fades_pan_and_eq(tmp_path, monkeypatch):
             timeline.tracks[0].clips[0].effects.append(
                 Effect(effect_id="effect", effect_type=kind, params=params)
             )
+        if kind == "eq":
+            eq_warnings.extend(audio_eq_warnings(timeline))
         xml = tmp_path / f"{kind or 'base'}.mlt"
         xml.write_text(
             emit_timeline(
@@ -239,8 +291,15 @@ def test_actual_mlt_gain_fades_pan_and_eq(tmp_path, monkeypatch):
     assert 0.2 < gain < 0.3
     pan = rms(render("panner", {"start": -1, "end": -1}))
     assert pan[0] > 0.1 * level and pan[1] < 0.01 * pan[0]
-    eq = rms(render("eq", {"frequency": 440, "gain": -12, "bandwidth": 1}))[0] / level
-    assert eq < 0.15
+    eq_path = render("eq", {"frequency": 440, "gain": -12, "bandwidth": 1})
+    if mlt_audio_avfilter_supported():
+        assert not eq_warnings
+        eq = rms(eq_path)[0] / level
+        assert eq < 0.15
+    else:
+        # Pre-7.28 MLT drops avfilter audio: the honest signal is the warning, not attenuation.
+        assert eq_warnings and "7.28" in eq_warnings[0]
+        eq = None
     fade_in = render("audio_fade_in", {"duration": 0.5})
     assert rms(fade_in, 0.1)[0] < 0.1 * level and rms(fade_in, 0.8)[0] > 0.8 * level
     fade_out = render("audio_fade_out", {"duration": 0.5})

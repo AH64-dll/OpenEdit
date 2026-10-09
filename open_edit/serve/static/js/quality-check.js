@@ -11,7 +11,8 @@ const node = (tag, text, attrs = {}) => {
 };
 const form = node('form', undefined, {
     id: 'quality-check-form',
-    class: 'quality-check-form'
+    class: 'quality-check-form',
+    'aria-label': 'Full-quality range check'
   }),
   start = node('input', undefined, {
     type: 'number',
@@ -19,7 +20,7 @@ const form = node('form', undefined, {
     step: 'any',
     value: 0,
     name: 'start_sec',
-    'aria-label': 'Quality check start (seconds)'
+    'aria-label': 'Range start (seconds)'
   }),
   end = node('input', undefined, {
     type: 'number',
@@ -27,7 +28,7 @@ const form = node('form', undefined, {
     step: 'any',
     value: 2,
     name: 'end_sec',
-    'aria-label': 'Quality check end (seconds)'
+    'aria-label': 'Range end (seconds)'
   });
 const button = node('button', 'Check range', {
     type: 'submit',
@@ -35,16 +36,20 @@ const button = node('button', 'Check range', {
   }),
   cancel = node('button', 'Cancel check', {
     type: 'button',
-    class: 'btn btn-ghost btn-xs',
-    hidden: ''
+    class: 'btn btn-secondary btn-xs',
+    disabled: ''
   }),
   status = node('span', '', {
     role: 'status',
     id: 'quality-check-status',
     class: 'muted small'
   });
-form.append(node('span', 'Full quality'), start, node('span', 'to'), end, button, cancel, status);
-toolbar.after(form);
+form.append(node('span', 'Full-quality check', {
+  class: 'quality-check-label'
+}), start, node('span', 'to', {
+  class: 'muted quality-check-sep'
+}), end, button, cancel, status);
+toolbar.append(form);
 const dialog = node('dialog', undefined, {
     id: 'quality-check-dialog'
   }),
@@ -85,7 +90,7 @@ form.addEventListener('submit', async e => {
       project,
       id: job.job_id
     };
-    cancel.hidden = false;
+    cancel.disabled = false;
     let result;
     do {
       await new Promise(resolve => setTimeout(resolve, 750));
@@ -114,7 +119,7 @@ form.addEventListener('submit', async e => {
     active = null;
     checking = false;
     button.disabled = false;
-    cancel.hidden = true;
+    cancel.disabled = true;
   }
 });
 cancel.addEventListener('click', async () => {

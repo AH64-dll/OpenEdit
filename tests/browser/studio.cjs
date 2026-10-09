@@ -10,6 +10,8 @@ const { compile } = require(path.join(directory, 'compile.cjs'));
 const esbuild = require(path.join(directory, 'node_modules/esbuild'));
 const artifacts = path.join(__dirname, 'artifacts');
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+// The timeline repaints clips after every snapshot; re-query until laid out.
+async function boxOf(locator) { for (let i = 0; i < 50; i++) { const box = await locator.boundingBox().catch(() => null); if (box) return box; await wait(100); } throw new Error('Element never laid out'); }
 
 async function bundle(name) {
   const alias = {};
@@ -94,7 +96,7 @@ async function parity(browser) {
     await page.waitForFunction(()=>Number.isInteger(window.OpenEdit.state.editingSelection?.expected_revision));
     // Actual pointer edits use the guarded IR path, without opening Code.
     const hero = page.locator('.timeline-clip[data-clip-id="hero"]');
-    let clipBox = await hero.boundingBox();
+    let clipBox = await boxOf(hero);
     const pps = Number(await page.locator('#timeline-tracks-area').getAttribute('data-pixels-per-second'));
     // Media-space marks are timed source objects, shared with AI and undoable.
     await page.locator('#media-mark-toolbar select').selectOption('rectangle');
@@ -113,12 +115,12 @@ async function parity(browser) {
     await page.locator('#history-undo').click();
     await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).length===1);
     await page.locator('#media-mark-toolbar select').selectOption('off');
-    await hero.waitFor({state:'visible'});clipBox=await hero.boundingBox();
+    await hero.waitFor({state:'visible'});clipBox=await boxOf(hero);
     await page.mouse.move(clipBox.x+clipBox.width/2,clipBox.y+clipBox.height/2);
     await page.mouse.down();await page.mouse.move(clipBox.x+clipBox.width/2+pps,clipBox.y+clipBox.height/2,{steps:8});await page.mouse.up();
     await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id==='hero')?.position_sec===1);
     await hero.waitFor({state:'visible'});
-    clipBox = await hero.boundingBox();
+    clipBox = await boxOf(hero);
     await page.mouse.move(clipBox.x+clipBox.width-3,clipBox.y+clipBox.height/2);await page.mouse.down();
     await page.mouse.move(clipBox.x+clipBox.width-3-pps*.5,clipBox.y+clipBox.height/2,{steps:8});await page.mouse.up();
     await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id==='hero')?.out_point_sec===1.5);
@@ -195,7 +197,8 @@ async function parity(browser) {
     await page.locator('#graphics-mark-properties [name=text]').fill('Move this title along this arrow');await page.locator('#graphics-mark-properties [type=submit]').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-marks').textContent.includes('Move this title'));
     const context=await api('/editing-context',{document_id:doc.object_id,selected_ids:['title'],annotation_ids:[],playhead_sec:0});
-    assert.equal(context.annotations[0].data.coordinate_space,'object'); assert.ok(context.documents[0].data.source.includes('Manually editable title'));
+    // The earlier video mark stays after conversion; find the graphics arrow itself.
+    const arrow=context.annotations.find(o=>o.data.text==='Move this title along this arrow'); assert.ok(arrow); assert.equal(arrow.data.coordinate_space,'object'); assert.ok(context.documents[0].data.source.includes('Manually editable title'));
     // An external MCP agent uses the same durable source, with AI attribution.
     const latest=await api('/studio?include_source=true'), latestDoc=latest.objects.find(o=>o.kind==='document');
     const agent=spawnSync(python,['-c','import json,sys; from pathlib import Path; from open_edit.kernel.pillar_tools import dispatch_edit; x=json.load(sys.stdin); print(json.dumps(dispatch_edit("apply_studio_changes",x["params"],Path(x["path"]))))'],{
@@ -218,7 +221,7 @@ async function parity(browser) {
     await page.screenshot({path:path.join(artifacts,'studio-editable-desktop.png'),fullPage:true});
     await page.reload();await page.locator('#workspace-graphics').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('Manually editable title') && document.querySelector('#graphics-source').value.includes('fontSize={64}'));
-    assert.equal((await api('/studio?kind=annotation')).objects[0].data.text,'Move this title along this arrow');
+    assert.ok((await api('/studio?kind=annotation')).objects.some(o=>o.data.text==='Move this title along this arrow'));
     await page.locator('#workspace-review').click();
     await page.locator('.tab[data-tab="captions"]').click();
     await page.locator('#caption-editor').getByRole('button',{name:'Add caption',exact:true}).click();

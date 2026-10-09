@@ -1,6 +1,7 @@
 /* Review, graphics and source share a timeline and an ordinary inspector. */
 import { state } from './state.js';
 import { $, el, showToast, showModal } from './dom.js';
+import { studio } from './studio-state.js';
 
 let history = null, pending = false, fetchId = 0, revertReport = null;
 export function setWorkspace(view) {
@@ -82,9 +83,13 @@ async function refreshHistory() {
 
 async function stepHistory(direction) {
   const id = state.currentProjectId;
-  if (!id || pending || !history?.[direction]) return;
+  if (!id || pending) return;
   pending = true; paintHistory();
   try {
+    // Edits refresh the studio before the history list catches up; act on
+    // the latest action, not a stale revision that the server would reject.
+    if (!history || (studio.projectId === id && Number.isInteger(studio.revision) && studio.revision !== history.graph_revision)) await refreshHistory();
+    if (id !== state.currentProjectId || !history?.[direction]) return;
     const response = await fetch(`/api/projects/${encodeURIComponent(id)}/history/${direction}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ expected_revision: history.graph_revision }),
@@ -152,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     else stage.requestFullscreen?.().catch(() => showToast('Fullscreen unavailable in this browser.', 'info'));
   });
-  window.addEventListener('openedit:snapshot', refreshHistory);
+  for (const event of ['openedit:snapshot', 'openedit:studio-loaded']) window.addEventListener(event, refreshHistory);
   window.addEventListener('openedit:project-selected', () => { history = null; paintHistory(); refreshHistory(); });
   window.addEventListener('openedit:inspect-clip', () => {
     if (window.innerWidth <= 900) $('#right-panel').classList.add('open');

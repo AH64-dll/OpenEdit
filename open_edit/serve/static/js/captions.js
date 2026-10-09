@@ -1,7 +1,7 @@
 /* Caption source, local fonts and reusable styles use the shared editing history. */
 import { state } from './state.js';
 import { studio, studioRequest, commitStudio, selectObjects, loadStudio } from './studio-state.js';
-import { showToast } from './dom.js';
+import { showToast, keepDrafts } from './dom.js';
 const host = document.getElementById('caption-editor');
 const uid = prefix => `${prefix}-${crypto.randomUUID()}`;
 const cues = () => studio.objects.filter(o => o.kind === 'caption').sort((a, b) => a.data.start_sec - b.data.start_sec);
@@ -83,6 +83,9 @@ async function importTranscript(transcribe) {
   await commitStudio(result.changes, 'Create captions from transcript');
 }
 function render() {
+  keepDrafts(host, renderPanel);
+}
+function renderPanel() {
   host.replaceChildren(node('h3', 'Captions'));
   const actions = node('div', undefined, {
     class: 'caption-actions'
@@ -140,7 +143,8 @@ function render() {
   if (cue) {
     const form = node('form', undefined, {
         id: 'caption-properties',
-        class: 'studio-control-form'
+        class: 'studio-control-form',
+        'data-draft-key': `caption:${cue.object_id}`
       }),
       data = cue.data,
       fields = {};
@@ -242,8 +246,12 @@ function render() {
     }));
     host.append(presets);
     const savedStyle = styles().find(s => s.object_id === selectedStyle);
-    const name = field(host, 'style_name', 'Style name', savedStyle?.data.label || 'My caption style');
-    host.append(button('Save reusable style', () => commitStudio([{
+    const styleForm = node('form', undefined, {
+      'data-draft-key': `caption-style:${cue.object_id}`
+    });
+    styleForm.addEventListener('submit', e => e.preventDefault());
+    const name = field(styleForm, 'style_name', 'Style name', savedStyle?.data.label || 'My caption style');
+    styleForm.append(button('Save reusable style', () => commitStudio([{
       kind: 'style',
       object_id: uid('style'),
       data: {
@@ -253,7 +261,7 @@ function render() {
         }
       }
     }], 'Save caption style'), studio.busy));
-    if (savedStyle) host.append(button('Update saved style', () => commitStudio([{
+    if (savedStyle) styleForm.append(button('Update saved style', () => commitStudio([{
       kind: 'style',
       object_id: savedStyle.object_id,
       data: {
@@ -273,7 +281,7 @@ function render() {
       alt: 'Caption rendered with the export font',
       src: `/api/projects/${encodeURIComponent(state.currentProjectId)}/captions/${encodeURIComponent(cue.object_id)}/image?width=640&height=360&r=${studio.revision}`
     });
-    host.append(img);
+    host.append(styleForm, img);
   }
   const fontInput = node('input', undefined, {
     type: 'file',

@@ -1,7 +1,7 @@
 /* Manual timeline and effect tools write the same revision-checked IR as AI. */
-import { state } from './state.js';
+import { state, normalizeAssets } from './state.js';
 import { studio, commitStudio, selectObjects, loadStudio } from './studio-state.js';
-import { showToast } from './dom.js';
+import { showToast, keepDrafts } from './dom.js';
 const area = document.getElementById('timeline-tracks-area');
 const labels = document.getElementById('timeline-track-labels');
 const uid = prefix => `${prefix}-${crypto.randomUUID()}`;
@@ -43,10 +43,10 @@ function node(tag, text, attrs = {}) {
   for (const [name, value] of Object.entries(attrs)) element.setAttribute(name, value);
   return element;
 }
-function button(text, action, disabled = false) {
+function button(text, action, disabled = false, variant = 'btn-secondary') {
   const element = node('button', text, {
     type: 'button',
-    class: 'btn btn-ghost btn-xs'
+    class: `btn ${variant} btn-xs`
   });
   element.disabled = disabled;
   element.addEventListener('click', safe(action));
@@ -63,6 +63,14 @@ function input(label, value, options = {}) {
     wrap,
     field
   };
+}
+function draftForm(key) {
+  const form = node('form', undefined, {
+    class: 'studio-control-form',
+    'data-draft-key': key
+  });
+  form.addEventListener('submit', event => event.preventDefault());
+  return form;
 }
 function selectClip(id, additive = false) {
   owner = {
@@ -102,7 +110,7 @@ function decorateTimeline() {
         kind: 'set_track_properties',
         track_id: track.track_id,
         [key]: !track[key]
-      }], `Change track ${key}`), saving || track.locked && key !== 'locked');
+      }], `Change track ${key}`), saving || track.locked && key !== 'locked', 'btn-ghost');
       b.title = title;
       b.setAttribute('aria-pressed', String(!!track[key]));
       b.addEventListener('click', event => event.stopPropagation());
@@ -238,6 +246,9 @@ async function removeSelected(ripple = false) {
   owner = null;
 }
 function renderInspector() {
+  keepDrafts(inspector, paintInspector);
+}
+function paintInspector() {
   inspector.replaceChildren(node('h3', owner?.kind === 'track' ? 'Track & effects' : 'Timeline & effects'));
   const target = owner?.kind === 'clip' ? clipById(owner.id) : owner?.kind === 'track' ? trackById(owner.id) : null;
   if (!target) {
@@ -247,25 +258,29 @@ function renderInspector() {
     return;
   }
   const disabled = saving || studio.busy || (owner.kind === 'clip' ? isLocked(target) : target.locked);
-  const props = node('form', undefined, {
-    class: 'studio-control-form'
-  });
+  const props = draftForm(`${owner.kind}:${owner.id}`);
+  const asset = normalizeAssets(state.currentProjectState?.assets).find(a => a.hash === target.asset_hash);
   const name = input('Name', target.label, {
-    maxlength: 256
+    name: 'label',
+    maxlength: 256,
+    placeholder: owner.kind === 'clip' ? asset?.filename || target.clip_id : target.track_id
   });
   props.append(name.wrap);
   if (owner.kind === 'clip') {
     const start = input('Start (seconds)', target.position_sec, {
+        name: 'start',
         type: 'number',
         min: 0,
         step: 'any'
       }),
       sourceIn = input('Source in (seconds)', target.in_point_sec, {
+        name: 'source_in',
         type: 'number',
         min: 0,
         step: 'any'
       }),
       sourceOut = input('Source out (seconds)', target.out_point_sec, {
+        name: 'source_out',
         type: 'number',
         min: 0,
         step: 'any'
@@ -280,11 +295,12 @@ function renderInspector() {
       clip_id: target.clip_id,
       new_track_id: target.track_id,
       new_position_sec: Number(start.field.value)
-    }], 'Edit clip timing'), disabled));
+    }], 'Edit clip timing'), disabled, 'btn-primary'));
   }
   const flags = {};
   for (const key of ['locked', 'muted', 'hidden']) {
     const f = input(key[0].toUpperCase() + key.slice(1), '', {
+      name: key,
       type: 'checkbox'
     });
     f.field.checked = !!target[key];
@@ -302,7 +318,7 @@ function renderInspector() {
       for (const [key, field] of Object.entries(flags)) op[key] = field.checked;
     }
     return commit([op], `Edit ${owner.kind} properties`);
-  }, saving || studio.busy));
+  }, saving || studio.busy, 'btn-primary'));
   inspector.append(props);
   const actions = node('div', undefined, {
     class: 'studio-layer-actions'
@@ -340,7 +356,7 @@ function renderInspector() {
         id
       };
       selectObjects([id], null);
-    }, disabled), button('Delete', () => removeSelected(false), disabled), button('Ripple delete', () => removeSelected(true), disabled));
+    }, disabled), button('Delete', () => removeSelected(false), disabled, 'btn-danger'), button('Ripple delete', () => removeSelected(true), disabled, 'btn-danger'));
   } else {
     const index = tracks().findIndex(t => t.track_id === target.track_id);
     for (const [text, next] of [['Lower layer', index - 1], ['Raise layer', index + 1]]) actions.append(button(text, () => commit([{
@@ -357,19 +373,22 @@ function renderInspector() {
   if (owner.kind === 'clip' && target.track_kind === 'video' && !target.document_id) {
     const next = tracks().find(t => t.track_id === target.track_id)?.clips.find(c => c.clip_id !== target.clip_id && !c.document_id && Math.abs(c.position_sec - target.position_sec - target.out_point_sec + target.in_point_sec) < .000001);
     if (next && !target.effects.some(e => e.params.layout === 'centered')) {
+      const form = draftForm(`transition:${target.clip_id}:${next.clip_id}`);
       const kind = node('select', undefined, {
-        'aria-label': 'New visual transition'
+        'aria-label': 'New visual transition',
+        name: 'transition_kind'
       });
       for (const value of ['dissolve', 'wipe', 'cut']) kind.append(node('option', value, {
         value
       }));
       const duration = input('Transition duration (seconds)', Math.min(.5, target.out_point_sec - target.in_point_sec, next.out_point_sec - next.in_point_sec), {
+        name: 'transition_duration',
         type: 'number',
         min: .01,
         max: 30,
         step: 'any'
       });
-      inspector.append(kind, duration.wrap, button('Add visual transition', () => commit([{
+      form.append(kind, duration.wrap, button('Add visual transition', () => commit([{
         kind: 'add_transition',
         edit_id: uid('cut'),
         clip_a_id: target.clip_id,
@@ -378,6 +397,7 @@ function renderInspector() {
         duration_sec: Number(duration.field.value),
         layout: 'centered'
       }], 'Add visual transition'), disabled || isLocked(next)));
+      inspector.append(form);
     }
   }
   const add = node('select', undefined, {
@@ -415,20 +435,23 @@ function renderEffect(effect, index, count, disabled) {
   box.append(node('summary', `${index + 1}. ${effect.effect_type}${effect.enabled === false ? ' · bypassed' : ''}`));
   if (effect.effect_type.startsWith('transition_')) {
     if (effect.params.layout === 'centered') {
+      const form = draftForm(`effect:${effect.effect_id}`);
       const type = node('select', undefined, {
-        'aria-label': 'Visual transition type'
+        'aria-label': 'Visual transition type',
+        name: 'transition_type'
       });
       for (const value of ['dissolve', 'wipe', 'fade', 'luma', 'cut']) type.append(node('option', value, {
         value
       }));
       type.value = effect.effect_type.slice('transition_'.length);
       const duration = input('Duration (seconds)', effect.params.duration_sec, {
+        name: 'duration_sec',
         type: 'number',
         min: .01,
         max: 30,
         step: 'any'
       });
-      box.append(type, duration.wrap, button('Update transition', () => commit([{
+      form.append(type, duration.wrap, button('Update transition', () => commit([{
         kind: 'set_transition_property',
         transition_id: effect.effect_id,
         prop_name: 'type',
@@ -444,7 +467,7 @@ function renderEffect(effect, index, count, disabled) {
         prop_name: 'enabled',
         value: String(effect.enabled === false)
       }], 'Toggle visual transition'), disabled));
-      box.append(node('p', 'Keeps the cut and trims. Boundary frames freeze through the blend; audio keeps its own fades.', {
+      box.append(form, node('p', 'Keeps the cut and trims. Boundary frames freeze through the blend; audio keeps its own fades.', {
         class: 'muted small'
       }));
     }
@@ -453,7 +476,7 @@ function renderEffect(effect, index, count, disabled) {
     }), button('Remove transition', () => commit([{
       kind: 'remove_transition',
       transition_id: effect.effect_id
-    }], 'Remove transition'), disabled));
+    }], 'Remove transition'), disabled, 'btn-danger'));
     inspector.append(box);
     return;
   }
@@ -482,15 +505,13 @@ function renderEffect(effect, index, count, disabled) {
     action: 'reset'
   })], 'Reset effect'), disabled || !spec), button('Delete', () => commit([op({
     action: 'remove'
-  })], 'Delete effect'), disabled));
+  })], 'Delete effect'), disabled, 'btn-danger'));
   box.append(actions);
   if (!spec) box.append(node('p', 'Advanced effect: parameter source is retained.', {
     class: 'muted small'
   }));else {
     const fields = {},
-      form = node('form', undefined, {
-        class: 'studio-control-form'
-      });
+      form = draftForm(`effect:${effect.effect_id}`);
     for (const [key, p] of Object.entries(spec.params)) {
       const f = input(`${key}${p.unit ? ` (${p.unit})` : ''}`, effect.params[key] ?? p.default, {
         name: key,
@@ -541,6 +562,9 @@ function renderEffectKeyframes(box, effect, spec, disabled) {
   section.append(content);
   box.append(section);
   function paint() {
+    keepDrafts(content, paintRows);
+  }
+  function paintRows() {
     const param = select.value,
       model = spec.params[param],
       keys = effect.keyframes[param] || [];
@@ -552,9 +576,7 @@ function renderEffectKeyframes(box, effect, spec, disabled) {
       keyframes: next.sort((a, b) => a[0] - b[0])
     }], label);
     const row = (key, index) => {
-      const form = node('form', undefined, {
-        class: 'studio-control-form'
-      });
+      const form = draftForm(`keyframe:${effect.effect_id}:${param}:${index}`);
       const time = input('Time in owner (s)', key[0] - origin, {
         name: 'time',
         type: 'number',
@@ -563,7 +585,7 @@ function renderEffectKeyframes(box, effect, spec, disabled) {
         step: 'any'
       });
       const value = input(`${param}${model.unit ? ` (${model.unit})` : ''}`, key[1], {
-        name: 'value',
+        name: 'key_value',
         type: 'number',
         step: 'any',
         ...(model.range ? {
@@ -572,7 +594,8 @@ function renderEffectKeyframes(box, effect, spec, disabled) {
         } : {})
       });
       const easing = node('select', undefined, {
-        'aria-label': 'Effect keyframe interpolation'
+        'aria-label': 'Effect keyframe interpolation',
+        name: 'easing'
       });
       for (const kind of spec.interp) easing.append(node('option', kind, {
         value: kind
@@ -586,12 +609,12 @@ function renderEffectKeyframes(box, effect, spec, disabled) {
         next.push([at, Number(value.field.value), easing.value]);
         return write(next, 'Edit effect keyframes');
       }, disabled));
-      if (index >= 0) form.append(button('Delete keyframe', () => write(keys.filter((_, i) => i !== index), 'Delete effect keyframe'), disabled));
+      if (index >= 0) form.append(button('Delete keyframe', () => write(keys.filter((_, i) => i !== index), 'Delete effect keyframe'), disabled, 'btn-danger'));
       content.append(form);
     };
     keys.forEach(row);
     row([Math.max(origin, Math.min(end, owner.kind === 'clip' ? origin + (state.playheadSec || 0) - target.position_sec : state.playheadSec || 0)), effect.params[param] ?? model.default ?? 0, spec.interp[0] || 'linear'], -1);
-    if (keys.length) content.append(button('Remove parameter animation', () => write([], 'Remove effect animation'), disabled));
+    if (keys.length) content.append(button('Remove parameter animation', () => write([], 'Remove effect animation'), disabled, 'btn-danger'));
   }
   select.addEventListener('change', paint);
   paint();
@@ -630,7 +653,7 @@ for (const kind of ['video', 'audio']) toolbar.append(button(`+ ${kind} track`, 
     track_kind: kind,
     label: `${kind === 'video' ? 'Video' : 'Audio'} ${tracks().filter(t => t.kind === kind).length + 1}`
   }], `Add ${kind} track`);
-}));
+}, false, 'btn-ghost'));
 // Replace the existing 20px ruler spacer so track rows remain aligned.
 window.addEventListener('openedit:timeline-rendered', () => labels.firstElementChild?.replaceWith(toolbar));
 fetch('/api/studio/effects').then(r => r.json()).then(r => {

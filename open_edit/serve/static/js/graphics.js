@@ -4,10 +4,11 @@ import { studio, loadStudio, studioRequest, commitStudio, studioObject, selectOb
 import { inverse, transformPoint, localDelta, insidePolygon, bounds, selectionRoots, layerLocked, annotationPoints, alignmentOffsets } from './studio-geometry.js';
 import { keyframeEdits } from './keyframes.js';
 import { convertMark } from './media-marks.js';
+import { keepDrafts } from './dom.js';
 
 const el = id => document.getElementById(`graphics-${id}`);
 const panel = el('panel'), source = el('source'), canvas = el('canvas'), live = el('live');
-const form = el('properties'), select = el('element'), guides = el('guides');
+const form = el('properties'), select = el('element'), guides = el('guides'), hint = el('properties-hint'), empty = el('empty');
 let draft, renderer, geometry = [], drag, playing = false, time = 0, generation = 0, runtimeReady;
 let busy = false, checkedJob = null, checkedSource = null, lastProject = null, loadingSnapshot = false, saving = false;
 let pendingSnapshot = false, pendingDiscard = false, snapshotTask = null, playGeneration = 0;
@@ -44,16 +45,21 @@ function controls() {
   el('hidden').disabled = disabled || !selection || selectedLocked || dirty();
   el('locked').disabled = disabled || !selection || draft?.data.locked || dirty();
   el('selection-status').textContent = studio.selectedIds.length ? `${studio.selectedIds.length} selected${selectedLocked ? ' · locked' : ''}` : 'Select an object or drag a selection box.';
+  empty.hidden = !!draft?.saved || elements().some(visual);
+  for (const id of ['empty-text', 'empty-shape']) el(id).disabled = disabled;
+  form.hidden = !selection; hint.hidden = !!selection;
 }
-function inspector() {
+function inspector() { keepDrafts(el('inspector'), fillInspector); }
+function fillInspector() {
   const selected = item(); select.value = selected?.id || '';
+  form.dataset.draftKey = `layer:${selected?.id || ''}`;
   if (selected) {
     const defaults = { x: 0, y: 0, width: 100, height: 60, rotation: 0, scale: 1, opacity: 1, color: '#ffffff', fontSize: 48, text: '' };
     const values = studio.autoKey ? {...selected,...geometry.find(g=>g.id===selected.id)} : selected;
     for (const [key, fallback] of Object.entries(defaults)) form.elements[key].value = values[key] ?? (key === 'color' ? selected.fill : undefined) ?? fallback;
     el('hidden').checked = !!selected.hidden; el('locked').checked = locked(selected.id);
   }
-  const current = mark(), f = el('mark-properties'); f.hidden = !current;
+  const current = mark(), f = el('mark-properties'); f.hidden = !current; f.dataset.draftKey = `mark:${current?.object_id || ''}`;
   if (current) for (const name of ['text', 'scope', 'anchor_sec', 'end_sec']) f.elements[name].value = current.data[name] ?? '';
   controls();
 }
@@ -151,7 +157,9 @@ function acceptSnapshot(discard = false) {
     try {
       while (pendingSnapshot) {
         const discard = pendingDiscard; pendingSnapshot = false; pendingDiscard = false;
-        await acceptOneSnapshot(discard);
+        // A newer snapshot (e.g. Undo during a compile) supersedes a failure
+        // of the one it replaces; only the latest snapshot may report errors.
+        try { await acceptOneSnapshot(discard); } catch (error) { if (!pendingSnapshot) throw error; }
       }
     } finally { loadingSnapshot = false; snapshotTask = null; controls(); }
   })();
@@ -280,6 +288,7 @@ for (const tag of ['text', 'rect']) el(`add-${tag}`).addEventListener('click', s
   const id = uid(tag), jsx = tag === 'text' ? `<text id="${id}" x={100} y={100} width={600} height={80} fontFamily="OpenEdit Sans" fontSize={48} color="#ffffff">New text</text>` : `<rect id="${id}" x={100} y={100} width={200} height={140} fill="#579bdf" />`;
   await rewrite([{ kind: 'insert', parent: `index.tsx:${draft.data.scene.id}`, jsx }], `Add ${tag}`); selectObjects([id], draft.object_id);
 }));
+for (const [button, target] of [['empty-text', 'add-text'], ['empty-shape', 'add-rect']]) el(button).addEventListener('click', () => el(target).click());
 el('group').addEventListener('click', safe(async () => { const id = uid('group'); await rewrite([{ kind: 'group', sources: roots().map(id => `index.tsx:${id}`), id }], 'Group layers'); selectObjects([id], draft.object_id); }));
 el('duplicate').addEventListener('click', safe(() => rewrite(roots().map(id => ({ kind: 'duplicate', source: `index.tsx:${id}` })), 'Duplicate layers')));
 el('delete').addEventListener('click', safe(async () => { await rewrite(roots().map(id => ({ kind: 'remove', source: `index.tsx:${id}` })), 'Delete layers'); selectObjects([], draft.object_id); }));
@@ -337,3 +346,4 @@ document.addEventListener('keydown', safe(async event => {
   if (delta && studio.selectedIds.length && !studio.selectedIds.some(locked)) { event.preventDefault(); const factor = event.shiftKey ? 10 : 1; await translations(Object.fromEntries(roots().map(id => [id, delta.map(v => v * factor)])), 'Nudge layers'); }
 }));
 controls();
+

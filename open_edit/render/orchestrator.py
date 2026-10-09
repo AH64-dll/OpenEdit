@@ -51,6 +51,7 @@ from open_edit.render.materialize import (
     materialize_remotion_compositions,
 )
 from open_edit.render.melt_runner import PipeRunError, run_pipe
+from open_edit.render.mlt_capability import audio_eq_warnings
 from open_edit.render.pipe_builder import OverlayClip, build_pipe_commands
 from open_edit.render.profiles import (
     RenderProfile,
@@ -869,6 +870,9 @@ def render_project(
         time.monotonic() - emit_t0,
         bytes=xml_path.stat().st_size,
     )
+    if eq_warnings := audio_eq_warnings(plan.melt_timeline):
+        diagnostics.setdefault("warnings", []).extend(eq_warnings)
+        log.warning("%s", eq_warnings[0])
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
 
     spec = resolve_encoder_args(profile, encoder_backend)

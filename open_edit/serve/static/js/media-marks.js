@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { studio, commitStudio, selectMarks, selectObjects } from './studio-state.js';
 import { bounds, annotationPoints } from './studio-geometry.js';
 import { markGraphic } from './mark-graphics.js';
-import { showToast } from './dom.js';
+import { showToast, keepDrafts, truncate } from './dom.js';
 const media = document.querySelector('.preview-media'),
   player = document.getElementById('preview-player');
 const make = (tag, text, attrs = {}) => {
@@ -199,99 +199,116 @@ function field(parent, name, label, value) {
   parent.append(l);
   return e;
 }
+const toolName = { rectangle: 'Box', arrow: 'Arrow', freehand: 'Freehand', pin: 'Pin', note: 'Note' };
+const sec = v => Number(v || 0).toFixed(1);
+function markLabel(m, index) {
+  const span = m.scope === 'object' ? 'whole clip' : m.end_sec == null ? `${sec(m.anchor_sec)}s` : `${sec(m.anchor_sec)}–${sec(m.end_sec)}s`;
+  return [m.hidden ? 'Hidden' : '', `${toolName[m.tool] || m.tool} ${index}`, span, truncate(m.text, 40)].filter(Boolean).join(' · ');
+}
 function render() {
-  content.replaceChildren();
-  const list = make('div', undefined, {
-    class: 'caption-list'
-  });
-  for (const o of marks()) {
-    const b = button(`${o.data.hidden ? 'Hidden · ' : ''}${o.data.tool} · ${o.data.text || o.object_id}`, () => {
-      selectMarks([o.object_id]);
-      window.dispatchEvent(new CustomEvent('openedit:seek', {
-        detail: o.data.anchor_sec
-      }));
+  keepDrafts(content, () => {
+    content.replaceChildren();
+    const list = make('div', undefined, {
+      class: 'caption-list'
     });
-    b.dataset.markId = o.object_id;
-    list.append(b);
-  }
-  content.append(list);
-  const o = marks().find(o => studio.selectedMarks.includes(o.object_id));
-  if (!o) {
-    content.append(make('p', 'Draw on the preview to direct an AI edit.', {
-      class: 'muted small'
+    marks().forEach((o, i) => {
+      const b = button(markLabel(o.data, i + 1), () => {
+        selectMarks([o.object_id]);
+        window.dispatchEvent(new CustomEvent('openedit:seek', {
+          detail: o.data.anchor_sec
+        }));
+      });
+      b.dataset.markId = o.object_id;
+      b.classList.toggle('active', studio.selectedMarks.includes(o.object_id));
+      if (o.data.text) b.title = o.data.text;
+      list.append(b);
+    });
+    content.append(list);
+    const o = marks().find(o => studio.selectedMarks.includes(o.object_id));
+    if (!o) {
+      content.append(make('p', 'Draw on the preview to direct an AI edit.', {
+        class: 'muted small'
+      }));
+      paint();
+      return;
+    }
+    const form = make('form', undefined, {
+        id: 'media-mark-properties',
+        class: 'studio-control-form',
+        'data-draft-key': `mark:${o.object_id}`
+      }),
+      m = o.data,
+      f = {};
+    for (const [k, l] of [['text', 'Instruction'], ['anchor_sec', 'Start (seconds)'], ['end_sec', 'End (seconds, blank for one frame)'], ['color', 'Color']]) f[k] = field(form, k, l, m[k]);
+    const scope = make('select', undefined, {
+      name: 'scope',
+      'aria-label': 'Mark timing'
+    });
+    for (const v of ['frame', 'range', 'object']) scope.append(make('option', v, {
+      value: v
     }));
-    paint();
-    return;
-  }
-  const form = make('form', undefined, {
-      id: 'media-mark-properties',
-      class: 'studio-control-form'
-    }),
-    m = o.data,
-    f = {};
-  for (const [k, l] of [['text', 'Instruction'], ['anchor_sec', 'Start (seconds)'], ['end_sec', 'End (seconds, blank for one frame)'], ['color', 'Color']]) f[k] = field(form, k, l, m[k]);
-  const scope = make('select', undefined, {
-    name: 'scope',
-    'aria-label': 'Mark timing'
-  });
-  for (const v of ['frame', 'range', 'object']) scope.append(make('option', v, {
-    value: v
-  }));
-  scope.value = m.scope;
-  form.append(scope);
-  f.points = field(form, 'points', `Points in ${m.coordinate_space} coordinates`, JSON.stringify(m.points));
-  const save = make('button', 'Save mark', {
-    type: 'submit',
-    class: 'btn btn-secondary btn-xs'
-  });
-  form.append(save);
-  for (const e of form.elements) e.disabled = studio.busy || m.locked;
-  form.addEventListener('submit', safe(async e => {
-    e.preventDefault();
-    await commitStudio([{
+    scope.value = m.scope;
+    form.append(scope);
+    f.points = field(form, 'points', `Points in ${m.coordinate_space} coordinates`, JSON.stringify(m.points));
+    const save = make('button', 'Save mark', {
+      type: 'submit',
+      class: 'btn btn-secondary btn-xs'
+    });
+    form.append(save);
+    for (const e of form.elements) e.disabled = studio.busy || m.locked;
+    form.addEventListener('submit', safe(async e => {
+      e.preventDefault();
+      await commitStudio([{
+        kind: 'annotation',
+        object_id: o.object_id,
+        data: {
+          ...m,
+          text: f.text.value,
+          anchor_sec: Number(f.anchor_sec.value),
+          end_sec: f.end_sec.value === '' ? null : Number(f.end_sec.value),
+          color: f.color.value,
+          scope: scope.value,
+          points: JSON.parse(f.points.value)
+        }
+      }], 'Edit video AI mark');
+    }));
+    content.append(form);
+    const actions = make('div', undefined, {
+      class: 'caption-actions'
+    });
+    actions.append(button(m.locked ? 'Unlock mark' : 'Lock mark', () => commitStudio([{
       kind: 'annotation',
       object_id: o.object_id,
       data: {
         ...m,
-        text: f.text.value,
-        anchor_sec: Number(f.anchor_sec.value),
-        end_sec: f.end_sec.value === '' ? null : Number(f.end_sec.value),
-        color: f.color.value,
-        scope: scope.value,
-        points: JSON.parse(f.points.value)
+        locked: !m.locked
       }
-    }], 'Edit video AI mark');
-  }));
-  content.append(form);
-  const actions = make('div', undefined, {
-    class: 'caption-actions'
-  });
-  actions.append(button(m.locked ? 'Unlock mark' : 'Lock mark', () => commitStudio([{
-    kind: 'annotation',
-    object_id: o.object_id,
-    data: {
-      ...m,
-      locked: !m.locked
-    }
-  }], 'Change mark lock'), studio.busy), button(m.hidden ? 'Show mark' : 'Hide mark', () => commitStudio([{
-    kind: 'annotation',
-    object_id: o.object_id,
-    data: {
-      ...m,
-      hidden: !m.hidden
-    }
-  }], 'Change mark visibility'), studio.busy || m.locked), button('Delete mark', async () => {
-    await commitStudio([{
+    }], 'Change mark lock'), studio.busy), button(m.hidden ? 'Show mark' : 'Hide mark', () => commitStudio([{
       kind: 'annotation',
       object_id: o.object_id,
-      data: null
-    }], 'Delete video AI mark');
-    selectMarks([]);
-  }, studio.busy || m.locked));
-  content.append(actions);
-  const duration = field(content, 'duration', 'Graphic duration (seconds)', m.end_sec ? m.end_sec - m.anchor_sec : 2);
-  content.append(button('Convert to graphic', () => convertMark(o, Number(duration.value)), studio.busy));
-  paint();
+      data: {
+        ...m,
+        hidden: !m.hidden
+      }
+    }], 'Change mark visibility'), studio.busy || m.locked), button('Delete mark', async () => {
+      await commitStudio([{
+        kind: 'annotation',
+        object_id: o.object_id,
+        data: null
+      }], 'Delete video AI mark');
+      selectMarks([]);
+    }, studio.busy || m.locked));
+    content.append(actions);
+    const convert = make('form', undefined, {
+      class: 'mark-convert',
+      'data-draft-key': `mark-convert:${o.object_id}`
+    });
+    const duration = field(convert, 'duration', 'Graphic duration (seconds)', m.end_sec ? m.end_sec - m.anchor_sec : 2);
+    convert.append(button('Convert to graphic', () => convertMark(o, Number(duration.value)), studio.busy));
+    convert.addEventListener('submit', e => e.preventDefault());
+    content.append(convert);
+    paint();
+  });
 }
 const pointer = e => {
   const r = overlay.getBoundingClientRect(),
