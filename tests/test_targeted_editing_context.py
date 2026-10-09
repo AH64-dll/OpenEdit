@@ -173,6 +173,9 @@ def test_small_graphics_edits_keep_source_ids_comments_locks_and_undo(tmp_path):
     context = get_editing_context(tmp_path, document_id='title-doc', selected_ids=['title'])
     assert 'source' not in context['documents'][0]['data']
     assert next(e for e in context['documents'][0]['data']['elements'] if e['id'] == 'title')['source_ref'] == 'index.tsx:title'
+    for selection in (['title-doc'], ['title-clip']):
+        view = get_editing_context(tmp_path, selected_ids=selection)
+        assert {e['id'] for e in view['documents'][0]['data']['elements']} >= {'panel', 'title'}
     params = {'expected_revision': 1, 'document_id': 'title-doc', 'request_id': 'small-edit',
               'edits': [{'kind': 'set', 'source': 'index.tsx:title', 'props': {'x': 144}},
                         {'kind': 'text', 'source': 'index.tsx:title', 'text': 'Manually editable <title>'}]}

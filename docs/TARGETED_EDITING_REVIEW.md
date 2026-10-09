@@ -12,6 +12,7 @@ cost. The original implementation plan remains unchanged.
 | Context read objects and operations from separate snapshots; concurrent edits could cause an inconsistent revision or abort a built-in turn. | Read revision, focus, objects and operations in one SQLite snapshot. Concurrent-write regression proves the old complete snapshot remains usable. |
 | Small graphics adjustments required an entire source document round trip. | `edit_project(operation="apply_graphics_edits")` accepts document ID, expected revision and small edits using stable source IDs. Stored JSX is rewritten and committed through the shared lock/history path. |
 | Implicit context included marks for unrelated targets and times. | Filter implicit marks by target and time. Explicitly selected marks remain available at other times; hidden marks stay excluded. |
+| Built-in prompt examples named the retired run_python tool and an invalid agent operation author. | Align examples with the six public tools, ai/user authors and targeted source edits, reducing avoidable schema failures. |
 
 Compact objects are summaries, not replacement payloads. The context instructs
 agents to fetch the complete original with `get_studio` before replacing it.

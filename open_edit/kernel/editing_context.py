@@ -126,12 +126,13 @@ def build_context(timeline, objects, revision, focus, *, include_source, include
                 if selected:
                     by_id = {e['id']: e for e in elements}
                     wanted = selected.intersection(by_id)
-                    for id in list(wanted):
-                        parent = by_id[id].get('parent_id')
-                        while parent and parent not in wanted:
-                            wanted.add(parent)
-                            parent = by_id.get(parent, {}).get('parent_id')
-                    elements = [e for e in elements if e['id'] in wanted]
+                    if wanted:
+                        for id in list(wanted):
+                            parent = by_id[id].get('parent_id')
+                            while parent and parent not in wanted:
+                                wanted.add(parent)
+                                parent = by_id.get(parent, {}).get('parent_id')
+                        elements = [e for e in elements if e['id'] in wanted]
                 data['elements'] = [{**e, 'source_ref': f'index.tsx:{e["id"]}'} for e in elements]
                 record(f'{path}.data.source')
             if name == 'annotations' and not include_source:
