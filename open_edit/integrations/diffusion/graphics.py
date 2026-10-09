@@ -13,6 +13,7 @@ import signal
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from open_edit.ir.types import AddClipOp, ReplaceClipSourceOp, TrimClipOp
@@ -200,6 +201,15 @@ def _runtime_digest() -> str:
     return digest.hexdigest()
 
 
+def _sweep_stale_captures(cache: Path, max_age_sec: float = 3600) -> None:
+    """Remove scratch directories left behind by earlier locked cleanups."""
+    cutoff = time.time() - max_age_sec
+    for stale in cache.glob('capture-*'):
+        with contextlib.suppress(OSError):
+            if stale.is_dir() and stale.stat().st_mtime < cutoff:
+                shutil.rmtree(stale, ignore_errors=True)
+
+
 def _publish_last_good(cache: Path, key: str) -> None:
     temporary = cache / 'last-good.tmp'
     temporary.write_text(json.dumps({'content_key': key}))
@@ -268,7 +278,10 @@ def materialize(project_path: str | Path, params: dict) -> dict:
                 Path(record.get('poster_path', '')).is_file() and Path(record.get('preview_path', '')).is_file()):
             _publish_last_good(cache, key)
             return {**record, 'ok': True, 'cache_hit': True, 'output_path': str(cas_path)}
-    with tempfile.TemporaryDirectory(prefix='capture-', dir=cache) as directory:
+    _sweep_stale_captures(cache)
+    # On Windows a reaped Chromium can hold its profile LOG open briefly; a
+    # locked scratch file must not fail a render that already succeeded.
+    with tempfile.TemporaryDirectory(prefix='capture-', dir=cache, ignore_cleanup_errors=True) as directory:
         scratch = Path(directory)
         rendered = _worker({**params, 'assets': manifest, 'frames': round(params['duration_sec'] * params['fps'])}, scratch)
         output = scratch / 'graphics.mov'

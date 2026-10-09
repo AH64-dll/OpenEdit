@@ -128,3 +128,13 @@ body[data-workspace=graphics] #media-marks-inspector { display:none; }
 .export-error { color:#ff9292; }
 #export-result .btn { margin-right:8px; }
 @media(max-width:650px) { .export-grid { grid-template-columns:1fr; } #export-dialog { padding:16px; } }
+
+/* ui:inspector-forms — owned by task T4 */
+
+/* ui:preview-toolbar — owned by task T5 */
+
+/* ui:export-dialog — owned by task T6 */
+
+/* ui:graphics-empty — owned by task T7 */
+
+/* ui:marks-list — owned by task T1 */

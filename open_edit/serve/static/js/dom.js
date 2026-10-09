@@ -193,3 +193,39 @@ export function truncate(s, n) {
   if (!s) return '';
   return s.length <= n ? s : s.slice(0, n - 1) + '…';
 }
+
+/* Inspector panels rebuild on every studio refresh. Keep what the user is
+   typing: capture edited fields inside `root`, rebuild, then restore them.
+   Fields are matched by their form's data-draft-key plus the field name, and
+   only restored when the rebuilt field still starts from the same value, so
+   a real external change to the object wins over a stale draft. */
+export function keepDrafts(root, rebuild) {
+  const drafts = new Map();
+  let focused = null;
+  if (root) for (const form of root.querySelectorAll('form[data-draft-key]')) {
+    for (const field of form.elements) {
+      if (!field.name || field.type === 'submit' || field.type === 'button') continue;
+      const value = field.type === 'checkbox' ? String(field.checked) : field.value;
+      const id = `${form.dataset.draftKey}\u0000${field.name}`;
+      if (field.dataset.draftInitial !== undefined && value !== field.dataset.draftInitial) drafts.set(id, { value, initial: field.dataset.draftInitial });
+      if (field === document.activeElement) focused = { id, start: field.selectionStart, end: field.selectionEnd };
+    }
+  }
+  const result = rebuild();
+  if (root) for (const form of root.querySelectorAll('form[data-draft-key]')) {
+    for (const field of form.elements) {
+      if (!field.name || field.type === 'submit' || field.type === 'button') continue;
+      const current = field.type === 'checkbox' ? String(field.checked) : field.value;
+      field.dataset.draftInitial = current;
+      const id = `${form.dataset.draftKey}\u0000${field.name}`, draft = drafts.get(id);
+      if (draft && draft.initial === current) {
+        if (field.type === 'checkbox') field.checked = draft.value === 'true'; else field.value = draft.value;
+      }
+      if (focused?.id === id && !field.disabled) {
+        field.focus({ preventScroll: true });
+        try { if (focused.start != null) field.setSelectionRange(focused.start, focused.end); } catch {}
+      }
+    }
+  }
+  return result;
+}
