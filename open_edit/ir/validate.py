@@ -236,17 +236,34 @@ def validate_timeline(timeline: Timeline) -> list[str]:
 def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
     """Clip/effect ids that exist after replaying ``ops`` (tolerant).
 
-    Mirrors the clip/effect creation done by ``apply_operation`` for
-    split / ripple / speed-ramp / normalize ops so reference checks
-    recognise derived identities (e.g. ``SplitClipOp`` halves, ramp
-    effects). It does NOT run the full timeline math and never raises, so a
-    semantically-invalid *prior* op (e.g. an oversized transition) does not
-    block appending an unrelated, valid op.
+    Mirrors the clip/effect creation and per-clip effect-list mutations done
+    by ``apply_operation`` — including split / ripple / duplicate copies,
+    speed-ramp / normalize / speed effects and index-addressed removals —
+    so reference checks recognise derived identities. Per-clip effect state
+    is an ordered list of ``(effect_id, effect_type)`` entries replayed in
+    apply order (AddEffectOp appends, RemoveEffectOp pops the entry at
+    ``op.effect_index``, speed/ramp upsert the first same-type entry or mint
+    ``op.edit_id``), so an index-addressed removal removes the effect that
+    apply actually removes. It does NOT run the full timeline math and never
+    raises, so a semantically-invalid *prior* op (e.g. an oversized
+    transition) does not block appending an unrelated, valid op.
+
+    Transition effects appended by ``AddTransitionOp`` occupying a
+    clip's ``effects`` list are included as identity/type entries so an
+    index removal at that position is faithful; ``ControlEffectOp
+    action='remove'`` ("Use the transition controls") and
+    ``RemoveTransitionOp`` drop the matched transition entry the same way
+    ``_apply_remove_transition`` matches effect ids.
     """
     clips: set[str] = set()
     effects: set[str] = set()
     documents: dict[str, set[str]] = {}
-    clip_effects: dict[str, set[str]] = {}
+    clip_effects: dict[str, list[tuple[str, str]]] = {}
+
+    def register(clip_id: str, effect_id: str, effect_type: str) -> None:
+        effects.add(effect_id)
+        clip_effects.setdefault(clip_id, []).append((effect_id, effect_type))
+
     for op in ops:
         if op.status != "applied":
             continue
@@ -260,20 +277,42 @@ def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
             clips.difference_update(documents.pop(op.document_id, set()))
         elif isinstance(op, RemoveClipOp):
             clips.discard(op.clip_id)
+            for _effect_id, _ in clip_effects.pop(op.clip_id, []):
+                effects.discard(_effect_id)
         elif isinstance(op, DuplicateClipOp):
             clips.add(op.new_clip_id)
-            effects.update(op.effect_ids.values())
-            clip_effects[op.new_clip_id] = set(op.effect_ids.values())
+            originals = clip_effects.get(op.clip_id, [])
+            copies: list[tuple[str, str]] = []
+            for original_id, original_type in originals:
+                new_id = op.effect_ids.get(original_id)
+                if new_id:
+                    copies.append((new_id, original_type))
+            clip_effects[op.new_clip_id] = copies.copy()
+            effects.update(id for id, _ in copies)
+            if not originals and op.effect_ids:
+                # Author-supplied mapping for effects the projection could
+                # not attribute to this clip (defensive): keep legacy
+                # behavior of registering every mapped id on the copy.
+                copies2 = [(new_id, '') for new_id in op.effect_ids.values()]
+                clip_effects[op.new_clip_id] = copies2
+                effects.update(op.effect_ids.values())
             for instances in documents.values():
                 if op.clip_id in instances:
                     instances.add(op.new_clip_id)
         elif isinstance(op, SplitClipOp):
             from uuid import NAMESPACE_URL, uuid5
 
-            copied = clip_effects.pop(op.clip_id, set())
-            clip_effects[op.left_clip_id] = copied
-            clip_effects[op.right_clip_id] = {str(uuid5(NAMESPACE_URL, f'openedit:split:{op.right_clip_id}:{id}')) for id in copied}
-            effects.update(clip_effects[op.right_clip_id])
+            copied: list[tuple[str, str]] = clip_effects.pop(op.clip_id, [])
+            left_copies: list[tuple[str, str]] = []
+            right_copies: list[tuple[str, str]] = []
+            for original_id, original_type in copied:
+                left_copies.append((original_id, original_type))
+                minted = str(uuid5(NAMESPACE_URL, f'openedit:split:{op.right_clip_id}:{original_id}'))
+                right_copies.append((minted, original_type))
+            clip_effects[op.left_clip_id] = left_copies
+            clip_effects[op.right_clip_id] = right_copies
+            for minted, _ in right_copies:
+                effects.add(minted)
             clips.discard(op.clip_id)
             clips.add(op.left_clip_id)
             clips.add(op.right_clip_id)
@@ -283,21 +322,71 @@ def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
                     instances.update((op.left_clip_id, op.right_clip_id))
         elif isinstance(op, RippleDeleteClipOp):
             clips.discard(op.clip_id)
+            for _effect_id, _ in clip_effects.pop(op.clip_id, []):
+                effects.discard(_effect_id)
+        elif isinstance(op, AddTransitionOp):
+            # _apply_add_transition appends the transition effect to clip_a's
+            # effects list (id 'transition_{edit_id}'), so a later
+            # index-addressed RemoveEffectOp at that position must remove it.
+            if op.clip_a_id in clips:
+                register(op.clip_a_id, f'transition_{op.edit_id}', f'transition_{op.transition_type}')
         elif isinstance(op, AddEffectOp):
             effects.add(op.effect_id)
             if op.target_kind == 'clip':
-                clip_effects.setdefault(op.target_id, set()).add(op.effect_id)
+                clip_effects.setdefault(op.target_id, []).append((op.effect_id, op.effect_type))
         elif isinstance(op, ControlEffectOp):
             if op.action == 'duplicate':
                 effects.add(op.new_effect_id)
                 if op.target_kind == 'clip':
-                    clip_effects.setdefault(op.target_id, set()).add(op.new_effect_id)
+                    entry_type = next((t for eid, t in clip_effects.get(op.target_id, []) if eid == op.effect_id), '')
+                    clip_effects.setdefault(op.target_id, []).append((op.new_effect_id, entry_type))
             elif op.action == 'remove':
                 effects.discard(op.effect_id)
                 if op.target_kind == 'clip':
-                    clip_effects.setdefault(op.target_id, set()).discard(op.effect_id)
-        elif isinstance(op, (SetClipSpeedRampOp, NormalizeAudioOp)):
-            effects.add(op.edit_id)
+                    entries = clip_effects.setdefault(op.target_id, [])
+                    kept = [entry for entry in entries if entry[0] != op.effect_id]
+                    clip_effects[op.target_id] = kept
+        elif isinstance(op, RemoveEffectOp):
+            entries = clip_effects.get(op.clip_id)
+            if entries is not None and 0 <= op.effect_index < len(entries):
+                dropped = entries.pop(op.effect_index)
+                effects.discard(dropped[0])
+        elif isinstance(op, RemoveTransitionOp):
+            # _apply_remove_transition drops the matched effect from every
+            # clip's effects list; mirror that for known per-clip entries.
+            def matches(entry: tuple[str, str]) -> bool:
+                return entry[0] == op.transition_id or entry[0] == f"transition_{op.transition_id}"
+            for clip_id, entries in list(clip_effects.items()):
+                kept = [entry for entry in entries if not matches(entry)]
+                for entry in list(clip_effects.get(clip_id, [])):
+                    if matches(entry) and len(kept) < len(entries):
+                        effects.discard(entry[0])
+                clip_effects[clip_id] = kept
+        elif isinstance(op, ChangeClipSpeedOp):
+            # _apply_change_clip_speed upserts the first 'speed' entry in
+            # place (id preserved); only the first speed op on a clip mints
+            # op.edit_id as a new effect.
+            if op.clip_id not in clips:
+                continue  # clip gone (removed/split away/duplicate-only source): apply would no-op
+            entries = clip_effects.get(op.clip_id)
+            if entries and any(t == 'speed' for _, t in entries):
+                pass  # supersede: identity preserved, op.edit_id stays unregistered
+            else:
+                register(op.clip_id, op.edit_id, 'speed')
+        elif isinstance(op, SetClipSpeedRampOp):
+            if op.clip_id not in clips:
+                continue
+            entries = clip_effects.get(op.clip_id)
+            if entries and any(t == 'speed_ramp' for _, t in entries):
+                pass  # supersede: existing ramp id preserved
+            else:
+                register(op.clip_id, op.edit_id, 'speed_ramp')
+        elif isinstance(op, NormalizeAudioOp):
+            if op.target_kind == 'clip':
+                if op.target_id in clips:
+                    register(op.target_id, op.edit_id, 'volume')
+            else:
+                effects.add(op.edit_id)
         # ReplaceClipSourceOp / MoveClipOp / TrimClipOp / SlipClipOp keep ids
     return clips, effects
 
