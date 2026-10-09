@@ -103,7 +103,17 @@ def apply_operation(
 
     if isinstance(op, SetObjectTrackOp):
         _, clip, _ = _find_clip(timeline, op.clip_id)
-        if clip is None or clip.track_kind != 'video' or clip.asset_hash != op.track.asset_hash or op.track.clip_id != op.clip_id:
+        if clip is None:
+            # Historical dependency of a reverted clip (or a clip a later
+            # RemoveClipOp dropped): derive stays tolerant like every other
+            # op family. Explicit strict=True still rejects so fresh
+            # authoring against a missing clip keeps its error.
+            if strict:
+                raise ApplyError(
+                    f"SetObjectTrackOp: clip_id '{op.clip_id}' not found in timeline"
+                )
+            return timeline
+        if clip.track_kind != 'video' or clip.asset_hash != op.track.asset_hash or op.track.clip_id != op.clip_id:
             raise ApplyError('An object track must reference its original video clip and asset')
         timeline.object_tracks[op.object_id] = op.track.model_copy(deep=True)
         return timeline

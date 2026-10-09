@@ -405,3 +405,53 @@ def test_retracking_preserves_manual_name_disabled_state_and_effects(project):
     assert result.label == 'My selected object' and result.enabled is False
     assert result.effects[0].effect_id == 'box'
     assert result.frames[0].time_sec == .4
+
+
+def test_reverting_clip_creator_tolerates_historical_object_track(project):
+    # CORE-02: derive replay must skip a SetObjectTrackOp whose historical
+    # clip no longer exists (creator reverted), like every other dependent
+    # op family — reverting the clip creator used to brick derivation.
+    from open_edit.ir.apply import apply_operation
+    from open_edit.ir.types import Timeline
+
+    root, store, _, asset = project
+    commit_studio(root, expected_revision=1, changes=[
+        {'kind': 'object_track', 'object_id': 'target', 'data': manual_track(asset)}])
+    creator = next(op for op in store.load_all() if op.kind == 'add_clip')
+    raw = store.load_all()
+    set_op = raw[-1]
+    assert set_op.kind == 'set_object_track'
+    # Direct low-level revert of the creator (no parent chain between them):
+    store.update_status(creator.edit_id, 'reverted')
+    timeline = derive_timeline(Project(name='core02', edit_graph=store.load_all()))
+    assert [c.clip_id for t in timeline.tracks for c in t.clips] == []
+    # The historical track is not re-materialized onto a missing clip.
+    assert 'target' not in timeline.object_tracks
+    # Explicit strict=True still rejects the missing-clip reference.
+    with pytest.raises(Exception, match="not found in timeline"):
+        apply_operation(Timeline(), set_op, strict=True)
+
+
+def test_unreverting_creator_restores_track_and_mismatch_still_rejects(project):
+    # CORE-02: only the MISSING-clip case is tolerant; a clip that IS
+    # resolved still enforces the asset/video-kind track constraints.
+    from open_edit.ir.apply import apply_operation
+    from open_edit.ir.object_tracking import ObjectTrack, TrackFrame
+    from open_edit.ir.types import SetObjectTrackOp, Timeline
+
+    root, store, _, asset = project
+    commit_studio(root, expected_revision=1, changes=[
+        {'kind': 'object_track', 'object_id': 'target', 'data': manual_track(asset)}])
+    creator = next(op for op in store.load_all() if op.kind == 'add_clip')
+    set_op = next(op for op in store.load_all() if op.kind == 'set_object_track')
+    store.update_status(creator.edit_id, 'reverted')
+    store.update_status(creator.edit_id, 'applied')
+    timeline = derive_timeline(Project(name='core02b', edit_graph=store.load_all()))
+    assert timeline.object_tracks['target'].clip_id == creator.clip_id
+
+    live = apply_operation(Timeline(), creator)
+    mismatched = SetObjectTrackOp(author='user', object_id='mismatch', clip_id=creator.clip_id,
+        track=ObjectTrack(clip_id=creator.clip_id, asset_hash='f'*64, frames=[
+            TrackFrame(time_sec=creator.in_point_sec, x=.1, y=.1, width=.2, height=.2)]))
+    with pytest.raises(Exception, match='original video clip and asset'):
+        apply_operation(live.model_copy(deep=True), mismatched)
