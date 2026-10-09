@@ -96,6 +96,14 @@ def test_profile_with_quality_applies_overrides():
     assert p.quality == "high" and p.crf == 20
 
 
+def test_scale_override_keeps_emitter_and_consumer_geometry_identical():
+    p = profile_with_quality(None, "proxy", overrides={"scale": "320x180"})
+    assert (p.width, p.height, p.scale) == (320, 180, "320x180")
+    assert "s=320x180" in profile_to_mlt_args(p, backend="cpu")
+    with pytest.raises(ValueError):
+        profile_with_quality(None, "proxy", overrides={"scale": "321x180"})
+
+
 def test_profile_validation_rejects_bad_values():
     with pytest.raises(ValidationError):
         RenderProfile(name="x", width=1, height=1, frame_rate_num=30,

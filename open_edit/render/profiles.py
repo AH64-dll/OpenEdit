@@ -160,6 +160,12 @@ def profile_with_quality(
         if overrides and overrides.get(key) is not None:
             update[key] = overrides[key]
     geometry={k:overrides[k] for k in ('width','height','frame_rate_num','frame_rate_den') if overrides and overrides.get(k) is not None}
+    if update.get('scale'):
+        if not _SCALE.fullmatch(update['scale']):
+            raise ValueError("scale must look like '1920x1080'")
+        # The emitted timeline and raw consumer must share their dimensions;
+        # two successive MLT resizes can also change the frame's color matrix.
+        geometry.update(zip(('width', 'height'), map(int, update['scale'].split('x')), strict=True))
     if geometry:
         update.update(geometry)
         values={**profile.model_dump(),**update}
@@ -186,7 +192,7 @@ def profile_fingerprint(
     plane: PreviewPlane | None = None,
 ) -> str:
     """Stable cache-key component: resolution + quality + overrides + backend."""
-    parts = [profile.name, f"q={profile.quality or 'fast'}"]
+    parts = [profile.name, f"q={profile.quality or 'fast'}", "color=rec709-v1"]
     for key in ("crf", "vb", "preset", "scale", "codec", "ab"):
         value = getattr(profile, key)
         if value is not None:

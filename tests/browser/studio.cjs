@@ -147,6 +147,31 @@ async function parity(browser) {
     await page.locator(`.timeline-clip[data-clip-id="${duplicate}"]`).click();
     await page.locator('#timeline-inspector .studio-layer-actions').getByRole('button',{name:'Ripple delete',exact:true}).click();
     await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).length===1);
+    // Renderer support is disclosed beside the effect, before export, while
+    // retaining manual edit controls. Setup refresh removes a stale warning.
+    await hero.click();
+    await page.locator('#timeline-inspector select[aria-label="Add effect"]').selectOption('eq');
+    await page.locator('#timeline-inspector .effect-card input[name=frequency]').waitFor();
+    const eqReady = await page.evaluate(() => window.OpenEdit.state.capabilities.audio_eq);
+    await page.evaluate(() => {
+      window.OpenEdit.state.capabilities.audio_eq = false;
+      window.dispatchEvent(new CustomEvent('openedit:setup-changed'));
+    });
+    await page.locator('#timeline-inspector [data-eq-warning]').waitFor();
+    assert.match(await page.locator('#timeline-inspector [data-eq-warning]').textContent(), /preview or export/);
+    assert.equal(await page.locator('#timeline-inspector .effect-card input[name=frequency]').isDisabled(), false);
+    await page.screenshot({path:path.join(artifacts,'studio-eq-warning.png'),fullPage:true});
+    await page.evaluate(() => {
+      window.OpenEdit.state.capabilities.audio_eq = true;
+      window.dispatchEvent(new CustomEvent('openedit:setup-changed'));
+    });
+    assert.equal(await page.locator('#timeline-inspector [data-eq-warning]').count(), 0);
+    await page.evaluate(ready => {
+      window.OpenEdit.state.capabilities.audio_eq = ready;
+      window.dispatchEvent(new CustomEvent('openedit:setup-changed'));
+    }, eqReady);
+    await page.locator('#timeline-inspector .effect-card').filter({has:page.locator('input[name=frequency]')}).getByRole('button',{name:'Delete',exact:true}).click();
+    await page.waitForFunction(()=>!window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).find(c=>c.clip_id==='hero').effects.some(e=>e.effect_type==='eq'));
     await page.screenshot({path:path.join(artifacts,'studio-timeline-effects.png'),fullPage:true});
     await page.locator('#workspace-graphics').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-status').textContent.startsWith('Interactive canvas'),null,{timeout:60000});
@@ -187,6 +212,16 @@ async function parity(browser) {
     await animation.getByRole('checkbox',{name:'Auto-key'}).uncheck();
     await page.locator('#graphics-properties input[name=x]').fill('110');await page.locator('#graphics-properties [type=submit]').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('x={110}') && !document.querySelector('#graphics-commit').disabled);
+    // A parent inspector refresh must not promote unsaved child animation
+    // values to their baseline; a later animation refresh must keep the draft.
+    const keyframeDraft = animation.locator('.keyframe-row').first().locator('input[name=value]');
+    await keyframeDraft.fill('321');
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('openedit:studio-selection'));
+      window.dispatchEvent(new CustomEvent('openedit:studio-busy'));
+    });
+    assert.equal(await keyframeDraft.inputValue(), '321', 'Inspector refresh lost an unsaved keyframe value');
+    await keyframeDraft.fill('130');
     const animatedDoc=(await api('/studio?include_source=true')).objects.find(o=>o.kind==='document').data;
     const motion=animatedDoc.elements.find(e=>e.parent_id==='title' && e.tag==='keyframeTrack' && e.property==='x');
     assert.deepEqual(animatedDoc.elements.filter(e=>e.parent_id===motion.id).map(e=>e.value),[130,180]);

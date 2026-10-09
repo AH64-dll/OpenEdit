@@ -209,9 +209,10 @@ inspector panels (marks, captions, animation, clip/track, graphics layers)
 discarded typed values on background refreshes; Undo/Redo used a stale history
 revision immediately after an edit; a stale compile failure in the graphics
 editor dropped the queued Undo snapshot; Enter in animation forms reloaded the
-page. Exports remain untagged: tagging BT.709 fixed MLT 7.41 output but shifted
-MLT 7.22 output, so melt's raw-pipe matrix differs by version; pure-color pixel
-checks on MLT 7.41 stay below thresholds tuned on 7.22 (open item). UI polish: friendly mark labels, styled
+page. An earlier metadata-only BT.709 change was reverted after overlay color
+shifts on MLT 7.22. The subsequent review identified implicit RGB-to-YUV
+conversion and inconsistent preview geometry; the correction is documented
+below. UI polish: friendly mark labels, styled
 inspector forms and selects, one labelled preview toolbar, a sticky export
 footer with a settings summary and warnings, graphics and captions empty states.
 
@@ -230,3 +231,34 @@ custom export settings, immutable
 snapshot publication to Desktop, fresh package/platform validation and the
 complete S16 workflow. Keep all S01-S16 acceptance requirements open until their
 current implementation and runtime evidence are complete.
+
+Review fixes checkpoint (2026-10-09, based on eb6196b): graphics inspector
+refreshes preserve only the forms they repopulate, so nested animation drafts
+retain their saved baseline through later animation refreshes. Regression covers
+unsaved values, focus/caret, checkboxes, and real external changes. The browser
+workflow additionally types a keyframe draft and refreshes both inspectors.
+
+The raw MLT-to-FFmpeg path now carries limited-range Rec.709 on input and output
+for both whole renders and preview chunks. RGB/alpha overlays explicitly convert
+to Rec.709 before encoding. Scale overrides update the emitted profile geometry,
+and the color-contract fingerprint invalidates previous render caches. This
+corrects pixels as well as metadata without selecting behavior by MLT version.
+An eight-color palette is decoded and compared through actual FFmpeg pipes,
+overlays, MLT whole/chunk previews and immutable final export. On MLT 7.41,
+whole preview, chunk preview and final export samples are identical (pure red:
+254,0,0); final metadata and full-decode verification pass. CI now runs the same
+actual MLT color test on its older renderer, along with the existing graphics
+overlay assertions and complete browser workflow.
+
+EQ support is also exposed in the startup/setup capability response. Unsupported
+renderers label the effect chooser and show a warning beside the editable EQ
+controls before export. Checking Setup again refreshes that warning. EQ values
+remain editable; the existing export warnings remain applicable below MLT 7.28.
+
+Local verification: 1672 broad regression tests passed; five display-dependent
+render tests passed when rerun with Qt offscreen (the render suites total eight
+passing tests). All 24 focused draft, profile, readiness and real color checks
+pass, including immutable export. Ruff and JavaScript syntax checks pass.
+Current-head browser and platform acceptance remain pending the published
+commit's CI; local Chromium startup is blocked by the agent sandbox. The original
+diffusion plan and full S01-S16 acceptance checklist remain unchanged.

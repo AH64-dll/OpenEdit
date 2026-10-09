@@ -198,11 +198,12 @@ export function truncate(s, n) {
    typing: capture edited fields inside `root`, rebuild, then restore them.
    Fields are matched by their form's data-draft-key plus the field name, and
    only restored when the rebuilt field still starts from the same value, so
-   a real external change to the object wins over a stale draft. */
-export function keepDrafts(root, rebuild) {
+   a real external change to the object wins over a stale draft. `forms`
+   limits preservation to the forms this caller actually rebuilds. */
+export function keepDrafts(root, rebuild, forms = 'form[data-draft-key]') {
   const drafts = new Map();
   let focused = null;
-  if (root) for (const form of root.querySelectorAll('form[data-draft-key]')) {
+  if (root) for (const form of root.querySelectorAll(forms)) {
     for (const field of form.elements) {
       if (!field.name || field.type === 'submit' || field.type === 'button') continue;
       const value = field.type === 'checkbox' ? String(field.checked) : field.value;
@@ -212,7 +213,7 @@ export function keepDrafts(root, rebuild) {
     }
   }
   const result = rebuild();
-  if (root) for (const form of root.querySelectorAll('form[data-draft-key]')) {
+  if (root) for (const form of root.querySelectorAll(forms)) {
     for (const field of form.elements) {
       if (!field.name || field.type === 'submit' || field.type === 'button') continue;
       const current = field.type === 'checkbox' ? String(field.checked) : field.value;

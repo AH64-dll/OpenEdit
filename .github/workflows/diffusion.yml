@@ -87,6 +87,8 @@ jobs:
       - run: npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund
       - run: npx --prefix tests/browser playwright-core install --with-deps chromium
       - run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
+      - name: Actual MLT preview and immutable export color parity
+        run: pytest tests/test_render/test_color_contract.py -m browser --timeout=180 --timeout-method=thread
       - run: pytest tests/test_diffusion_graphics.py -m browser --timeout=240 --timeout-method=thread
       - run: pytest tests/test_studio_graphics.py -m browser --timeout=240 --timeout-method=thread
       - run: pytest tests/test_export_service.py -m browser --timeout=240 --timeout-method=thread

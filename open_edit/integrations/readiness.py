@@ -65,8 +65,9 @@ def readiness() -> dict:
         html = False
     legacy = Path(__file__).parent / 'remotion/node_modules/@remotion/cli/package.json'
     mlt = mlt_version()
+    audio_eq = timeline and mlt_audio_avfilter_supported()
     return {
-        'capabilities': {'timeline': timeline, 'media': media, 'graphics': graphics},
+        'capabilities': {'timeline': timeline, 'media': media, 'graphics': graphics, 'audio_eq': audio_eq},
         'checks': [
             {'name': 'Video and audio tools', 'ready': base,
              'help': 'Install a full FFmpeg build including ffprobe and the libx264 encoder.'},
@@ -81,7 +82,7 @@ def readiness() -> dict:
             {'name': 'Legacy Remotion compatibility (optional)', 'ready': legacy.is_file(),
              'help': 'Only for existing Remotion projects: open_edit setup legacy-remotion'},
             {'name': f"Audio EQ (MLT {'.'.join(map(str, mlt)) if mlt else 'version unknown'})",
-             'ready': timeline and mlt_audio_avfilter_supported(),
+             'ready': audio_eq,
              'help': 'Audio EQ needs MLT 7.28 or newer (Ubuntu 24.04 ships 7.22); install a newer MLT to render EQ.'},
         ],
     }

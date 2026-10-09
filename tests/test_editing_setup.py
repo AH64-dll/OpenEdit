@@ -20,13 +20,27 @@ def test_incomplete_ffmpeg_and_old_node_are_not_ready(monkeypatch):
 
 def test_graphics_needs_browser_even_with_compiler(monkeypatch):
     from open_edit.integrations.diffusion import compiler, graphics
+    from open_edit.render import mlt_capability
 
     monkeypatch.setattr(setup.shutil, 'which', lambda name: f'/tools/{name}')
     monkeypatch.setattr(setup, '_output', lambda name, *args: 'v24.18.0' if name == 'node' else 'libx264')
     monkeypatch.setattr(compiler, 'worker_ready', lambda: True)
     monkeypatch.setattr(graphics, 'graphics_ready', lambda: True)
     monkeypatch.setattr(setup, 'chromium_available', lambda: False)
-    assert setup.readiness()['capabilities'] == {'timeline': True, 'media': True, 'graphics': False}
+    monkeypatch.setattr(mlt_capability, 'mlt_version', lambda: (7, 41, 0))
+    assert setup.readiness()['capabilities'] == {'timeline': True, 'media': True, 'graphics': False, 'audio_eq': True}
+
+
+def test_eq_readiness_discloses_unsupported_renderer_before_export(monkeypatch):
+    from open_edit.render import mlt_capability
+
+    monkeypatch.setattr(setup.shutil, 'which', lambda name: f'/tools/{name}')
+    monkeypatch.setattr(setup, '_output', lambda name, *args: 'v24.18.0' if name == 'node' else 'libx264')
+    monkeypatch.setattr(mlt_capability, 'mlt_version', lambda: (7, 22, 0))
+    result = setup.readiness()
+    assert result['capabilities']['timeline'] and not result['capabilities']['audio_eq']
+    check = next(check for check in result['checks'] if check['name'].startswith('Audio EQ'))
+    assert not check['ready'] and '7.28' in check['help'] and '7.22' in check['name']
 
 
 def test_review_startup_does_not_import_agent_modules():

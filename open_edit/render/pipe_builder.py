@@ -33,6 +33,13 @@ class OverlayClip:
 
 OverlayInput: TypeAlias = OverlayClip | FrameOverlaySpec
 
+# Rawvideo carries no frame metadata. Match MLT's Rec.709/limited consumer
+# on both the input and encoded output instead of letting SD decoders guess 601.
+REC709_TAGS = (
+    "-color_range", "tv", "-colorspace", "bt709",
+    "-color_primaries", "bt709", "-color_trc", "bt709",
+)
+
 
 @dataclass(frozen=True)
 class PipeCommands:
@@ -113,7 +120,9 @@ def overlay_filter_chain(
         # doesn't support 4:4:4" -> rc -22). Rename the last overlay's
         # output to [vfin] and force 4:2:0 on [vout], which callers map.
         filters[-1] = filters[-1].replace("[vout]", "[vfin]", 1)
-        filters.append("[vfin]format=yuv420p[vout]")
+        # RGB/alpha composition needs an actual 709 conversion, not only tags.
+        # format=yuv420p alone lets swscale select 601 for small canvases.
+        filters.append("[vfin]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[vout]")
     return filters
 
 
@@ -183,6 +192,7 @@ def build_pipe_commands(
         f"display_aspect_den={profile.height}",
         "progressive=1",
         "colorspace=709",
+        "color_range=tv",
     ]
 
     melt_audio_cmd = [
@@ -192,7 +202,7 @@ def build_pipe_commands(
         "format=wav",
     ]
 
-    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, "-i", "-"]
+    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, *REC709_TAGS, "-i", "-"]
     audio_inputs = ["-i", str(audio_wav)]
     overlay_inputs: list[str] = []
     for ov in normalized_overlays:
@@ -219,7 +229,7 @@ def build_pipe_commands(
             *video_inputs, *audio_inputs, *overlay_inputs,
             "-filter_complex", ";".join(filters),
             "-map", "[vout]", "-map", "1:a?",
-            "-c:v", spec.vcodec, *spec.ffmpeg_args,
+            "-c:v", spec.vcodec, *spec.ffmpeg_args, *REC709_TAGS,
             "-c:a", profile.acodec, "-b:a", audio_bitrate,
             str(output_mp4),
         ]
@@ -228,7 +238,7 @@ def build_pipe_commands(
             "ffmpeg", "-y",
             *video_inputs, *audio_inputs,
             "-map", "0:v", "-map", "1:a?",
-            "-c:v", spec.vcodec, *spec.ffmpeg_args,
+            "-c:v", spec.vcodec, *spec.ffmpeg_args, *REC709_TAGS,
             "-c:a", profile.acodec, "-b:a", audio_bitrate,
             str(output_mp4),
         ]

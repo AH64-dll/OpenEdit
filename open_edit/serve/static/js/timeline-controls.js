@@ -406,7 +406,7 @@ function paintInspector() {
   add.append(node('option', 'Choose an effect', {
     value: ''
   }));
-  for (const spec of capabilities.filter(s => s.target_kind.includes(owner.kind))) add.append(node('option', spec.name, {
+  for (const spec of capabilities.filter(s => s.target_kind.includes(owner.kind))) add.append(node('option', spec.name === 'eq' && state.capabilities.audio_eq === false ? 'eq · setup needed' : spec.name, {
     value: spec.name
   }));
   add.disabled = disabled;
@@ -433,6 +433,10 @@ function renderEffect(effect, index, count, disabled) {
     });
   box.open = true;
   box.append(node('summary', `${index + 1}. ${effect.effect_type}${effect.enabled === false ? ' · bypassed' : ''}`));
+  if (effect.effect_type === 'eq' && state.capabilities.audio_eq === false) box.append(node('p',
+    'EQ is saved and editable, but this renderer cannot apply it to preview or export. Install MLT 7.28 or newer, then open Setup and check again.', {
+      class: 'muted small', role: 'status', 'data-eq-warning': ''
+    }));
   if (effect.effect_type.startsWith('transition_')) {
     if (effect.params.layout === 'centered') {
       const form = draftForm(`effect:${effect.effect_id}`);
@@ -660,3 +664,4 @@ fetch('/api/studio/effects').then(r => r.json()).then(r => {
   capabilities = r.effects;
   renderInspector();
 }).catch(() => {});
+window.addEventListener('openedit:setup-changed', renderInspector);

@@ -55,7 +55,8 @@ function controls() {
   el('hidden').closest('.studio-layer-actions').hidden = !selection;
   form.hidden = !selection; hint.hidden = !!selection;
 }
-function inspector() { keepDrafts(el('inspector'), fillInspector); }
+// Animation owns its nested forms and draft baselines. Refill only our forms.
+function inspector() { keepDrafts(el('inspector'), fillInspector, ':scope > form[data-draft-key]'); }
 function fillInspector() {
   const selected = item(); select.value = selected?.id || '';
   form.dataset.draftKey = `layer:${selected?.id || ''}`;
