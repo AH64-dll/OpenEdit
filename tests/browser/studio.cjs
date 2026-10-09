@@ -110,6 +110,35 @@ async function parity(browser) {
     const marked=await api('/editing-context',{annotation_ids:[],selected_ids:[],playhead_sec:0});
     assert.ok(marked.annotations.some(o=>o.data.text==='Align the video edit here'));
     await page.screenshot({path:path.join(artifacts,'studio-video-marks.png'),fullPage:true});
+    // A transient ROI reaches both chat and external agents without adding an edit.
+    const beforeRegion = (await api('/studio')).graph_revision;
+    await page.locator('#media-mark-toolbar select').selectOption('select');
+    const regionBox = await page.locator('#media-mark-overlay').boundingBox();
+    await page.mouse.move(regionBox.x+regionBox.width*.15,regionBox.y+regionBox.height*.15);await page.mouse.down();
+    await page.mouse.move(regionBox.x+regionBox.width*.55,regionBox.y+regionBox.height*.55,{steps:8});await page.mouse.up();
+    await page.waitForFunction(()=>window.OpenEdit.state.editingSelection?.region?.right>0);
+    const focus = await page.evaluate(()=>window.OpenEdit.state.editingSelection);
+    assert.equal(focus.region.canvas_width,640);assert.equal(focus.region.canvas_height,360);
+    assert.ok(Math.abs(focus.region.left-96)<2 && Math.abs(focus.region.right-352)<2);
+    const sent = await page.evaluate(async()=>{
+      const {sendChatMessage}=await import('/js/chat.js');
+      const state=window.OpenEdit.state, previous=state.ws;let payload;
+      state.ws={readyState:1,send:value=>{payload=JSON.parse(value);}};
+      try{if(!sendChatMessage('Adjust only the selected video region'))throw new Error('Chat did not send the selection');}finally{state.ws=previous;}
+      return payload;
+    });
+    assert.deepEqual(sent.editing_selection.region,focus.region);
+    await wait(600);
+    const external=spawnSync(python,['-c','import json,sys; from pathlib import Path; from open_edit.kernel.pillar_tools import dispatch_query; print(json.dumps(dispatch_query("get_editing_context",{},Path(sys.argv[1]))))',projectPath],{encoding:'utf8'});
+    assert.equal(external.status,0,external.stderr);const regionContext=JSON.parse(external.stdout.trim().split('\n').at(-1));
+    assert.deepEqual(regionContext.region,focus.region);assert.deepEqual(regionContext.region_clips.map(c=>c.clip_id),['hero']);
+    assert.equal((await api('/studio')).graph_revision,beforeRegion);
+    fs.writeFileSync(path.join(artifacts,'studio-region-context.json'),JSON.stringify(regionContext,null,2));
+    await page.screenshot({path:path.join(artifacts,'studio-video-region.png'),fullPage:true});
+    await page.locator('#media-clear-region').click();
+    await page.waitForFunction(()=>window.OpenEdit.state.editingSelection?.region===null);
+    assert.equal((await api('/studio')).graph_revision,beforeRegion);
+    await page.locator('#media-mark-toolbar select').selectOption('off');
     await page.locator('#media-marks-inspector').getByRole('button',{name:'Convert to graphic',exact:true}).click();
     await page.waitForFunction(()=>window.OpenEdit.state.currentProjectState.timeline_full.tracks.flatMap(t=>t.clips).length===2);
     assert.equal((await api('/studio?include_source=true')).objects.filter(o=>o.kind==='document').length,1);
@@ -232,13 +261,13 @@ async function parity(browser) {
     await page.locator('#graphics-mark-properties').waitFor({state:'visible'});
     await page.locator('#graphics-mark-properties [name=text]').fill('Move this title along this arrow');await page.locator('#graphics-mark-properties [type=submit]').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-marks').textContent.includes('Move this title'));
-    const context=await api('/editing-context',{document_id:doc.object_id,selected_ids:['title'],annotation_ids:[],playhead_sec:0});
+    const context=await api('/editing-context',{document_id:doc.object_id,selected_ids:['title'],annotation_ids:[],playhead_sec:0,include_source:true});
     // The earlier video mark stays after conversion; find the graphics arrow itself.
     const arrow=context.annotations.find(o=>o.data.text==='Move this title along this arrow'); assert.ok(arrow); assert.equal(arrow.data.coordinate_space,'object'); assert.ok(context.documents[0].data.source.includes('Manually editable title'));
     // An external MCP agent uses the same durable source, with AI attribution.
     const latest=await api('/studio?include_source=true'), latestDoc=latest.objects.find(o=>o.kind==='document');
-    const agent=spawnSync(python,['-c','import json,sys; from pathlib import Path; from open_edit.kernel.pillar_tools import dispatch_edit; x=json.load(sys.stdin); print(json.dumps(dispatch_edit("apply_studio_changes",x["params"],Path(x["path"]))))'],{
-      input:JSON.stringify({path:projectPath,params:{expected_revision:latest.graph_revision,request_id:'browser-ai-request',label:'AI refine title',changes:[{kind:'document',object_id:latestDoc.object_id,data:{...latestDoc.data,source:latestDoc.data.source.replace('Manually editable title','AI refined title')}}]}}),encoding:'utf8'});
+    const agent=spawnSync(python,['-c','import json,sys; from pathlib import Path; from open_edit.kernel.pillar_tools import dispatch_edit; x=json.load(sys.stdin); print(json.dumps(dispatch_edit("apply_graphics_edits",x["params"],Path(x["path"]))))'],{
+      input:JSON.stringify({path:projectPath,params:{expected_revision:latest.graph_revision,document_id:latestDoc.object_id,request_id:'browser-ai-request',label:'AI refine title',edits:[{kind:'text',source:'index.tsx:title',text:'AI refined title'}]}}),encoding:'utf8'});
     assert.equal(agent.status,0,agent.stderr);assert.equal(JSON.parse(agent.stdout).status,'ok');
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('AI refined title'),null,{timeout:20000});
     const history=await api('/history'); assert.equal(history.actions[0].author,'ai');assert.equal(history.actions[0].request_id,'browser-ai-request');

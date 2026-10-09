@@ -94,7 +94,9 @@ async def test_builtin_turn_reads_marks_and_groups_tool_calls(patched_agent, mon
         'tool': 'note', 'points': [[20, 30]], 'text': 'Keep the title here'}}
     commit_studio(tmp_path, expected_revision=0, changes=[mark])
     save_editing_selection(tmp_path, expected_revision=1, selected_ids=['title'],
-                           annotation_ids=['direction'], document_id=None, playhead_sec=2)
+                           annotation_ids=['direction'], document_id=None, playhead_sec=2,
+                           region={'left': 10, 'right': 80, 'top': 5, 'bottom': 40,
+                                   'canvas_width': 320, 'canvas_height': 180, 'playhead_sec': 1})
     prompts, request_ids = [], []
     async def stream(messages, tools, system, **kwargs):
         prompts.append(system)
@@ -114,10 +116,22 @@ async def test_builtin_turn_reads_marks_and_groups_tool_calls(patched_agent, mon
     assert events[-1]['type'] == 'cost_update'
     context = json.loads(prompts[0].split('Current editing workspace (structured source and marks):\n')[1].split('\nRequest ID:')[0])
     assert context['annotations'][0]['data']['text'] == 'Keep the title here' and context['playhead_sec'] == 2
+    assert context['region']['playhead_sec'] == 1 and context['region']['right'] == 80
+    assert '## Project state\n```\n' in prompts[0]  # The compact focus replaces duplicate project JSON.
     assert len(request_ids) == 2 and request_ids[0] and request_ids[0] == request_ids[1]
     assert request_context.get() is None
     assert len(store.history()['actions']) == 2
     assert store.history()['actions'][0]['request_id'] == request_ids[0]
+
+
+def test_compact_prompt_retains_pending_note_count_and_timeline_status():
+    from open_edit.serve.agent.prompts import _build_state_summary
+
+    state = projects_mod.ProjectState(id='p', name='p', path='/tmp/p', assets=[], ops=[],
+                                     timeline=projects_mod.TimelineSummary(), pending_notes_count=3,
+                                     timeline_status='invalid')
+    summary = _build_state_summary(state)
+    assert 'Pending notes: 3' in summary and 'Timeline status: invalid' in summary
 
 
 @pytest.fixture

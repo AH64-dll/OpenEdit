@@ -46,6 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const id of ['chat-log', 'chat-status']) { const node = document.getElementById(id); if (node) dock.append(node); }
   const row = document.querySelector('.chat-input-row'); if (row) dock.append(row);
   document.getElementById('right-panel').prepend(dock);
-  function selection() { summary.textContent = `${studio.selectedIds.length} selected · ${studio.selectedMarks.length} marked${state.reviewOnly ? ' · external MCP available' : ''}`; }
+  function selection() { summary.textContent = `${studio.selectedIds.length} selected · ${studio.selectedMarks.length} marked${studio.region ? ` · region at ${studio.region.playhead_sec.toFixed(2)}s` : ''}${state.reviewOnly ? ' · external MCP available' : ''}`; }
   selection(); window.addEventListener('openedit:studio-selection', selection);
 });

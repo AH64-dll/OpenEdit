@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from starlette.concurrency import run_in_threadpool
 
 from open_edit.kernel.studio_service import (
+    EditingFocus,
     commit_studio,
     get_editing_context,
     get_studio,
@@ -39,12 +40,12 @@ class StudioEditRequest(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=256)
 
 
-class EditingContextRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    selected_ids: list[str] = Field(default_factory=list, max_length=500)
-    annotation_ids: list[str] = Field(default_factory=list, max_length=500)
-    playhead_sec: float = Field(default=0, ge=0, allow_inf_nan=False)
-    document_id: str | None = Field(default=None, min_length=1, max_length=128)
+class EditingContextRequest(EditingFocus):
+    include_source: StrictBool = False
+    include_timeline: StrictBool = False
+    offset: StrictInt = Field(default=0, ge=0)
+    limit: StrictInt = Field(default=20, ge=1, le=100)
+    section: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 class StudioCompileRequest(BaseModel):
@@ -54,7 +55,7 @@ class StudioCompileRequest(BaseModel):
     edits: list[dict] = Field(default_factory=list, max_length=1000)
 
 
-class StudioSelectionRequest(EditingContextRequest):
+class StudioSelectionRequest(EditingFocus):
     expected_revision: StrictInt = Field(ge=0)
 
 

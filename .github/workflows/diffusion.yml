@@ -47,7 +47,7 @@ jobs:
       - run: python -m open_edit.integrations.diffusion.setup
       - run: python -m open_edit.integrations.diffusion.setup --graphics
       - run: pytest tests/test_diffusion_graphics.py tests/test_diffusion_graphics_contract.py tests/test_diffusion_setup.py -m "not browser" --timeout=40 --timeout-method=thread
-      - run: pytest tests/test_studio_storage.py tests/test_studio_service.py tests/test_studio_source_writer.py tests/test_studio_graphics.py tests/test_studio_geometry.py -m "not browser" --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_studio_storage.py tests/test_studio_service.py tests/test_targeted_editing_context.py tests/test_studio_source_writer.py tests/test_studio_graphics.py tests/test_studio_geometry.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_request_history.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_timeline_controls.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_graphics_animation.py tests/test_asset_visuals.py --timeout=40 --timeout-method=thread

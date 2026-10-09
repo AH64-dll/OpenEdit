@@ -60,7 +60,8 @@ def _build_state_summary(state: projects_mod.ProjectState) -> str:
         f"Project: {name}",
         f"Asset count: {len(assets)}",
         f"Track count: {num_tracks}",
-        f"Pending notes: {len(notes)}",
+        f"Pending notes: {getattr(state, 'pending_notes_count', len(notes))}",
+        f"Timeline status: {getattr(state, 'timeline_status', 'valid')}",
     ]
     if notes:
         last = notes[-1]
