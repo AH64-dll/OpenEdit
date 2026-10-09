@@ -58,6 +58,21 @@ def _size(profile: RenderProfile) -> str:
     return f"{profile.width}x{profile.height}"
 
 
+# melt's nv12 pipe is BT.709 (``colorspace=709`` on the melt consumer). Without
+# explicit tags, decoders fall back to BT.601 for small untagged frames and
+# shift saturated colors (pure #ff0000 decoded as R=193 under MLT 7.41). Tag
+# both the rawvideo input and the encoded output. Every video encoder this
+# module builds (x264/x265/NVENC/AMF/QSV/VAAPI/AV1) takes these from the codec
+# context into the bitstream VUI. No ProRes/qtrle output path exists here, so
+# nothing is excluded.
+_BT709_TAGS: tuple[str, ...] = (
+    "-color_range", "tv",
+    "-colorspace", "bt709",
+    "-color_primaries", "bt709",
+    "-color_trc", "bt709",
+)
+
+
 def overlay_filter_chain(
     overlays: list[OverlayInput], width: int, height: int,
     *, first_overlay_input: int = 2,
@@ -192,7 +207,10 @@ def build_pipe_commands(
         "format=wav",
     ]
 
-    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, "-i", "-"]
+    video_inputs = [
+        "-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps,
+        *_BT709_TAGS, "-i", "-",
+    ]
     audio_inputs = ["-i", str(audio_wav)]
     overlay_inputs: list[str] = []
     for ov in normalized_overlays:
@@ -219,7 +237,7 @@ def build_pipe_commands(
             *video_inputs, *audio_inputs, *overlay_inputs,
             "-filter_complex", ";".join(filters),
             "-map", "[vout]", "-map", "1:a?",
-            "-c:v", spec.vcodec, *spec.ffmpeg_args,
+            "-c:v", spec.vcodec, *spec.ffmpeg_args, *_BT709_TAGS,
             "-c:a", profile.acodec, "-b:a", audio_bitrate,
             str(output_mp4),
         ]
@@ -228,7 +246,7 @@ def build_pipe_commands(
             "ffmpeg", "-y",
             *video_inputs, *audio_inputs,
             "-map", "0:v", "-map", "1:a?",
-            "-c:v", spec.vcodec, *spec.ffmpeg_args,
+            "-c:v", spec.vcodec, *spec.ffmpeg_args, *_BT709_TAGS,
             "-c:a", profile.acodec, "-b:a", audio_bitrate,
             str(output_mp4),
         ]

@@ -514,6 +514,7 @@ def execute_export(root: Path, payload: dict) -> dict:
         export_settings=settings.model_dump(mode="json"),
         export_verification=report,
         export_snapshot=nonce,
+        warnings=list(result.warnings),
         graph_revision=captured["graph_revision"],
         encoder_backend=resolve_backend(backend),
         duration_sec=timeline.duration_sec,

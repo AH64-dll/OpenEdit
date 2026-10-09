@@ -90,7 +90,7 @@ function renderPanel() {
   const actions = node('div', undefined, {
     class: 'caption-actions'
   });
-  actions.append(button('Add caption', async () => {
+  const add = button('Add caption', async () => {
     selected = uid('caption');
     const start = state.playheadSec || 0;
     await save({
@@ -102,7 +102,9 @@ function renderPanel() {
       }
     }, 'Add caption');
     selectObjects([selected], null);
-  }, studio.busy));
+  }, studio.busy);
+  add.classList.replace('btn-secondary', 'btn-primary');
+  actions.append(add);
   const upload = node('input', undefined, {
     type: 'file',
     accept: '.srt',
@@ -128,6 +130,9 @@ function renderPanel() {
   actions.append(download);
   actions.append(button('Use transcript', () => importTranscript(false), studio.busy), button('Transcribe locally', () => importTranscript(true), studio.busy));
   host.append(actions);
+  if (!cues().length) host.append(node('p', 'No captions yet. Add one, import an SRT, or transcribe locally.', {
+    class: 'muted caption-empty'
+  }));
   const list = node('div', undefined, {
     class: 'caption-list',
     'aria-label': 'Caption cues'

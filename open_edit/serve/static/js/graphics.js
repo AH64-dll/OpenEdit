@@ -47,6 +47,12 @@ function controls() {
   el('selection-status').textContent = studio.selectedIds.length ? `${studio.selectedIds.length} selected${selectedLocked ? ' · locked' : ''}` : 'Select an object or drag a selection box.';
   empty.hidden = !!draft?.saved || elements().some(visual);
   for (const id of ['empty-text', 'empty-shape']) el(id).disabled = disabled;
+  const statusLine = el('status'), placeholder = 'Open the studio to create text and shapes.';
+  const placeholderStatus = () => { statusLine.hidden = !empty.hidden && statusLine.textContent.trim() === placeholder; };
+  // message() may write right after controls() in the same task; re-check whenever the status text changes.
+  if (!statusLine.dataset.watched) { statusLine.dataset.watched = '1'; new MutationObserver(placeholderStatus).observe(statusLine, { childList: true, characterData: true, subtree: true }); }
+  placeholderStatus();
+  el('hidden').closest('.studio-layer-actions').hidden = !selection;
   form.hidden = !selection; hint.hidden = !!selection;
 }
 function inspector() { keepDrafts(el('inspector'), fillInspector); }

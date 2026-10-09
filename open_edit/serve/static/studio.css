@@ -131,7 +131,7 @@ body[data-workspace=graphics] #media-marks-inspector { display:none; }
 #export-result .btn { margin-right:8px; }
 @media(max-width:650px) { .export-grid { grid-template-columns:1fr; } .export-header,.export-body,.export-actions { padding-left:16px; padding-right:16px; } .export-actions { flex-wrap:wrap; } }
 
-/* ui:inspector-forms — owned by task T4 */
+/* ui:inspector-forms */
 :is(.studio-control-form, .caption-editor form, #graphics-properties, #graphics-mark-properties, #media-mark-properties, #caption-properties) label { display:flex; flex-direction:column; align-items:stretch; gap:4px; min-width:0; text-align:left; font-size:11px; color:var(--oe-ink-muted); }
 :is(.studio-control-form, .caption-editor form, #graphics-properties, #graphics-mark-properties, #media-mark-properties, #caption-properties) label:first-child { grid-column:1/-1; }
 :is(.studio-control-form, .caption-editor form, #graphics-properties, #graphics-mark-properties, #media-mark-properties, #caption-properties) label:has(> input[type=checkbox]) { flex-direction:row; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:6px; }
@@ -141,8 +141,12 @@ body[data-workspace=graphics] #media-marks-inspector { display:none; }
 :is(.studio-control-form, .caption-editor form, #graphics-properties, #graphics-mark-properties, #media-mark-properties, #caption-properties) textarea { min-height:60px; padding:8px 10px; line-height:1.4; resize:vertical; }
 :is(.studio-control-form, .caption-editor form, #graphics-properties, #graphics-mark-properties, #media-mark-properties, #caption-properties) select option { color:var(--oe-ink); background:var(--oe-surface); }
 :is(.studio-control-form, .caption-editor form, #graphics-properties, #graphics-mark-properties, #media-mark-properties, #caption-properties) :is(input:not([type=checkbox]), select, textarea):focus-visible { outline:none; border-color:var(--oe-accent); box-shadow:var(--oe-focus); }
+#timeline-inspector select, #graphics-inspector select, #caption-editor select, .studio-animation select { box-sizing:border-box; width:100%; min-width:0; height:28px; padding:0 10px; color:var(--oe-ink); background:var(--oe-bg); border:1px solid var(--oe-line-strong); border-radius:var(--oe-radius-sm); font:12px var(--font-body, Inter, ui-sans-serif); }
+#timeline-inspector select option, #graphics-inspector select option, #caption-editor select option, .studio-animation select option { color:var(--oe-ink); background:var(--oe-surface); }
+#timeline-inspector select:focus-visible, #graphics-inspector select:focus-visible, #caption-editor select:focus-visible, .studio-animation select:focus-visible { outline:none; border-color:var(--oe-accent); box-shadow:var(--oe-focus); }
+#graphics-inspector .studio-layer-actions label:last-child { flex-direction:column; align-items:stretch; gap:4px; }
 
-/* ui:preview-toolbar — owned by task T5 */
+/* ui:preview-toolbar */
 #media-mark-toolbar select, .quality-check-form input, .quality-check-form select { box-sizing:border-box; height:28px; min-width:0; padding:0 8px; color:var(--oe-ink); background:var(--oe-bg); border:1px solid var(--oe-line-strong); border-radius:var(--oe-radius-sm); font:12px var(--font-sans); }
 #media-mark-toolbar select:hover, .quality-check-form input:hover { border-color:var(--oe-ink-muted); }
 #media-mark-toolbar select option { color:var(--oe-ink); background:var(--oe-surface); }
@@ -152,7 +156,7 @@ body[data-workspace=graphics] #media-marks-inspector { display:none; }
 .quality-check-form .btn { white-space:nowrap; }
 #media-mark-toolbar > .muted { flex:1 1 96px; min-width:0; line-height:1.4; }
 
-/* ui:export-dialog — owned by task T6 */
+/* ui:export-dialog */
 .export-body { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; padding:16px 24px 20px; }
 .export-inline { grid-column:1/-1; display:flex; align-items:flex-end; gap:8px; }
 .export-inline label { flex:1 1 auto; min-width:0; }
@@ -167,7 +171,7 @@ body[data-workspace=graphics] #media-marks-inspector { display:none; }
 .export-buttons { display:flex; align-items:center; gap:8px; flex:none; }
 .export-buttons [hidden] { display:none; }
 
-/* ui:graphics-empty — owned by task T7 */
+/* ui:graphics-empty */
 .graphics-empty { position:absolute; inset:0; z-index:2; display:grid; place-items:center; padding:16px; pointer-events:none; }
 .graphics-empty[hidden], #graphics-properties[hidden], #graphics-properties-hint[hidden] { display:none; }
 .graphics-empty-card { box-sizing:border-box; width:100%; max-width:360px; padding:16px 18px; text-align:center; pointer-events:auto; background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; }
@@ -175,9 +179,19 @@ body[data-workspace=graphics] #media-marks-inspector { display:none; }
 .graphics-empty-card p { margin:0 0 12px; line-height:1.4; }
 .graphics-empty-actions { display:flex; justify-content:center; flex-wrap:wrap; gap:8px; }
 #graphics-properties-hint { margin:0; }
+.studio-layer-actions[hidden] { display:none; }
+#graphics-backward, #graphics-forward { color:var(--oe-ink); background:var(--oe-surface-2); border-color:var(--oe-line-strong); }
+#graphics-backward:hover:not(:disabled), #graphics-forward:hover:not(:disabled) { background:var(--oe-surface-3); }
 
-/* ui:marks-list — owned by task T1 */
+/* ui:marks-list */
 .caption-list button.active { font-weight:600; }
 .mark-convert { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin:8px 0; }
 .mark-convert label { width:100%; }
 .mark-convert input { width:100%; min-width:0; }
+
+/* ui:captions-panel */
+.caption-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin:10px 0; }
+.caption-actions > .btn { width:100%; min-width:0; min-height:28px; margin:0; white-space:normal; line-height:1.2; text-align:center; text-decoration:none; }
+.caption-actions > .btn-primary { grid-column:1 / -1; }
+.caption-actions > [hidden] { display:none; }
+.caption-empty { margin:0 0 12px; font-size:12px; line-height:1.4; }

@@ -196,7 +196,33 @@ Browser CI exposed a timeline repaint race in the test and an ignored EQ in
 MLT; the repaint wait is corrected and detailed EQ renderer diagnostics are
 added. These remain pending current runtime acceptance.
 
-Still required: request-revert browser acceptance, complete timeline
+Stabilization checkpoint (after df20cea): the three remaining CI failures are
+addressed. media-marks.js was loaded twice (a versioned script tag plus module
+imports), duplicating the annotation toolbar, overlay and inspector; it now loads
+once. Windows graphics scratch directories tolerate a briefly locked Chromium
+profile and stale ones are swept. MLT before 7.28 silently drops audio avfilter
+filters (upstream mlt 615aac5), so EQ is now reported by readiness, warned about
+in render and export results, and its actual-MLT assertion is version-gated.
+
+Running the complete studio workflow exposed further editor defects, now fixed:
+inspector panels (marks, captions, animation, clip/track, graphics layers)
+discarded typed values on background refreshes; Undo/Redo used a stale history
+revision immediately after an edit; a stale compile failure in the graphics
+editor dropped the queued Undo snapshot; Enter in animation forms reloaded the
+page. Exports now tag BT.709 limited-range input and output, which previously
+decoded as BT.601 on small frames. UI polish: friendly mark labels, styled
+inspector forms and selects, one labelled preview toolbar, a sticky export
+footer with a settings summary and warnings, graphics and captions empty states.
+
+Local evidence with MLT 7.41 and Playwright Chromium: tests/browser/studio.cjs
+passes end to end for the first time (manual/AI edits, locks, video and graphics
+marks, conversion, transitions, captions, history, request revert, reopen and
+exact interactive/export pixels), as does authoring.cjs. Full regression: 1672
+passed. Browser/MLT pytest suites pass. CI on Linux/macOS/Windows and MLT 7.22
+remains to confirm these results.
+
+Still required: CI confirmation of the local browser results above (request
+revert now passes locally), complete timeline
 interaction and track controls, effect-stack editing, keyframe/curve UI, audio
 waveforms and controls, caption/style/font editing, full media-canvas marks,
 custom export settings, immutable

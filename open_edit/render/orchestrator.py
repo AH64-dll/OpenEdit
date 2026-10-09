@@ -96,6 +96,7 @@ class RenderResult(BaseModel):
     cache_hit: bool = False
     edit_graph_hash: str = ""
     diagnostics: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -642,6 +643,7 @@ def render_project(
                 ok=True, output_path=str(cached), mode=mode,
                 profile=profile.model_dump(), duration_sec=timeline.duration_sec,
                 elapsed_sec=0.0, cache_hit=True, edit_graph_hash=graph_hash,
+                warnings=audio_eq_warnings(timeline),
                 diagnostics=_contractualize_diagnostics(
                     mode,
                     profile,
@@ -1358,6 +1360,7 @@ def render_project(
         profile=profile.model_dump(), duration_sec=timeline.duration_sec,
         elapsed_sec=elapsed, cache_hit=False, edit_graph_hash=graph_hash,
         diagnostics=_contractualize_diagnostics(mode, profile, diagnostics),
+        warnings=list(diagnostics.get("warnings", [])),
     )
 
 

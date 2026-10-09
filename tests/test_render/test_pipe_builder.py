@@ -320,3 +320,30 @@ def test_full_alpha_composite_preserves_transparent_overlay_pixels(tmp_path: Pat
     assert red > green + 30
     assert green > 0
     assert blue > 0
+
+
+def test_ffmpeg_argv_tags_bt709_on_rawvideo_input_and_output(tmp_path: Path):
+    """melt's nv12 pipe is BT.709, so both the ffmpeg input and the encoded
+    output must carry the tags; untagged output decodes with BT.601 guesses."""
+    profile, spec, overlays = _fixture()
+    tags = [
+        "-color_range", "tv",
+        "-colorspace", "bt709",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+    ]
+
+    def has_run(argv: list[str], run: list[str]) -> bool:
+        return any(argv[i:i + len(run)] == run for i in range(len(argv)))
+
+    # Overlay branch (filter_complex) and direct-map branch both encode video.
+    for overlay_list in (overlays, []):
+        argv = build_pipe_commands(
+            "melt", Path("t.mlt"), tmp_path / "out.mp4", profile, spec,
+            overlay_list, audio_bitrate="160k", workdir=tmp_path,
+        ).ffmpeg_cmd
+        pipe_input = argv.index("-i")
+        assert argv[pipe_input + 1] == "-"
+        assert has_run(argv[:pipe_input], tags)
+        output = argv.index(str(tmp_path / "out.mp4"))
+        assert has_run(argv[argv.index("-c:v"):output], tags)

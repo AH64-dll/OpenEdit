@@ -312,9 +312,14 @@ async function poll(id, captured, generation) {
       continue;
     }
     if (job.status === 'succeeded') {
+      const warnings = job.result?.warnings || [];
       dialog.querySelector('#export-result').replaceChildren(node('p', job.output_path, {
         class: 'export-path'
-      }), button('Play', () => request(`/exports/${id}/open/play`, {}, captured)), button('Open folder', () => request(`/exports/${id}/open/folder`, {}, captured)));
+      }), ...warnings.map(text => node('p', text, {
+        class: 'export-warning',
+        role: 'status',
+        style: 'color: var(--warn)'
+      })), button('Play', () => request(`/exports/${id}/open/play`, {}, captured)), button('Open folder', () => request(`/exports/${id}/open/folder`, {}, captured)));
       status('Export verified and saved.');
       showToast(`Saved ${job.output_path}`, 'success');
       window.dispatchEvent(new CustomEvent('openedit:export-complete', {

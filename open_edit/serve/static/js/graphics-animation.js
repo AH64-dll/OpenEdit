@@ -24,9 +24,9 @@ function node(tag, text, attrs = {}) {
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
   return n;
 }
-function button(text, fn, disabled = false) {
+function button(text, fn, disabled = false, type = 'button') {
   const b = node('button', text, {
-    type: 'button',
+    type,
     class: 'btn btn-ghost btn-xs'
   });
   b.disabled = disabled;
@@ -42,6 +42,14 @@ function field(label, value, attrs = {}) {
     wrap,
     input
   };
+}
+function draftForm(key) {
+  const form = node('form', undefined, {
+    class: 'studio-control-form',
+    'data-draft-key': key
+  });
+  form.addEventListener('submit', event => event.preventDefault());
+  return form;
 }
 async function rewrite(edits, label) {
   const current = doc();
@@ -197,10 +205,7 @@ function renderPanel() {
     timeline.append(dot);
   }
   section.append(timeline);
-  const add = node('form', undefined, {
-      class: 'studio-control-form',
-      'data-draft-key': `keyframe-add:${selected.id}:${property}`
-    }),
+  const add = draftForm(`keyframe-add:${selected.id}:${property}`),
     value = field('Value', selected[property] ?? (property === 'opacity' || property === 'scale' ? 1 : property === 'color' ? '#ffffff' : 0), {
       name: 'value',
       type: property === 'color' ? 'text' : 'number',
@@ -211,7 +216,7 @@ function renderPanel() {
     if (!add.reportValidity()) return;
     const time = Math.max(0, studio.geometry.find(g => g.id === selected.id)?.local_time_sec ?? (state.playheadSec || 0) - (current.data.position_sec || 0));
     return rewrite(keyframeEdits(current.data, selected.id, property, time, property === 'color' ? value.input.value : Number(value.input.value)), 'Add keyframe');
-  }, disabled));
+  }, disabled, 'submit'));
   section.append(add);
   for (const frame of frames) {
     const row = node('details', undefined, {
@@ -220,10 +225,7 @@ function renderPanel() {
     });
     row.open=expanded.has(frame.id);
     row.append(node('summary', `${frame.time.toFixed(3)} s · ${frame.value}`));
-    const form = node('form', undefined, {
-        class: 'studio-control-form',
-        'data-draft-key': `keyframe:${track.id}:${frame.id}`
-      }),
+    const form = draftForm(`keyframe:${track.id}:${frame.id}`),
       time = field('Time (s)', frame.time, {
         name: 'time',
         type: 'number',
@@ -324,7 +326,7 @@ function renderPanel() {
           easing: easing.value === 'cubicBezier' ? `cubicBezier(${handles.map(h => Number(h.input.value)).join(',')})` : easing.value
         }
       }], 'Edit keyframe');
-    }, disabled), button('Delete keyframe', () => rewrite([{
+    }, disabled, 'submit'), button('Delete keyframe', () => rewrite([{
       kind: 'remove',
       source: `index.tsx:${frame.id}`
     }], 'Delete keyframe'), disabled));
@@ -354,10 +356,7 @@ function renderPanel() {
   }], 'Add animation preset')));
   section.append(presets);
   for (const preset of current.data.elements.filter(e => e.parent_id === selected.id && e.tag === 'animation')) {
-    const form = node('form', undefined, {
-        class: 'studio-control-form',
-        'data-draft-key': `preset:${preset.id}`
-      }),
+    const form = draftForm(`preset:${preset.id}`),
       phase = node('select', undefined, {
         'aria-label': 'Animation phase',
         name: 'phase'
@@ -388,7 +387,7 @@ function renderPanel() {
         duration: Number(duration.input.value),
         delay: Number(delay.input.value)
       }
-    }], 'Edit animation preset'), disabled), button(`Remove ${preset.type}`, () => rewrite([{
+    }], 'Edit animation preset'), disabled, 'submit'), button(`Remove ${preset.type}`, () => rewrite([{
       kind: 'remove',
       source: `index.tsx:${preset.id}`
     }], 'Remove animation preset'), disabled));
