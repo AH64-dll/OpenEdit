@@ -47,7 +47,7 @@ async def _tracking_call(project_id, function, **values):
 async def track_region(project_id: str, request: TrackingRequest):
     from open_edit.kernel.tracking_jobs import start_tracking
 
-    return await _tracking_call(project_id, start_tracking, **request.model_dump())
+    return await _tracking_call(project_id, start_tracking, **request.model_dump(exclude_unset=True))
 
 
 @router.get('/api/projects/{project_id}/tracking')

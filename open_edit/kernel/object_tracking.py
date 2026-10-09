@@ -74,6 +74,7 @@ def prepare_tracking(root: Path, request: TrackingRequest):
         if before is None or before['locked'] or before['clip_id'] != clip.clip_id or before['asset_hash'] != clip.asset_hash:
             raise ValueError('Choose an existing unlocked track belonging to this clip')
     return {'path': str(path), 'asset_hash': clip.asset_hash, 'clip_id': clip.clip_id,
+            'label': request.label if 'label' in request.model_fields_set or before is None else before['label'],
             'width': asset.width, 'height': asset.height, 'initial': initial.model_dump(mode='json'),
             'start': clip.in_point_sec + start - clip.position_sec,
             'end': clip.in_point_sec + stop - clip.position_sec,
@@ -190,9 +191,9 @@ def track_video(prepared: dict, request: TrackingRequest, *, cancelled=lambda: F
     if before:
         kept = [TrackFrame.model_validate(f) for f in before['frames'] if f['time_sec'] < ordered[0].time_sec or f['time_sec'] > ordered[-1].time_sec]
         ordered = sorted([*kept, *ordered], key=lambda f: f.time_sec)
-    return ObjectTrack(clip_id=prepared['clip_id'], asset_hash=prepared['asset_hash'], label=request.label,
+    return ObjectTrack(clip_id=prepared['clip_id'], asset_hash=prepared['asset_hash'], label=prepared.get('label', request.label),
         algorithm=f'OpenCV {cv2.__version__} {"GrabCut foreground + " if refined else "selected region + "}CSRT; appearance score', frames=ordered,
-        effects=before['effects'] if before else [])
+        effects=before['effects'] if before else [], enabled=before['enabled'] if before else True)
 
 
 def summarize_track(data: dict, source_time: float | None = None) -> dict:

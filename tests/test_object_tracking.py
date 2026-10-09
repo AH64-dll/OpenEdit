@@ -390,3 +390,18 @@ def test_job_liveness_checks_do_not_terminate_a_live_process():
         child.terminate()
         child.wait(timeout=5)
     assert not _process_alive(child.pid)
+
+
+def test_retracking_preserves_manual_name_disabled_state_and_effects(project):
+    root, store, _, asset = project
+    data = manual_track(asset)
+    data.update(label='My selected object',enabled=False,effects=[{'effect_id':'box','kind':'highlight'}])
+    commit_studio(root,expected_revision=1,changes=[{'kind':'object_track','object_id':'target','data':data}])
+    req = request(store,object_id='target',direction='forward')
+    prepared = prepare_tracking(root,req)
+    # Durable jobs serialize the request including defaults; prepared metadata
+    # still distinguishes an omitted name from an explicit rename.
+    result = track_video(prepared,TrackingRequest.model_validate(req.model_dump()))
+    assert result.label == 'My selected object' and result.enabled is False
+    assert result.effects[0].effect_id == 'box'
+    assert result.frames[0].time_sec == .4
