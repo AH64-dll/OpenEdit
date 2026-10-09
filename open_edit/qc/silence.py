@@ -55,12 +55,16 @@ def get_audio_levels(
     if not _has_audio_stream(video_path):
         return AudioLevels(ok=True, in_sec=in_sec, out_sec=out_sec, rms_db=0.0, peak_db=0.0)
 
-    cmd = [ffmpeg, "-hide_banner", "-i", video_path,
-           "-vn", "-af", "astats=metadata=1:reset=0", "-f", "null", "-"]
-    if in_sec > 0 or out_sec > 0:
+    cmd = [ffmpeg, "-hide_banner"]
+    if in_sec > 0:
+        # Input seek: the astats window starts at in_sec, no decode cost
+        # outside it.
         cmd += ["-ss", f"{in_sec:.3f}"]
+    cmd += ["-i", video_path, "-vn", "-af", "astats=metadata=1:reset=0"]
     if out_sec > 0:
-        cmd += ["-to", f"{(out_sec - in_sec):.3f}"]
+        # A duration before the output URL covers exactly [in_sec, out_sec].
+        cmd += ["-t", f"{(out_sec - in_sec):.3f}"]
+    cmd += ["-f", "null", "-"]
 
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -150,10 +154,13 @@ def _last_stderr_line(stderr: str) -> str:
 
 
 def _parse_db(text: str, key: str) -> float:
-    m = re.search(rf'{re.escape(key)}=(-?\d+(?:\.\d+)?)', text)
+    m = re.search(rf'{re.escape(key)}(?:\s+dB)?\s*[:=]\s*(-?\d+(?:\.\d+)?)', text)
     return float(m.group(1)) if m else 0.0
 
 
 def _parse_overall_db(text: str, key: str) -> float:
-    m = re.search(r'Overall[\s\S]*?' + re.escape(key) + r'=(-?\d+(?:\.\d+)?)', text)
+    m = re.search(
+        r'Overall[\s\S]*?' + re.escape(key) + r'(?:\s+dB)?\s*[:=]\s*(-?\d+(?:\.\d+)?)',
+        text,
+    )
     return float(m.group(1)) if m else 0.0
