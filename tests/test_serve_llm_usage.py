@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
+import types
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -305,3 +307,247 @@ def test_no_verdict_line_returns_unknown():
     r = parse_verdict("Done. Rendered successfully.")
     assert r["verdict"] == "unknown"
     assert r["source"] == "model_no_verdict_line"
+
+
+# ---------------------------------------------------------------------------
+# A3-2/A3-6: OpenAI chat-completions payload must be wire-valid
+# ---------------------------------------------------------------------------
+
+class _FakeOpenAIMultiStream:
+    """Terminal-chunks stream: choices with fragmented tool_calls, then a
+    usage-only chunk with an empty choices array (include_usage shape)."""
+
+    def __init__(self, chunks):
+        self._chunks = iter(chunks)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._chunks)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+class _FakeOpenAIDelta2:
+    def __init__(self, content="", tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _FakeOpenAICall:
+    def __init__(self, index, id=None, name=None, arguments=None):
+        self.index = index
+        self.id = id
+        self.function = types.SimpleNamespace(name=name, arguments=arguments) if (name or arguments) else None
+
+
+class _FakeOpenAIChoice2:
+    def __init__(self, delta, finish_reason=None):
+        self.delta = delta
+        self.finish_reason = finish_reason
+
+
+class _FakeOpenAIChunk2:
+    def __init__(self, choices=None, usage=None):
+        self.choices = choices or []
+        self.usage = usage
+
+
+def test_openai_payload_uses_message_tool_calls_and_tool_role_messages(monkeypatch):
+    """Assistant tool_use -> top-level tool_calls field; each tool_result becomes
+    its own verbatim role=tool message in id order (A3-2)."""
+    import asyncio
+    import types as _types
+    captured = {}
+
+    chunks = [
+        _FakeOpenAIChunk2(choices=[_FakeOpenAIChoice2(_FakeOpenAIDelta2(content="Working "), "tool_calls")], ),
+        _FakeOpenAIChunk2(usage=_FakeOpenAIUsage(prompt_tokens=120, completion_tokens=30)),
+    ]
+
+    class _Completions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeOpenAIMultiStream(chunks)
+
+    module = _types.ModuleType("openai")
+    module.AsyncOpenAI = lambda api_key=None: _types.SimpleNamespace(
+        chat=_types.SimpleNamespace(completions=_Completions()))
+    monkeypatch.setitem(sys.modules, "openai", module)
+    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPEN_EDIT_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "gpt-4o")
+
+    messages = [
+        {"role": "user", "content": "cut it"},
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "a1", "name": "add_clip", "input": {"src": "x.mp4"}},
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "a1", "content": "{\"status\":\"ok\"}"},
+        ]},
+    ]
+
+    async def _run():
+        return [e async for e in stream_chat(messages=messages, tools=[], system="s")]
+
+    events = asyncio.run(_run())
+    oai = captured["messages"]
+
+    assistant = next(m for m in oai if m.get("role") == "assistant")
+    assert assistant["tool_calls"] == [{
+        "id": "a1", "type": "function",
+        "function": {"name": "add_clip", "arguments": "{\"src\": \"x.mp4\"}"},
+    }], "tool calls must live at message level in call order"
+
+    tool_msgs = [m for m in oai if m.get("role") == "tool"]
+    assert tool_msgs == [{"role": "tool", "tool_call_id": "a1", "content": "{\"status\":\"ok\"}"}], \
+        "tool results must be top-level role=tool messages with verbatim content"
+
+    for m in oai:
+        parts = m.get("content") if isinstance(m.get("content"), list) else []
+        for p in parts:
+            assert isinstance(p, dict) and "role" not in p and p.get("type") != "function", \
+                f"role/function parts inside content are wire-invalid: {p}"
+
+    usage = next((e for e in events if e["type"] == "usage"), None)
+    assert usage is not None and usage["tokens"] == 150
+
+
+def test_openai_images_deferred_to_trailing_user_message_after_tool_answers(monkeypatch):
+    """Verification frames ride in ONE trailing role=user image_url message,
+    placed after every tool_call of the exchange was answered (A3-1+A3-2)."""
+    import asyncio
+    import types as _types
+    captured = {}
+
+    class _Completions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeOpenAIMultiStream([_FakeOpenAIChunk2(
+                choices=[_FakeOpenAIChoice2(_FakeOpenAIDelta2(), "stop")])])
+
+    module = _types.ModuleType("openai")
+    module.AsyncOpenAI = lambda api_key=None: _types.SimpleNamespace(
+        chat=_types.SimpleNamespace(completions=_Completions()))
+    monkeypatch.setitem(sys.modules, "openai", module)
+    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPEN_EDIT_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "gpt-4o")
+
+    messages = [
+        {"role": "user", "content": "render it"},
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}},
+        ]},
+        {"role": "user", "content": [{
+            "type": "tool_result", "tool_use_id": "t1",
+            "content": [
+                {"type": "text", "text": "{\"render_id\":\"r1\"}"},
+                {"type": "image", "data": "QUJD", "mimeType": "image/jpeg"},
+            ],
+        }]},
+    ]
+
+    async def _run():
+        return [e async for e in stream_chat(messages=messages, tools=[], system="s")]
+
+    asyncio.run(_run())
+    oai = captured["messages"]
+
+    tool_idx = next(i for i, m in enumerate(oai) if m.get("role") == "tool")
+    tool_msgs = [m for m in oai if m.get("role") == "tool"]
+    assert tool_msgs == [{"role": "tool", "tool_call_id": "t1", "content": "{\"render_id\":\"r1\"}"}]
+
+    tool_content = tool_msgs[0]["content"]
+    assert "QUJD" not in tool_content, "image bytes must never ride inside a tool message"
+
+    image_user = [m for m in oai if m.get("role") == "user" and isinstance(m.get("content"), list)
+                  and any(isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"])]
+    assert len(image_user) == 1, f"exactly one trailing image message expected, got {len(image_user)}"
+    img_msg = image_user[0]
+    assert oai.index(img_msg) > tool_idx, "image user message must come after the tool answer"
+    urls = [p["image_url"]["url"] for p in img_msg["content"] if p.get("type") == "image_url"]
+    assert urls == ["data:image/jpeg;base64,QUJD"]
+    texts = [p["text"] for p in img_msg["content"] if p.get("type") == "text"]
+    assert texts and "VERIFICATION" in texts[0], "provenance text must name the frames"
+    assert "QUJD" not in json.dumps([m for m in oai if m.get("role") == "tool"]), \
+        "no base64 may ride in any tool message"
+
+
+def test_openai_fragmented_tool_call_delta_reassembly(monkeypatch):
+    """Fragmented streamed tool_call deltas still assemble one complete call
+    with id/name/arguments merged in encounter order."""
+    import asyncio
+    import types as _types
+    chunks = [
+        _FakeOpenAIChunk2(choices=[_FakeOpenAIChoice2(_FakeOpenAIDelta2(tool_calls=[
+            _FakeOpenAICall(0, id="c9", name="trim_clip", arguments='{"start":'),
+        ]))]),
+        _FakeOpenAIChunk2(choices=[_FakeOpenAIChoice2(_FakeOpenAIDelta2(tool_calls=[
+            _FakeOpenAICall(0, arguments=' 1.0, "end": 2.0}'),
+        ]))]),
+        _FakeOpenAIChunk2(choices=[_FakeOpenAIChoice2(_FakeOpenAIDelta2(), "tool_calls")]),
+    ]
+    captured = {}
+
+    class _Completions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeOpenAIMultiStream(chunks)
+
+    module = _types.ModuleType("openai")
+    module.AsyncOpenAI = lambda api_key=None: _types.SimpleNamespace(
+        chat=_types.SimpleNamespace(completions=_Completions()))
+    monkeypatch.setitem(sys.modules, "openai", module)
+    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPEN_EDIT_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "gpt-4o")
+
+    async def _run():
+        return [e async for e in stream_chat(
+            messages=[{"role": "user", "content": "trim"}], tools=[], system="s")]
+
+    events = asyncio.run(_run())
+    calls = [e for e in events if e["type"] == "tool_use"]
+    assert calls == [{"type": "tool_use", "id": "c9", "name": "trim_clip",
+                      "input": {"start": 1.0, "end": 2.0}}]
+
+
+def test_openai_usage_terminal_choices_empty_chunk_is_captured(monkeypatch):
+    """terminal chunk with choices=[] + usage must emit a usage event
+    (stream_options include_usage must be requested; capture happens
+    BEFORE the empty-choices skip, A3-6)."""
+    import asyncio
+    import types as _types
+    captured = {}
+
+    class _Completions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeOpenAIMultiStream([
+                _FakeOpenAIChunk2(choices=[_FakeOpenAIChoice2(_FakeOpenAIDelta2(), "stop")]),
+                _FakeOpenAIChunk2(usage=_FakeOpenAIUsage(prompt_tokens=100, completion_tokens=44)),
+            ])
+
+    module = _types.ModuleType("openai")
+    module.AsyncOpenAI = lambda api_key=None: _types.SimpleNamespace(
+        chat=_types.SimpleNamespace(completions=_Completions()))
+    monkeypatch.setitem(sys.modules, "openai", module)
+    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPEN_EDIT_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "gpt-4o")
+
+    async def _run():
+        return [e async for e in stream_chat(
+            messages=[{"role": "user", "content": "hi"}], tools=[], system="s")]
+
+    events = asyncio.run(_run())
+    assert captured.get("stream_options") == {"include_usage": True}, \
+        "include_usage must be requested so the terminal usage chunk is sent"
+    usage = next((e for e in events if e["type"] == "usage"), None)
+    assert usage is not None, "terminal choices=[] usage chunk must not be skipped"
+    assert usage["usage"]["prompt_tokens"] == 100 and usage["usage"]["completion_tokens"] == 44
+    assert usage["tokens"] == 144

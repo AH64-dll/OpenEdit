@@ -99,3 +99,98 @@ def test_compact_history_keeps_tool_result_separate_from_preceding_text():
     assert len(out) == 3
     assert out[1]["content"][0]["type"] == "tool_result"
     assert out[2]["content"] == "follow-up"
+
+
+# ---------------------------------------------------------------------------
+# A3-1: pending verification frames must survive ContextBudget.truncate
+# even when a later, smaller non-verification exchange exists.
+# ---------------------------------------------------------------------------
+
+def _frame_tool_result_message(rid: str, tu: str, fill: str = "Q") -> dict:
+    import json
+    return {"role": "user", "content": [{
+        "type": "tool_result",
+        "tool_use_id": tu,
+        "content": [
+            {"type": "text", "text": json.dumps({
+                "status": "ok", "render_id": rid, "verification": {"frame_count": 3},
+            })},
+            {"type": "image", "data": fill * 4096, "mimeType": "image/jpeg"},
+        ],
+    }]}
+
+
+def _frame_history() -> list[dict]:
+    import json
+    hist = [
+        {"role": "user", "content": "first request"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}]},
+        _frame_tool_result_message("r1", "t1"),
+        ["x0", "x1", "x2"],
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "q1", "name": "get_history", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "q1", "content": json.dumps({"ok": True})}]},
+    ]
+    # flatten the three small middle exchanges
+    middle: list[dict] = []
+    for rid in hist[3]:
+        middle.extend([
+            {"role": "assistant", "content": [{"type": "tool_use", "id": rid, "name": "list_assets", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": rid, "content": json.dumps({"ok": True})}]},
+        ])
+    return hist[:3] + middle + hist[4:]
+
+
+def test_truncate_pins_oversized_frame_exchange_before_later_small_exchange():
+    """The whole frame-bearing exchange survives a tight budget even though a
+    later non-verification exchange exists (pre-fix: it was evicted first)."""
+    budget = ContextBudget(max_tokens=400, reserve_tokens=50)
+    hist = _frame_history()
+    out = budget.truncate(hist)
+
+    def _tool_use_ids(msgs):
+        return [b.get("id") for m in msgs for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+                if isinstance(b, dict) and b.get("type") == "tool_use"]
+
+    ids = _tool_use_ids(out)
+    assert "t1" in ids, f"pinned frame exchange evicted: {ids}"
+    frames_kept = any(
+        isinstance(x, dict) and x.get("type") == "image"
+        for m in out
+        for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+        if isinstance(b, dict) and b.get("type") == "tool_result" and isinstance(b.get("content"), list)
+        for x in b["content"]
+    )
+    assert frames_kept, "frame image evicted while its exchange was pinned"
+    assert _tool_use_ids(out) == [i for i in _tool_use_ids(hist) if i in _tool_use_ids(out)], \
+        "preserved exchanges must keep their original order"
+
+
+def test_truncate_ordering_keeps_marker_before_pinned_exchange():
+    """The truncation marker separates the opening request from the retained
+    exchanges; the pinned exchange is never split or reordered."""
+    budget = ContextBudget(max_tokens=400, reserve_tokens=50)
+    out = budget.truncate(_frame_history())
+    assert out[0] == {"role": "user", "content": "first request"}
+    flattened = __import__("json").dumps(out, default=str)
+    marker_pos = flattened.find("earlier messages truncated")
+    t1_pos = flattened.find('"t1"')
+    assert marker_pos != -1 and t1_pos != -1 and marker_pos < t1_pos
+
+
+def test_truncate_without_frames_evicts_oversize_by_age():
+    """Without a frame summary the old eviction behavior still applies:
+    middle exchanges drop, the newest stays."""
+    import json
+    budget = ContextBudget(max_tokens=400, reserve_tokens=50)
+    hist = [
+        {"role": "user", "content": "first request"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "old", "name": "list_assets", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "old", "content": json.dumps({"ok": "Q" * 6000})}]},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "new", "name": "list_assets", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "new", "content": json.dumps({"ok": True})}]},
+    ]
+    out = budget.truncate(hist)
+    ids = [b.get("id") for m in out for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+           if isinstance(b, dict) and b.get("type") == "tool_use"]
+    assert "old" not in ids
+    assert "new" in ids

@@ -365,10 +365,54 @@ _SUMMARY_TEMPLATE = (
 )
 
 
+def _parse_render_id_from_summary(text: str) -> str | None:
+    """Parse ``render_id`` out of a canonical ``_strip_verification_frames``
+    JSON text summary, or ``None`` if the text is not one.
+
+    Only existing canonical summary text is read — no new metadata dialect.
+    """
+    if not isinstance(text, str) or "render_id" not in text or '"frame_count"' not in text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    verification = parsed.get("verification")
+    rid = verification.get("render_id") if isinstance(verification, dict) else None
+    if not (isinstance(rid, str) and rid):
+        # Older summaries carry render_id at the top level of the result JSON.
+        rid = parsed.get("render_id")
+    if isinstance(rid, str) and rid:
+        return rid
+    return None
+
+
+def _summary_render_id_from_tool_result(content: Any) -> str | None:
+    """Return the parsed ``render_id`` of a frame-bearing tool_result block.
+
+    A tool_result is "frame-bearing" when its canonical JSON text summary
+    carries ``verification.render_id`` (i.e. frames were encoded for that
+    render at result time), regardless of whether image blocks are still
+    embedded next to the text.
+    """
+    inner = content.get("content") if isinstance(content, dict) else None
+    if not isinstance(inner, list):
+        return None
+    for block in inner:
+        if isinstance(block, dict) and block.get("type") == "text":
+            rid = _parse_render_id_from_summary(block.get("text", ""))
+            if rid is not None:
+                return rid
+    return None
+
+
 def prune_images(
     history: list[dict],
     last_verdict: tuple[str, str, bool, str] | None = None,
     keep_last_n: int = 2,
+    keep_render_id: str | None = None,
 ) -> list[dict]:
     """Return a new slim view of ``history`` with image blocks stripped and
     verification summaries collapsed.
@@ -381,6 +425,11 @@ def prune_images(
     keep_last_n:
         Number of recent verification summaries to retain. Older ones
         collapse to ``[previous verifications pruned]``.
+    keep_render_id:
+        When set, image blocks inside the tool_result whose canonical
+        summary carries this ``render_id`` survive pruning — the newest
+        verified render's frames stay available for its verdict call.
+        Older frame-bearing tool_results are still fully pruned.
     """
     out: list[dict] = []
     for msg in history:
@@ -395,6 +444,12 @@ def prune_images(
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     inner = block.get("content")
                     if isinstance(inner, list):
+                        # The pending render's frames are kept verbatim: its
+                        # images are still the model's only view of the
+                        # frames for the upcoming verdict decision.
+                        if keep_render_id is not None and _summary_render_id_from_tool_result(block) == keep_render_id:
+                            new_blocks.append(block)
+                            continue
                         stripped_inner = [b for b in inner if not (isinstance(b, dict) and b.get("type") == "image")]
                         if len(stripped_inner) < len(inner):
                             for sb in stripped_inner:
