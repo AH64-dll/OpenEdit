@@ -151,7 +151,6 @@ async def _run_agent_turn(
     except KeyError:
         supports_tools = True
 
-    system_prompt = _build_system_prompt(state, supports_tools=supports_tools)
     from open_edit.kernel.studio_service import get_editing_context
     from open_edit.storage.history import request_context
 
@@ -160,6 +159,8 @@ async def _run_agent_turn(
                    if (project_path / '.open_edit/edit_graph.db').is_file() else None)
     except ValueError:
         context = None
+    system_prompt = _build_system_prompt(state, supports_tools=supports_tools,
+                                         state_summary_only=context is not None and supports_tools)
     if context is not None:
         system_prompt += ('\nCurrent editing workspace (structured source and marks):\n' + json.dumps(context, ensure_ascii=False)
                           + '\nRequest ID: ' + str(request_context.get())

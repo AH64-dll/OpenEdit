@@ -68,11 +68,13 @@ Use this for ALL read-only queries about the project:
   (Pexels/Freesound → Openverse → Wikimedia Commons)
 - "get_transcript_packed" → get silence-aware, speaker-grouped phrase transcript
 - "get_authoring_view" → optional JSX media view and revision (source only with include_source=true)
+- "get_editing_context" → compact targets, timed regions/marks, revision and pagination; fetch full objects only as needed
 
 ## 2. edit_project (preferred for mutations)
 Use this for ALL project edits:
 - Operations are APPLIED IMMEDIATELY
 - "apply_authoring_edit" → revision-checked JSX/media source edits; see tool_surface for optional worker setup
+- "apply_graphics_edits" → adjust stored graphics by document and source IDs without resending literal JSX
 - "capture_style_hint" → persist a **confirmed** user style preference
 - "set_pinned_value" → hard pin (aspect ratio, durations, etc.)
 - For creative suggestions (SFX, music, visuals, silence cuts), use the "generate" parameter
@@ -152,12 +154,12 @@ There are **28 concrete op kinds** in ``open_edit.ir.types``. The
 
 **Escape hatches**:
 - ``raw_mlt_xml`` — paste raw MLT XML. Payload: ``{xml, scope}``.
-- ``free_form_code`` — embed Python code (the result of ``run_python``).
+- ``free_form_code`` — embed Python code (the result of ``run_script``).
   Payload: ``{code, project_id, parent_op_id}``.
 
 **Common fields** every op carries (inherited from the ``Operation`` base):
 ``edit_id`` (UUID), ``parent_id`` (UUID of the op this one descends from;
-``None`` for root ops), ``author`` (e.g. ``"agent"``, ``"user"``),
+``None`` for root ops), ``author`` (``"ai"`` or ``"user"``),
 ``timestamp`` (ISO 8601 string), ``status``, ``sequence_num`` (auto-assigned
 by ``EditGraphStore``), ``payload`` (JSON blob of op-specific data).
 

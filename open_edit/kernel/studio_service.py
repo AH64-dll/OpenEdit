@@ -4,7 +4,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from open_edit.kernel.edit_graph_service import open_store
 from open_edit.storage.edit_graph import GraphRevisionConflict
@@ -12,6 +20,49 @@ from open_edit.storage.studio import check_layer_locks, validate_changes
 
 Coordinate = Annotated[float, Field(allow_inf_nan=False, ge=-1000000, le=1000000)]
 Time = Annotated[float, Field(allow_inf_nan=False, ge=0)]
+
+
+class EditingRegion(BaseModel):
+    """A spatial instruction anchored to a displayed frame, never a render edit."""
+    model_config = ConfigDict(extra='forbid')
+    left: Time
+    top: Time
+    right: Time
+    bottom: Time
+    canvas_width: Annotated[float, Field(allow_inf_nan=False, gt=0, le=1000000)]
+    canvas_height: Annotated[float, Field(allow_inf_nan=False, gt=0, le=1000000)]
+    playhead_sec: Time
+    coordinate_space: Literal['composition'] = 'composition'
+
+    @field_validator('left', 'top', 'right', 'bottom', 'canvas_width', 'canvas_height', 'playhead_sec', mode='before')
+    @classmethod
+    def numeric_coordinates(cls, value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError('Region coordinates must be finite numbers')
+        return value
+
+    @model_validator(mode='after')
+    def valid_bounds(self):
+        if not (self.left < self.right <= self.canvas_width and
+                self.top < self.bottom <= self.canvas_height):
+            raise ValueError('Region must be a nonempty rectangle inside the displayed canvas')
+        return self
+
+
+class EditingFocus(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    selected_ids: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=500)
+    annotation_ids: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=500)
+    document_id: str | None = Field(default=None, min_length=1, max_length=128)
+    playhead_sec: Time = 0
+    region: EditingRegion | None = None
+
+    @field_validator('playhead_sec', mode='before')
+    @classmethod
+    def numeric_time(cls, value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError('playhead_sec must be a nonnegative finite number')
+        return value
 
 
 class Annotation(BaseModel):
@@ -245,81 +296,94 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
     return {'status': 'ok', **receipt, 'request_id': request_id}
 
 
+def apply_graphics_edits(project_path: str | Path, *, expected_revision: int, document_id: str,
+                        edits: list[dict], author: str = 'ai', request_id: str | None = None,
+                        label: str | None = None) -> dict:
+    """Edit stored literal JSX by stable source IDs without a source round trip."""
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise ValueError('expected_revision must be a nonnegative integer')
+    if not isinstance(document_id, str) or not document_id or len(document_id) > 128:
+        raise ValueError('document_id must be a bounded stable string')
+    if not isinstance(edits, list) or not 1 <= len(edits) <= 1000 or any(not isinstance(e, dict) for e in edits):
+        raise ValueError('Provide between 1 and 1000 source edits')
+    snapshot = get_studio(project_path, kind='document', object_id=document_id, include_source=True)
+    if snapshot['graph_revision'] != expected_revision:
+        raise GraphRevisionConflict(expected_revision, snapshot['graph_revision'])
+    if not snapshot['objects']:
+        raise ValueError('Graphics document not found')
+    data = snapshot['objects'][0]['data']
+    if data.get('locked'):
+        raise ValueError('Unlock the document before editing it')
+    from open_edit.integrations.diffusion.graphics import compile_editor
+
+    compiled = compile_editor(project_path, source=data['source'], edits=edits, expected_revision=expected_revision)
+    # The shared commit enforces layer locks and retains trims/effects/history.
+    return commit_studio(project_path, expected_revision=expected_revision,
+                         changes=[{'kind': 'document', 'object_id': document_id,
+                                   'data': {**data, 'source': compiled['source']}}],
+                         author=author, request_id=request_id, label=label or 'Edit graphics layers')
+
+
 def get_editing_context(project_path: str | Path, *, selected_ids: list[str] | None = None,
                         annotation_ids: list[str] | None = None, playhead_sec: float | None = None,
-                        document_id: str | None = None) -> dict:
-    """Source/object context, rather than a screenshot per video frame."""
-    store = open_store(Path(project_path))
-    if selected_ids is None and annotation_ids is None and document_id is None:
-        import json
+                        document_id: str | None = None, region: dict | None = None,
+                        include_source: bool = False, include_timeline: bool = False,
+                        offset: int = 0, limit: int = 20, section: str | None = None) -> dict:
+    """Bounded target context. Fetch literal source/full timeline explicitly on demand."""
+    import json
 
-        with store._conn() as conn:
-            row = conn.execute("SELECT value FROM project_meta WHERE key = 'studio_selection'").fetchone()
-        saved = json.loads(row['value']) if row else {}
-        selected_ids = saved.get('selected_ids', [])
-        annotation_ids = saved.get('annotation_ids', [])
-        document_id = saved.get('document_id')
-        if playhead_sec is None:
-            playhead_sec = saved.get('playhead_sec', 0)
-    if playhead_sec is None:
-        playhead_sec = 0
-    if not isinstance(selected_ids, (list, type(None))) or len(selected_ids or []) > 500:
-        raise ValueError('Selection supports at most 500 stable IDs')
-    if not isinstance(annotation_ids, (list, type(None))) or len(annotation_ids or []) > 500:
-        raise ValueError('Context supports at most 500 annotation IDs')
-    from math import isfinite
-
-    if isinstance(playhead_sec, bool) or not isinstance(playhead_sec, (float, int)) or not isfinite(playhead_sec) or playhead_sec < 0:
-        raise ValueError('playhead_sec must be a nonnegative finite number')
-    if any(not isinstance(id, str) or not id or len(id) > 128 for id in [*(selected_ids or []), *(annotation_ids or [])]):
-        raise ValueError('Context IDs must be bounded stable strings')
-    if document_id is not None and (not isinstance(document_id, str) or not document_id or len(document_id) > 128):
-        raise ValueError('Context document_id must be a bounded stable string')
-    snapshot = get_studio(project_path, include_source=True)
     from open_edit.ir.derive import derive_timeline
     from open_edit.ir.types import Project
-    revision, ops = store.read_snapshot()
-    if revision != snapshot['graph_revision']:
-        raise GraphRevisionConflict(snapshot['graph_revision'], revision)
+    from open_edit.kernel.editing_context import build_context
+    from open_edit.storage.studio import snapshot
+
+    if type(include_source) is not bool or type(include_timeline) is not bool:
+        raise ValueError('include_source and include_timeline must be boolean')
+    if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError('Context pagination requires offset >= 0 and limit between 1 and 100')
+    store = open_store(Path(project_path))
+    # Focus, source objects and operations must describe the SAME revision.
+    with store._conn() as conn:
+        conn.execute('BEGIN')
+        revision = store._revision_in(conn)
+        if selected_ids is None and annotation_ids is None and document_id is None and region is None:
+            row = conn.execute("SELECT value FROM project_meta WHERE key = 'studio_selection'").fetchone()
+            saved = json.loads(row['value']) if row else {}
+            selected_ids = saved.get('selected_ids', [])
+            annotation_ids = saved.get('annotation_ids', [])
+            document_id = saved.get('document_id')
+            region = saved.get('region')
+            if playhead_sec is None:
+                playhead_sec = saved.get('playhead_sec', 0)
+        focus = EditingFocus(selected_ids=selected_ids if selected_ids is not None else [],
+                             annotation_ids=annotation_ids if annotation_ids is not None else [],
+                             document_id=document_id, playhead_sec=playhead_sec if playhead_sec is not None else 0,
+                             region=region)
+        objects = snapshot(conn)
+        ops = store._load_all_in(conn)
     timeline = derive_timeline(Project(name=Path(project_path).name, edit_graph=ops))
-    selected = set(selected_ids or [])
-    notes = set(annotation_ids or [])
-    selected_clips = [c.model_dump(mode='json') for t in timeline.tracks for c in t.clips if c.clip_id in selected]
-    selected_docs = {c['document_id'] for c in selected_clips if c['document_id']}
-    return {'status': 'ok', 'graph_revision': snapshot['graph_revision'],
-            'playhead_sec': playhead_sec, 'selected_ids': selected_ids or [], 'document_id': document_id,
-            'selected_clips': selected_clips,
-            'captions': [o for o in snapshot['objects'] if o['kind'] == 'caption' and (not selected or o['object_id'] in selected)],
-            'styles': [o for o in snapshot['objects'] if o['kind'] == 'style'],
-            'fonts': [o for o in snapshot['objects'] if o['kind'] == 'font'],
-            'timeline': timeline.model_dump(mode='json', exclude={'graphics_documents'}),
-            'documents': [o for o in snapshot['objects'] if o['kind'] == 'document' and
-                          (document_id is None or o['object_id'] == document_id or o['object_id'] in selected_docs) and
-                          (not selected or o['object_id'] in selected or o['object_id'] in selected_docs or
-                           any(e['id'] in selected for e in o['data'].get('elements', [])))],
-            'annotations': [o for o in snapshot['objects'] if o['kind'] == 'annotation' and
-                            (document_id is None or o['data'].get('document_id') in (None, document_id) or o['object_id'] in notes) and
-                            not o['data'].get('hidden') and (not notes or o['object_id'] in notes)]}
+    return build_context(timeline, objects, revision, focus.model_dump(mode='json'),
+                         include_source=include_source, include_timeline=include_timeline,
+                         offset=offset, limit=limit, section=section)
 
 
 def save_editing_selection(project_path: str | Path, *, expected_revision: int, selected_ids: list[str],
-                           annotation_ids: list[str], document_id: str | None, playhead_sec: float) -> dict:
+                           annotation_ids: list[str], document_id: str | None, playhead_sec: float,
+                           region: dict | None = None) -> dict:
     """Workspace focus is shared with external agents, without an edit/Undo step."""
     import json
 
-    # Reuse the public context contract for validation and stable document scope.
-    context = get_editing_context(project_path, selected_ids=selected_ids, annotation_ids=annotation_ids,
-                                  document_id=document_id, playhead_sec=playhead_sec)
+    # Focus changes must not load/compile source or replay the render graph.
+    values = EditingFocus(selected_ids=selected_ids, annotation_ids=annotation_ids,
+                          document_id=document_id, playhead_sec=playhead_sec, region=region).model_dump(mode='json')
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise ValueError('expected_revision must be a nonnegative integer')
     store = open_store(Path(project_path))
     with store._conn() as conn:
         conn.execute('BEGIN IMMEDIATE')
         revision = store._revision_in(conn)
-        if type(expected_revision) is not int or expected_revision < 0:
-            raise ValueError('expected_revision must be a nonnegative integer')
         if revision != expected_revision:
             raise GraphRevisionConflict(expected_revision, revision)
-        values = {k: context[k] for k in ('selected_ids', 'document_id', 'playhead_sec')}
-        values['annotation_ids'] = annotation_ids
         conn.execute("INSERT INTO project_meta(key,value) VALUES ('studio_selection',?) "
                      'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (json.dumps(values),))
     return {'status': 'ok', 'graph_revision': revision}

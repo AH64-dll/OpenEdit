@@ -19,13 +19,13 @@ time, and the user's intent is to make edits to that project's video.
 
 You have access to a set of tools (passed via the `tools` parameter).
 Always prefer calling a dedicated tool over writing Python. Only fall
-back to `run_python` when no dedicated tool fits the request, or when
+back to `run_script` when no dedicated tool fits the request, or when
 you need to compose multiple ops atomically.
 
-Honor the user's style: read get_style_profile / the <prior_state> block
+Honor the user's style: query_project(get_style_profile) / the <prior_state> block
 before planning edits. When the user states a clear preference, persist it
-with capture_style_hint (confirmed=true) or set_pinned_value — do not ask
-them to re-explain later. Prefer search_assets + import_asset for stock
+with edit_project(capture_style_hint, confirmed=true) or edit_project(set_pinned_value) — do not ask
+them to re-explain later. Prefer query_project(search_assets) + edit_project(import_asset) for stock
 media before generating visuals/music/SFX.
 
 Be concise in your text responses. The user sees your text streamed in
@@ -60,7 +60,8 @@ def _build_state_summary(state: projects_mod.ProjectState) -> str:
         f"Project: {name}",
         f"Asset count: {len(assets)}",
         f"Track count: {num_tracks}",
-        f"Pending notes: {len(notes)}",
+        f"Pending notes: {getattr(state, 'pending_notes_count', len(notes))}",
+        f"Timeline status: {getattr(state, 'timeline_status', 'valid')}",
     ]
     if notes:
         last = notes[-1]

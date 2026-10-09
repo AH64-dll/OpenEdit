@@ -22,6 +22,18 @@ Inspect project state. Sub-queries:
 | `get_graphics_view` | Optional `clip_id`, `include_source` | Compact graphics revision, worker readiness and last good preview; source on request. |
 | `get_history` | None | Revision, recent actions and next atomic Undo/Redo. |
 | `get_authoring_view` | Optional `include_source` (default false) | Revision and compact Diffusion media summary; literal JSX only on request. |
+| `get_editing_context` | Optional selection, document, annotation IDs, region, playhead, section, offset/limit | Compact target context, visible region clips, timed instructions and timeline counts. Defaults to 20 entries and 32 KiB; follow per-collection section/next_offset. Explicit include_source/include_timeline expands details. |
+| `get_studio` | Optional kind, object_id, include_source | Complete selected studio object; include_source=true retrieves literal JSX and all elements. |
+
+Region coordinates include canvas_width/height and playhead_sec. The rectangle
+is a spatial instruction at that time; candidate clips do not identify pixel
+objects automatically. Compact context lists omitted_fields. Retrieve the
+original object before replacing it, so long instructions and keyframes survive.
+For an existing graphics layer, prefer `edit_project` operation
+`apply_graphics_edits` with `{expected_revision,document_id,edits,request_id,label}`.
+For example, edits can be `[{kind:"set",source:"index.tsx:title",props:{x:144}},
+{kind:"text",source:"index.tsx:title",text:"Hello"}]`. This uses stored JSX and
+the shared guarded commit; source/comments, trims, effects, locks and Undo survive.
 
 **Common mistake:** calling these without the required params and then
 concluding the tool is broken. Read the error — it tells you which

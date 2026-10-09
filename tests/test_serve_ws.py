@@ -105,6 +105,31 @@ def test_ws_ready_on_connect(patched_ws):
         assert ready["project_id"] == "wstest"
 
 
+def test_ws_region_reaches_agent_and_stale_focus_prevents_turn(patched_ws, monkeypatch):
+    from open_edit.kernel.studio_service import get_editing_context
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    store = EditGraphStore(patched_ws / '.open_edit/edit_graph.db')
+    seen = []
+    async def turn(*args, **kwargs):
+        seen.append(get_editing_context(patched_ws))
+        yield {'type': 'done', 'stop_reason': 'end_turn'}
+    monkeypatch.setattr(agent_mod, 'run_agent_turn', turn)
+    focus = {'expected_revision': 0, 'selected_ids': [], 'annotation_ids': [], 'document_id': None,
+             'playhead_sec': 3, 'region': {'left': 10, 'top': 20, 'right': 100, 'bottom': 120,
+                                          'canvas_width': 640, 'canvas_height': 360, 'playhead_sec': 2}}
+    client = TestClient(app_mod.app)
+    with client.websocket_connect('/api/chat/wstest') as ws:
+        assert json.loads(ws.receive_text())['type'] == 'ready'
+        ws.send_json({'message': 'Move the title here', 'editing_selection': focus})
+        assert json.loads(ws.receive_text())['type'] == 'done'
+        assert seen[0]['region'] == {**focus['region'], 'coordinate_space': 'composition'}
+        assert store.graph_revision() == 0
+        ws.send_json({'message': 'Do not edit stale focus', 'editing_selection': {**focus, 'expected_revision': 1}})
+        assert json.loads(ws.receive_text())['type'] == 'error'
+        assert len(seen) == 1
+
+
 def test_ws_chat_streams_full_turn(patched_ws):
     """A full agent turn streams text → tool_start → tool_result → text → done."""
     client = TestClient(app_mod.app)

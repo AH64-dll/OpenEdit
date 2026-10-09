@@ -111,15 +111,18 @@ def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) ->
             return {'status': 'ok', **revert_request(project_path, **params)}
         except (TypeError, ValueError, GraphRevisionConflict) as exc:
             return {'status': 'error', 'error': str(exc)}
-    if operation == 'apply_studio_changes':
-        from open_edit.kernel.studio_service import commit_studio
+    if operation in ('apply_studio_changes', 'apply_graphics_edits'):
+        from open_edit.kernel.studio_service import apply_graphics_edits, commit_studio
         from open_edit.storage.edit_graph import GraphRevisionConflict
         try:
             # The caller cannot disguise an AI write as a manual action.
             values = {k: v for k, v in params.items() if k != 'author'}
-            if values.keys() - {'expected_revision', 'changes', 'ops', 'request_id', 'label'}:
+            allowed = ({'expected_revision', 'changes', 'ops', 'request_id', 'label'} if operation == 'apply_studio_changes'
+                       else {'expected_revision', 'document_id', 'edits', 'request_id', 'label'})
+            if values.keys() - allowed:
                 raise ValueError('Unsupported studio change parameters')
-            return commit_studio(project_path, **values, author='ai')
+            fn = commit_studio if operation == 'apply_studio_changes' else apply_graphics_edits
+            return fn(project_path, **values, author='ai')
         except (TypeError, ValueError, GraphRevisionConflict) as exc:
             return {'status': 'error', 'error': str(exc)}
     if operation in ('undo', 'redo'):

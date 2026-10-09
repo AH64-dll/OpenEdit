@@ -2,11 +2,12 @@
 import { state } from './state.js';
 
 export const studio = { projectId: null, revision: null, objects: [], selectedIds: [],
-  documentId: null, selectedMarks: [], busy: false, autoKey: false, geometry: [] };
+  documentId: null, selectedMarks: [], region: null, busy: false, autoKey: false, geometry: [] };
 let serial = 0;
 const announce = name => {
   state.editingSelection = studio.projectId === state.currentProjectId && Number.isInteger(studio.revision)
-    ? { selected_ids: studio.selectedIds, annotation_ids: studio.selectedMarks, document_id: studio.documentId, expected_revision: studio.revision } : null;
+    ? { selected_ids: studio.selectedIds, annotation_ids: studio.selectedMarks, document_id: studio.documentId,
+      region: studio.region, expected_revision: studio.revision } : null;
   window.dispatchEvent(new CustomEvent(`openedit:studio-${name}`, { detail: studio }));
 };
 export async function studioRequest(suffix, body, projectId = state.currentProjectId) {
@@ -28,18 +29,22 @@ export async function loadStudio() {
   const result = await studioRequest('/studio?include_source=true', undefined, projectId);
   if (token !== serial || projectId !== state.currentProjectId) return;
   if (studio.projectId !== projectId) {
-    studio.selectedIds = []; studio.selectedMarks = []; studio.documentId = null;
+    studio.selectedIds = []; studio.selectedMarks = []; studio.documentId = null; studio.region = null;
     studio.autoKey = false; studio.geometry = [];
   }
   Object.assign(studio, { projectId, revision: result.graph_revision, objects: result.objects });
   announce('loaded'); return result;
 }
 export function selectObjects(ids, documentId = studio.documentId) {
-  studio.selectedIds = [...new Set(ids)]; studio.documentId = documentId;
+  studio.selectedIds = [...new Set(ids)]; studio.documentId = documentId; studio.region = null;
   state.selectedIds = studio.selectedIds;
   announce('selection');
 }
 export function selectMarks(ids) { studio.selectedMarks = [...new Set(ids)]; announce('selection'); }
+export function selectRegion(region, markIds = studio.selectedMarks) {
+  studio.region = region; studio.documentId = null;
+  studio.selectedMarks = [...new Set(markIds)]; announce('selection');
+}
 export function studioObject(kind, id) { return studio.objects.find(o => o.kind === kind && o.object_id === id); }
 export async function commitStudio(changes, label, ops = []) {
   if (studio.busy) throw new Error('An edit is being saved.');
@@ -57,7 +62,7 @@ export async function commitStudio(changes, label, ops = []) {
 }
 export async function editingContext() {
   return studioRequest('/editing-context', { selected_ids: studio.selectedIds,
-    annotation_ids: studio.selectedMarks, playhead_sec: state.playheadSec || 0, document_id: studio.documentId });
+    annotation_ids: studio.selectedMarks, playhead_sec: state.playheadSec || 0, document_id: studio.documentId, region: studio.region });
 }
 let selectionTimer;
 function publishSelection() {
@@ -65,10 +70,14 @@ function publishSelection() {
   selectionTimer = setTimeout(() => {
     if (studio.projectId !== state.currentProjectId || !Number.isInteger(studio.revision)) return;
     studioRequest('/studio/selection', { expected_revision: studio.revision, selected_ids: studio.selectedIds,
-      annotation_ids: studio.selectedMarks, document_id: studio.documentId, playhead_sec: state.playheadSec || 0 }).catch(() => {});
+      annotation_ids: studio.selectedMarks, document_id: studio.documentId, region: studio.region,
+      playhead_sec: state.playheadSec || 0 }).catch(error => {
+        if (error.stale) loadStudio().catch(() => {});
+      });
   }, 300);
 }
 window.addEventListener('openedit:studio-selection', publishSelection);
+window.addEventListener('openedit:studio-loaded', publishSelection);
 window.addEventListener('openedit:studio-playhead', publishSelection);
 window.addEventListener('openedit:project-selected', () => loadStudio().catch(() => {}));
 window.addEventListener('openedit:graph-changed', event => {

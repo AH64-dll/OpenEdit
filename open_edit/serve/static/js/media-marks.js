@@ -1,6 +1,6 @@
 /* Durable composition marks over the media preview, shared with external AI. */
 import { state } from './state.js';
-import { studio, commitStudio, selectMarks, selectObjects } from './studio-state.js';
+import { studio, commitStudio, selectMarks, selectObjects, selectRegion } from './studio-state.js';
 import { bounds, annotationPoints } from './studio-geometry.js';
 import { markGraphic } from './mark-graphics.js';
 import { showToast, keepDrafts, truncate } from './dom.js';
@@ -66,6 +66,11 @@ for (const [value, text] of [['off', 'Playback'], ['select', 'Select region'], [
 toolbar.append(tool, make('span', 'Marks guide AI and stay out of exports.', {
   class: 'muted small'
 }));
+const clearRegion = make('button', 'Clear region', { type: 'button', class: 'btn btn-secondary btn-xs', id: 'media-clear-region' });
+const regionStatus = make('span', '', { class: 'muted small', id: 'media-region-status' });
+clearRegion.hidden = true;
+clearRegion.addEventListener('click', () => selectRegion(null));
+toolbar.append(regionStatus, clearRegion);
 document.querySelector('.transport').before(toolbar);
 const overlay = svg('svg', {
   class: 'media-mark-overlay',
@@ -82,8 +87,7 @@ panel.append(make('summary', 'Video AI marks'));
 const content = make('div');
 panel.append(content);
 document.getElementById('right-panel').append(panel);
-let drag = null,
-  region = null;
+let drag = null;
 const active = o => !o.data.hidden && (o.data.scope === 'object' || (o.data.scope === 'frame' ? Math.abs(time() - o.data.anchor_sec) < 1 / fps() : time() >= o.data.anchor_sec && time() < o.data.end_sec));
 function points(o) {
   return o.data.document_id ? [] : o.data.points;
@@ -145,6 +149,8 @@ function drawMark(m, p, id) {
   }
 }
 function paint() {
+  clearRegion.hidden = !studio.region;
+  regionStatus.textContent = studio.region ? `Region at ${studio.region.playhead_sec.toFixed(2)}s` : '';
   const [width, height] = size(),
     scale = Math.min(media.clientWidth / width, media.clientHeight / height);
   overlay.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -165,7 +171,8 @@ function paint() {
     color: '#ffcc55',
     text: ''
   }, drag.points, 'draft');
-  const r = drag?.mode === 'select' ? bounds([drag.start, drag.end]) : region;
+  const r = drag?.mode === 'select' ? bounds([drag.start, drag.end]) :
+    (studio.region && Math.abs(time() - studio.region.playhead_sec) < 1 / fps() ? studio.region : null);
   if (r) overlay.append(svg('rect', {
     x: r.left,
     y: r.top,
@@ -313,7 +320,8 @@ function render() {
 const pointer = e => {
   const r = overlay.getBoundingClientRect(),
     [w, h] = size();
-  return [(e.clientX - r.left) * w / r.width, (e.clientY - r.top) * h / r.height];
+  return [Math.max(0, Math.min(w, (e.clientX - r.left) * w / r.width)),
+    Math.max(0, Math.min(h, (e.clientY - r.top) * h / r.height))];
 };
 overlay.addEventListener('pointerdown', e => {
   if (e.button !== 0 || studio.busy || tool.value === 'off') return;
@@ -321,7 +329,6 @@ overlay.addEventListener('pointerdown', e => {
   const p = pointer(e),
     id = e.target.dataset.markId,
     o = marks().find(o => o.object_id === id);
-  region = null;
   if (tool.value === 'move') {
     if (!o) return;
     selectMarks([id]);
@@ -334,7 +341,7 @@ overlay.addEventListener('pointerdown', e => {
       original: o
     };
   } else if (tool.value === 'select') {
-    selectMarks([]);
+    selectRegion(null, []);
     drag = {
       mode: 'select',
       start: p,
@@ -369,15 +376,14 @@ overlay.addEventListener('pointerup', safe(async () => {
       points: d.points
     }
   }], 'Move video AI mark');else if (d.mode === 'select') {
-    region = bounds([d.start, d.end]);
-    selectMarks(marks().filter(o => active(o) && points(o).length && points(o).every(([x, y]) => x >= region.left && x <= region.right && y >= region.top && y <= region.bottom)).map(o => o.object_id));
-    // The selection region is transient; choosing AI box is the durable alternative.
-    state.editingRegion = {
+    const region = bounds([d.start, d.end]), [canvas_width, canvas_height] = size();
+    if (region.right <= region.left || region.bottom <= region.top) { selectRegion(null, []); paint(); return; }
+    selectRegion({
       ...region,
       coordinate_space: 'composition',
       playhead_sec: time(),
-      project_id: state.currentProjectId
-    };
+      canvas_width, canvas_height
+    }, marks().filter(o => active(o) && points(o).length && points(o).every(([x, y]) => x >= region.left && x <= region.right && y >= region.top && y <= region.bottom)).map(o => o.object_id));
   } else {
     const id = uid(),
       targets = [...studio.selectedIds],
@@ -410,8 +416,7 @@ for (const event of ['openedit:studio-loaded', 'openedit:studio-selection', 'ope
 for (const event of ['openedit:seek', 'openedit:studio-playhead', 'openedit:snapshot']) window.addEventListener(event, () => queueMicrotask(paint));
 window.addEventListener('openedit:project-selected', () => {
   drag = null;
-  region = null;
-  state.editingRegion = null;
+  studio.region = null;
   tool.value = 'off';
   render();
 });
