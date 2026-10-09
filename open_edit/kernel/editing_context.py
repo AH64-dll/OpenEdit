@@ -14,7 +14,8 @@ def build_context(timeline, objects, revision, focus, *, include_source, include
     region = focus['region']
     anchor = region['playhead_sec'] if region else focus['playhead_sec']
     clips = [c for t in timeline.tracks for c in t.clips]
-    chosen = [c for c in clips if c.clip_id in selected]
+    tracked_clip_ids = {o['data']['clip_id'] for o in objects if o['kind'] == 'object_track' and o['object_id'] in selected}
+    chosen = [c for c in clips if c.clip_id in selected or c.clip_id in tracked_clip_ids]
     region_clips = [c for t in timeline.tracks if t.kind == 'video' and not t.hidden
                     for c in t.clips if not c.hidden and
                     c.position_sec <= anchor < c.position_sec + c.out_point_sec - c.in_point_sec] if region else []
@@ -48,6 +49,8 @@ def build_context(timeline, objects, revision, focus, *, include_source, include
         'selected_ids': focus['selected_ids'], 'annotation_ids': focus['annotation_ids'],
         'selected_clips': [clip_view(c) for c in chosen],
         'region_clips': [clip_view(c) for c in region_clips],
+        'object_tracks': [o for o in objects if o['kind'] == 'object_track' and
+                          (o['object_id'] in selected or o['data']['clip_id'] in {c.clip_id for c in [*chosen, *region_clips]} or not selected)],
         'selected_tracks': [t.model_dump(mode='json', exclude={'clips'}) for t in timeline.tracks if
                             any(c.track_id == t.track_id for c in [*chosen, *region_clips])],
         'annotations': [o for o in objects if o['kind'] == 'annotation' and annotation_matches(o)],
@@ -140,6 +143,15 @@ def build_context(timeline, objects, revision, focus, *, include_source, include
                 value['data']['points_count'] = len(points)
                 value['data']['bounds'] = {'left': min(p[0] for p in points), 'top': min(p[1] for p in points),
                                          'right': max(p[0] for p in points), 'bottom': max(p[1] for p in points)}
+            if name == 'object_tracks' and not include_source:
+                from open_edit.kernel.object_tracking import summarize_track
+
+                clip = next((c for c in clips if c.clip_id == value['data']['clip_id']), None)
+                available = clip is not None and clip.asset_hash == value['data']['asset_hash']
+                source_time = clip.in_point_sec + anchor - clip.position_sec if available else None
+                value['data'] = summarize_track(value['data'], source_time)
+                value['data']['target_status'] = 'ready' if available else 'source_changed' if clip else 'clip_missing'
+                record(f'{path}.data.frames')
             if not include_source:
                 value = compact(value, path)
             # MCP's JSON serializer escapes Unicode; budget that larger wire form.

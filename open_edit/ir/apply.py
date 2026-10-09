@@ -99,6 +99,18 @@ def apply_operation(
     if isinstance(op, STUDIO_OPERATIONS):
         return apply(timeline, op)
 
+    from open_edit.ir.types import RemoveObjectTrackOp, SetObjectTrackOp
+
+    if isinstance(op, SetObjectTrackOp):
+        _, clip, _ = _find_clip(timeline, op.clip_id)
+        if clip is None or clip.track_kind != 'video' or clip.asset_hash != op.track.asset_hash or op.track.clip_id != op.clip_id:
+            raise ApplyError('An object track must reference its original video clip and asset')
+        timeline.object_tracks[op.object_id] = op.track.model_copy(deep=True)
+        return timeline
+    if isinstance(op, RemoveObjectTrackOp):
+        timeline.object_tracks.pop(op.object_id, None)
+        return timeline
+
     if isinstance(op, SetCaptionOp):
         timeline.captions[op.caption_id] = op.cue.model_copy(deep=True)
         return timeline

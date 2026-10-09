@@ -24,11 +24,38 @@ Inspect project state. Sub-queries:
 | `get_authoring_view` | Optional `include_source` (default false) | Revision and compact Diffusion media summary; literal JSX only on request. |
 | `get_editing_context` | Optional selection, document, annotation IDs, region, playhead, section, offset/limit | Compact target context, visible region clips, timed instructions and timeline counts. Defaults to 20 entries and 32 KiB; follow per-collection section/next_offset. Explicit include_source/include_timeline expands details. |
 | `get_studio` | Optional kind, object_id, include_source | Complete selected studio object; include_source=true retrieves literal JSX and all elements. |
+| `get_tracking_job` | job_id | Local analysis status and compact motion summary; no frame stream. |
 
 Region coordinates include canvas_width/height and playhead_sec. The rectangle
 is a spatial instruction at that time; candidate clips do not identify pixel
 objects automatically. Compact context lists omitted_fields. Retrieve the
 original object before replacing it, so long instructions and keyframes survive.
+To identify and follow a target, call `edit_project` operation `start_tracking`
+with `{expected_revision,clip_id,region,direction:"both",target_mode:"foreground"}`.
+The host finds foreground inside the selected rectangle and tracks locally;
+`target_mode:"region"` preserves the exact box. Optional start_sec/end_sec use
+timeline seconds; analysis accepts up to 300 seconds at sample_fps 1–30 (default
+15). Poll `get_tracking_job({job_id})`, then `apply_tracking_job` with
+`{expected_revision,job_id,request_id}`. `cancel_tracking({job_id})` stops analysis.
+Completed results survive reopening; applying them never overwrites a track
+changed while analysis was running. For retracking, supply an existing object_id.
+Context `object_tracks` contains source range, current box, three samples and
+bounded lost ranges. Retrieve full frames only with get_studio kind=object_track,
+object_id, include_source=true. Prefer `edit_object_track` with
+`{expected_revision,object_id,request_id,edits:[...]}` for small mutations:
+`{action:"properties",values:{label,enabled,locked}}`,
+`{action:"set_frame",frame:{time_sec,x,y,width,height,valid:true}}`,
+`{action:"remove_frame",time_sec}`, `{action:"add_effect",effect:{effect_id,kind}}`,
+`{action:"update_effect",effect_id,values:{...}}`, or
+`{action:"remove_effect",effect_id}`. Frame time is original-source seconds;
+box coordinates are normalized 0–1 in the original video image. Following
+effect kinds are highlight, label, cover, blur and pixelate; editable values are
+enabled, text, color, strength, padding, offset_x, offset_y and scale.
+Lost samples disable following effects until corrected/retracked. Detection is
+foreground appearance, not semantic naming or precise object segmentation.
+Use apply_studio_changes for splitting/duplicating tracked clips: source objects
+and effect identities are copied independently in the same Undo action.
+Speed/spatial transformations require a baked source and a new track.
 For an existing graphics layer, prefer `edit_project` operation
 `apply_graphics_edits` with `{expected_revision,document_id,edits,request_id,label}`.
 For example, edits can be `[{kind:"set",source:"index.tsx:title",props:{x:144}},

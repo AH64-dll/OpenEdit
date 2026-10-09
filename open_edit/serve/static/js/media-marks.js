@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { studio, commitStudio, selectMarks, selectObjects, selectRegion } from './studio-state.js';
 import { bounds, annotationPoints } from './studio-geometry.js';
 import { markGraphic } from './mark-graphics.js';
+import { paintTrackedObjects } from './object-tracking.js';
 import { showToast, keepDrafts, truncate } from './dom.js';
 const media = document.querySelector('.preview-media'),
   player = document.getElementById('preview-player');
@@ -51,7 +52,7 @@ const time = () => state.playheadSec || 0,
 const fps = () => Math.max(1, Math.min(60, Math.round(state.currentProjectState?.assets?.find(a => a.fps)?.fps || 30)));
 const size = () => {
   const asset = state.currentProjectState?.assets?.find(a => a.width && a.height);
-  return [asset?.width || player.videoWidth || 1920, asset?.height || player.videoHeight || 1080];
+  return [player.videoWidth || asset?.width || 1920, player.videoHeight || asset?.height || 1080];
 };
 const toolbar = make('div', undefined, {
     class: 'media-mark-toolbar',
@@ -162,6 +163,7 @@ function paint() {
     pointerEvents: tool.value === 'off' ? 'none' : 'auto'
   });
   overlay.replaceChildren();
+  paintTrackedObjects(overlay, width, height);
   for (const o of marks().filter(active)) {
     const p = points(o);
     drawMark(o.data, drag?.id === o.object_id ? drag.points : p, o.object_id);

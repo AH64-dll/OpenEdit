@@ -109,7 +109,7 @@ def _build_video_command(
         "-f", "rawvideo",
         "-pix_fmt", "nv12",
         "-s", size,
-        "-r", fps,
+        "-framerate", fps,
         *REC709_TAGS,
         "-i", "-",
     ]
@@ -145,6 +145,7 @@ def _build_video_command(
         "-c:v", encoder.vcodec,
         *encoder.ffmpeg_args,
         *REC709_TAGS,
+        "-r", fps,
         "-frames:v", str(core_frames),
         str(output),
     ]
@@ -164,7 +165,8 @@ def _build_audio_command(
         melt_bin, str(xml_path),
         "-consumer", "avformat:pipe:",
         "video_off=1",
-        "format=wav",
+        "f=wav",
+        "acodec=pcm_s16le",
     ]
     start = _seconds(crop_head_frames, profile)
     end = _seconds(crop_head_frames + core_frames, profile)

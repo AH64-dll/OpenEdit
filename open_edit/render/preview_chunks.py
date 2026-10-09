@@ -14,6 +14,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -69,7 +70,7 @@ _PLANES = ("video", "audio", "playback")
 _PREVIEW_STAGES = ("video", "audio", "mux")
 _KNOWN_OPERATION_KINDS = frozenset(
     {
-        'set_caption', 'remove_caption',
+        'set_caption', 'remove_caption', 'set_object_track', 'remove_object_track',
         "add_clip",
         "remove_clip",
         "move_clip",
@@ -124,6 +125,7 @@ class _PreviewDiagnostics:
         }
     )
     selected_ranges: list[dict[str, float]] = dataclasses.field(default_factory=list)
+    errors: list[dict[str, str]] = dataclasses.field(default_factory=list)
     elapsed_sec: dict[str, float] = dataclasses.field(
         default_factory=lambda: dict.fromkeys(_PREVIEW_STAGES, 0.0)
     )
@@ -191,6 +193,7 @@ class _PreviewDiagnostics:
             "evictions": dict(self.evictions),
             "graph_changed": graph_changed,
             "partial": partial,
+            "errors": list(self.errors),
         }
 
 
@@ -236,10 +239,12 @@ class _BakeSharedState:
         self.failed_chunks = failed_chunks
         self.metrics = metrics
 
-    def record_failure(self, chunk_id: str) -> None:
+    def record_failure(self, chunk_id: str, plane: str, error: BaseException) -> None:
         with self.lock:
             if chunk_id not in self.failed_chunks:
                 self.failed_chunks.append(chunk_id)
+            if len(self.metrics.errors) < 20:
+                self.metrics.errors.append({'chunk_id': chunk_id, 'plane': plane, 'message': str(error)[-2000:]})
 
     def count_processed(self) -> None:
         with self.lock:
@@ -483,7 +488,8 @@ def _content_fingerprint(
         ).hexdigest()
     from open_edit.render.studio_graphics import graphics_reference_fingerprint
     payload = {"assets": assets, "remotion": remotion,
-               "studio": graphics_reference_fingerprint(timeline) if timeline is not None else ''}
+               "studio": graphics_reference_fingerprint(timeline) if timeline is not None else '',
+               "preview_pipeline": 2}
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -818,38 +824,36 @@ def _run_pipeline(command: list[str], *, timeout_s: float) -> None:
     consumer_cmd = command[separator + 1:]
     if not producer_cmd or not consumer_cmd:
         raise PreviewChunkWorkerError("invalid preview pipeline command")
-    producer = subprocess.Popen(
-        producer_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert producer.stdout is not None
-    consumer = subprocess.Popen(
-        consumer_cmd,
-        stdin=producer.stdout,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    producer.stdout.close()
-    try:
-        _, consumer_stderr = consumer.communicate(timeout=timeout_s)
-        producer_stderr = producer.stderr.read() if producer.stderr else b""
-        producer.wait(timeout=5)
-    except subprocess.TimeoutExpired as exc:
-        consumer.kill()
-        producer.kill()
-        consumer.wait()
-        producer.wait()
-        raise PreviewChunkWorkerError(
-            "preview pipeline timed out"
-        ) from exc
+    # Keep a reader alive after FFmpeg consumes its exact core frame count,
+    # then drain MLT's padding. Otherwise its final flush hits a closed pipe.
+    # A file also prevents producer diagnostics from filling a stderr pipe.
+    with tempfile.TemporaryFile() as producer_log:
+        producer = subprocess.Popen(producer_cmd, stdout=subprocess.PIPE, stderr=producer_log)
+        assert producer.stdout is not None
+        consumer = None
+        try:
+            consumer = subprocess.Popen(consumer_cmd, stdin=producer.stdout,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            _, consumer_stderr = consumer.communicate(timeout=timeout_s)
+            if consumer.returncode:
+                producer.kill()
+            producer.communicate(timeout=5)
+        except subprocess.TimeoutExpired as exc:
+            raise PreviewChunkWorkerError('preview pipeline timed out') from exc
+        finally:
+            for process in (consumer, producer):
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.communicate()
+            producer.stdout.close()
+        producer_log.seek(max(0, producer_log.tell() - 16000))
+        producer_stderr = producer_log.read()
     if producer.returncode != 0 or consumer.returncode != 0:
         details = (
-            consumer_stderr.decode(errors="replace")
-            or producer_stderr.decode(errors="replace")
+            (consumer_stderr if consumer.returncode else producer_stderr).decode(errors="replace")
             or "preview pipeline failed"
         ).strip()
-        raise PreviewChunkWorkerError(details)
+        raise PreviewChunkWorkerError(f'Preview producer exited {producer.returncode}; consumer exited {consumer.returncode}: {details}')
 
 
 def run_preview_pipe(commands: PreviewPipeCommands) -> None:
@@ -984,7 +988,7 @@ def _bake_chunk(
             plane,
             old_state.model_copy(update={"status": "red", "current": None}),
         )
-        shared.record_failure(chunk.chunk_id)
+        shared.record_failure(chunk.chunk_id, plane, error)
 
     need_video = media in {"video", "both"} and (
         fingerprint.video_dirty or chunk.video.current is None

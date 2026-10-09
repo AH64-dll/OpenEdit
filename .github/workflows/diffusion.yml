@@ -49,6 +49,7 @@ jobs:
       - run: pytest tests/test_diffusion_graphics.py tests/test_diffusion_graphics_contract.py tests/test_diffusion_setup.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_studio_storage.py tests/test_studio_service.py tests/test_targeted_editing_context.py tests/test_studio_source_writer.py tests/test_studio_graphics.py tests/test_studio_geometry.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_request_history.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_object_tracking.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_timeline_controls.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_graphics_animation.py tests/test_asset_visuals.py --timeout=40 --timeout-method=thread
       - run: pytest tests/test_export_service.py -m "not browser" --timeout=40 --timeout-method=thread
@@ -106,6 +107,9 @@ jobs:
       - run: node tests/browser/authoring.cjs
         if: success() || failure()
       - run: node tests/browser/studio.cjs
+        if: success() || failure()
+      - name: Actual moving-object tracking, automatic preview and local export
+        run: node tests/browser/object-tracking.cjs
         if: success() || failure()
       - run: pytest tests/test_diffusion_timing.py --timeout=60 --timeout-method=thread
       - run: python tools/benchmark_diffusion.py --render > tests/browser/artifacts/benchmark.json

@@ -158,6 +158,17 @@ class FakePreviewVideoRenderer:
         return output
 
 
+def test_pipeline_drains_padding_after_consumer_finishes_and_preserves_producer_errors():
+    import sys
+
+    producer = [sys.executable, '-c', 'import sys; sys.stdout.buffer.write(b"x"*2000000)']
+    consumer = [sys.executable, '-c', 'import sys; assert len(sys.stdin.buffer.read(4096))==4096']
+    preview_chunks._run_pipeline([*producer,'|',*consumer],timeout_s=5)
+    broken = [sys.executable,'-c','import sys; sys.stderr.write("source decoding failed"); sys.exit(3)']
+    with pytest.raises(preview_chunks.PreviewChunkWorkerError,match=r'producer exited 3.*source decoding failed'):
+        preview_chunks._run_pipeline([*broken,'|',sys.executable,'-c','import sys; sys.stdin.buffer.read()'],timeout_s=5)
+
+
 def _run_commands(commands) -> None:
     if commands.audio_cmd is not None and commands.audio_output is not None:
         commands.audio_output.write_bytes(b"new-audio")
@@ -231,6 +242,21 @@ def test_preview_worker_reports_structured_acceptance_diagnostics(
     assert diagnostics["evictions"]["removed_files"] >= 0
     assert diagnostics["graph_changed"] is False
     assert diagnostics["partial"] is False
+
+
+def test_failed_video_plane_retains_bounded_actionable_diagnostics(tmp_path, monkeypatch):
+    project_dir, store = _project(tmp_path)
+    _seed_manifest(project_dir, store)
+    _patch_params(monkeypatch, {'media':'video'})
+    class BrokenRenderer:
+        def render(self, request):
+            raise ValueError('x'*3000+' source decoding failed')
+    result = preview_chunks.render_preview_chunks(project_id='project',project_dir=project_dir,
+        job_id='broken-video',renderer=BrokenRenderer(),run_commands=_run_commands)
+    assert result['diagnostics']['partial'] is True
+    error = result['diagnostics']['errors'][0]
+    assert error['plane'] == 'video' and error['chunk_id'] == '000030-000060'
+    assert len(error['message']) == 2000 and error['message'].endswith('source decoding failed')
 
 
 def test_one_remotion_edit_updates_only_its_preview_zone(

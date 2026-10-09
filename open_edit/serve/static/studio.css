@@ -102,7 +102,17 @@ body[data-workspace=review] #clip-inspector, body[data-workspace=code] #timeline
 #quality-check-dialog::backdrop { background:#030912bb; }
 #media-marks-inspector summary { cursor:pointer; font-weight:600; }
 #media-mark-properties textarea { max-height:160px; }
-body[data-workspace=graphics] #media-marks-inspector { display:none; }
+body[data-workspace=graphics] #media-marks-inspector, body[data-workspace=graphics] #object-tracking-inspector { display:none; }
+.tracking-controls { display:grid; gap:8px; }
+.tracking-controls select, .tracking-range input, .tracking-object input, .tracking-object select { width:100%; min-width:0; }
+.tracking-range { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.tracking-range label, .tracking-object label { display:grid; gap:4px; margin:6px 0; font-size:12px; }
+.tracking-object, .tracking-job { padding:10px 0; border-bottom:1px solid var(--border, #334155); }
+.tracking-object button, .tracking-job button { margin:4px 4px 4px 0; }
+.tracking-object details { margin:8px 0; }
+.tracking-job span { display:block; overflow-wrap:anywhere; }
+#object-tracking-inspector input, #object-tracking-inspector select { padding:7px 8px; background:var(--bg-elev); color:var(--text); border:1px solid var(--border); border-radius:6px; font:inherit; }
+#object-tracking-inspector summary { cursor:pointer; font-weight:600; padding:4px 0; }
 .caption-live-overlay { position:absolute; pointer-events:none; }
 .caption-live-overlay img { position:absolute; width:100%; height:100%; inset:0; }
 .studio-animation > select { width:100%; margin:8px 0; }

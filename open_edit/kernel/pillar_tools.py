@@ -85,6 +85,12 @@ def _with_project_id(params: dict[str, Any], project_path: Path) -> dict[str, An
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch a query to one of the 6 read-only tools."""
+    if query == 'get_tracking_job':
+        from open_edit.kernel.tracking_jobs import get_tracking_job
+        try:
+            return get_tracking_job(project_path, **params)
+        except (TypeError, ValueError) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if query in ('get_studio', 'get_editing_context'):
         from open_edit.kernel.studio_service import get_editing_context, get_studio
         from open_edit.storage.edit_graph import GraphRevisionConflict
@@ -104,6 +110,23 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
 
 def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch an edit operation to the corresponding tool."""
+    if operation in ('start_tracking', 'cancel_tracking', 'apply_tracking_job', 'edit_object_track'):
+        from open_edit.kernel.object_tracking import edit_object_track
+        from open_edit.kernel.tracking_jobs import (
+            apply_tracking_job,
+            cancel_tracking,
+            start_tracking,
+        )
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        try:
+            values = {k: v for k, v in params.items() if k != 'author'}
+            functions = {'start_tracking': start_tracking, 'cancel_tracking': cancel_tracking,
+                         'apply_tracking_job': apply_tracking_job, 'edit_object_track': edit_object_track}
+            if operation != 'cancel_tracking':
+                values['author'] = 'ai'
+            return functions[operation](project_path, **values)
+        except (TypeError, ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if operation == 'revert_request':
         from open_edit.kernel.request_history import revert_request
         from open_edit.storage.edit_graph import GraphRevisionConflict

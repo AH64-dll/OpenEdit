@@ -29,6 +29,9 @@ class OverlayClip:
     in_point_sec: float = 0.0
     z_index: int = 0
     still: bool = False
+    region_effect: str | None = None
+    region_strength: float = 20
+    half_open: bool = False
 
 
 OverlayInput: TypeAlias = OverlayClip | FrameOverlaySpec
@@ -95,6 +98,20 @@ def overlay_filter_chain(
         ov_input = first_overlay_input + i - 1
         source_in = getattr(ov, 'in_point_sec', 0.0)
         trim = f'trim=start={source_in}:duration={ov.duration_sec},' if source_in else ''
+        if getattr(ov, 'region_effect', None):
+            # The mask follows source-time keyframes; filtering uses the actual
+            # composited image, including prior color/effect corrections.
+            filters.append(f'{last}format=gbrp,split=2[sharp{i}][filter{i}]')
+            strength = max(1, min(round(ov.region_strength), min(width, height)//4))
+            filtered = f'boxblur={strength}:2' if ov.region_effect == 'blur' else (
+                f'scale={max(1, width//strength)}:{max(1, height//strength)}:flags=neighbor,'
+                f'scale={width}:{height}:flags=neighbor')
+            filters.append(f'[filter{i}]{filtered}[changed{i}]')
+            filters.append(f'[{ov_input}:v]{trim}scale={width}:{height},format=gbrp,'
+                           f'setpts=PTS-STARTPTS,tpad=start_duration={ov.position_sec}:start_mode=add:color=black[mask{i}]')
+            filters.append(f"[sharp{i}][changed{i}][mask{i}]maskedmerge=enable='gte(t,{ov.position_sec:.6f})*lt(t,{end:.6f})'{out_label}")
+            last = f'[v{i}]'
+            continue
         if ov.alpha:
             filters.append(
                 f"[{ov_input}:v]{trim}scale={width}:{height},"
@@ -106,7 +123,7 @@ def overlay_filter_chain(
                 f"[{ov_input}:v]{trim}scale={width}:{height},"
                 f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
             )
-        enable = f'gte(t,{ov.position_sec:.6f})*lt(t,{end:.6f})' if getattr(ov, 'still', False) else f'between(t,{ov.position_sec:.3f},{end:.3f})'
+        enable = f'gte(t,{ov.position_sec:.6f})*lt(t,{end:.6f})' if getattr(ov, 'still', False) or getattr(ov, 'half_open', False) else f'between(t,{ov.position_sec:.3f},{end:.3f})'
         filters.append(
             f"{last}[ov{i}]overlay=0:0:format=auto:eof_action=pass:"
             f"enable='{enable}'"
@@ -202,7 +219,7 @@ def build_pipe_commands(
         "format=wav",
     ]
 
-    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, *REC709_TAGS, "-i", "-"]
+    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-framerate", fps, *REC709_TAGS, "-i", "-"]
     audio_inputs = ["-i", str(audio_wav)]
     overlay_inputs: list[str] = []
     for ov in normalized_overlays:

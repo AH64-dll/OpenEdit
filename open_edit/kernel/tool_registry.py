@@ -28,7 +28,7 @@ _QUERY_PROJECT_DESC = (
     " get_history returns complete editing actions and the current Undo/Redo choices."
     " get_graphics_view returns a revision-safe graphics view; params.clip_id selects a graphics clip."
     " get_studio lists durable editable documents and AI marks; params.kind/document object_id filter, include_source=true returns literal source and stable element IDs."
-    " get_editing_context returns compact selected objects, timed marks, region (canvas coordinates and frame time), visible region_clips and timeline counts. Default pages are 20 objects with explicit omissions/next_offset; use section plus offset/limit (1..100) to page one collection. Fetch get_studio(kind,object_id,include_source:true) before replacing a summarized object; include_source/include_timeline on context explicitly expand details. No frame screenshots are needed to adjust authored edits."
+    " get_editing_context returns compact selected objects, timed marks, region (canvas coordinates and frame time), visible region_clips, object_tracks (range, loss, current box and three samples) and timeline counts. Default pages are 20 objects with explicit omissions/next_offset; use section plus offset/limit (1..100) to page one collection. Fetch get_studio(kind,object_id,include_source:true) before replacing a summarized object; include_source/include_timeline on context explicitly expand details. No frame screenshots are needed to adjust authored edits. get_tracking_job({job_id}) polls local analysis without returning every frame."
 )
 
 _EDIT_PROJECT_DESC = (
@@ -41,6 +41,7 @@ _EDIT_PROJECT_DESC = (
     "run_script. "
     "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
     "apply_studio_changes atomically applies params={expected_revision,changes:[{kind,object_id,data}],ops:[],request_id,label}. "
+    "For video objects use start_tracking({expected_revision,clip_id,region,direction?,start_sec?,end_sec?,object_id?,request_id?}); local analysis accepts the selected box and frame, a maximum 300-second range, and forward/backward/both direction. Poll get_tracking_job, then apply_tracking_job({expected_revision,job_id,request_id?}) to commit a completed result. cancel_tracking({job_id}) cancels analysis. edit_object_track({expected_revision,object_id,edits,request_id?,label?}) supports properties(values:label/locked/enabled), set_frame(frame:time_sec/x/y/width/height/valid), remove_frame(time_sec), add_effect(effect:effect_id/kind), update_effect(effect_id,values), remove_effect(effect_id). Boxes are normalized original-source coordinates; time_sec is original source time. Following kinds: highlight,label,cover,blur,pixelate; properties: enabled,color,text,strength,padding,offset_x,offset_y,scale. Tracks preserve motion samples, locks and Undo; loss stops effects and requires correction/retracking. Do not replace a summary as a complete track. "
     "For existing graphics prefer apply_graphics_edits with {expected_revision,document_id,edits,request_id,label}; no literal source is needed. "
     "Edits use stable source IDs: {kind:'set',source:'index.tsx:title',props:{x:144}} or {kind:'text',source:'index.tsx:title',text:'Hello'}. Locks, trims, effects and Undo are preserved. "
     "Use kind=document for editable graphics (data={source,clip_id,track_id,duration_sec,fps,label}); updating retains clip trims and effects. "
@@ -122,6 +123,7 @@ class QueryProjectArgs(BaseModel):
         "get_history",
         "get_studio",
         "get_editing_context",
+        "get_tracking_job",
     ]
     params: dict = {}
 

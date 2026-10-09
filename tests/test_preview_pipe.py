@@ -50,7 +50,7 @@ def test_video_command_preserves_rawvideo_contract_and_core_trim(tmp_path):
         melt_bin="melt", xml_path=tmp_path / "chunk.mlt",
         video_output=tmp_path / "v.mp4", audio_output=None,
         playback_output=tmp_path / "p.mp4",
-        profile=preview_profile(), encoder=h264_encoder(),
+        profile=preview_chunk_profile(24, 1), encoder=h264_encoder(),
         overlays=[], crop_head_frames=2, crop_tail_frames=1, core_frames=30,
         media="video",
     )
@@ -58,6 +58,8 @@ def test_video_command_preserves_rawvideo_contract_and_core_trim(tmp_path):
     assert "trim=start_frame=2" in " ".join(cmds.video_cmd or [])
     assert "end_frame=32" in " ".join(cmds.video_cmd or [])
     assert "-frames:v" in cmds.video_cmd and "30" in cmds.video_cmd
+    assert cmds.video_cmd[cmds.video_cmd.index('-framerate')+1] == '24'
+    assert cmds.video_cmd[cmds.video_cmd.index('-r')+1] == '24'
     assert cmds.audio_cmd is None
     assert cmds.mux_cmd is None
 

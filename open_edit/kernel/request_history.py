@@ -13,6 +13,17 @@ from open_edit.storage.studio import snapshot
 _MISSING = object()
 
 
+def _track_inverse(before: dict, after: dict, current: dict, path: str, conflicts: list[dict]) -> dict:
+    """Merge motion/effects by stable identity, preserving unrelated manual work."""
+    def indexed(data):
+        return {**data,
+                'effects': {e['effect_id']: e for e in data['effects']},
+                'frames': {str(float(f['time_sec'])): f for f in data['frames']}}
+    merged = _inverse(indexed(before), indexed(after), indexed(current), path, conflicts)
+    return {**merged, 'effects': list(merged['effects'].values()),
+            'frames': sorted(merged['frames'].values(), key=lambda f: f['time_sec'])}
+
+
 def _inverse(before, after, current, path: str, conflicts: list[dict]):
     if before == after or current == before:
         return current
@@ -76,6 +87,8 @@ def revert_request(project_path: str | Path, *, request_id: str, expected_revisi
                                   {k: v for k, v in after.items() if k != 'source'},
                                   {k: v for k, v in current.items() if k != 'source'}, key[1], conflicts)
                 objects[key] = {**merged, 'source': result['source']}
+            elif key[0] == 'object_track' and all(isinstance(v, dict) for v in (before, after, current)):
+                objects[key] = _track_inverse(before, after, current, key[1], conflicts)
             else:
                 objects[key] = _inverse(before, after, current, key[1], conflicts)
     changes = [{'kind': key[0], 'object_id': key[1], 'data': data} for key, data in objects.items() if data != original.get(key)]
