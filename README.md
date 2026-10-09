@@ -136,6 +136,22 @@ playable while an update runs. Undo/Redo reverts a whole action, including edits
 made by MCP agents, and survives reopening a project. Keyboard shortcuts are
 Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z outside text fields.
 
+For an object in imported footage, choose **Select region** over the preview and
+draw around the target. In **Tracked objects**, choose the clip, target mode,
+direction and time range, then **Track selected region**. Tracking runs locally
+in the background. Choose **Use track** to add its editable motion source.
+Add a following highlight, label, cover, blur or pixelation effect; adjust its
+color, strength, padding, offsets and size independently. Correct a box at any
+source time, or draw a new region and retrack. Each object/effect can be disabled,
+locked or deleted, and changes share Undo/Redo and AI request history.
+
+The AI receives a compact target summary and can edit by object/effect ID.
+Analysis accepts ranges up to five minutes, tracks foreground appearance or the
+exact selected region, and reports target loss. Following effects use rectangular
+regions; semantic object naming, precise segmentation and background inpainting
+are separate capabilities. Bake speed/spatial changes before tracking them.
+Preview and configurable local export consume the same editable source.
+
 Open **Setup** for readiness checks and install instructions, or run:
 
 ```bash

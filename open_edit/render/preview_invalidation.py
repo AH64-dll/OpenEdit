@@ -163,6 +163,25 @@ def slice_timeline(
         plane=plane,
     )
 
+    from bisect import bisect_left, bisect_right
+
+    visible = {c.clip_id: c for t in updated.tracks for c in t.clips}
+    local_tracks = {}
+    if plane != 'audio':
+        for id, object_track in updated.object_tracks.items():
+            clip = visible.get(object_track.clip_id)
+            if clip is None or clip.asset_hash != object_track.asset_hash:
+                continue
+            frames = object_track.frames
+            if clip.out_point_sec <= frames[0].time_sec or clip.in_point_sec >= frames[-1].time_sec:
+                continue
+            # Boundary neighbors preserve interpolation without retaining every
+            # motion sample in each preview chunk's source and fingerprint.
+            left = max(0, bisect_right(frames, clip.in_point_sec, key=lambda f: f.time_sec)-1)
+            right = min(len(frames), bisect_left(frames, clip.out_point_sec, key=lambda f: f.time_sec)+1)
+            local_tracks[id] = object_track.model_copy(update={'frames': frames[left:right]})
+    updated.object_tracks = local_tracks
+
     if plane == "audio":
         updated.overlays = []
         updated.remotion_compositions = []
@@ -409,7 +428,7 @@ OperationPlane = Literal["video", "audio"]
 _AUDIO_ONLY_KINDS = frozenset({"set_audio_gain", "normalize_audio"})
 _VIDEO_ONLY_KINDS = frozenset(
     {
-        'set_caption', 'remove_caption',
+        'set_caption', 'remove_caption', 'set_object_track', 'remove_object_track',
         "add_html_overlay",
         "remove_html_overlay",
         "add_remotion_composition",
@@ -846,6 +865,10 @@ def _operation_intervals(
     """Return affected project-second intervals, or None for full timeline."""
 
     kind = str(_op_field(op, "kind", ""))
+    if kind in ('set_object_track', 'remove_object_track'):
+        id = _op_field(op, 'clip_id', '')
+        return [_clip_interval(c) for t in (old_timeline, new_timeline) if t is not None
+                if (c := _find_clip(t, id)) is not None]
     if kind in ('set_caption', 'remove_caption'):
         id = _op_field(op, 'caption_id', '')
         return [(c.start_sec, c.end_sec) for t in (old_timeline, new_timeline) if t is not None
@@ -1133,6 +1156,14 @@ def _key_timeline_value(timeline: Timeline, plane: OperationPlane) -> Any:
     data = _json_value(timeline)
     if not isinstance(data, dict):
         return data
+    for object_track in data.get('object_tracks', {}).values():
+        object_track.pop('locked', None)
+        object_track.pop('algorithm', None)
+        if not any(e.get('enabled') and e.get('kind') == 'label' and not e.get('text') for e in object_track.get('effects', [])):
+            object_track.pop('label', None)
+        for frame in object_track.get('frames', []):
+            frame.pop('manual', None)
+            frame.pop('confidence', None)
     for track in data.get("tracks", []):
         if not isinstance(track, dict):
             continue

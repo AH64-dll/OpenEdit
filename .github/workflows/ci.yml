@@ -45,6 +45,7 @@ jobs:
           /tmp/openedit-smoke/bin/pip install dist/*.whl
           cd /tmp
           /tmp/openedit-smoke/bin/open-edit-mcp --help
+          /tmp/openedit-smoke/bin/python -c "import cv2; from open_edit.kernel.tracking_jobs import _process_alive; import os; assert cv2.TrackerCSRT_create(); assert _process_alive(os.getpid())"
           /tmp/openedit-smoke/bin/python -c "from open_edit.mcp.skills import load_skill; assert load_skill('open-edit-mcp')"
           /tmp/openedit-smoke/bin/python -c "from open_edit.integrations.diffusion.compiler import worker_directory, worker_ready; assert (worker_directory() / 'vendor' / 'LICENSE').is_file(); assert not worker_ready()"
           /tmp/openedit-smoke/bin/python -c "from open_edit.integrations.diffusion.graphics import browser_directory, graphics_ready; root = browser_directory(); assert all((root / p).is_file() for p in ('vendor/PROVENANCE.json', 'fonts/OpenEditSans.woff2', 'fonts/OFL.txt', 'patches/koota+0.6.6.patch', 'package-lock.json')); assert not graphics_ready()"

@@ -35,6 +35,7 @@ def render_bootstrap(
         "SplitClipOp", "ReplaceClipSourceOp", "SetClipSpeedRampOp",
         "SetGraphicsSourceOp", "RemoveGraphicsSourceOp",
         "SetCaptionOp", "RemoveCaptionOp",
+        "SetObjectTrackOp", "RemoveObjectTrackOp",
         "DuplicateClipOp", "SetTrackPropertiesOp", "RemoveTrackOp", "SetClipPropertiesOp", "ControlEffectOp",
         "SetAudioGainOp", "NormalizeAudioOp",
         "GroupEditsOp", "UngroupEditsOp",
@@ -44,7 +45,10 @@ def render_bootstrap(
     ]
     op_sources = [inspect.getsource(getattr(_types, name)) for name in op_types]
     from open_edit.ir.captions import CaptionCue, CaptionStyle
-    op_sources = [inspect.getsource(CaptionStyle), inspect.getsource(CaptionCue), *op_sources]
+    from open_edit.ir.object_tracking import ObjectTrack, TrackedEffect, TrackFrame
+    dependency_sources = [inspect.getsource(model) for model in
+                          (CaptionStyle, CaptionCue, TrackFrame, TrackedEffect, ObjectTrack)]
+    op_sources = [*dependency_sources, *op_sources]
     new_id_source = inspect.getsource(_types.new_id)
     now_iso_source = inspect.getsource(_types.now_iso8601)
     # Single source of truth for the flushing buffer: inline the real class
@@ -66,6 +70,9 @@ def render_bootstrap(
         "from typing import Annotated, Any, Literal, Optional, Union",
         "from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator",
         "from datetime import UTC, datetime",
+        "Number = Annotated[float, Field(strict=True, allow_inf_nan=False)]",
+        "Unit = Annotated[Number, Field(ge=0, le=1)]",
+        "Time = Annotated[Number, Field(ge=0)]",
         "",
         "# --- INLINED: open_edit/ir/ids.py:new_id ---",
         new_id_source,
@@ -73,7 +80,7 @@ def render_bootstrap(
         "# --- INLINED: open_edit/ir/ids.py:now_iso8601 ---",
         now_iso_source,
         "",
-        "# --- INLINED: op models (Operation base + 12 subclasses) ---",
+        "# --- INLINED: operation models and source dependencies ---",
         *op_sources,
         "",
         "# --- INLINED: open_edit/ir/api.py:IR ---",
@@ -98,7 +105,9 @@ def render_bootstrap(
         "# check fails for subclasses that use Literal discriminator fields.",
         "# Calling model_rebuild() on each subclass re-evaluates the annotations",
         "# in the right module context and unblocks the validator.",
-        *[f"{name}.model_rebuild()" for name in op_types if name != "Operation"],
+        *[f"{name}.model_rebuild()" for name in
+          ["CaptionStyle", "CaptionCue", "TrackFrame", "TrackedEffect", "ObjectTrack", *op_types]
+          if name != "Operation"],
         "",
     ]
     return "\n".join(bootstrap_lines)

@@ -69,7 +69,7 @@ _PLANES = ("video", "audio", "playback")
 _PREVIEW_STAGES = ("video", "audio", "mux")
 _KNOWN_OPERATION_KINDS = frozenset(
     {
-        'set_caption', 'remove_caption',
+        'set_caption', 'remove_caption', 'set_object_track', 'remove_object_track',
         "add_clip",
         "remove_clip",
         "move_clip",
@@ -483,7 +483,8 @@ def _content_fingerprint(
         ).hexdigest()
     from open_edit.render.studio_graphics import graphics_reference_fingerprint
     payload = {"assets": assets, "remotion": remotion,
-               "studio": graphics_reference_fingerprint(timeline) if timeline is not None else ''}
+               "studio": graphics_reference_fingerprint(timeline) if timeline is not None else '',
+               "tracking_renderer": 1}
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()

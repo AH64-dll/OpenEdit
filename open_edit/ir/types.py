@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from open_edit.ir.captions import CaptionCue
 from open_edit.ir.ids import new_id, now_iso8601
+from open_edit.ir.object_tracking import ObjectTrack
 
 # ===== Derived state (Timeline, Track, Clip, Effect) =====
 
@@ -85,6 +86,7 @@ class Timeline(BaseModel):
     graphics_documents: dict[str, dict[str, Any]] = Field(default_factory=dict)
     captions: dict[str, CaptionCue] = Field(default_factory=dict)
     visual_transitions: list[VisualTransition] = Field(default_factory=list)
+    object_tracks: dict[str, ObjectTrack] = Field(default_factory=dict)
 
 
 class VisualTransition(BaseModel):
@@ -465,6 +467,19 @@ class SetGraphicsSourceOp(Operation):
     adopt_clip: bool = False
 
 
+class SetObjectTrackOp(Operation):
+    kind: Literal['set_object_track'] = 'set_object_track'
+    object_id: str = Field(min_length=1, max_length=128)
+    clip_id: str = Field(min_length=1, max_length=128)
+    track: ObjectTrack
+
+
+class RemoveObjectTrackOp(Operation):
+    kind: Literal['remove_object_track'] = 'remove_object_track'
+    object_id: str = Field(min_length=1, max_length=128)
+    clip_id: str = Field(min_length=1, max_length=128)
+
+
 class RemoveGraphicsSourceOp(Operation):
     kind: Literal['remove_graphics_source'] = 'remove_graphics_source'
     document_id: str = Field(min_length=1, max_length=128)
@@ -477,7 +492,7 @@ class RemoveRemotionCompositionOp(Operation):
 
 
 OperationUnion = Annotated[
-    SetCaptionOp | RemoveCaptionOp |
+    SetCaptionOp | RemoveCaptionOp | SetObjectTrackOp | RemoveObjectTrackOp |
     AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | DuplicateClipOp | SetTrackPropertiesOp | RemoveTrackOp | SetClipPropertiesOp | ControlEffectOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp | SetGraphicsSourceOp | RemoveGraphicsSourceOp,
     Field(discriminator="kind"),
 ]

@@ -123,6 +123,10 @@ def _prepare_changes(changes: list[dict], project_path: str | Path) -> list[dict
             continue
         if change['kind'] == 'annotation':
             change['data'] = Annotation.model_validate(data).model_dump(mode='json')
+        elif change['kind'] == 'object_track':
+            from open_edit.ir.object_tracking import ObjectTrack
+
+            change['data'] = ObjectTrack.model_validate(data).model_dump(mode='json')
         elif change['kind'] == 'document':
             from open_edit.integrations.diffusion.graphics import (
                 graphics_asset_manifest,
@@ -177,6 +181,10 @@ def get_studio(project_path: str | Path, *, kind: str | None = None,
         for obj in objects:
             if obj['kind'] == 'document':
                 obj['data'] = {k: v for k, v in obj['data'].items() if k not in ('source', 'elements')}
+            elif obj['kind'] == 'object_track':
+                from open_edit.kernel.object_tracking import summarize_track
+
+                obj['data'] = summarize_track(obj['data'])
     return {'status': 'ok', **result, 'objects': objects}
 
 
@@ -192,8 +200,10 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
         OperationUnion,
         RemoveCaptionOp,
         RemoveGraphicsSourceOp,
+        RemoveObjectTrackOp,
         SetCaptionOp,
         SetGraphicsSourceOp,
+        SetObjectTrackOp,
     )
 
     if type(expected_revision) is not int or expected_revision < 0:
@@ -219,6 +229,23 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
                        if op.edit_id in _status_changes else op for op in current_ops]
     current_timeline = derive_timeline(Project(name='studio-validation', edit_graph=current_ops), strict=True)
     for change in prepared:
+        if change['kind'] == 'object_track' and change['data'] != before.get(('object_track', change['object_id'])):
+            data = change['data']
+            previous = before.get(('object_track', change['object_id']))
+            if data is None:
+                if previous:
+                    operations.append(RemoveObjectTrackOp(author=author, object_id=change['object_id'], clip_id=previous['clip_id']))
+            else:
+                if previous and (previous['asset_hash'] != data['asset_hash'] or
+                                 (previous['clip_id'] != data['clip_id'] and not _status_changes)):
+                    raise ValueError('An object track must retain its clip and source asset')
+                from open_edit.storage.assets import list_assets_from_disk
+
+                asset = next((a for a in list_assets_from_disk(project_path) if a.asset_hash == data['asset_hash']), None)
+                if asset is None or asset.type != 'video' or data['frames'][-1]['time_sec'] > asset.duration_sec + 1e-6:
+                    raise ValueError('Object track frames must lie within an imported video source')
+                operations.append(SetObjectTrackOp(author=author, object_id=change['object_id'], clip_id=data['clip_id'], track=data))
+            continue
         if change['kind'] == 'caption' and change['data'] != before.get(('caption', change['object_id'])):
             operations.append(SetCaptionOp(author=author, caption_id=change['object_id'], cue=change['data']) if change['data'] is not None else RemoveCaptionOp(author=author, caption_id=change['object_id']))
             continue
@@ -252,11 +279,39 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
             raise ValueError('Change graphics through document objects to preserve source and history')
         if isinstance(op, (SetCaptionOp, RemoveCaptionOp)):
             raise ValueError('Change captions through caption objects to preserve source and history')
+        if isinstance(op, (SetObjectTrackOp, RemoveObjectTrackOp)):
+            raise ValueError('Change tracking through object_track objects to preserve source and history')
         if op.kind in ('add_effect', 'set_keyframe'):
             from open_edit.ir.studio_ops import validate_effect_edit
 
             validate_effect_edit(op, derive_timeline(Project(name='effect-validation', edit_graph=[*current_ops, *operations])))
         operations.append(op)
+        if op.kind in ('split_clip', 'duplicate_clip'):
+            # Keep tracking with ordinary timeline edits. Each copy gets its
+            # own source object/effects, in the same atomic history action.
+            from copy import deepcopy
+
+            from open_edit.ir.ids import new_id
+
+            trial = derive_timeline(Project(name='tracking-copy', edit_graph=[*current_ops, *operations[:-1]]))
+            source_clip = next((c for t in trial.tracks for c in t.clips if c.clip_id == op.clip_id), None)
+            for object_id, object_track in trial.object_tracks.items():
+                if object_track.clip_id != op.clip_id or source_clip is None or object_track.asset_hash != source_clip.asset_hash:
+                    continue
+                destinations = [(object_id, op.left_clip_id), (f'object-{new_id()}', op.right_clip_id)] if op.kind == 'split_clip' else [(f'object-{new_id()}', op.new_clip_id)]
+                for new_object_id, new_clip_id in destinations:
+                    data = deepcopy(object_track.model_dump(mode='json'))
+                    data['clip_id'] = new_clip_id
+                    if new_object_id != object_id:
+                        data['locked'] = False
+                        for effect in data['effects']:
+                            effect['effect_id'] = f'effect-{new_id()}'
+                    existing_change = next((c for c in prepared if c['kind'] == 'object_track' and c['object_id'] == new_object_id), None)
+                    if existing_change:
+                        existing_change['data'] = data
+                    else:
+                        prepared.append({'kind': 'object_track', 'object_id': new_object_id, 'data': data})
+                    operations.append(SetObjectTrackOp(author=author, object_id=new_object_id, clip_id=new_clip_id, track=data))
     # Reject source updates that invalidate explicit trims, IDs or track layout.
     if operations:
         try:
@@ -288,7 +343,7 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
             object_changes = prepare(conn, prepared)
             check_operations(conn, operations, current_ops, object_changes)
             if _status_changes:
-                check_operations(conn, [op for op in current_ops if op.edit_id in _status_changes], current_ops, object_changes)
+                check_operations(conn, [op for op in current_ops if op.edit_id in _status_changes], current_ops, object_changes, validate_source=False)
         return {'status': 'ok', 'graph_revision': actual, 'changed': False}
     store.append_many(operations, expected_revision=expected_revision, studio_changes=prepared,
                       author=author, request_id=request_id, action_label=label, receipt=receipt,

@@ -164,7 +164,8 @@ def _build_audio_command(
         melt_bin, str(xml_path),
         "-consumer", "avformat:pipe:",
         "video_off=1",
-        "format=wav",
+        "f=wav",
+        "acodec=pcm_s16le",
     ]
     start = _seconds(crop_head_frames, profile)
     end = _seconds(crop_head_frames + core_frames, profile)

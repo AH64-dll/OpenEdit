@@ -115,6 +115,11 @@ def build_render_plan(
         profile = frame_profile or remotion_profile_for_mode(mode)
         width, height = map(int, profile.scale.split('x')) if profile.scale else (profile.width, profile.height)
         overlay_clips.extend(caption_overlays(store.assets_dir.parent.parent, timeline.captions, width, height))
+    if timeline.object_tracks:
+        from open_edit.render.object_tracking import tracking_overlays
+
+        overlay_clips.extend(tracking_overlays(store.assets_dir.parent.parent, timeline, store,
+                                              frame_profile or remotion_profile_for_mode(mode)))
     return RenderPlan(
         melt_timeline=timeline_for_melt(timeline),
         overlay_clips=overlay_clips,

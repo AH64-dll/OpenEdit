@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from starlette.concurrency import run_in_threadpool
 
+from open_edit.kernel.object_tracking import TrackingRequest, edit_object_track
 from open_edit.kernel.studio_service import (
     EditingFocus,
     commit_studio,
@@ -18,6 +19,68 @@ from open_edit.storage.edit_graph import GraphRevisionConflict
 from .projects import _require_project
 
 router = APIRouter()
+
+
+class TrackEditRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    expected_revision: StrictInt = Field(ge=0)
+    edits: list[dict] = Field(min_length=1, max_length=100)
+    label: str = Field(default='Edit tracked object', min_length=1, max_length=256)
+
+
+class TrackApplyRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    expected_revision: StrictInt = Field(ge=0)
+
+
+async def _tracking_call(project_id, function, **values):
+    project = await _require_project(project_id)
+    try:
+        return await run_in_threadpool(function, project.path, **values)
+    except GraphRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/api/projects/{project_id}/tracking')
+async def track_region(project_id: str, request: TrackingRequest):
+    from open_edit.kernel.tracking_jobs import start_tracking
+
+    return await _tracking_call(project_id, start_tracking, **request.model_dump())
+
+
+@router.get('/api/projects/{project_id}/tracking')
+async def tracking_jobs(project_id: str):
+    from open_edit.kernel.tracking_jobs import list_tracking_jobs
+
+    return await _tracking_call(project_id, list_tracking_jobs)
+
+
+@router.get('/api/projects/{project_id}/tracking/{job_id}')
+async def tracking_job(project_id: str, job_id: str):
+    from open_edit.kernel.tracking_jobs import get_tracking_job
+
+    return await _tracking_call(project_id, get_tracking_job, job_id=job_id)
+
+
+@router.post('/api/projects/{project_id}/tracking/{job_id}/cancel')
+async def stop_tracking(project_id: str, job_id: str):
+    from open_edit.kernel.tracking_jobs import cancel_tracking
+
+    return await _tracking_call(project_id, cancel_tracking, job_id=job_id)
+
+
+@router.post('/api/projects/{project_id}/tracking/{job_id}/apply')
+async def apply_track(project_id: str, job_id: str, request: TrackApplyRequest):
+    from open_edit.kernel.tracking_jobs import apply_tracking_job
+
+    return await _tracking_call(project_id, apply_tracking_job, job_id=job_id, **request.model_dump())
+
+
+@router.post('/api/projects/{project_id}/object-tracks/{object_id}/edit')
+async def edit_track(project_id: str, object_id: str, request: TrackEditRequest):
+    return await _tracking_call(project_id, edit_object_track, object_id=object_id, author='user', **request.model_dump())
 
 
 @router.get('/api/studio/effects')

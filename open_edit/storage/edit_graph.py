@@ -220,7 +220,7 @@ class EditGraphStore:
                 return []
             if status_changes:
                 previous_ops = self._load_all_in(conn)
-                _studio.check_operations(conn, [op for op in previous_ops if op.edit_id in status_changes], previous_ops, object_changes)
+                _studio.check_operations(conn, [op for op in previous_ops if op.edit_id in status_changes], previous_ops, object_changes, validate_source=False)
             _history.apply_status_changes(conn, status_changes or {}, command_id)
             current_ops = self._load_all_in(conn)
             _studio.check_operations(conn, ops, current_ops, object_changes)

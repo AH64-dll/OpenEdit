@@ -10,7 +10,7 @@ import re
 import sqlite3
 from copy import deepcopy
 
-KINDS = frozenset({'document', 'annotation', 'caption', 'project', 'track', 'clip', 'font', 'style'})
+KINDS = frozenset({'document', 'annotation', 'caption', 'project', 'track', 'clip', 'font', 'style', 'object_track'})
 _ID = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$')
 MAX_OBJECT_BYTES = 2 * 1024 * 1024
 MAX_CHANGES = 1000
@@ -107,11 +107,21 @@ def check_layer_locks(before: dict, after: dict | None) -> None:
                 raise ValueError('Unlock the affected layers before changing their hierarchy')
 
 
-def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[dict]) -> None:
+def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[dict], *, validate_source: bool = True) -> None:
     """All writers respect persisted locks and source-backed document ownership."""
     if not ops:
         return
     objects = snapshot(conn)
+    object_tracks = {o['object_id']: o['data'] for o in objects if o['kind'] == 'object_track'}
+    tracking_changes = {c['object_id']: c.get('after') for c in changes if c['kind'] == 'object_track'}
+    last_tracking_ops = {op.object_id: op for op in ops if op.kind in ('set_object_track', 'remove_object_track')}
+    for op in ops:
+        if validate_source and op.status == 'applied' and op.kind in ('set_object_track', 'remove_object_track'):
+            if op.object_id not in tracking_changes:
+                raise ValueError('Change tracking through object_track objects to preserve editable source and history')
+            expected = op.track.model_dump(mode='json') if op.kind == 'set_object_track' else None
+            if last_tracking_ops[op.object_id] is op and tracking_changes[op.object_id] != expected:
+                raise ValueError('Tracking operations must match their shared source objects')
     documents = {o['object_id']: o['data'] for o in objects if o['kind'] == 'document'}
     locked_captions = {o['object_id'] for o in objects if o['kind'] == 'caption' and o['data'].get('locked')}
     source_clips = {d['clip_id'] for d in documents.values() if d.get('clip_id')}
@@ -121,7 +131,7 @@ def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[d
     locked_tracks = {o['object_id'] for o in objects if o['kind'] == 'track' and o['data'].get('locked')}
     changed_documents = {c['object_id'] for c in changes if c['kind'] == 'document'}
     effect_owners = {}
-    if not (documents or locked_captions or locked_clips or locked_tracks or any(getattr(op, 'locked', False) is True for op in current_ops)):
+    if not (object_tracks or tracking_changes or documents or locked_captions or locked_clips or locked_tracks or any(getattr(op, 'locked', False) is True for op in current_ops)):
         # Plain legacy graphs can contain old semantically invalid operations.
         # Appending an unrelated operation must retain its tolerant behavior.
         return
@@ -129,6 +139,14 @@ def check_operations(conn: sqlite3.Connection, ops, current_ops, changes: list[d
     from open_edit.ir.types import Project
 
     timeline = derive_timeline(Project(name='lock-validation', edit_graph=current_ops))
+    source_assets = {c.clip_id: c.asset_hash for t in timeline.tracks for c in t.clips}
+    for op in ops:
+        if validate_source and op.status == 'applied' and op.kind in ('split_clip', 'duplicate_clip'):
+            count = sum(d['clip_id'] == op.clip_id and d['asset_hash'] == source_assets.get(op.clip_id)
+                        for d in object_tracks.values())
+            destinations = (op.left_clip_id, op.right_clip_id) if op.kind == 'split_clip' else (op.new_clip_id,)
+            if count and any(sum(d is not None and d['clip_id'] == clip_id for d in tracking_changes.values()) < count for clip_id in destinations):
+                raise ValueError('Use apply_studio_changes to split or duplicate a clip with tracked objects')
     own_clip_locks = {c.clip_id for t in timeline.tracks for c in t.clips if c.locked}
     own_track_locks = {t.track_id for t in timeline.tracks if t.locked}
     locked_tracks.update(own_track_locks)

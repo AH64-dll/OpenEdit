@@ -146,6 +146,13 @@ def test_bootstrap_exec_instantiates_all_24_op_classes(tmp_path):
     for name in expected:
         assert name in g, f"{name} not in bootstrap scope after exec"
 
+    motion = g['ObjectTrack'](clip_id='hero', asset_hash='a'*64, frames=[
+        {'time_sec':0,'x':.1,'y':.2,'width':.3,'height':.4}])
+    tracked = g['SetObjectTrackOp'](author='ai',object_id='target',clip_id='hero',track=motion)
+    assert tracked.model_dump(mode='json')['track']['frames'][0]['x'] == .1
+    with pytest.raises(ValueError):
+        g['TrackFrame'](time_sec=0,x=.9,y=.2,width=.3,height=.4)
+
     # `ir` instance must be present and must accept a method that was added
     # in T7 (was NameError before the fix).
     assert "ir" in g
