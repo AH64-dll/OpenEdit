@@ -209,8 +209,9 @@ inspector panels (marks, captions, animation, clip/track, graphics layers)
 discarded typed values on background refreshes; Undo/Redo used a stale history
 revision immediately after an edit; a stale compile failure in the graphics
 editor dropped the queued Undo snapshot; Enter in animation forms reloaded the
-page. Exports now tag BT.709 limited-range input and output, which previously
-decoded as BT.601 on small frames. UI polish: friendly mark labels, styled
+page. Exports remain untagged: tagging BT.709 fixed MLT 7.41 output but shifted
+MLT 7.22 output, so melt's raw-pipe matrix differs by version; pure-color pixel
+checks on MLT 7.41 stay below thresholds tuned on 7.22 (open item). UI polish: friendly mark labels, styled
 inspector forms and selects, one labelled preview toolbar, a sticky export
 footer with a settings summary and warnings, graphics and captions empty states.
 

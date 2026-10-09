@@ -105,7 +105,8 @@ async function parity(browser) {
     await page.mouse.move(mediaBox.x+mediaBox.width*.5,mediaBox.y+mediaBox.height*.5,{steps:8});await page.mouse.up();
     await page.locator('#media-mark-properties textarea[name=text]').fill('Align the video edit here');
     await page.locator('#media-mark-properties').getByRole('button',{name:'Save mark',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelector('#media-mark-properties textarea[name=text]').value==='Align the video edit here');
+    // The textarea keeps the typed draft; wait for the committed mark label instead.
+    await page.waitForFunction(()=>[...document.querySelectorAll('#media-marks-inspector [data-mark-id]')].some(b=>b.textContent.includes('Align the video edit here')));
     const marked=await api('/editing-context',{annotation_ids:[],selected_ids:[],playhead_sec:0});
     assert.ok(marked.annotations.some(o=>o.data.text==='Align the video edit here'));
     await page.screenshot({path:path.join(artifacts,'studio-video-marks.png'),fullPage:true});
