@@ -65,6 +65,16 @@ const artifacts = path.join(__dirname,'artifacts');
       throw new Error(`${error.message}; preview: ${detail}; jobs: ${JSON.stringify(jobs)}`);
     });
     await page.waitForFunction(()=>document.querySelector('#preview-player').readyState>=2);
+    const checkedPreview=await api('/preview-chunks');
+    for(const chunk of checkedPreview.manifest.chunks) {
+      const media=path.join(root,'object-tracking-review','.open_edit','preview_chunks',chunk.playback.current.relative_path);
+      const probe=spawnSync('ffprobe',['-v','error','-show_streams','-of','json',media],{encoding:'utf8'});
+      assert.equal(probe.status,0,probe.stderr);
+      const video=JSON.parse(probe.stdout).streams.find(s=>s.codec_type==='video');
+      const [num,den]=video.avg_frame_rate.split('/').map(Number);
+      assert.equal(num/den,15);assert.equal(Number(video.nb_frames),15);
+      assert.ok(Math.abs(Number(video.duration)-1)<.08,`Preview chunk duration: ${video.duration}`);
+    }
     await page.screenshot({path:path.join(artifacts,'tracking-controls.png'),fullPage:true});
     // Real local export with following effect burned into the media.
     await page.locator('#btn-render-final').click();await page.locator('#export-dialog').waitFor({state:'visible'});
@@ -104,6 +114,11 @@ const artifacts = path.join(__dirname,'artifacts');
     if(fs.existsSync(path.join(root,'server.log')))fs.copyFileSync(path.join(root,'server.log'),path.join(artifacts,'tracking-server.log'));
     const manifest=path.join(root,'object-tracking-review','.open_edit','preview_chunks','manifest.json');
     if(fs.existsSync(manifest))fs.copyFileSync(manifest,path.join(artifacts,'tracking-manifest-debug.json'));
+    const jobsDb=path.join(root,'object-tracking-review','.open_edit','render_jobs.db');
+    if(fs.existsSync(jobsDb)) {
+      const dump=spawnSync(python,['-c','import sqlite3,json,sys; c=sqlite3.connect(sys.argv[1]); c.row_factory=sqlite3.Row; print(json.dumps([dict(r) for r in c.execute("select * from render_jobs")],indent=2))',jobsDb],{encoding:'utf8'});
+      if(dump.status===0)fs.writeFileSync(path.join(artifacts,'tracking-render-jobs-debug.json'),dump.stdout);
+    }
     throw error;
   } finally {await browser?.close();server?.kill();fs.rmSync(root,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exit(1);});

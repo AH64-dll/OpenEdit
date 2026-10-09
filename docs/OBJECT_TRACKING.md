@@ -58,6 +58,10 @@ Tracking changes affect the video plane; audio remains reusable. Lock,
 confidence and provenance metadata do not change visual chunk keys. The preview
 audio pipe also uses the actual WAV muxer (`f=wav`, PCM), fixing unavailable
 playback when video rendered but the piped audio pass failed.
+Raw video declares its input frame rate explicitly; preview outputs retain the
+project's rate and exact core frame count. The runner drains MLT padding after
+FFmpeg finishes and stores bounded per-plane failure diagnostics, preventing
+successful frames from being rejected when the encoder closes its input early.
 
 The existing six public tools expose `start_tracking`, `cancel_tracking`,
 `apply_tracking_job`, `edit_object_track` and `get_tracking_job`. Default editing

@@ -219,7 +219,7 @@ def build_pipe_commands(
         "format=wav",
     ]
 
-    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, *REC709_TAGS, "-i", "-"]
+    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-framerate", fps, *REC709_TAGS, "-i", "-"]
     audio_inputs = ["-i", str(audio_wav)]
     overlay_inputs: list[str] = []
     for ov in normalized_overlays:
