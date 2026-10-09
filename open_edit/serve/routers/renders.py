@@ -1,6 +1,8 @@
 """Render routes: trigger, poll, cancel, and file streaming."""
 from __future__ import annotations
 
+import logging
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,8 @@ from ..auth import _check_rate_limit
 from .projects import _require_project
 
 router = APIRouter()
+
+_LOG = logging.getLogger("open_edit.serve.routers.renders")
 
 
 class RenderRequest(BaseModel):
@@ -187,7 +191,16 @@ async def get_render_file(project_id: str, render_id: str) -> FileResponse:
     """Stream a rendered MP4 for in-browser preview (HTTP Range supported)."""
     state = await _require_project(project_id)
     project_path = Path(state.path)
-    job=DEFAULT_RENDER_JOB_SERVICE.get(project_path,render_id)
+    try:
+        job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, render_id)
+    except (sqlite3.DatabaseError, sqlite3.OperationalError, OSError):
+        # Corrupt/locked render_jobs.db must not strand files that live on
+        # disk: treat the job row as unknown and resolve by path below.
+        _LOG.warning(
+            "render job lookup unreadable for %s/%s, resolving by path",
+            project_id, render_id, exc_info=True,
+        )
+        job = None
     if job and (job.result or {}).get('export_verification',{}).get('passed'):
         from .exports import get_export_file
         return await get_export_file(project_id,render_id)
@@ -207,7 +220,14 @@ def _resolve_render_mp4(project_path: Path, render_id: str) -> Path | None:
         return None
     if ".melt" in render_id.lower():
         return None
-    job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, render_id)
+    try:
+        job = DEFAULT_RENDER_JOB_SERVICE.get(project_path, render_id)
+    except (sqlite3.DatabaseError, sqlite3.OperationalError, OSError):
+        _LOG.warning(
+            "render job lookup unreadable for %s, resolving by path", render_id,
+            exc_info=True,
+        )
+        job = None
     if job is not None and job.mode == "preview-chunks":
         return None
     if job is not None and job.output_path:

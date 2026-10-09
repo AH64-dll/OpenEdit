@@ -23,7 +23,7 @@ import {
   summarizeOpPayload,
 } from './js/state.js';
 import { $, $$, el, icon, showToast, hideModal, showModal, hideAllModals, fmtBytes, fmtTime } from './js/dom.js';
-import { api } from './js/api.js';
+import { api, _extractError } from './js/api.js';
 import { renderAssets, openAssetPreview } from './js/assets.js';
 import {
   clearChatLog,
@@ -96,6 +96,13 @@ export function selectProject(id) {
   state.previewChunks = false; state.previewManifest = null; state.previewChunkStart = 0;
   state.currentProjectId = id;
   state.currentProjectState = null;
+  // Invalidate any in-flight render POST/poll from the previous project
+  // (or a superseded generation) and release the auto-proxy busy flag.
+  state.renderGeneration += 1;
+  state.proxyRenderInFlight = false;
+  clearInterval(state.renderPollTimer);
+  state.renderPollTimer = null;
+  setRenderButtonsBusy(false);
   observePreview();
   window.dispatchEvent?.(new CustomEvent('openedit:project-selected'));
   if (id) {
@@ -400,7 +407,7 @@ async function undoEdit(e) {
         body: JSON.stringify({ status: newStatus, expected_revision: expectedRevision }),
       },
     );
-    if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+    if (!r.ok) throw await _extractError(r, 'Undo failed');
     showToast(`${newStatus === 'reverted' ? 'Undid' : 'Redid'} ${e.kind}`, 'success');
     await loadProjectState();
   } catch (err) {
@@ -418,7 +425,7 @@ async function deleteEdit(e) {
       `/api/projects/${encodeURIComponent(state.currentProjectId)}/ops/${encodeURIComponent(e.edit_id)}${q}`,
       { method: 'DELETE' },
     );
-    if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+    if (!r.ok) throw await _extractError(r, 'Revert failed');
     hideEditDetail();
     showToast(`Reverted ${e.kind}`, 'success');
     await loadProjectState();
@@ -966,57 +973,85 @@ async function triggerRender(mode) {
   const encoder = ['cpu', 'gpu'].includes(encoderSel?.value) ? encoderSel.value : 'auto';
   showToast(`Rendering ${mode} on ${encoder.toUpperCase()}…`, 'info');
   setRenderButtonsBusy(true, 'Rendering…');
-  if (mode === 'proxy') state.proxyRenderInFlight = true;
+  // Ownership is captured BEFORE the await: a late response must never act
+  // on behalf of a project/generation it no longer owns.
+  const projectId = state.currentProjectId;
+  const renderGen = ++state.renderGeneration;
+  clearTimeout(state.renderPollTimer);
+  state.renderPollTimer = null;
+  state.proxyRenderInFlight = mode === 'proxy';
   try {
     const expectedRevision = state.currentProjectState?.graph_revision;
-    const r = await fetch(`/api/projects/${encodeURIComponent(state.currentProjectId)}/render`, {
+    const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/render`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode, encoder, expected_revision: expectedRevision }),
     });
+    if (projectId !== state.currentProjectId || renderGen !== state.renderGeneration) return;
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));
-      throw new Error(body.detail || body.error || `HTTP ${r.status}`);
+      throw new Error(body.error || body.detail || `HTTP ${r.status}`);
     }
     const job = await r.json();
+    if (projectId !== state.currentProjectId || renderGen !== state.renderGeneration) return;
     refreshRendersList();
-    pollRenderJob(job.job_id, mode);
+    pollRenderJob(projectId, job.job_id, mode, renderGen);
   } catch (e) {
+    if (projectId !== state.currentProjectId || renderGen !== state.renderGeneration) return;
+    if (mode === 'proxy') state.proxyRenderInFlight = false;
     setRenderButtonsBusy(false);
     showToast(`Render failed: ${e.message}`, 'error');
   }
 }
 
-async function pollRenderJob(jobId, mode) {
-  if (!state.currentProjectId || !jobId) return;
+async function pollRenderJob(projectId, jobId, mode, renderGen) {
+  if (!projectId || !jobId) return;
   let attempts = 0;
-  const maxAttempts = 120; // 10 min at 5s polling
+  const maxAttempts = 120; // Four minutes at two-second polling.
+  const owned = () => projectId === state.currentProjectId && renderGen === state.renderGeneration;
+  const stop = () => {
+    if (!owned()) return;
+    clearTimeout(state.renderPollTimer);
+    state.renderPollTimer = null;
+    state.proxyRenderInFlight = false;
+    setRenderButtonsBusy(false);
+    refreshRendersList();
+  };
   const poll = async () => {
-    attempts += 1;
-    if (attempts > maxAttempts) return;
+    if (!owned()) return;
+    if (++attempts > maxAttempts) {
+      showToast('Render job poll stopped (job row missing / server busy)', 'warn');
+      stop();
+      return;
+    }
     try {
-      const r = await fetch(`/api/projects/${encodeURIComponent(state.currentProjectId)}/render_jobs/${encodeURIComponent(jobId)}`);
-      if (!r.ok) return;
+      const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/render_jobs/${encodeURIComponent(jobId)}`);
+      if (!owned()) return;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const job = await r.json();
+      if (!owned()) return;
       if (job.status === 'succeeded') {
         showToast(`Render complete: ${job.output_path || '(output)'}`, 'success');
-        refreshRendersList();
-        if (mode === 'proxy') state.proxyRenderInFlight = false;
         loadRenderInPreview(job.job_id, mode, job.graph_revision);
+        stop();
         return;
       }
       if (['failed', 'cancelled', 'orphaned'].includes(job.status)) {
         showToast(`Render failed: ${job.error || 'unknown'}`, 'error');
-        if (mode === 'proxy') state.proxyRenderInFlight = false;
+        stop();
         return;
       }
-      setTimeout(poll, 2000);
     } catch {
-      // network blip — keep polling
-      setTimeout(poll, 2000);
+      if (!owned()) return;
+      showToast('Render job poll stopped (job row missing / server busy)', 'warn');
+      stop();
+      return;
     }
+    if (owned()) state.renderPollTimer = setTimeout(poll, 2000);
   };
-  setTimeout(poll, 1000);
+  if (!owned()) return;
+  clearTimeout(state.renderPollTimer);
+  state.renderPollTimer = setTimeout(poll, 1000);
 }
 
 // ----------------------------------------------------------
@@ -1318,6 +1353,10 @@ export async function loadLLMConfig() {
   }
   try {
     const cfg = await fetchLLMConfig(projectId);
+    // A slow response must not overwrite the dropdowns of a project the
+    // user has already switched to (same delegation pattern as
+    // refreshRendersList and the edit-graph poll).
+    if (projectId !== state.currentProjectId) return;
     providerCapabilities = new Map((cfg.provider_capabilities || []).map(p => [p.id, p]));
     populateProviderDropdown(cfg.available_providers, cfg.provider);
     populateModelDropdown(cfg.available_models, cfg.model);
@@ -1837,6 +1876,29 @@ function fitTimelineToWindow() {
 let tlScrubbing = false;
 let tlAutoFitPending = false;
 
+/** Click-to-seek handler shared by the persistent ruler and tracks-area
+ *  nodes. Bound once (see ``bindTimelineSeek``) — ``renderTimeline`` runs
+ *  on every snapshot paint, and re-binding here fanned one click out to N
+ *  seeks. */
+function onTimelineSeekClick(evt) {
+  if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
+  const col = $('#timeline-ruler-col');
+  seekToSec(timelineSecFromEvent(evt, col || evt.currentTarget));
+}
+
+function bindTimelineSeek() {
+  const ruler = $('#timeline-ruler');
+  const tracksArea = $('#timeline-tracks-area');
+  if (ruler && ruler.dataset.seekBound !== '1') {
+    ruler.dataset.seekBound = '1';
+    ruler.addEventListener('click', onTimelineSeekClick);
+  }
+  if (tracksArea && tracksArea.dataset.seekBound !== '1') {
+    tracksArea.dataset.seekBound = '1';
+    tracksArea.addEventListener('click', onTimelineSeekClick);
+  }
+}
+
 function bindTimelineScrubbing() {
   const rulerCol = $('#timeline-ruler-col');
   if (!rulerCol || rulerCol.dataset.scrubBound === '1') return;
@@ -1962,28 +2024,17 @@ export function renderTimeline(timelineData, context = {}) {
   labelsCol.innerHTML = '<div class="timeline-track-label-row" style="height:20px;border-bottom:1px solid var(--border);"></div>';
   tracksArea.innerHTML = '';
 
-  const onSeekClick = (evt) => {
-    if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
-    const col = $('#timeline-ruler-col');
-    const sec = timelineSecFromEvent(evt, col || evt.currentTarget);
-    seekToSec(sec);
-  };
-
   if (tracks.length === 0) {
     if (emptyMsg) tracksArea.appendChild(emptyMsg);
     emptyMsg && (emptyMsg.style.display = '');
     renderRuler(10);
-    const ruler = $('#timeline-ruler');
-    ruler?.addEventListener('click', onSeekClick);
-    tracksArea.addEventListener('click', onSeekClick);
+    bindTimelineSeek();
     return;
   }
   if (emptyMsg) emptyMsg.style.display = 'none';
 
   renderRuler(Math.max(durationSec, 10));
-  const ruler = $('#timeline-ruler');
-  ruler?.addEventListener('click', onSeekClick);
-  tracksArea.addEventListener('click', onSeekClick);
+  bindTimelineSeek();
 
   // Calculate total overlay height (one row per overlay track in the future;
   // for now, overlay markers live on top of all tracks)
@@ -2120,12 +2171,6 @@ export function renderTimeline(timelineData, context = {}) {
     }
   }
 
-  if (rulerCol) {
-    rulerCol.onclick = (evt) => {
-      if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
-      onSeekClick(evt);
-    };
-  }
 
   bindTimelineScrubbing();
   window.dispatchEvent?.(new CustomEvent('openedit:timeline-rendered'));

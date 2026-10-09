@@ -17,8 +17,10 @@ Pure (or near-pure) functions for the post-render verification stage:
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +81,9 @@ def sample_frames(duration_s: float, override_count: int | None = None) -> list[
         (tier for tier in _TIERS if d <= tier[0]), _TIERS[-1],
     )
     n = override_count or default_n
+    if override_count:
+        forced = next((values for _, count, values in _TIERS if count == n), None)
+        ratios = forced if forced is not None else [(i + 1) / (n + 1) for i in range(n)]
 
     raw = [r * d for r in ratios[:n]]
     clamped = [min(max(t, 0.05), max(0.05, d - 0.05)) for t in raw]
@@ -93,35 +98,62 @@ def sample_frames(duration_s: float, override_count: int | None = None) -> list[
 # JPEG encoding — ffmpeg wrapper
 # ---------------------------------------------------------------------------
 
+def _quantize_seek(seconds: float) -> str:
+    """Format an ffmpeg input-seek timestamp on the microsecond grid.
+
+    Truncation (floor) keeps the seek at or behind the requested frame
+    start: rounding could land past it and swallow the frame entirely
+    (a lossy-container ``.3f`` rounding of ``1.966666`` seeks to ``1.967``
+    and yields an empty output on a 30 fps tail).
+    """
+    micros = int(math.floor(max(0.0, float(seconds)) * 1_000_000))
+    return f"{micros // 1_000_000}.{micros % 1_000_000:06d}"
+
+
 def encode_jpeg(
     input_path: Path,
     output_path: Path,
     max_edge_px: int,
     jpeg_quality: int,
     max_bytes: int | None = None,
+    timestamp_s: float | None = None,
+    timeout_s: float | None = None,
 ) -> int:
     """Extract a single frame from ``input_path`` to ``output_path`` as JPEG,
     downscaled so the long edge is <= ``max_edge_px``.
 
+    ``timestamp_s`` is the requested frame start, in seconds. When set the
+    frame is located with an input seek (``-ss`` before ``-i``) truncated to
+    the microsecond grid; callers MUST pass an already-clamped timestamp —
+    a seek past the last decodable frame produces an empty output file.
+    When ``None`` the first decoded frame is extracted.
+
+    ``timeout_s`` is shared across all ffmpeg attempts. On expiry the
+    child is killed and ``subprocess.TimeoutExpired`` propagates.
+
     If ``max_bytes`` is set and the output file exceeds it, the long edge
-    is halved and ffmpeg is invoked again (once). Returns the number of
-    bytes written.
+    is halved and ffmpeg is invoked again (once) within the same deadline.
+    Returns the number of bytes written.
     """
     long_edge = int(max_edge_px)
     size = 0
+    deadline = time.monotonic() + timeout_s if timeout_s is not None else None
     for attempt in range(2):
-        vf = f"scale={long_edge}:-2"
+        vf = f"scale={long_edge}:{long_edge}:force_original_aspect_ratio=decrease:force_divisible_by=2"
+        argv: list[str] = ["ffmpeg", "-y"]
+        if timestamp_s is not None:
+            argv += ["-ss", _quantize_seek(timestamp_s)]
+        argv += [
+            "-i", str(input_path),
+            "-vf", vf,
+            "-frames:v", "1",
+            "-q:v", str(int(jpeg_quality)),
+            str(output_path),
+        ]
         proc = subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", str(input_path),
-                "-vf", vf,
-                "-frames:v", "1",
-                "-q:v", str(int(jpeg_quality)),
-                "-metadata:s:v", " ",
-                str(output_path),
-            ],
+            argv,
             capture_output=True, text=True, check=False,
-            shell=False,
+            shell=False, timeout=max(0.0, deadline - time.monotonic()) if deadline is not None else None,
         )
         rc = proc.returncode if isinstance(proc.returncode, int) else 0
         if rc != 0:
@@ -132,6 +164,8 @@ def encode_jpeg(
             size = output_path.stat().st_size
         except (FileNotFoundError, OSError):
             size = 0
+        if size <= 0:
+            raise RuntimeError("ffmpeg decoded no JPEG frame at the requested timestamp")
         if max_bytes is None or size <= max_bytes or attempt == 1:
             return size
         long_edge = max(64, long_edge // 2)
