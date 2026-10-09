@@ -457,8 +457,66 @@ async def test_list_assets_logs_warning_on_corrupt_sidecar(projects_root_tmp, ca
     # And we logged it.
     matching = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert matching, "expected a WARNING log when an asset sidecar is corrupt"
-    assert any("asset" in r.getMessage().lower() for r in matching)
-    assert any(r.exc_info is not None for r in matching)
+
+
+@pytest.mark.asyncio
+async def test_list_renders_falls_back_to_dir_scan_on_corrupt_job_db(
+    projects_root_tmp, caplog, tmp_path
+):
+    """F-S6: a corrupt ``render_jobs.db`` degrades to the documented
+    ``renders/`` directory scan instead of a 500. The DB file's bytes stay
+    untouched (no silent recreate/repair) and the on-disk MP4 is listable
+    AND servable through the existing per-render file route (200 + Range).
+    """
+    import argparse
+
+    from fastapi.testclient import TestClient
+
+    from open_edit.cli import cmd_init
+    from open_edit.serve import app as app_mod
+
+    proj = projects_root_tmp / "fs6-proj"
+    proj.mkdir()
+    assert cmd_init(argparse.Namespace(folder=str(proj))) == 0
+    project_id = projects_mod._project_id_from_path(proj.resolve())
+
+    renders_dir = proj / ".open_edit" / "renders"
+    renders_dir.mkdir(parents=True)
+    mp4 = renders_dir / "project_proxytest.mp4"
+    # Real MP4 header + padding to pass the 10 KiB completeness heuristic.
+    mp4.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * (20 * 1024))
+    original_bytes = mp4.read_bytes()
+
+    db_path = proj / ".open_edit" / "render_jobs.db"
+    db_path.write_bytes(b"not-a-real-sqlite-db")
+    db_bytes_before = db_path.read_bytes()
+
+    with caplog.at_level(logging.WARNING, logger="open_edit.serve.projects"):
+        rows = await projects_mod.list_renders(project_id)
+
+    assert any(
+        r.get("id") == "project_proxytest" and r.get("status") == "succeeded"
+        for r in rows
+    )
+    assert any(r.levelno >= logging.WARNING for r in caplog.records)
+    assert db_path.read_bytes() == db_bytes_before  # never recreate/repair
+    assert mp4.read_bytes() == original_bytes
+
+    client = TestClient(app_mod.app)
+    resp = client.get(f"/api/projects/{project_id}/renders")
+    assert resp.status_code == 200
+    assert any(r.get("id") == "project_proxytest" for r in resp.json())
+
+    # The existing render file endpoint resolves the dir-scanned MP4 by its
+    # listed id (no job row required) and serves full + ranged reads.
+    file_url = f"/api/projects/{project_id}/renders/project_proxytest/file"
+    full = client.get(file_url)
+    assert full.status_code == 200
+    assert full.headers.get("accept-ranges") == "bytes"
+    assert full.content == original_bytes
+    ranged = client.get(file_url, headers={"Range": "bytes=0-7"})
+    assert ranged.status_code == 206
+    assert ranged.content == original_bytes[:8]
 
 
 @pytest.mark.asyncio

@@ -514,9 +514,16 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
                 "edit_graph_hash": job.edit_graph_hash,
                 "error": job.error,
             })
-    except Exception:
-        _LOG.warning("failed to list durable render jobs for %s", project_id, exc_info=True)
-        raise
+    except (sqlite3.DatabaseError, sqlite3.OperationalError, OSError) as exc:
+        # Expected durable-store degradation classes: corrupt/torn/WAL
+        # render_jobs.db, storage or permissions errors. Never suppress
+        # arbitrary program exceptions, and never recreate/repair the DB
+        # here — fall through to the documented directory scan.
+        _LOG.warning(
+            "durable render store unreadable for %s, falling back to "
+            "renders directory scan: %s", project_id, exc, exc_info=True,
+        )
+        out = []
 
     snapshots: list[dict[str, Any]] = []
     snapshots_db = path / ".open_edit" / _SNAPSHOT_DB_NAME

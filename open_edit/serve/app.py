@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -122,6 +123,26 @@ async def _http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": msg},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _request_validation_handler(_request, exc: RequestValidationError) -> JSONResponse:
+    """Map FastAPI's ``{"detail": [...]}`` validation shape to the v1.4 flat
+    ``{"error": "..."}`` envelope while keeping the per-field messages (loc +
+    msg pairs). The toast therefore reads e.g. ``t_start: Field required``
+    instead of a JSON blob.
+    """
+    errors = exc.errors()
+    parts = [
+        f"{'.'.join(map(str, e['loc'][1:])) or 'body'}: {e['msg']}"
+        for e in errors[:3]
+    ]
+    if len(errors) > 3:
+        parts.append(f"(+{len(errors) - 3} more)")
+    return JSONResponse(
+        status_code=422,
+        content={"error": "; ".join(parts)},
     )
 
 

@@ -37,6 +37,9 @@ export const state = {
   playheadSec: 0,
   lastGraphRevision: null,
   proxyRenderInFlight: false,
+  // Fence for render POSTs/polls and project switches: every render capture
+  // bumps it; selectProject bumps it to invalidate stale owners.
+  renderGeneration: 0,
   renderPollTimer: null,
   previewRenderId: null,
   previewChunks: false,

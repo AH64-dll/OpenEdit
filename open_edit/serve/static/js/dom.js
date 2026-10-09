@@ -67,12 +67,15 @@ export function icon(name, className = 'icon-svg') {
   return svg;
 }
 
+let toastTimer = 0;
+
 export function showToast(message, kind = '') {
   const t = $('#toast');
   if (!t) return;
   t.textContent = message;
   t.className = 'toast ' + kind;
-  setTimeout(() => t.classList.add('hidden'), 3000);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 3000);
 }
 
 export function fmtBytes(n) {

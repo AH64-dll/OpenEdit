@@ -10,7 +10,7 @@ function getVisuals(project, hash) {
   const key = `${project}:${hash}`;
   if (!requests.has(key)) requests.set(key, fetch(`/api/projects/${encodeURIComponent(project)}/assets/${hash}/visuals`).then(async response => {
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || 'Source visuals unavailable');
+    if (!response.ok) throw new Error(data.error || data.detail || 'Source visuals unavailable');
     return data;
   }).catch(error => {
     requests.delete(key);
