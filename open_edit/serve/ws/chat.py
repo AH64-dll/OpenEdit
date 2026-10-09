@@ -163,6 +163,20 @@ async def ws_chat(websocket: WebSocket, project_id: str) -> None:
                         "stop_reason": "error",
                     }))
 
+            selection = payload.get('editing_selection')
+            if selection is not None:
+                from starlette.concurrency import run_in_threadpool
+
+                from open_edit.kernel.studio_service import save_editing_selection
+                from open_edit.storage.edit_graph import GraphRevisionConflict
+                try:
+                    project = await _require_project(project_id)
+                    if not isinstance(selection, dict):
+                        raise ValueError('Invalid editing selection')
+                    await run_in_threadpool(save_editing_selection, project.path, **selection)
+                except (ValueError, TypeError, GraphRevisionConflict) as exc:
+                    await websocket.send_text(json.dumps({'type': 'error', 'message': str(exc)}))
+                    continue
             current_turn_task = asyncio.create_task(_run_agent_turn_task(message, conv_id, history))
     except WebSocketDisconnect:
         await _cancel_turn()

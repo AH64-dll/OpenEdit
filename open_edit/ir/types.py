@@ -8,8 +8,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from open_edit.ir.captions import CaptionCue
 from open_edit.ir.ids import new_id, now_iso8601
 
 # ===== Derived state (Timeline, Track, Clip, Effect) =====
@@ -25,6 +26,7 @@ class Effect(BaseModel):
     effect_type: str
     params: dict[str, Any] = Field(default_factory=dict)
     keyframes: dict[str, list[tuple[float, float, str]]] = Field(default_factory=dict)
+    enabled: bool = True
 
 
 class Clip(BaseModel):
@@ -36,6 +38,11 @@ class Clip(BaseModel):
     in_point_sec: float
     out_point_sec: float
     effects: list[Effect] = Field(default_factory=list)
+    document_id: str | None = None
+    label: str = ''
+    locked: bool = False
+    muted: bool = False
+    hidden: bool = False
 
 
 class Track(BaseModel):
@@ -43,6 +50,11 @@ class Track(BaseModel):
     kind: Literal["video", "audio"]
     clips: list[Clip] = Field(default_factory=list)
     effects: list[Effect] = Field(default_factory=list)
+    label: str = ''
+    locked: bool = False
+    muted: bool = False
+    hidden: bool = False
+    solo: bool = False
 
 
 class HtmlOverlay(BaseModel):
@@ -70,6 +82,22 @@ class Timeline(BaseModel):
     overlays: list[HtmlOverlay] = Field(default_factory=list)
     remotion_compositions: list[RemotionComposition] = Field(default_factory=list)
     duration_sec: float = 0.0
+    graphics_documents: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    captions: dict[str, CaptionCue] = Field(default_factory=dict)
+    visual_transitions: list[VisualTransition] = Field(default_factory=list)
+
+
+class VisualTransition(BaseModel):
+    transition_id: str
+    kind: Literal['dissolve', 'wipe', 'fade', 'luma', 'cut']
+    clip_a: Clip
+    clip_b: Clip
+    track_effects: list[Effect] = Field(default_factory=list)
+    z_index: int = 0
+    duration_sec: float
+    position_sec: float
+    in_point_sec: float = 0
+    visible_duration_sec: float
 
 
 class RemotionComposition(BaseModel):
@@ -183,12 +211,73 @@ class TrimClipOp(Operation):
     new_out_point_sec: float
 
 
+class DuplicateClipOp(Operation):
+    kind: Literal['duplicate_clip'] = 'duplicate_clip'
+    clip_id: str
+    new_clip_id: str = Field(default_factory=new_id)
+    new_track_id: str | None = None
+    position_sec: float = Field(ge=0, allow_inf_nan=False)
+    # Effect identities are authored once, never generated during replay.
+    effect_ids: dict[str, str] = Field(default_factory=dict)
+
+
+class SetTrackPropertiesOp(Operation):
+    kind: Literal['set_track_properties'] = 'set_track_properties'
+    track_id: str = Field(min_length=1, max_length=128)
+    track_kind: Literal['video', 'audio'] | None = None
+    label: str | None = Field(default=None, max_length=256)
+    locked: StrictBool | None = None
+    muted: StrictBool | None = None
+    hidden: StrictBool | None = None
+    solo: StrictBool | None = None
+    index: StrictInt | None = Field(default=None, ge=0)
+
+
+class RemoveTrackOp(Operation):
+    kind: Literal['remove_track'] = 'remove_track'
+    track_id: str
+
+
+class SetClipPropertiesOp(Operation):
+    kind: Literal['set_clip_properties'] = 'set_clip_properties'
+    clip_id: str
+    label: str | None = Field(default=None, max_length=256)
+    locked: StrictBool | None = None
+    muted: StrictBool | None = None
+    hidden: StrictBool | None = None
+
+
+class ControlEffectOp(Operation):
+    kind: Literal['control_effect'] = 'control_effect'
+    target_kind: Literal['clip', 'track']
+    target_id: str
+    effect_id: str
+    action: Literal['update', 'remove', 'move', 'reset', 'duplicate'] = 'update'
+    params: dict[str, Any] = Field(default_factory=dict)
+    enabled: StrictBool | None = None
+    index: StrictInt | None = Field(default=None, ge=0)
+    new_effect_id: str | None = None
+
+
+class SetCaptionOp(Operation):
+    kind: Literal['set_caption'] = 'set_caption'
+    caption_id: str
+    cue: CaptionCue
+
+
+class RemoveCaptionOp(Operation):
+    kind: Literal['remove_caption'] = 'remove_caption'
+    caption_id: str
+
+
 class AddTransitionOp(Operation):
     kind: Literal["add_transition"] = "add_transition"
     clip_a_id: str
     clip_b_id: str
     transition_type: Literal["luma", "dissolve", "wipe", "fade", "cut"]
     duration_sec: float
+    # Old edit graphs retain their original replay geometry.
+    layout: Literal['legacy', 'centered'] = 'legacy'
 
 
 class RemoveTransitionOp(Operation):
@@ -361,6 +450,26 @@ class AddRemotionCompositionOp(Operation):
     clip_id: str = Field(default_factory=new_id)
 
 
+class SetGraphicsSourceOp(Operation):
+    """An editable composition; its checked CAS asset is derived at render time."""
+    kind: Literal['set_graphics_source'] = 'set_graphics_source'
+    document_id: str = Field(min_length=1, max_length=128)
+    clip_id: str = Field(min_length=1, max_length=128)
+    source: str = Field(min_length=1, max_length=512 * 1024)
+    duration_sec: float = Field(gt=0, le=60)
+    fps: int = Field(ge=1, le=60)
+    track_id: str = Field(default='graphics', min_length=1, max_length=128)
+    position_sec: float = Field(default=0, ge=0)
+    enabled: bool = True
+    label: str = Field(default='Graphics', max_length=256)
+    adopt_clip: bool = False
+
+
+class RemoveGraphicsSourceOp(Operation):
+    kind: Literal['remove_graphics_source'] = 'remove_graphics_source'
+    document_id: str = Field(min_length=1, max_length=128)
+
+
 class RemoveRemotionCompositionOp(Operation):
     """Remove a Remotion composition by ``composition_uid``."""
     kind: Literal["remove_remotion_composition"] = "remove_remotion_composition"
@@ -368,7 +477,8 @@ class RemoveRemotionCompositionOp(Operation):
 
 
 OperationUnion = Annotated[
-    AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp,
+    SetCaptionOp | RemoveCaptionOp |
+    AddClipOp | RemoveClipOp | MoveClipOp | TrimClipOp | DuplicateClipOp | SetTrackPropertiesOp | RemoveTrackOp | SetClipPropertiesOp | ControlEffectOp | AddTransitionOp | RemoveTransitionOp | SetTransitionPropertyOp | AddEffectOp | RemoveEffectOp | SetEffectParamOp | SetKeyframeOp | RemoveKeyframeOp | SlipClipOp | RippleDeleteClipOp | ChangeClipSpeedOp | SplitClipOp | ReplaceClipSourceOp | SetClipSpeedRampOp | SetAudioGainOp | NormalizeAudioOp | GroupEditsOp | UngroupEditsOp | RawMltXmlOp | FreeFormCodeOp | AddHtmlOverlayOp | RemoveHtmlOverlayOp | AddRemotionCompositionOp | RemoveRemotionCompositionOp | SetGraphicsSourceOp | RemoveGraphicsSourceOp,
     Field(discriminator="kind"),
 ]
 

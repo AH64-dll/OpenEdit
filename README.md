@@ -53,11 +53,11 @@ irm https://github.com/AH64-dll/OpenEdit/releases/download/v1.3.1/install.ps1 | 
 
 **Source (v1.3.1):** [zip](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.zip) · [tar.gz](https://github.com/AH64-dll/OpenEdit/archive/refs/tags/v1.3.1.tar.gz)
 
-Both installers also provision the render runtime (Node.js + the bundled HyperFrames overlay engine, plus ffmpeg/melt/Chrome checks) and print a readiness summary — see [INSTALL.md → Runtime requirements](INSTALL.md#runtime-requirements).
+The release installers also provision the render runtime (Node.js + the bundled HyperFrames overlay engine, plus ffmpeg/melt/Chrome checks) and print a readiness summary — see [INSTALL.md → Runtime requirements](INSTALL.md#runtime-requirements).
 
 ## The agent way
 
-Open Edit is built to be operated by an agent, not a GUI. Paste the install prompt into
+Use the local workspace directly or let an external agent operate the same project. Paste the install prompt into
 your agent and it will clone, install, verify end to end, and report back. Then paste the
 configure prompt to register the MCP server in your host and confirm all six tools appear.
 
@@ -74,7 +74,7 @@ cd OpenEdit
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -e .        # extras: [whisper] for transcription; [serve] for optional SDK chat
+pip install -e .        # extras: [whisper] for transcription; [agent] for optional built-in chat
 ```
 
 **Windows (PowerShell)**
@@ -123,6 +123,40 @@ Register the server in Cursor (`~/.cursor/mcp.json` on Linux/macOS, `%USERPROFIL
 }
 ```
 
+## Editing workspace
+
+The workspace has **Review**, **Graphics** and **Code** views, with the timeline
+below and selection properties in the right inspector. Select a clip to adjust
+its placement, source range, volume or playback rate. Source editing stays
+available in Code; graphics JSX is under **Edit graphics source**.
+
+Previews update automatically using cached, dirty timeline ranges. The status
+reads **Current**, **Updating…** or **Outdated**; the last checked preview stays
+playable while an update runs. Undo/Redo reverts a whole action, including edits
+made by MCP agents, and survives reopening a project. Keyboard shortcuts are
+Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z outside text fields.
+
+Open **Setup** for readiness checks and install instructions, or run:
+
+```bash
+open_edit doctor
+open_edit setup media           # clip properties and literal source edits
+open_edit setup graphics        # default editable graphics, with Chromium
+open_edit setup html            # optional advanced HTML/CSS/JS overlays
+open_edit setup legacy-remotion # existing Remotion projects only
+```
+
+A full FFmpeg build with ffprobe/libx264 and MLT/melt enables timeline preview
+and export. Optional Node workers use tested Node.js 24 and locked packages.
+The default Python installation and MCP startup download no Node dependencies.
+The normal `npm ci` package only supplies HyperFrames; Remotion and React have
+an independent compatibility package. Export defaults to automatic encoder
+selection; manual CPU/GPU preferences are in advanced settings.
+
+Built-in chat/provider management loads only with `open_edit serve --with-agent`
+and optional `pip install 'open-edit[agent]'`. External MCP agents need no LLM
+key in OpenEdit. See [the workspace guide](docs/EDITING_WORKSPACE.md).
+
 ## What you get
 
 | Tool | Role |
@@ -147,6 +181,8 @@ The product is documented and illustrated in the live guide: **[open-edit guide]
 - [docs/MCP.md](docs/MCP.md) — MCP tools, Cursor config, review UI, render workflow
 - [skills/](skills/) — agent playbook and harness skills (also shipped in the wheel)
 - [docs/DIFFUSION_INTEGRATION.md](docs/DIFFUSION_INTEGRATION.md) — compiler reuse assessment and adapter contract
+- [docs/DIFFUSION_AUTHORING.md](docs/DIFFUSION_AUTHORING.md) — optional JSX media editing through MCP
+- [docs/DIFFUSION_IMPLEMENTATION_PLAN.md](docs/DIFFUSION_IMPLEMENTATION_PLAN.md) — remaining integration milestones and acceptance checks
 - [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md) — Remotion licensing
 
 ## Contributing
@@ -156,8 +192,24 @@ Bugs, ideas, and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTIN
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Experimental prototype; behavior may change between
-releases. Motion graphics use the bundled HyperFrames engine (HTML/CSS/JS,
-pinned in this repo; install with `npm ci`). Remotion is legacy/migration-only.
+OpenEdit's own code is MIT — see [LICENSE](LICENSE). The optional Diffusion
+workers include unchanged MPL-2.0 source with licenses and provenance in
+`open_edit/integrations/diffusion/worker/NOTICE.md` and
+`open_edit/integrations/diffusion/browser/vendor/NOTICE.md`. The graphics font
+is covered by `open_edit/integrations/diffusion/browser/fonts/OFL.txt`.
+Experimental prototype; behavior may change between
+releases. Editable motion graphics use the optional pinned Diffusion worker. HyperFrames
+provides advanced HTML/CSS/JS overlays (`open_edit setup html`). Remotion is
+legacy/migration-only (`open_edit setup legacy-remotion`).
 Legacy Remotion templates may require a company license — see
 [docs/REMOTION_LICENSE.md](docs/REMOTION_LICENSE.md).
+
+### Optional Diffusion authoring and graphics
+
+The [JSX editor](docs/DIFFUSION_AUTHORING.md) and
+[Graphics studio](docs/DIFFUSION_GRAPHICS.md) edit the same revision-checked
+SQLite graph as MCP. Install the compiler with
+`python -m open_edit.integrations.diffusion.setup`; add `--graphics --chromium`
+for text, shapes, animation and canvas previews. Python media workflows remain
+usable without Node. See the [execution and validation report](docs/DIFFUSION_EXECUTION_VALIDATION.md)
+for platform coverage, timing boundaries and upgrade behavior.

@@ -15,6 +15,8 @@ transition spans [cut - duration/2, cut + duration/2] on the timeline:
 """
 from __future__ import annotations
 
+import math
+
 from open_edit.ir.apply_common import ApplyError, _find_clip
 from open_edit.ir.types import (
     AddEffectOp,
@@ -73,6 +75,24 @@ def _apply_set_transition_property(timeline: Timeline, op: SetTransitionProperty
             for eff in clip.effects:
                 is_match = _is_transition_effect(eff, op.transition_id)
                 if is_match:
+                    if eff.params.get('layout') == 'centered':
+                        if op.prop_name == 'enabled':
+                            if op.value not in ('true', 'false'):
+                                raise ValueError('Transition enabled must be true or false')
+                            new_effects.append(eff.model_copy(update={'enabled': op.value == 'true'}))
+                        elif op.prop_name == 'type':
+                            if op.value not in ('dissolve', 'wipe', 'fade', 'luma', 'cut'):
+                                raise ValueError('Unsupported visual transition type')
+                            new_effects.append(eff.model_copy(update={'effect_type': f'transition_{op.value}'}))
+                        elif op.prop_name == 'duration_sec':
+                            duration = float(op.value)
+                            if not math.isfinite(duration) or duration <= 0 or duration > 30:
+                                raise ValueError('Transition duration must be within 0..30 seconds')
+                            new_effects.append(eff.model_copy(update={'params': {**eff.params, 'duration_sec': duration}}))
+                        else:
+                            raise ValueError('Change transition type, duration_sec or enabled')
+                        effects_changed = True
+                        continue
                     new_params = {**eff.params, op.prop_name: op.value}
                     new_effects.append(eff.model_copy(update={"params": new_params}))
                     effects_changed = True
@@ -142,6 +162,10 @@ def _apply_set_keyframe(
     timeline: Timeline, op: SetKeyframeOp, strict: bool = False,
 ) -> Timeline:
     for track in timeline.tracks:
+        for index, effect in enumerate(track.effects):
+            if effect.effect_id == op.effect_id:
+                track.effects[index] = effect.model_copy(update={'keyframes': {**effect.keyframes, op.param: op.keyframes}})
+                return timeline
         for i, clip in enumerate(track.clips):
             for j, eff in enumerate(clip.effects):
                 if eff.effect_id == op.effect_id:
@@ -232,6 +256,19 @@ def _apply_add_transition(
         return timeline
 
     cut_timeline = clip_a.position_sec + (clip_a.out_point_sec - clip_a.in_point_sec)
+    if op.layout == 'centered':
+        if not math.isfinite(op.duration_sec) or not 0 < op.duration_sec <= 30:
+            raise ValueError('Transition duration must be within 0..30 seconds')
+        if (clip_a.track_id != clip_b.track_id or clip_a.track_kind != 'video' or
+                clip_a.document_id or clip_b.document_id or abs(cut_timeline - clip_b.position_sec) > 1e-6):
+            raise ValueError('Visual transitions require adjacent media clips on one video track')
+        if any(e.params.get('layout') == 'centered' for e in clip_a.effects):
+            raise ValueError('Edit or remove the existing transition on this cut')
+        if op.duration_sec > min(clip_a.out_point_sec - clip_a.in_point_sec, clip_b.out_point_sec - clip_b.in_point_sec):
+            raise ValueError('Transition cannot exceed the shorter clip duration')
+        clip_a.effects.append(Effect(effect_id=f'transition_{op.edit_id}', effect_type=f'transition_{op.transition_type}',
+            params={'clip_b_id': op.clip_b_id, 'duration_sec': op.duration_sec, 'layout': 'centered'}))
+        return timeline
     half = op.duration_sec / 2.0
     clip_b_duration = clip_b.out_point_sec - clip_b.in_point_sec
     clip_b_end_timeline = clip_b.position_sec + clip_b_duration

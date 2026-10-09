@@ -16,14 +16,20 @@
               "params": {
                 "clip_b_id": "c2",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.0,
           "out_point_sec": 1.75,
           "position_sec": 0.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_2",
@@ -36,14 +42,20 @@
               "params": {
                 "clip_b_id": "c3",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.25,
           "out_point_sec": 1.75,
           "position_sec": 2.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_3",
@@ -56,14 +68,20 @@
               "params": {
                 "clip_b_id": "c4",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.0,
           "out_point_sec": 1.75,
           "position_sec": 4.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_4",
@@ -76,14 +94,20 @@
               "params": {
                 "clip_b_id": "c5",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.25,
           "out_point_sec": 1.75,
           "position_sec": 6.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_5",
@@ -96,14 +120,20 @@
               "params": {
                 "clip_b_id": "c6",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.0,
           "out_point_sec": 1.75,
           "position_sec": 8.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_6",
@@ -116,14 +146,20 @@
               "params": {
                 "clip_b_id": "c7",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.25,
           "out_point_sec": 1.75,
           "position_sec": 10.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_7",
@@ -136,14 +172,20 @@
               "params": {
                 "clip_b_id": "c8",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.0,
           "out_point_sec": 1.75,
           "position_sec": 12.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_8",
@@ -156,14 +198,20 @@
               "params": {
                 "clip_b_id": "c9",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.25,
           "out_point_sec": 1.75,
           "position_sec": 14.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_9",
@@ -176,14 +224,20 @@
               "params": {
                 "clip_b_id": "c10",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.0,
           "out_point_sec": 1.75,
           "position_sec": 16.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_10",
@@ -196,14 +250,20 @@
               "params": {
                 "clip_b_id": "c11",
                 "duration_sec": 0.5
-              }
+              },
+              "enabled": true
             }
           ],
           "in_point_sec": 0.25,
           "out_point_sec": 1.75,
           "position_sec": 18.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         },
         {
           "asset_hash": "clip_11",
@@ -213,12 +273,25 @@
           "out_point_sec": 2.0,
           "position_sec": 20.0,
           "track_id": "v1",
-          "track_kind": "video"
+          "track_kind": "video",
+          "document_id": null,
+          "label": "",
+          "locked": false,
+          "muted": false,
+          "hidden": false
         }
       ],
       "effects": [],
       "kind": "video",
-      "track_id": "v1"
+      "track_id": "v1",
+      "label": "",
+      "locked": false,
+      "muted": false,
+      "hidden": false,
+      "solo": false
     }
-  ]
+  ],
+  "graphics_documents": {},
+  "captions": {},
+  "visual_transitions": []
 }

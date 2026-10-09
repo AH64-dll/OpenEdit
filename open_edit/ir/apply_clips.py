@@ -3,6 +3,8 @@ and speed ramp. Pure functions.
 """
 from __future__ import annotations
 
+from uuid import NAMESPACE_URL, uuid5
+
 from open_edit.ir.apply_common import ApplyError, _find_clip
 from open_edit.ir.types import (
     ChangeClipSpeedOp,
@@ -107,6 +109,8 @@ def _apply_split_clip(
 
     left_effects = [e.model_copy(deep=True) for e in clip.effects]
     right_effects = [e.model_copy(deep=True) for e in clip.effects]
+    for effect in right_effects:
+        effect.effect_id = str(uuid5(NAMESPACE_URL, f'openedit:split:{op.right_clip_id}:{effect.effect_id}'))
     left_clip = clip.model_copy(update={
         "clip_id": op.left_clip_id,
         "out_point_sec": clip.in_point_sec + split_offset,

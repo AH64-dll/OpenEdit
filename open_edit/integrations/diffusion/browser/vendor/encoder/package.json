@@ -1,0 +1,29 @@
+{
+  "name": "@diffusionstudio/encoder",
+  "version": "0.1.0",
+  "description": "Offline video/audio/image encoding over @diffusionstudio/runtime worlds via mediabunny. Needs a browser-grade context (HTMLCanvasElement, OfflineAudioContext, AudioWorklet, SharedArrayBuffer).",
+  "license": "MPL-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "keywords": [
+    "encoder",
+    "video",
+    "webcodecs"
+  ],
+  "dependencies": {
+    "@diffusionstudio/runtime": "*",
+    "koota": "^0.6.6",
+    "mediabunny": "^1.32.2"
+  },
+  "devDependencies": {
+    "@types/audioworklet": "^0.0.92",
+    "@webgpu/types": "^0.1.71",
+    "typescript": "~5.9.3"
+  }
+}

@@ -6,8 +6,11 @@ Diffusion Studio's compiler and source writer are reusable. The best fit for
 OpenEdit is an **optional JSX authoring adapter**, followed by an optional
 browser render worker for graphics that cannot be represented by existing IR.
 OpenEdit's SQLite operation graph should remain the authoritative edit record.
-This cleanup does not replace OpenEdit's renderer or add a production Diffusion
-backend. The upstream compiler/write-back seam was exercised separately.
+The first media-authoring milestone is implemented through MCP, with a pinned
+compiler/source-writer worker and revision-checked IR commits. It does not
+replace OpenEdit's renderer or add a Diffusion graphics backend. See the
+[authoring guide](DIFFUSION_AUTHORING.md) and
+[remaining implementation plan](DIFFUSION_IMPLEMENTATION_PLAN.md).
 
 Reviewed upstream commit: [`fefcde9df7198466bd7cc9f3a9d7eae1575b5b12`](https://github.com/diffusionstudio/editor/tree/fefcde9df7198466bd7cc9f3a9d7eae1575b5b12).
 The root package reports version `0.209.1`; its JSX package reports `0.207.0`.
@@ -85,23 +88,24 @@ npm ci --ignore-scripts --no-audit --no-fund
 node check.cjs /tmp/diffusion-editor
 ```
 
-## Proposed adapter contract
+## Implemented media adapter contract
 
-Keep the existing six MCP tools. Add explicitly documented subcommands only
-when the adapter is implemented and its round-trip tests pass:
+The adapter retains the existing six MCP tools:
 
-- A read command returns a compact authoring document or artifact URI, current
-  graph revision and supported feature list. Export clips as flat elements
-  with stable IDs; initially avoid loops and dynamic component expansion.
-- An edit command accepts supported source edits plus the exported graph
-  revision. Translate these edits into existing IR operations, validate the
-  whole batch, and commit once with `append_many(expected_revision=...)`.
-- The compiler and any project JavaScript run in a separate worker. Compilation
-  loads project Babel plugins and the reconciler evaluates executable code;
-  neither belongs inside the Python MCP process.
-- Writes from the visual UI pass through the same adapter. After committing,
-  regenerate the authoring view from the new graph revision. Reject stale
-  writes rather than choosing silently between two competing documents.
+- `query_project/get_authoring_view` returns compact metadata, a graph revision
+  and a feature list. JSX is returned only with `include_source=true`. Clips
+  are flat media elements with stable URL-escaped IDs inside track groups.
+- `edit_project/apply_authoring_edit` accepts full literal source or native
+  source edits plus `expected_revision`. It translates the result into existing
+  IR operations and commits once with `append_many(expected_revision=...)`.
+- The compiler and AST writer run in a separate bounded Node process. The
+  initial adapter rejects executable project statements and expressions,
+  disables project Babel configuration and never evaluates project JavaScript.
+  Reconciler evaluation belongs to a later graphics worker.
+- Source is regenerated from the committed graph on read, including after
+  other editors mutate it. Concurrent edits are rejected, including edits that
+  become stale during compilation. Persistent source formatting and visual UI
+  synchronization remain later work.
 
 | JSX property | OpenEdit representation | Initial boundary |
 |---|---|---|
@@ -109,25 +113,29 @@ when the adapter is implemented and its round-trip tests pass:
 | `src` | CAS asset hash plus explicit source mapping | Resolve through the pinned project's asset store |
 | `start` | `position_sec` / `MoveClipOp` | Preserve seconds and track assignment |
 | `sourceIn`, `sourceOut` | Clip in/out points / `TrimClipOp` | Validate ranges before appending |
-| `playbackRate` | `ChangeClipSpeedOp` | Verify duration semantics and audio behavior |
-| Audio `gain` | `SetAudioGainOp` | Both APIs use decibels; confirm mute semantics |
+| `playbackRate` | Future `ChangeClipSpeedOp` mapping | Currently require 1; OpenEdit's speed effect and Diffusion's duration semantics differ |
+| Audio `volume` | Delta `SetAudioGainOp` | JSX is absolute dB; OpenEdit appends cumulative gain effects, so apply the difference |
 | Text, shapes, shaders, masks | Optional materialized graphics asset | Require a browser worker; do not silently drop unsupported content |
 
 OpenEdit can already accept Python-generated IR through `run_script` and
-structured edits through `edit_project`. The adapter's additional value is a
-live, editable code document that stays synchronized with visual edits.
+structured edits through `edit_project`. The adapter's additional value is an
+editable code view with atomic, revision-checked updates. Visual editing through
+that contract is future work.
 
-## Required checks before enabling it
+## Remaining checks before expanding it
 
-1. Round-trip assets, track order, source/timeline time, still images, rates and
-   audio gain through exported JSX and IR. Reject unsupported constructs.
+1. Media assets, fixed track order, trims, still images and constant gain now
+   have real compiler/IR/MCP round-trip tests. Extend these to playback rates,
+   dynamic gain and richer JSX only after establishing their semantics.
 2. Confirm frame/audio parity for representative OpenEdit projects, including
    overlays and transitions. Existing HyperFrames and Remotion operations must
    remain replayable.
-3. Test stale revisions, multi-element edits and rollback after a late failure.
-4. Test compiler errors, last-good previews, worker termination, project path
-   boundaries, cancellation and restart behavior.
-5. Pin an upstream revision and package the worker reproducibly. The inspected
+3. Stale revisions, concurrent snapshot reads, multi-element edits, rollback,
+   malformed source and worker timeout/restart are tested. Extend lifecycle
+   checks to last-good browser previews and rendering cancellation.
+4. Verify project path boundaries and graphics materialization before adding
+   executable components or browser workers.
+5. The compiler worker is pinned and packaged reproducibly. The inspected
    runtime/reconciler packages expose TypeScript source from their workspaces;
    do not assume they are independently supported production npm libraries.
 6. Keep source and render details on demand so the integration does not add
@@ -145,7 +153,10 @@ For a vendored worker, preserve upstream headers and license, identify the
 pinned source, publish the covered source/modifications and include the
 required distribution notices. Upstream desktop brand assets are expressly
 excluded from its open-source license; the adapter needs none of them.
-No upstream source or brand assets were copied into OpenEdit by this cleanup.
+The optional worker vendors unchanged compiler/source-writer and JSX helper
+files, retaining their original headers, full MPL license and pinned provenance
+in `open_edit/integrations/diffusion/worker/NOTICE.md`. Python adapter and worker
+host files are independently written MIT code. No brand assets are included.
 
 Primary references:
 

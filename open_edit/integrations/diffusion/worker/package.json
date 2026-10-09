@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.29.7",
+    "babel-preset-solid": "1.9.12",
+    "esbuild": "0.28.1",
+    "ts-morph": "28.0.0"
+  },
+  "name": "openedit-diffusion-authoring-worker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Optional pinned Diffusion compiler/source-writeback worker for OpenEdit",
+  "license": "MIT AND MPL-2.0"
+}

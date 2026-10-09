@@ -358,12 +358,12 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
         return err
 
     mode = (args.get("mode") or "proxy").lower()
-    if mode not in ("proxy", "final", "overlay", "preview-chunks"):
+    if mode not in ("proxy", "final", "overlay", "preview-chunks", "graphics"):
         return {
             "ok": False,
             "error": (
                 f"invalid mode {mode!r}; "
-                "expected proxy|final|overlay|preview-chunks"
+                "expected proxy|final|overlay|preview-chunks|graphics"
             ),
             "error_code": "schema_validation_failed",
         }
@@ -383,6 +383,13 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
         ("crf", args.get("crf")), ("vb", args.get("vb")), ("preset", args.get("preset")),
         ("scale", args.get("scale")), ("codec", str(codec).lower() if codec else None),
     ) if v is not None}
+    if mode == 'graphics':
+        from open_edit.integrations.diffusion.graphics import validate_params
+
+        try:
+            params = validate_params(args.get('graphics'))
+        except ValueError as exc:
+            return {'ok': False, 'error': str(exc), 'error_code': 'schema_validation_failed'}
     if mode == "preview-chunks":
         preview_params, preview_error = _normalise_preview_params(args)
         if preview_error is not None:
@@ -419,6 +426,7 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
     try:
         job = DEFAULT_RENDER_JOB_SERVICE.enqueue(
             project_path.name, project_path, mode, encoder_backend=encoder, params=params or None,
+            expected_revision=args.get('expected_revision'),
         )
     except RenderEnqueueError as exc:
         return {"ok": False, "error": str(exc), "error_code": "render_enqueue_rejected"}

@@ -1,0 +1,14 @@
+{
+  "name": "open-edit-remotion-compat",
+  "version": "1.4.0",
+  "private": true,
+  "description": "Optional pinned legacy Remotion replay dependencies",
+  "dependencies": {
+    "@remotion/bundler": "4.0.278",
+    "@remotion/cli": "4.0.278",
+    "@remotion/renderer": "4.0.278",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.278"
+  }
+}

@@ -19,7 +19,9 @@ from pydantic import TypeAdapter
 from open_edit.ir import validate as _ir_validate
 from open_edit.ir.ids import now_iso8601
 from open_edit.ir.types import OperationUnion, new_id
+from open_edit.storage import history as _history
 from open_edit.storage import ordering as _ordering
+from open_edit.storage import studio as _studio
 from open_edit.storage.commands import CommandStore
 from open_edit.storage.db import open_conn
 from open_edit.storage.timeline_cache import TimelineSnapshotStore
@@ -80,6 +82,40 @@ class EditGraphStore:
         """Return the monotonic revision for applied edit-graph mutations."""
         with self._conn() as conn:
             return self._revision_in(conn)
+
+    def read_snapshot(self) -> tuple[int, list[OperationUnion]]:
+        """Read a revision and its operations from one SQLite snapshot."""
+        with self._conn() as conn:
+            conn.execute("BEGIN")
+            revision = self._revision_in(conn)
+            return revision, self._load_all_in(conn)
+
+    def load_authoring_source(self, format: str, revision: int) -> str | None:
+        """Read a derived view for an exact snapshot, never for another revision."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT source FROM authoring_views WHERE format = ? AND graph_revision = ?",
+                (format, revision),
+            ).fetchone()
+            return row[0] if row else None
+
+    @staticmethod
+    def _save_authoring_source(conn: sqlite3.Connection, view: tuple[str, str] | None) -> None:
+        if view is None:
+            return
+        format, source = view
+        revision = EditGraphStore._revision_in(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO authoring_views (format, graph_revision, source) VALUES (?, ?, ?)",
+            (format, revision, source),
+        )
+        # Retain a bounded last-good history without growing the operation log.
+        conn.execute(
+            "DELETE FROM authoring_views WHERE format = ? AND graph_revision NOT IN "
+            "(SELECT graph_revision FROM authoring_views WHERE format = ? "
+            "ORDER BY graph_revision DESC LIMIT 8)",
+            (format, format),
+        )
 
     @property
     def project_id(self) -> str:
@@ -149,6 +185,12 @@ class EditGraphStore:
     def append_many(
         self, ops: list[OperationUnion], *, command_id: str | None = None,
         expected_revision: int | None = None, sequence_num: int | None = None,
+        authoring_view: tuple[str, str] | None = None,
+        action_label: str | None = None,
+        studio_changes: list[dict] | None = None,
+        author: str = 'user', request_id: str | None = None,
+        receipt: dict | None = None,
+        status_changes: dict | None = None, reverted_targets: list[str] | None = None,
     ) -> list[int]:
         """Append a batch in one transaction, or leave the graph unchanged.
 
@@ -156,10 +198,13 @@ class EditGraphStore:
         inserts, including earlier operations in this batch. This prevents a
         failed late operation or concurrent removal from leaving partial edits.
         """
-        if not ops:
-            return []
         from types import SimpleNamespace
 
+        changes = _studio.validate_changes(studio_changes or [])
+        if author not in ('user', 'ai'):
+            raise ValueError('Action author must be user or ai')
+        if request_id is not None and (not isinstance(request_id, str) or not request_id or len(request_id) > 128):
+            raise ValueError('Request ID must be a nonempty string of at most 128 characters')
         project_id = self.project_id
         sequences: list[int] = []
         with _APPEND_LOCK, self._conn() as conn:
@@ -167,7 +212,18 @@ class EditGraphStore:
             current_revision = self._revision_in(conn)
             if expected_revision is not None and current_revision != expected_revision:
                 raise GraphRevisionConflict(expected_revision, current_revision)
+            object_changes = _studio.prepare(conn, changes)
+            if not ops and not object_changes and not status_changes and not reverted_targets:
+                self._save_authoring_source(conn, authoring_view)
+                if receipt is not None:
+                    receipt.update(graph_revision=current_revision, changed=False, changed_object_ids=[])
+                return []
+            if status_changes:
+                previous_ops = self._load_all_in(conn)
+                _studio.check_operations(conn, [op for op in previous_ops if op.edit_id in status_changes], previous_ops, object_changes)
+            _history.apply_status_changes(conn, status_changes or {}, command_id)
             current_ops = self._load_all_in(conn)
+            _studio.check_operations(conn, ops, current_ops, object_changes)
             view = SimpleNamespace(
                 db_path=self.db_path, project_id=project_id,
                 load_all=lambda: current_ops,
@@ -199,7 +255,40 @@ class EditGraphStore:
                 current_ops.append(op)
                 sequences.append(next_sequence)
                 next_sequence += 1
+            if not ops and (object_changes or status_changes or reverted_targets):
+                self._check_and_bump_revision(conn, None)
+            if object_changes:
+                _studio.apply(conn, object_changes, self._revision_in(conn))
+            self._save_authoring_source(conn, authoring_view)
+            if status_changes:
+                from open_edit.ir.derive import derive_timeline
+                from open_edit.ir.types import Project
+                derive_timeline(Project(name='request-revert', edit_graph=current_ops), strict=True)
+            action_author = ops[0].author if ops else author
+            if action_author == 'ai':
+                request_id = _history.request_context.get() or request_id or new_id()
+            action_id = _history.record(conn, ops, action_label, current_revision,
+                            object_changes=object_changes, author=author, request_id=request_id,
+                            status_changes=status_changes, reverted_targets=reverted_targets)
+            conn.execute('DELETE FROM timeline_snapshots')
+            if receipt is not None:
+                receipt.update(graph_revision=self._revision_in(conn), changed=True, action_id=action_id,
+                               changed_object_ids=[change['object_id'] for change in object_changes])
         return sequences
+
+    def studio_snapshot(self, kind: str | None = None) -> dict:
+        """Read editor objects and revision from one consistent snapshot."""
+        with self._conn() as conn:
+            conn.execute('BEGIN')
+            return {'graph_revision': self._revision_in(conn), 'objects': _studio.snapshot(conn, kind=kind)}
+
+    def history(self) -> dict:
+        with self._conn() as conn:
+            conn.execute('BEGIN')
+            return {'graph_revision': self._revision_in(conn), **_history.summary(conn)}
+
+    def history_step(self, direction: str, expected_revision: int) -> dict:
+        return _history.step(self, direction, expected_revision)
 
     @staticmethod
     def _load_all_in(conn: sqlite3.Connection) -> list[OperationUnion]:
@@ -244,6 +333,7 @@ class EditGraphStore:
             if row is None:
                 raise LookupError(f"operation not found: {edit_id}")
             from_status = row[0]
+            _history.invalidate(conn)
             conn.execute(
                 "UPDATE edits SET status = ? WHERE edit_id = ?",
                 (new_status, edit_id),

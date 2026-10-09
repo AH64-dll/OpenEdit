@@ -28,6 +28,8 @@ _QUERY_ROUTING: dict[str, str] = {
     "get_transcript_packed": "get_transcript_packed",
     "get_silence_gaps": "get_silence_gaps",
     "get_timeline_view": "get_timeline_view",
+    "get_authoring_view": "get_authoring_view",
+    "get_graphics_view": "get_graphics_view",
 }
 
 # Sub-command → TOOL_TABLE name for the edit pillar mode. Includes the
@@ -47,6 +49,10 @@ _EDIT_ROUTING: dict[str, str] = {
     "set_audio_gain": "set_audio_gain",
     "apply_silence_gaps": "apply_silence_gaps",
     "auto_color_grade": "auto_color_grade",
+    "apply_authoring_edit": "apply_authoring_edit",
+    "commit_graphics": "commit_graphics",
+    "rewrite_graphics_source": "rewrite_graphics_source",
+    "retime_asset": "retime_asset",
 }
 
 # Generate kind → TOOL_TABLE name for the generate pillar mode.
@@ -79,6 +85,16 @@ def _with_project_id(params: dict[str, Any], project_path: Path) -> dict[str, An
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch a query to one of the 6 read-only tools."""
+    if query in ('get_studio', 'get_editing_context'):
+        from open_edit.kernel.studio_service import get_editing_context, get_studio
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        try:
+            return (get_studio if query == 'get_studio' else get_editing_context)(project_path, **params)
+        except (TypeError, ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
+    if query == 'get_history':
+        from open_edit.kernel.edit_graph_service import open_store
+        return {'status': 'ok', **open_store(project_path).history()}
     fn = TOOL_TABLE[_QUERY_ROUTING[query]] if query in _QUERY_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown query: {query!r}"}
@@ -88,6 +104,34 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
 
 def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch an edit operation to the corresponding tool."""
+    if operation == 'revert_request':
+        from open_edit.kernel.request_history import revert_request
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        try:
+            return {'status': 'ok', **revert_request(project_path, **params)}
+        except (TypeError, ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
+    if operation == 'apply_studio_changes':
+        from open_edit.kernel.studio_service import commit_studio
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        try:
+            # The caller cannot disguise an AI write as a manual action.
+            values = {k: v for k, v in params.items() if k != 'author'}
+            if values.keys() - {'expected_revision', 'changes', 'ops', 'request_id', 'label'}:
+                raise ValueError('Unsupported studio change parameters')
+            return commit_studio(project_path, **values, author='ai')
+        except (TypeError, ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
+    if operation in ('undo', 'redo'):
+        from open_edit.kernel.edit_graph_service import open_store
+        from open_edit.storage.edit_graph import GraphRevisionConflict
+        revision = params.get('expected_revision')
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+            return {'status': 'error', 'error': 'expected_revision must be a nonnegative integer'}
+        try:
+            return {'status': 'ok', **open_store(project_path).history_step(operation, revision)}
+        except (ValueError, GraphRevisionConflict) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if operation == "apply_generated_ops":
         return _apply_generated_ops(dict(params) if params else {}, project_path)
     fn = TOOL_TABLE[_EDIT_ROUTING[operation]] if operation in _EDIT_ROUTING else None

@@ -1,10 +1,10 @@
 # Open Edit pipeline architecture map
 
-Updated: 2026-08-04
+Updated: 2026-10-08
 
 ## Product boundary
 
-Open Edit is primarily a local stdio MCP server. External harness owns LLM loop. Open Edit owns project-scoped edits, durable render jobs, and optional review UI.
+Open Edit is primarily a local stdio MCP server. External harness owns LLM loop. Open Edit owns project-scoped edits, durable render jobs, and an included editing/review workspace. Built-in chat/provider handling is an optional, lazily loaded extension.
 
 ```text
 External AI harness
@@ -23,6 +23,7 @@ open_edit/kernel
   ▼
 IR + storage
   ├─ ir/types.py, apply.py, derive.py
+  ├─ storage/history.py     atomic action Undo/Redo, shared by UI/CLI/MCP
   ├─ storage/edit_graph.py
   ├─ storage/assets.py
   └─ storage/timeline_cache.py
@@ -32,7 +33,7 @@ IR + storage
 
 | MCP tool | Dispatch | Responsibility |
 |---|---|---|
-| `query_project` | `pillar_tools.dispatch_query` | Six read-only queries |
+| `query_project` | `pillar_tools.dispatch_query` | Read-only project, authoring, graphics and history queries |
 | `edit_project` | `pillar_tools.dispatch_edit/dispatch_generate` | Timeline mutations and creative generation |
 | `run_script` | `TOOL_TABLE` / sandbox bridge | Complex IR-only edits |
 | `trigger_render` | `execute_trigger_render` | Enqueue proxy, final, overlay, or preview-chunks |
@@ -116,3 +117,17 @@ listed above. Generated graph indexes are local artifacts and are not shipped.
 4. Load `skills/remotion_motion.md` only for legacy Remotion migration or existing composition inspection.
 5. Load `skills/hyperframes_native.md` for HTML composition work.
 6. Read only files named by this map and the active guide; do not scan repository-wide.
+
+## Workspace and optional runtimes
+
+Review/Graphics/Code views share selection inspectors and the timeline. The
+browser subscribes to revision snapshots and schedules dirty-range previews,
+retaining checked chunks during updates and cancelling obsolete UI-owned jobs.
+The durable renderer remains the authority for invalidation, QC and caching.
+See [EDITING_WORKSPACE.md](EDITING_WORKSPACE.md).
+
+Diffusion is the default editable graphics path, HyperFrames serves advanced
+HTML overlays, and pinned Remotion/React replay is an independent compatibility
+package. `integrations/readiness.py` and `open_edit doctor` report missing tools;
+explicit `open_edit setup` commands install optional packages. Normal startup
+never downloads dependencies. The Python wheel excludes all node_modules.

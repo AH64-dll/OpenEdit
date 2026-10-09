@@ -356,3 +356,33 @@ def test_render_request_rejects_bad_quality(seeded_project):
         )
     assert r.status_code == 400
     assert DEFAULT_RENDER_JOB_SERVICE.list_jobs(proj) == []
+
+
+@pytest.mark.asyncio
+async def test_automatic_preview_ownership_preserves_external_jobs(seeded_project, monkeypatch):
+    """Identical cached content may be shared, but cancellable job ownership cannot."""
+    from open_edit.kernel.render_jobs import RenderJobService
+    from open_edit.serve.routers import renders
+
+    project, project_id = seeded_project
+    service = RenderJobService()
+    held = asyncio.Event()
+    async def hold(*args):
+        await held.wait()
+    monkeypatch.setattr(service, '_run', hold)
+    monkeypatch.setattr(renders, 'DEFAULT_RENDER_JOB_SERVICE', service)
+    async def queue(owner=None):
+        return await renders.post_render(project_id, renders.RenderRequest(
+            mode='preview-chunks', preview_owner=owner))
+    try:
+        external = await queue()
+        first = await queue('browser-first')
+        same = await queue('browser-first')
+        second = await queue('browser-second')
+        assert first.job_id == same.job_id
+        assert len({external.job_id, first.job_id, second.job_id}) == 3
+        await service.cancel(project, first.job_id)
+        assert service.get(project, external.job_id).status == 'queued'
+        assert service.get(project, second.job_id).status == 'queued'
+    finally:
+        await asyncio.gather(*(service.cancel(project, job.job_id) for job in service.list_jobs(project)))

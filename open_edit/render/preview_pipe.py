@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from open_edit.render.encoder import EncoderSpec
-from open_edit.render.pipe_builder import OverlayClip, overlay_filter_chain
+from open_edit.render.pipe_builder import REC709_TAGS, OverlayClip, overlay_filter_chain
 from open_edit.render.profiles import RenderProfile
 
 PreviewMedia = Literal["video", "audio", "both"]
@@ -98,13 +98,19 @@ def _build_video_command(
         f"frame_rate_num={profile.frame_rate_num}",
         f"frame_rate_den={profile.frame_rate_den}",
         "progressive=1",
+        "sample_aspect_num=1",
+        "sample_aspect_den=1",
+        f"display_aspect_num={profile.width}",
+        f"display_aspect_den={profile.height}",
         "colorspace=709",
+        "color_range=tv",
     ]
     video_input = [
         "-f", "rawvideo",
         "-pix_fmt", "nv12",
         "-s", size,
         "-r", fps,
+        *REC709_TAGS,
         "-i", "-",
     ]
     trim = (
@@ -115,6 +121,8 @@ def _build_video_command(
     overlay_list = list(overlays)
     overlay_inputs: list[str] = []
     for overlay in overlay_list:
+        if overlay.still:
+            overlay_inputs.extend(['-loop', '1', '-framerate', fps, '-t', str(overlay.duration_sec)])
         overlay_inputs.extend(["-i", str(overlay.media_path)])
 
     ffmpeg_cmd = ["ffmpeg", "-y", *video_input, *overlay_inputs]
@@ -136,6 +144,7 @@ def _build_video_command(
         "-an",
         "-c:v", encoder.vcodec,
         *encoder.ffmpeg_args,
+        *REC709_TAGS,
         "-frames:v", str(core_frames),
         str(output),
     ]

@@ -46,6 +46,7 @@ class FrameOverlaySpec:
     blur_under: bool = False
     # Assigned by ``build_pipe_commands`` for the Linux inherited pipe.
     pipe_fd: int | None = None
+    z_index: int = 0
 
     def __post_init__(self) -> None:
         for name, value in (

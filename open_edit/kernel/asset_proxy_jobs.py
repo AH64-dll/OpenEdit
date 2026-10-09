@@ -129,13 +129,14 @@ def _project_root(project_path: Path) -> Path:
 
 
 @contextmanager
-def _asset_advisory_lock(project_path: Path, asset_hash: str) -> Iterator[None]:
+def _asset_advisory_lock(project_path: Path, asset_hash: str, *, queue: bool = False) -> Iterator[None]:
     """Serialize source-proxy encoding for one project/asset pair.
 
     ``flock`` makes the lock effective across server processes on POSIX.  The
     in-process fallback keeps tests and Windows callers serialized as well.
     """
-    lock_path = project_path / ".open_edit" / "locks" / f"asset-proxy-{asset_hash}.lock"
+    suffix = '-queue' if queue else ''
+    lock_path = project_path / ".open_edit" / "locks" / f"asset-proxy-{asset_hash}{suffix}.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     if fcntl is None:
         key = str(lock_path.resolve())
@@ -264,10 +265,9 @@ class AssetProxyJobService:
         self._validate_asset(root, asset_hash)
         profile_name = profile.name
 
-        # The same lock covers the coalescing read/insert and the worker's
-        # encode section.  SQLite's partial unique index is the final guard
-        # against a race between separate service processes.
-        with _asset_advisory_lock(root, asset_hash), self._connect(root) as con:
+        # Queue reads/inserts are short and must not wait for an active encode.
+        # Separate locks serialize enqueuers and workers across processes.
+        with _asset_advisory_lock(root, asset_hash, queue=True), self._connect(root) as con:
             con.row_factory = sqlite3.Row
             row = con.execute(
                 "SELECT * FROM asset_proxy_jobs "

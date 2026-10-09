@@ -35,8 +35,10 @@ import {
   appendSearchResults,
   markTurnDone,
   setTurnActive,
-} from './js/chat.js';
-import { connectWS, disconnectWS, setReviewConnStatus, setWsState, setOnTurnDone, scheduleReconnect } from './js/ws.js';
+} from './js/agent-extension.js';
+import { connectWS, disconnectWS, setReviewConnStatus, setWsState, setOnTurnDone, scheduleReconnect } from './js/agent-extension.js';
+import { loadAgentExtension } from './js/agent-extension.js';
+import { observePreview, seekChunk } from './js/preview.js';
 
 // ----------------------------------------------------------
 // Project selector
@@ -66,6 +68,12 @@ export async function refreshProjects() {
   }
 }
 
+window.addEventListener?.('openedit:seek', event => seekToSec(event.detail));
+
+window.addEventListener?.('openedit:graph-changed', event => {
+  if (event.detail?.projectId === state.currentProjectId) loadProjectState();
+});
+
 function renderProjectSelect() {
   const sel = $('#project-select');
   if (!sel) return;
@@ -84,8 +92,12 @@ function renderProjectSelect() {
 
 export function selectProject(id) {
   if (id === state.currentProjectId) return;
+  clearSourcePreview();
+  state.previewChunks = false; state.previewManifest = null; state.previewChunkStart = 0;
   state.currentProjectId = id;
-  state._autoSeedTimelineFor = null;
+  state.currentProjectState = null;
+  observePreview();
+  window.dispatchEvent?.(new CustomEvent('openedit:project-selected'));
   if (id) {
     try { localStorage.setItem('open_edit.current_project_id', id); } catch {}
   } else {
@@ -162,6 +174,10 @@ function clearAssetsList() {
 // home state never shows media from a deselected project (round-4 B3).
 function clearSourcePreview() {
   state.previewRenderId = null;
+  state.previewChunks = false;
+  state.previewManifest = null;
+  state.previewChunkStart = 0;
+  state.playheadSec = 0;
   const player = $('#preview-player');
   if (player) {
     player.removeAttribute('src');
@@ -178,13 +194,16 @@ function clearSourcePreview() {
   const cur = $('#tc-current');
   if (cur) cur.textContent = '00:00.00';
   const total = document.querySelector('.transport-total');
+  const seek = $('#preview-seek'); if (seek) { seek.max = 0; seek.value = 0; }
   if (total) total.textContent = ' / —';
 }
 
 // ----------------------------------------------------------
 // Project state (left + right panels)
 // ----------------------------------------------------------
+let projectRequest = 0;
 export async function loadProjectState() {
+  const projectId = state.currentProjectId, requestId = ++projectRequest;
   refreshProjectDependentControls();
   if (!state.currentProjectId) {
     state.currentProjectState = null;
@@ -202,10 +221,12 @@ export async function loadProjectState() {
   // replaces the loading marker with the actual data.
   setAssetsLoading(true);
   try {
-    const s = await api.getProjectState(state.currentProjectId);
+    const s = await api.getProjectState(projectId);
+    if (state.currentProjectId !== projectId || requestId !== projectRequest) return;
     state.currentProjectState = s;
     await paintProjectSnapshot(s);
   } catch (e) {
+    if (state.currentProjectId !== projectId || requestId !== projectRequest) return;
     // The fetch failed — clear the loading state so the list isn't
     // stuck on a spinner, and toast the actual reason. The user gets
     // an empty list (the standard "no assets" state) so the next
@@ -216,6 +237,7 @@ export async function loadProjectState() {
 }
 
 async function paintProjectSnapshot(s) {
+  const projectId = state.currentProjectId;
   const assets = normalizeAssets(s.assets);
   renderAssets(assets, { onAddToTimeline: addAssetToTimeline });
   renderEditGraph(normalizeEdits(s));
@@ -227,6 +249,7 @@ async function paintProjectSnapshot(s) {
   } else {
     await refreshRendersList();
   }
+  if (projectId !== state.currentProjectId || s.graph_revision !== state.currentProjectState?.graph_revision) return;
   const timeline = normalizeTimeline(s.timeline_full ?? s.timeline);
   const newDur = Number(timeline.duration_sec || 0);
   if (Math.abs(newDur - tlDurationSec) > 0.5) tlAutoFitPending = false;
@@ -234,22 +257,8 @@ async function paintProjectSnapshot(s) {
     edits: normalizeEdits(s),
     notes: normalizeNotes(s).list,
   });
-  const hasClips = Number(timeline.clip_count || 0) > 0
-    || (timeline.tracks ?? []).some((track) => (track.clips ?? []).length > 0);
-  if (assets.length && !hasClips && state._autoSeedTimelineFor !== state.currentProjectId) {
-    state._autoSeedTimelineFor = state.currentProjectId;
-    const firstAsset = assets.find((asset) => {
-      const mediaType = String(
-        asset.type || asset.mime_type || asset.mime || asset.media_type
-          || asset.extra?.type || asset.extra?.mime_type || asset.extra?.mime
-          || asset.extra?.media_type || '',
-      ).toLowerCase();
-      return mediaType === 'video' || mediaType.startsWith('video/');
-    }) || assets[0];
-    addAssetToTimeline(firstAsset);
-    return;
-  }
   maybeLoadSourcePreview(s);
+  window.dispatchEvent?.(new CustomEvent('openedit:snapshot', { detail: { projectId: state.currentProjectId } }));
   if (s.timeline_status === 'invalid') {
     showToast(`Timeline invalid: ${s.timeline_error_code || 'derivation failed'}`, 'warn');
   }
@@ -497,12 +506,13 @@ function renderRendersList(renders) {
     list.appendChild(el('div', { class: 'empty-state' }, ['No renders yet.']));
     return;
   }
-  const active = renders.some(r => r.status === 'queued' || r.status === 'running');
+  const active = renders.some(r => ['proxy', 'final'].includes(r.mode) && ['queued', 'running'].includes(r.status));
   setRenderButtonsBusy(active, active ? 'Rendering…' : null);
   // Newest first — keep the rail concise (latest few only).
-  for (const r of [...renders].reverse().slice(0, 8)) {
-    const name = (r.path || '').split('/').pop() || r.id?.slice(0, 8) || 'render';
-    const modeLabel = r.mode === 'final' ? 'Final' : (r.mode === 'proxy' ? 'Proxy' : r.mode || 'proxy');
+  for (const r of renders.filter(r => r.mode !== 'preview-chunks').slice(0, 8)) {
+    const friendly = { final: 'Video export', proxy: 'Timeline preview', graphics: 'Graphics preview', 'preview-chunks': 'Timeline update' };
+    const name = friendly[r.mode] || 'Rendered output';
+    const modeLabel = r.mode === 'final' ? 'Export' : 'Preview';
     const status = r.status || 'succeeded';
     const statusLabel = status === 'running' ? '…'
       : status === 'queued' ? 'Queued'
@@ -519,6 +529,15 @@ function renderRendersList(renders) {
         ].join('')),
       ]),
     ]);
+    if (status === 'succeeded' && r.id && ['proxy', 'final'].includes(r.mode)) {
+      const download = el('a', {class: 'btn btn-ghost btn-xs', href: api.renderFileUrl(state.currentProjectId, r.id), download: `${r.mode === 'final' ? 'export' : 'preview'}.mp4`}, ['Download']);
+      download.addEventListener('click', event => event.stopPropagation());
+      item.appendChild(download);
+    }
+    const details = el('details', {class: 'output-details'}, [el('summary', {}, ['Details']),
+      el('pre', {class: 'small'}, [JSON.stringify({id: r.id, graph_revision: r.graph_revision, error: r.error, diagnostics: r.diagnostics}, null, 2)])]);
+    details.addEventListener('click', event => event.stopPropagation());
+    item.appendChild(details);
     item.addEventListener('click', () => {
       if (status !== 'succeeded') {
         showToast(status === 'running' || status === 'queued'
@@ -526,8 +545,8 @@ function renderRendersList(renders) {
           : (r.error || 'Render not available'), 'info');
         return;
       }
-      if (r.id && state.currentProjectId) {
-        loadRenderInPreview(r.id, r.mode || 'proxy');
+      if (r.id && state.currentProjectId && ['proxy', 'final'].includes(r.mode)) {
+        loadRenderInPreview(r.id, r.mode || 'proxy', r.graph_revision);
         return;
       }
       if (r.path && /^https?:/.test(r.path)) {
@@ -543,8 +562,10 @@ function renderRendersList(renders) {
 
 export async function refreshRendersList() {
   if (!state.currentProjectId) return;
+  const projectId = state.currentProjectId;
   try {
-    const renders = await api.listRenders(state.currentProjectId);
+    const renders = await api.listRenders(projectId);
+    if (projectId !== state.currentProjectId) return;
     renderRendersList(renders);
     const active = renders.some(r => r.status === 'queued' || r.status === 'running');
     if (active && !state.renderPollTimer) {
@@ -679,7 +700,7 @@ const COMMANDS = [
   { id: 'new-project', title: 'Create New Project', icon: 'plus', action: () => $('#btn-new-project')?.click() },
   { id: 'refresh-projects', title: 'Refresh Projects List', icon: 'refresh', action: () => refreshProjects() },
   { id: 'render-proxy', title: 'Render review artifact (640×360)', icon: 'film', action: () => triggerRender('proxy') },
-  { id: 'render-final', title: 'Render Final Video (1080p)', icon: 'video', action: () => triggerRender('final') },
+  { id: 'render-final', title: 'Export video…', icon: 'video', action: () => triggerRender('final') },
   { id: 'open-settings', title: 'About MCP (no API keys in UI)', icon: 'settings', action: () => openSettingsModal() },
   { id: 'toggle-theme', title: 'Toggle Light / Dark Mode', icon: 'moon', action: () => toggleTheme() },
   { id: 'upload-assets', title: 'Upload Media Files', icon: 'upload', action: () => $('#file-input')?.click() },
@@ -935,17 +956,14 @@ async function triggerRender(mode) {
     showToast('Select or create a project first.', 'error');
     return;
   }
-  const encoderSel = $('#render-encoder-select');
-  const encoder = (encoderSel?.value === 'cpu') ? 'cpu' : 'gpu';
   if (mode === 'final') {
-    const stale = await isProxyStale();
-    if (stale) {
-      const ok = confirm(
-        'No proxy render matches the current edit graph. Render a proxy first to review, or continue with final anyway?',
-      );
-      if (!ok) return;
-    }
+    try { await (await import('./js/export-ui.js')).openExportDialog(); }
+    catch (error) { showToast(error.message,'error'); }
+    return;
   }
+  if (mode === 'proxy' && state.autoPreview && state.capabilities?.timeline) { observePreview(true); return; }
+  const encoderSel = $('#render-encoder-select');
+  const encoder = ['cpu', 'gpu'].includes(encoderSel?.value) ? encoderSel.value : 'auto';
   showToast(`Rendering ${mode} on ${encoder.toUpperCase()}…`, 'info');
   setRenderButtonsBusy(true, 'Rendering…');
   if (mode === 'proxy') state.proxyRenderInFlight = true;
@@ -984,7 +1002,7 @@ async function pollRenderJob(jobId, mode) {
         showToast(`Render complete: ${job.output_path || '(output)'}`, 'success');
         refreshRendersList();
         if (mode === 'proxy') state.proxyRenderInFlight = false;
-        loadRenderInPreview(job.job_id, mode);
+        loadRenderInPreview(job.job_id, mode, job.graph_revision);
         return;
       }
       if (['failed', 'cancelled', 'orphaned'].includes(job.status)) {
@@ -1009,14 +1027,16 @@ function startEditGraphRefresh() {
   state.editGraphRefreshTimer = setInterval(async () => {
     if (!state.currentProjectId) return;
     try {
-      const s = await api.getProjectState(state.currentProjectId);
+      const projectId = state.currentProjectId;
+      const s = await api.getProjectState(projectId);
+      if (projectId !== state.currentProjectId) return;
       const prevRev = state.currentProjectState?.graph_revision;
       state.currentProjectState = s;
       // Skip full UI repaint when the graph revision is unchanged.
       if (prevRev != null && s.graph_revision === prevRev) return;
       if (prevRev != null && s.graph_revision !== prevRev) {
-        showToast('Edit graph updated — render proxy to preview changes.', 'info');
-        if (state.autoProxy && !state.proxyRenderInFlight) {
+        showToast(state.autoPreview ? 'Timeline updated. Preview is updating.' : 'Timeline updated. Refresh preview to see changes.', 'info');
+        if (state.autoProxy && !state.autoPreview && !state.proxyRenderInFlight) {
           // Debounce auto-proxy storms across rapid graph_revision bumps.
           clearTimeout(state._autoProxyDebounce);
           state._autoProxyDebounce = setTimeout(() => {
@@ -1125,7 +1145,7 @@ function bindEvents() {
   const previewPlayer = $('#preview-player');
   if (previewPlayer) {
     previewPlayer.addEventListener('timeupdate', () => {
-      state.playheadSec = previewPlayer.currentTime || 0;
+      state.playheadSec = (previewPlayer.currentTime || 0) + (state.previewChunks ? state.previewChunkStart || 0 : 0);
       updatePlayheadUi();
     });
     previewPlayer.addEventListener('loadedmetadata', updatePlayheadUi);
@@ -1420,12 +1440,16 @@ async function boot() {
     const cfg = await api.getUiConfig();
     state.reviewOnly = !!cfg.review_only;
     state.autoProxy = !!cfg.auto_proxy;
+    state.autoPreview = cfg.auto_preview !== false && cfg.preview_chunks !== false;
+    state.previewChunksEnabled = cfg.preview_chunks !== false;
+    state.capabilities = cfg.capabilities || {};
     if (state.reviewOnly) {
-      document.body.classList.add('review-only-mode', 'panel-left-collapsed');
+      document.body.classList.add('review-only-mode');
     }
   } catch {
-    state.reviewOnly = false;
+    state.reviewOnly = true;
   }
+  if (!state.reviewOnly) await loadAgentExtension();
   // Mode badge: announce the real running mode instead of the static
   // default text (data-review-label / data-agent-label live in the
   // index.html markup). Presentation-only.
@@ -1559,6 +1583,7 @@ function maybeLoadSourcePreview(s) {
     || `/api/projects/${encodeURIComponent(state.currentProjectId)}/assets/${encodeURIComponent(assetHash)}/file`;
 
   state.previewRenderId = null;
+  if (player.getAttribute?.('src') === url) return;
   player.setAttribute('src', url);
   player.src = url;
   player.style.display = 'block';
@@ -1581,7 +1606,7 @@ function maybeLoadSourcePreview(s) {
 }
 
 function _isPlayableRender(r) {
-  if (!r || r.status !== 'succeeded') return false;
+  if (!r || r.status !== 'succeeded' || !['proxy', 'final'].includes(r.mode)) return false;
   const id = String(r.id || '');
   const path = String(r.path || '');
   // Never auto-load melt intermediates (in-progress proxy writes).
@@ -1619,9 +1644,10 @@ async function _renderEndpointIsReachable(render) {
 }
 
 async function maybeAutoLoadPreview(renders) {
-  if (!state.reviewOnly || !state.currentProjectId || !renders?.length) return;
+  if (state.previewChunks || !state.reviewOnly || !state.currentProjectId || !renders?.length) return;
   const player = $('#preview-player');
   if (!player) return;
+  const projectId = state.currentProjectId;
   // list_renders returns jobs newest-first — do NOT reverse before find.
   const playable = renders.filter(_isPlayableRender);
   const currentHash = state.currentProjectState?.edit_graph_hash;
@@ -1665,24 +1691,27 @@ async function maybeAutoLoadPreview(renders) {
       break;
     }
   }
-  if (!latest?.id) return;
+  if (!latest?.id || projectId !== state.currentProjectId || state.previewChunks) return;
   const latestStale = Boolean(
     (currentHash && latest.edit_graph_hash && latest.edit_graph_hash !== currentHash)
     || (currentRev != null && latest.graph_revision != null && latest.graph_revision !== currentRev),
   );
   if (latestStale) {
-    showToast('Preview is outdated — rendering or click Render Proxy to update.', 'warn');
+    const label = $('#preview-freshness'); if (label) label.textContent = 'Outdated';
   }
-  loadRenderInPreview(latest.id, latest.mode || 'proxy');
+  loadRenderInPreview(latest.id, latest.mode || 'proxy', latest.graph_revision);
 }
 
-function loadRenderInPreview(renderId, mode = 'proxy') {
+function loadRenderInPreview(renderId, mode = 'proxy', revision) {
   if (!state.currentProjectId || !renderId) return;
   const player = $('#preview-player');
   const badge = $('#preview-mode-badge');
   const empty = $('#preview-empty');
   if (!player) return;
+  state.previewChunks = false; state.previewManifest = null; state.previewChunkStart = 0;
   state.previewRenderId = renderId;
+  const fresh = $('#preview-freshness');
+  if (fresh) { fresh.textContent = revision === state.currentProjectState?.graph_revision ? 'Current' : 'Outdated'; fresh.dataset.status = revision === state.currentProjectState?.graph_revision ? 'current' : 'outdated'; }
   const url = api.renderFileUrl(state.currentProjectId, renderId);
   player.setAttribute('src', url);
   player.src = url;
@@ -1727,9 +1756,8 @@ function updatePreviewTransport() {
 
   const total = document.querySelector('.transport-total');
   const mediaDuration = Number(player?.duration);
-  const duration = Number.isFinite(mediaDuration) && mediaDuration > 0
-    ? mediaDuration
-    : tlDurationSec;
+  const duration = state.previewChunks ? state.previewManifest.duration_sec : Number.isFinite(mediaDuration) && mediaDuration > 0 ? mediaDuration : tlDurationSec;
+  const seek = $('#preview-seek'); if (seek) { seek.max = duration || 0; seek.value = state.playheadSec || 0; }
   if (total) total.textContent = ` / ${duration > 0 ? formatTimecode(duration) : '—'}`;
 
   const play = $('#btn-play');
@@ -1752,21 +1780,7 @@ function updatePlayheadUi() {
 }
 
 function seekPreviewBy(delta) {
-  const player = $('#preview-player');
-  const mediaTime = Number(player?.currentTime);
-  const current = Number.isFinite(mediaTime) ? mediaTime : (Number(state.playheadSec) || 0);
-  const mediaDuration = Number(player?.duration);
-  const duration = Number.isFinite(mediaDuration) && mediaDuration > 0
-    ? mediaDuration
-    : tlDurationSec;
-  const target = duration > 0
-    ? Math.max(0, Math.min(current + delta, duration))
-    : Math.max(0, current + delta);
-  state.playheadSec = target;
-  if (player) {
-    try { player.currentTime = target; } catch { /* ignore */ }
-  }
-  updatePlayheadUi();
+  seekToSec((Number(state.playheadSec) || 0) + delta);
 }
 
 function togglePreviewPlayback() {
@@ -1789,7 +1803,7 @@ function seekToSec(sec) {
     : (Number.isFinite(mediaDuration) && mediaDuration > 0 ? mediaDuration : 0);
   const clamped = Math.max(0, Math.min(Number(sec) || 0, duration));
   state.playheadSec = clamped;
-  if (player && player.src) {
+  if (!seekChunk(clamped, player && !player.paused) && player && player.src) {
     try { player.currentTime = clamped; } catch { /* ignore */ }
   }
   updatePlayheadUi();
@@ -1829,7 +1843,7 @@ function bindTimelineScrubbing() {
   rulerCol.dataset.scrubBound = '1';
   rulerCol.addEventListener('mousedown', (evt) => {
     if (evt.button !== 0) return;
-    if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
+    if (evt.target.closest('.timeline-clip, .timeline-edit-marker, .timeline-note-marker')) return;
     tlScrubbing = true;
     seekToSec(timelineSecFromEvent(evt, rulerCol));
     evt.preventDefault();
@@ -1975,15 +1989,16 @@ export function renderTimeline(timelineData, context = {}) {
   // for now, overlay markers live on top of all tracks)
   const totalWidth = secToPx(Math.max(durationSec, 10));
   tracksArea.style.width = `${totalWidth}px`;
+  tracksArea.dataset.pixelsPerSecond = String(secToPx(1));
 
   tracks.forEach((track) => {
     // Label
     const kindBadge = el('span', {
       class: `track-kind-badge ${track.kind ?? 'video'}`,
     }, [icon(track.kind === 'audio' ? 'audio' : 'video')]);
-    const labelRow = el('div', { class: 'timeline-track-label-row' }, [
+    const labelRow = el('div', { class: 'timeline-track-label-row', 'data-track-id': track.track_id || '' }, [
       kindBadge,
-      document.createTextNode(track.track_id ?? ''),
+      el('span', { class: 'track-label-name' }, [track.label || track.track_id || '']),
     ]);
     labelsCol.appendChild(labelRow);
 
@@ -2015,13 +2030,18 @@ export function renderTimeline(timelineData, context = {}) {
       const clipDur = (clip.out_point_sec ?? 0) - (clip.in_point_sec ?? 0);
       const left = secToPx(clip.position_sec ?? 0);
       const width = Math.max(secToPx(clipDur), 4);
-      const hashShort = (clip.asset_hash ?? '').slice(0, 8);
+      const asset = normalizeAssets(state.currentProjectState?.assets).find(a => a.hash === clip.asset_hash);
+      const clipName = clip.label || asset?.filename || (track.kind === 'audio' ? 'Audio clip' : 'Video clip');
       const clipKind = track.kind === 'audio' ? 'audio-clip' : 'video-clip';
       const clipEl = el('div', {
         class: `timeline-clip ${clipKind}`,
         style: `left:${left}px;width:${width}px`,
-        title: `${clip.clip_id ?? ''}\n${clip.asset_hash ?? ''}\n${clip.position_sec?.toFixed(2)}s -> ${(clip.position_sec + clipDur).toFixed(2)}s`,
-      }, [hashShort]);
+        title: `${clipName} · ${Number(clip.position_sec || 0).toFixed(2)}s – ${(clip.position_sec + clipDur).toFixed(2)}s`,
+        'data-clip-id': clip.clip_id || '',
+        tabindex: '0',
+      }, [clipName]);
+      clipEl.addEventListener('click', () => window.dispatchEvent(new CustomEvent('openedit:inspect-clip', { detail: { clipId: clip.clip_id } })));
+      clipEl.addEventListener('keydown', event => { if (event.key === 'Enter') window.dispatchEvent(new CustomEvent('openedit:inspect-clip', { detail: { clipId: clip.clip_id } })); });
       trackRow.appendChild(clipEl);
     });
 
@@ -2108,6 +2128,7 @@ export function renderTimeline(timelineData, context = {}) {
   }
 
   bindTimelineScrubbing();
+  window.dispatchEvent?.(new CustomEvent('openedit:timeline-rendered'));
 
   if (durationSec > 120 && !tlAutoFitPending) {
     tlAutoFitPending = true;

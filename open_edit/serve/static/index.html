@@ -8,10 +8,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=20260814-notes-mcp">
+  <link rel="stylesheet" href="/style.css?v=20261008-workspace">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%2228%22%20height%3D%2219%22%20rx%3D%224%22%20fill%3D%22%232779c3%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%2210%22%20width%3D%2218%22%20height%3D%229%22%20rx%3D%221.5%22%20fill%3D%22%230b1015%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2227%22%20width%3D%2212%22%20height%3D%223%22%20rx%3D%221.5%22%20fill%3D%22%23182027%22%2F%3E%3C%2Fsvg%3E">
 </head>
-<body class="has-timeline">
+<body class="has-timeline" data-workspace="review">
   <div class="site-wrapper">
 
   <!-- =================== Top bar =================== -->
@@ -68,6 +68,7 @@
     </div>
 
     <div class="topbar-right">
+      <button id="btn-setup" class="btn btn-ghost btn-xs" type="button">Setup</button>
       <button id="btn-cmd-k" class="btn btn-ghost btn-xs" title="Command Palette (Cmd+K)" data-od-id="btn-cmd-k">
         <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <span class="kbd-badge">Ctrl K</span>
@@ -85,13 +86,27 @@
     </div>
   </header>
 
+  <nav class="workspace-bar" aria-label="Workspace">
+    <div role="tablist" aria-label="Editing views">
+      <button id="workspace-review" class="workspace-tab active" role="tab" aria-selected="true" aria-controls="preview-panel" data-workspace="review">Review</button>
+      <button id="workspace-graphics" class="workspace-tab" role="tab" aria-selected="false" aria-controls="graphics-panel" data-workspace="graphics">Graphics</button>
+      <button id="workspace-code" class="workspace-tab" role="tab" aria-selected="false" aria-controls="authoring-panel" data-workspace="code">Code</button>
+    </div>
+    <div class="history-controls">
+      <button id="history-undo" class="btn btn-ghost btn-xs" type="button" disabled title="Undo (Ctrl/Cmd+Z)">Undo</button>
+      <button id="history-redo" class="btn btn-ghost btn-xs" type="button" disabled title="Redo (Ctrl/Cmd+Shift+Z)">Redo</button>
+      <span id="history-status" class="muted small" role="status" aria-live="polite"></span>
+    </div>
+  </nav>
   <!-- =================== Main 3-column layout =================== -->
   <main class="layout" data-od-id="layout">
     <!-- ----- LEFT panel ----- -->
     <aside id="left-panel" class="panel panel-left" data-od-id="panel-left">
       <div class="panel-tabs">
         <button class="tab active" data-tab="assets">Assets</button>
-        <button class="tab" data-tab="edits">Edit graph</button>
+        <button class="tab" data-tab="layers">Layers</button>
+        <button class="tab" data-tab="captions">Captions</button>
+        <button class="tab" data-tab="edits">History</button>
       </div>
 
       <div class="tab-content active" data-tab="assets">
@@ -111,7 +126,20 @@
         <div id="upload-progress" class="upload-progress hidden"></div>
       </div>
 
+      <div class="tab-content" data-tab="captions"><div id="caption-editor" class="caption-editor"></div></div>
+      <div class="tab-content" data-tab="layers">
+        <div class="studio-library-toolbar">
+          <label>Composition <select id="graphics-document" aria-label="Graphics composition"></select></label>
+          <button id="graphics-new" class="btn btn-secondary btn-xs" type="button">New composition</button>
+        </div>
+        <div id="graphics-layers" class="studio-layer-list" role="list" aria-label="Editable layers"></div>
+        <details open class="studio-marks-list"><summary>AI marks <span class="muted small">· excluded from export</span></summary>
+          <div id="graphics-marks" role="list" aria-label="AI marks"></div>
+        </details>
+      </div>
       <div class="tab-content" data-tab="edits">
+        <div id="history-list" class="history-list"><p class="muted small">Your edits will appear here.</p></div>
+        <details class="operation-details"><summary>Operation details</summary>
         <div id="edit-graph-list" class="edit-graph-list">
           <div class="empty-state">No edits yet.<br>Ask the agent to do something.</div>
         </div>
@@ -125,11 +153,8 @@
             <span class="muted"> · id </span><span id="edit-detail-id" class="mono"></span>
           </div>
           <div id="edit-detail-payload" class="edit-detail-payload"></div>
-          <div class="edit-detail-actions">
-            <button id="btn-edit-undo" class="btn btn-sm btn-outline">Undo</button>
-            <button id="btn-edit-delete" class="btn btn-sm btn-danger">Delete</button>
-          </div>
         </div>
+        </details>
         <div class="panel-footer muted small">Click an edit to inspect · Auto-refreshes every 5s</div>
       </div>
     </aside>
@@ -139,11 +164,11 @@
       <div id="preview-panel" class="preview-panel">
         <div class="preview-panel-header panel-head">
           <span class="panel-title">Preview</span>
-          <span id="preview-mode-badge" class="preview-mode-badge muted small">—</span>
+          <span id="preview-mode-badge" class="preview-mode-badge muted small">Source</span><span id="preview-freshness" class="preview-freshness" role="status" aria-live="polite">Select a project</span>
         </div>
         <div class="preview-stage" role="group" aria-label="Preview stage">
           <div class="preview-media">
-            <video id="preview-player" class="preview-player" controls playsinline></video>
+            <video id="preview-player" class="preview-player" playsinline></video>
           </div>
           <div id="preview-empty" class="empty-state preview-empty" hidden aria-hidden="true"></div>
         </div>
@@ -152,8 +177,85 @@
           <button id="btn-play" type="button" class="btn btn-primary btn-icon" data-preview-action="play" title="Play preview" aria-label="Play preview"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M10 6L18 12 10 18z"/></svg></button>
           <button id="btn-skip-fwd" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-fwd" title="Skip forward 5 seconds" aria-label="Skip forward 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v12"/><path d="M16 9v6l5-3z" fill="currentColor" stroke="none"/></svg></button>
           <span class="transport-time" aria-label="Preview time"><strong id="tc-current">00:00.00</strong><span class="transport-total"> / —</span></span>
+          <label class="preview-volume"><span class="muted small">Volume</span><input id="preview-volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Preview volume"></label>
+          <button id="preview-fullscreen" class="btn btn-ghost btn-xs" type="button" aria-label="Fullscreen preview">Fullscreen</button>
         </div>
+        <input id="preview-seek" type="range" min="0" max="0" step="0.01" value="0" aria-label="Seek timeline">
       </div>
+
+      <details id="authoring-panel" class="authoring-panel">
+        <summary>Project source</summary>
+        <div class="authoring-toolbar">
+          <button id="authoring-reload" class="btn btn-ghost btn-xs" type="button">Reload source</button>
+          <button id="authoring-apply" class="btn btn-primary btn-xs" type="button" disabled>Apply source</button>
+          <span id="authoring-status" role="status" aria-live="polite">Select a project to edit.</span>
+        </div>
+        <div class="authoring-workspace">
+          <label class="authoring-code">Source
+            <textarea id="authoring-source" spellcheck="false" aria-label="Project JSX source" disabled></textarea>
+          </label>
+
+        </div>
+      </details>
+
+      <details id="graphics-panel" class="authoring-panel">
+        <summary>Graphics</summary>
+        <div class="authoring-toolbar">
+          <button id="graphics-reload" class="btn btn-ghost btn-xs" type="button">Reload source</button>
+          <button id="graphics-preview" class="btn btn-secondary btn-xs" type="button" disabled>Render preview</button>
+          <button id="graphics-cancel" class="btn btn-ghost btn-xs" type="button" disabled>Cancel</button>
+          <button id="graphics-commit" class="btn btn-primary btn-xs" type="button" disabled>Save source</button>
+        </div>
+        <p id="graphics-status" role="status" aria-live="polite">Open the studio to create text and shapes.</p>
+        <div class="graphics-workspace">
+          <div class="graphics-visual">
+            <div class="studio-tools" role="toolbar" aria-label="Canvas tools">
+              <label>Tool <select id="graphics-tool" aria-label="Canvas tool">
+                <option value="select">Select / move</option><option value="arrow">AI arrow</option>
+                <option value="rectangle">AI box</option><option value="freehand">AI freehand</option>
+                <option value="note">AI note</option><option value="pin">AI pin</option>
+              </select></label>
+              <button id="graphics-add-text" class="btn btn-ghost btn-xs" type="button">+ Text</button>
+              <button id="graphics-add-rect" class="btn btn-ghost btn-xs" type="button">+ Shape</button>
+              <button id="graphics-group" class="btn btn-ghost btn-xs" type="button">Group</button>
+              <button id="graphics-duplicate" class="btn btn-ghost btn-xs" type="button">Duplicate</button>
+              <button id="graphics-delete" class="btn btn-ghost btn-xs" type="button">Delete</button>
+            </div>
+            <div class="graphics-canvas-wrap">
+              <canvas id="graphics-live" width="960" height="540" aria-label="Interactive graphics"></canvas>
+              <video id="graphics-video" muted loop playsinline hidden aria-label="Checked graphics preview"></video>
+              <svg id="graphics-guides" viewBox="0 0 960 540" aria-hidden="true"></svg>
+              <canvas id="graphics-canvas" width="960" height="540" aria-label="Graphics canvas; select a layer and drag to move it"></canvas>
+              <div id="graphics-empty" class="graphics-empty" hidden>
+                <div class="graphics-empty-card">
+                  <h4>No graphic yet</h4>
+                  <p class="muted small">Add text or a shape to start an editable graphic. Marks drawn on the video can also be converted into graphics.</p>
+                  <div class="graphics-empty-actions">
+                    <button id="graphics-empty-text" class="btn btn-secondary btn-xs" type="button">Add text</button>
+                    <button id="graphics-empty-shape" class="btn btn-secondary btn-xs" type="button">Add shape</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="studio-canvas-transport">
+              <button id="graphics-play" class="btn btn-ghost btn-xs" type="button">Play / pause</button>
+              <input id="graphics-seek" type="range" min="0" max="3" step="0.033333" value="0" aria-label="Graphics playhead">
+              <output id="graphics-time">0.00 s</output>
+              <label><input id="graphics-checked" type="checkbox">Checked preview</label>
+            </div>
+
+          </div>
+          <details class="graphics-source-details"><summary>Edit graphics source</summary>
+          <label class="authoring-code">Graphics JSX
+            <textarea id="graphics-source" spellcheck="false" aria-label="Graphics JSX source" disabled></textarea>
+          </label></details>
+        </div>
+        <div class="authoring-toolbar">
+          <label>Duration (s) <input id="graphics-duration" type="number" min="0.1" max="60" step="0.1" value="3"></label>
+          <details><summary>Advanced</summary><label>Clip ID <input id="graphics-clip-id" value="graphics" maxlength="128"></label>
+          <label>FPS <input id="graphics-fps" type="number" min="1" max="60" value="30"></label></details>
+        </div>
+      </details>
 
       <div id="chat-log" class="chat-log agent-only">
         <div class="empty-state">
@@ -195,9 +297,60 @@
 
     <!-- ----- RIGHT panel ----- -->
     <aside id="right-panel" class="panel panel-right" data-od-id="panel-right">
+      <section id="clip-inspector" class="panel-section inspector"><h3>Clip inspector</h3>
+      <p id="clip-inspector-status" class="muted small" role="status">Select a clip on the timeline.</p>
+          <form id="authoring-properties" class="authoring-properties">
+            <label>Clip <select id="authoring-clip" aria-label="Clip to edit"></select></label>
+            <label>Start (s) <input name="start" type="number" min="0" step="any" required></label>
+            <label>Source in (s) <input name="sourceIn" type="number" min="0" step="any" required></label>
+            <label>Source out (s) <input name="sourceOut" type="number" min="0" step="any" required></label>
+            <label>Volume (dB) <input name="volume" type="number" min="-120" max="24" step="any" required></label>
+            <label>Playback rate <input name="playbackRate" type="number" min="0.125" max="8" step="any" value="1" required></label>
+            <button id="authoring-apply-properties" class="btn btn-secondary btn-xs" type="submit" disabled>Apply clip</button>
+          </form></section>
+      <section id="graphics-inspector" class="panel-section inspector"><h3>Layer inspector</h3>
+            <p id="graphics-selection-status" class="muted small" role="status">Select an object or drag a selection box.</p>
+            <label>Layer <select id="graphics-element" aria-label="Graphics layer"></select></label>
+            <form id="graphics-properties" class="graphics-properties">
+              <label>X <input name="x" type="number" step="any" value="0" required></label>
+              <label>Y <input name="y" type="number" step="any" value="0" required></label>
+              <label>Width <input name="width" type="number" min="1" max="1920" step="any" value="100" required></label>
+              <label>Height <input name="height" type="number" min="1" max="1920" step="any" value="100" required></label>
+              <label>Rotation <input name="rotation" type="number" step="any" value="0"></label>
+              <label>Scale <input name="scale" type="number" min="0.001" max="100" step="any" value="1"></label>
+              <label>Opacity <input name="opacity" type="number" min="0" max="1" step="0.01" value="1"></label>
+              <label>Color <input name="color" value="#ffffff" maxlength="64"></label>
+              <label>Font size <input name="fontSize" type="number" min="1" max="1000" value="48"></label>
+              <label>Text <textarea name="text" rows="3" maxlength="10000" aria-label="Layer text"></textarea></label>
+              <button class="btn btn-secondary btn-xs" type="submit">Update layer</button>
+            </form>
+            <p id="graphics-properties-hint" class="muted small" hidden>Select a layer to edit its properties.</p>
+            <div class="studio-layer-actions">
+              <label><input id="graphics-hidden" type="checkbox">Hidden</label>
+              <label><input id="graphics-locked" type="checkbox">Locked</label>
+              <button id="graphics-backward" class="btn btn-ghost btn-xs" type="button">Backward</button>
+              <button id="graphics-forward" class="btn btn-ghost btn-xs" type="button">Forward</button>
+              <label>Align <select id="graphics-align" aria-label="Align layers"><option value="">Choose…</option>
+                <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+                <option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option>
+                <option value="distribute-x">Distribute horizontally</option><option value="distribute-y">Distribute vertically</option>
+              </select></label>
+            </div>
+            <p class="muted small">Dragging shifts the whole motion path. Auto-key is off.</p>
+            <form id="graphics-mark-properties" hidden>
+              <h3>AI mark</h3>
+              <label>Instruction <textarea name="text" rows="3" maxlength="10000"></textarea></label>
+              <label>Scope <select name="scope"><option value="frame">This frame</option><option value="range">Time range</option><option value="object">Object</option></select></label>
+              <label>Start (s) <input name="anchor_sec" type="number" min="0" step="any"></label>
+              <label>End (s) <input name="end_sec" type="number" min="0" step="any"></label>
+              <button class="btn btn-secondary btn-xs" type="submit">Save mark</button>
+              <button id="graphics-delete-mark" class="btn btn-ghost btn-xs" type="button">Delete mark</button>
+              <button id="graphics-convert-mark" class="btn btn-secondary btn-xs" type="button">Convert to graphic</button>
+            </form>
+      </section>
       <div class="panel-section section-block">
         <div class="panel-section-header panel-head">
-          <span class="panel-title">Renders</span>
+          <span class="panel-title">Outputs</span>
           <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh" aria-label="Refresh renders" data-od-id="btn-refresh-renders">
             <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           </button>
@@ -206,14 +359,14 @@
           <div class="empty-state">No renders yet.</div>
         </div>
         <div class="render-buttons compact-renders">
-          <label class="encoder-select muted small">
+          <details class="render-advanced"><summary>Preview settings</summary><label class="encoder-select muted small">Encoder
             <select id="render-encoder-select">
-              <option value="gpu" selected>GPU</option>
+              <option value="auto" selected>Auto (recommended)</option><option value="gpu">Prefer GPU</option>
               <option value="cpu">CPU</option>
             </select>
-          </label>
-          <button id="btn-render-proxy" class="btn btn-secondary btn-sm" data-od-id="btn-render-proxy">Proxy</button>
-          <button id="btn-render-final" class="btn btn-secondary btn-sm" data-od-id="btn-render-final">Final</button>
+          </label></details>
+          <button id="btn-render-proxy" class="btn btn-secondary btn-sm" data-od-id="btn-render-proxy">Refresh preview</button>
+          <button id="btn-render-final" class="btn btn-primary btn-sm" data-od-id="btn-render-final">Export video</button>
         </div>
       </div>
 
@@ -223,12 +376,6 @@
           <button id="btn-show-notes" class="btn btn-ghost btn-xs" data-od-id="btn-show-notes">View</button>
         </div>
         <div id="notes-summary" class="notes-summary muted small">—</div>
-      </div>
-
-      <div class="panel-section section-block">
-        <div class="panel-section-header panel-head"><span class="panel-title">Style</span></div>
-        <div class="muted small agent-only">Pinned values come from the agent as you chat.</div>
-        <div class="muted small review-only">External agent (MCP) owns style and edits.</div>
       </div>
 
     </aside>
@@ -333,9 +480,24 @@
     </div>
   </div>
 
+  <div id="modal-setup" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <div class="modal-backdrop" data-modal-close></div><div class="modal-card modal-card-wide">
+      <h3 id="setup-title">Editing setup</h3><p class="muted small">Enable the capabilities you need. Existing projects stay editable through MCP.</p>
+      <div id="setup-checks" role="status">Checking…</div><div class="modal-actions"><button id="setup-refresh" class="btn btn-secondary">Check again</button><button class="btn btn-ghost" data-modal-close>Close</button></div>
+    </div>
+  </div>
   <!-- =================== Toast =================== -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="/app.js?v=20260814-notes-mcp"></script>
+  <script type="module" src="/app.js?v=20261008-workspace"></script>
+  <script type="module" src="/js/authoring.js?v=20261008"></script>
+  <script type="module" src="/js/graphics.js?v=20261008-workspace"></script>
+  <script type="module" src="/js/workspace.js?v=20261008-workspace"></script>
+  <script type="module" src="/js/studio-shell.js?v=20261008"></script>
+  <script type="module" src="/js/timeline-controls.js?v=20261008"></script>
+  <script type="module" src="/js/media-visuals.js?v=20261009"></script>
+  <script type="module" src="/js/graphics-animation.js?v=20261009"></script>
+  <script type="module" src="/js/captions.js?v=20261009"></script>
+  <script type="module" src="/js/quality-check.js?v=20261009"></script>
 </body>
 </html>

@@ -142,7 +142,7 @@ def test_preview_rollout_flags_default_on_for_chunks(
     monkeypatch.delenv("OPEN_EDIT_AUTO_PREVIEW", raising=False)
     monkeypatch.delenv("OPEN_EDIT_PREVIEW_CHUNKS", raising=False)
 
-    assert auto_preview_enabled() is False
+    assert auto_preview_enabled() is True
     assert preview_chunks_enabled() is True
 
 
@@ -165,6 +165,7 @@ def test_preview_rollout_flags_parse_boolean_values(
 
 def test_ui_config_exposes_preview_rollout_flags(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ) -> None:
     from fastapi.testclient import TestClient
 
@@ -172,10 +173,11 @@ def test_ui_config_exposes_preview_rollout_flags(
 
     monkeypatch.delenv("OPEN_EDIT_AUTO_PREVIEW", raising=False)
     monkeypatch.delenv("OPEN_EDIT_PREVIEW_CHUNKS", raising=False)
+    monkeypatch.setenv("OPEN_EDIT_PROJECTS_ROOT", str(tmp_path))
     with TestClient(app_mod.app) as client:
         response = client.get("/api/ui-config")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["auto_preview"] is False
+    assert body["auto_preview"] is True
     assert body["preview_chunks"] is True

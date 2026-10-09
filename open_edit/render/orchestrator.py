@@ -24,7 +24,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from open_edit.ir.types import Project
+from open_edit.ir.types import Project, Timeline
 from open_edit.render.cache import RenderCache, canonical_json_hash, render_cache_key
 from open_edit.render.cuda_fastpath import (
     run_cuda_fastpath,
@@ -51,6 +51,7 @@ from open_edit.render.materialize import (
     materialize_remotion_compositions,
 )
 from open_edit.render.melt_runner import PipeRunError, run_pipe
+from open_edit.render.mlt_capability import audio_eq_warnings
 from open_edit.render.pipe_builder import OverlayClip, build_pipe_commands
 from open_edit.render.profiles import (
     RenderProfile,
@@ -95,6 +96,7 @@ class RenderResult(BaseModel):
     cache_hit: bool = False
     edit_graph_hash: str = ""
     diagnostics: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -407,6 +409,7 @@ def render_project(
     nice_level: int = 10,
     encoder_backend: str | None = None,
     emission_profile: EmissionProfile | None = None,
+    timeline_override: Timeline | None = None,
 ) -> RenderResult:
     """Render a project to an MP4.
 
@@ -460,7 +463,7 @@ def render_project(
     project.edit_graph = list(applied_ops)
     derive_t0 = time.monotonic()
     try:
-        timeline = derive_or_load_timeline(project, store, strict=True)
+        timeline = timeline_override.model_copy(deep=True) if timeline_override is not None else derive_or_load_timeline(project, store, strict=True)
     except Exception as exc:
         recorder.record(
             "derive_timeline",
@@ -483,6 +486,18 @@ def render_project(
         time.monotonic() - derive_t0,
         duration_sec=timeline.duration_sec,
     )
+    from open_edit.render.studio_graphics import (
+        graphics_reference_fingerprint,
+        materialize_graphics_documents,
+    )
+
+    try:
+        graphics_fingerprint = graphics_reference_fingerprint(timeline)
+        timeline = materialize_graphics_documents(timeline, project_dir)
+    except Exception as exc:
+        return _fail(mode=mode, profile=profile, output_path='', duration_sec=timeline.duration_sec,
+                     elapsed_sec=time.monotonic() - derive_t0, graph_hash='',
+                     error=str(exc), diagnostics={'stages': recorder.stages})
     frame_pull = frame_pull_gate(
         mode,
         project_dir,
@@ -514,7 +529,7 @@ def render_project(
         height=profile.height,
         fps=profile.frame_rate_num / max(profile.frame_rate_den, 1),
     )
-    content_fingerprint = f"{content_fingerprint}|hyperframes={hyperframes_fingerprint}"
+    content_fingerprint = f"{content_fingerprint}|hyperframes={hyperframes_fingerprint}|studio={graphics_fingerprint}"
     diagnostics = {
         "stages": recorder.stages,
         "profile": {
@@ -628,6 +643,7 @@ def render_project(
                 ok=True, output_path=str(cached), mode=mode,
                 profile=profile.model_dump(), duration_sec=timeline.duration_sec,
                 elapsed_sec=0.0, cache_hit=True, edit_graph_hash=graph_hash,
+                warnings=audio_eq_warnings(timeline),
                 diagnostics=_contractualize_diagnostics(
                     mode,
                     profile,
@@ -856,6 +872,9 @@ def render_project(
         time.monotonic() - emit_t0,
         bytes=xml_path.stat().st_size,
     )
+    if eq_warnings := audio_eq_warnings(plan.melt_timeline):
+        diagnostics.setdefault("warnings", []).extend(eq_warnings)
+        log.warning("%s", eq_warnings[0])
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
 
     spec = resolve_encoder_args(profile, encoder_backend)
@@ -1341,6 +1360,7 @@ def render_project(
         profile=profile.model_dump(), duration_sec=timeline.duration_sec,
         elapsed_sec=elapsed, cache_hit=False, edit_graph_hash=graph_hash,
         diagnostics=_contractualize_diagnostics(mode, profile, diagnostics),
+        warnings=list(diagnostics.get("warnings", [])),
     )
 
 

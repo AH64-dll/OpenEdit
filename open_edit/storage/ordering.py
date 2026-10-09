@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 def _invalidate_project_snapshots(conn: sqlite3.Connection, store: EditGraphStore) -> None:
     """Delete cached timeline snapshot rows for the project (one db per project)."""
     project_id = store._project_id_in(conn)
+    from open_edit.storage.history import invalidate
+
+    invalidate(conn)
     conn.execute(
         "DELETE FROM timeline_snapshots WHERE project_id = ?", (project_id,)
     )

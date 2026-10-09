@@ -92,6 +92,21 @@ async def _execute_tool(
 # ---------------------------------------------------------------------------
 
 async def run_agent_turn(
+    project_id: str, user_message: str, conversation_history: list[dict[str, Any]],
+    conv_id: str | None = None, should_cancel: Callable[[], bool] | None = None,
+) -> AsyncIterator[AgentEvent]:
+    from open_edit.ir.ids import new_id
+    from open_edit.storage.history import request_context
+
+    token = request_context.set(new_id())
+    try:
+        async for event in _run_agent_turn(project_id, user_message, conversation_history, conv_id, should_cancel):
+            yield event
+    finally:
+        request_context.reset(token)
+
+
+async def _run_agent_turn(
     project_id: str,
     user_message: str,
     conversation_history: list[dict[str, Any]],
@@ -137,6 +152,20 @@ async def run_agent_turn(
         supports_tools = True
 
     system_prompt = _build_system_prompt(state, supports_tools=supports_tools)
+    from open_edit.kernel.studio_service import get_editing_context
+    from open_edit.storage.history import request_context
+
+    try:
+        context = (await asyncio.to_thread(get_editing_context, project_path)
+                   if (project_path / '.open_edit/edit_graph.db').is_file() else None)
+    except ValueError:
+        context = None
+    if context is not None:
+        system_prompt += ('\nCurrent editing workspace (structured source and marks):\n' + json.dumps(context, ensure_ascii=False)
+                          + '\nRequest ID: ' + str(request_context.get())
+                          + '\nMake edits as source-backed studio changes. Preserve stable IDs and unlocked editable layers. '
+                          'Marks are instructions, excluded from export. Apply edits directly; never overwrite a newer revision. '
+                          'Imported footage remains media referenced by code; it is not reconstructed as source geometry.')
 
     # Append the user message to history
     user_msg: dict[str, Any] = {"role": "user", "content": user_message}

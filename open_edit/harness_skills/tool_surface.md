@@ -19,6 +19,9 @@ Inspect project state. Sub-queries:
 | `get_style_profile` | `op_type` | Style guidance for the given op type (cut, transition, effect, etc.). |
 | `analyze_narrative` | `asset_hash` | Rule-based narrative segments. |
 | `get_transcript_packed` | `asset_hash` (or omit for whole timeline) | Word-level alignment in a compact form. |
+| `get_graphics_view` | Optional `clip_id`, `include_source` | Compact graphics revision, worker readiness and last good preview; source on request. |
+| `get_history` | None | Revision, recent actions and next atomic Undo/Redo. |
+| `get_authoring_view` | Optional `include_source` (default false) | Revision and compact Diffusion media summary; literal JSX only on request. |
 
 **Common mistake:** calling these without the required params and then
 concluding the tool is broken. Read the error — it tells you which
@@ -40,9 +43,40 @@ Mutations:
   project-local template and timing.
 - `remove_clip` / `set_audio_gain` / `apply_silence_gaps` — remove, mute,
   and apply silence-cut proposals without `run_script`.
+- `undo` / `redo` — restore one whole edit action using `expected_revision`
+  from `get_history`. A new edit abandons the redo branch; direct legacy
+  status/reorder/delete changes form a history barrier.
 - `apply_generated_ops` — commit a list of IR ops (`AddClipOp`,
   `AddEffectOp`, `AddTransitionOp`, `HtmlOverlay`, `RawMltXmlOp`,
   `FreeFormCodeOp`, `NormalizeAudioOp`).
+- `apply_authoring_edit` — optional Diffusion media authoring: provide
+  `expected_revision` from `get_authoring_view` and exactly one of full JSX
+  `source` or native `edits` (`set`, `remove`, `move`, using source IDs such as
+  `index.tsx:c-hero`). Supports media add/remove/move/trim/source replacement and
+  absolute `volume` in dB and constant playbackRate 0.125..8 (checked CAS bake). Literal props, existing CAS assets and
+  non-overlapping tracks only; preserves other graph features. Stale or invalid
+  batches append nothing. Requires the optional pinned Node worker installed
+  with `python -m open_edit.integrations.diffusion.setup`.
+
+- `rewrite_graphics_source` — use `source`, `edits` and `expected_revision` to
+  rewrite literal graphics properties through stable `index.tsx:ID` addresses.
+  This prepares a draft; it does not mutate the graph.
+- `commit_graphics` — apply a succeeded `mode=graphics` job with its
+  `expected_revision`, optional `clip_id`, `track_id` and `position_sec`.
+  Only complete CAS output with passing QC can enter the graph.
+- `retime_asset` — bake a CAS asset's `source_in`, `source_out`, `playback_rate`
+  or `segments=[{source_in,source_out,rate}]`, optionally `fps`. Returns a
+  checked asset URL without graph mutation. Existing speed ops retain their
+  old semantics; interpolated speed ramps are not mapped automatically.
+
+Diffusion is the default editable graphics path. HTML overlays are advanced;
+Remotion is legacy compatibility (`open_edit setup legacy-remotion`).
+
+For graphics, install `python -m open_edit.integrations.diffusion.setup
+--graphics --chromium`, query `get_graphics_view` with `include_source=true`,
+then `trigger_render` with `mode=graphics`, `expected_revision` and
+`graphics={source,duration_sec,fps}`. Poll normally; commit only after review.
+The same six MCP tools remain; optional integrations are loaded on request.
 
 Creative generation (use these INSTEAD of hand-rolling):
 

@@ -1,0 +1,42 @@
+{
+  "name": "@diffusionstudio/jsx",
+  "version": "0.207.0",
+  "description": "Types and authoring API for Diffusion Studio compositions: the JSX element vocabulary, declarative generated assets (`generate.*`), and the hooks the editor implements when it mounts a project.",
+  "license": "MPL-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./jsx-runtime": "./src/jsx-runtime.ts",
+    "./jsx-dev-runtime": "./src/jsx-runtime.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "prepack": "node scripts/prepack.mjs",
+    "postpack": "node scripts/postpack.mjs"
+  },
+  "keywords": [
+    "diffusion-studio",
+    "solid-js",
+    "jsx",
+    "generative-ai",
+    "video-editing"
+  ],
+  "dependencies": {
+    "koota": "^0.6.6"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

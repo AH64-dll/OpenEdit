@@ -1,0 +1,1 @@
+Pinned, unchanged MPL-2.0 sources from https://github.com/diffusionstudio/editor/tree/fefcde9df7198466bd7cc9f3a9d7eae1575b5b12/packages (runtime, reconciler, encoder, assets, jsx). Copyright belongs to the upstream contributors. OpenEdit host code outside vendor is MIT. Full MPL license is in LICENSE. No upstream application branding or assets are included.

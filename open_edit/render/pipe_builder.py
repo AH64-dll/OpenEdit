@@ -26,9 +26,19 @@ class OverlayClip:
     blur_under: bool = False
     # ProRes/Remotion overlays carry alpha; opaque MP4 screen recordings do not.
     alpha: bool = True
+    in_point_sec: float = 0.0
+    z_index: int = 0
+    still: bool = False
 
 
 OverlayInput: TypeAlias = OverlayClip | FrameOverlaySpec
+
+# Rawvideo carries no frame metadata. Match MLT's Rec.709/limited consumer
+# on both the input and encoded output instead of letting SD decoders guess 601.
+REC709_TAGS = (
+    "-color_range", "tv", "-colorspace", "bt709",
+    "-color_primaries", "bt709", "-color_trc", "bt709",
+)
 
 
 @dataclass(frozen=True)
@@ -83,20 +93,23 @@ def overlay_filter_chain(
         end = ov.position_sec + ov.duration_sec
         out_label = f"[v{i}]" if i < len(overlays) else "[vout]"
         ov_input = first_overlay_input + i - 1
+        source_in = getattr(ov, 'in_point_sec', 0.0)
+        trim = f'trim=start={source_in}:duration={ov.duration_sec},' if source_in else ''
         if ov.alpha:
             filters.append(
-                f"[{ov_input}:v]scale={width}:{height},"
+                f"[{ov_input}:v]{trim}scale={width}:{height},"
                 f"format=rgba,"
                 f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
             )
         else:
             filters.append(
-                f"[{ov_input}:v]scale={width}:{height},"
+                f"[{ov_input}:v]{trim}scale={width}:{height},"
                 f"setpts=PTS-STARTPTS+{ov.position_sec}/TB[ov{i}]"
             )
+        enable = f'gte(t,{ov.position_sec:.6f})*lt(t,{end:.6f})' if getattr(ov, 'still', False) else f'between(t,{ov.position_sec:.3f},{end:.3f})'
         filters.append(
             f"{last}[ov{i}]overlay=0:0:format=auto:eof_action=pass:"
-            f"enable='between(t,{ov.position_sec:.3f},{end:.3f})'"
+            f"enable='{enable}'"
             f"{out_label}"
         )
         last = f"[v{i}]"
@@ -107,7 +120,9 @@ def overlay_filter_chain(
         # doesn't support 4:4:4" -> rc -22). Rename the last overlay's
         # output to [vfin] and force 4:2:0 on [vout], which callers map.
         filters[-1] = filters[-1].replace("[vout]", "[vfin]", 1)
-        filters.append("[vfin]format=yuv420p[vout]")
+        # RGB/alpha composition needs an actual 709 conversion, not only tags.
+        # format=yuv420p alone lets swscale select 601 for small canvases.
+        filters.append("[vfin]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p[vout]")
     return filters
 
 
@@ -137,7 +152,7 @@ def build_pipe_commands(
         overlay
         for _index, overlay in sorted(
             enumerate(requested_overlays),
-            key=lambda item: (item[1].position_sec, item[0]),
+            key=lambda item: (getattr(item[1], 'z_index', 0), item[0]),
         )
     ]
     normalized_overlays: list[OverlayInput] = []
@@ -169,8 +184,15 @@ def build_pipe_commands(
         f"s={size}",
         f"frame_rate_num={profile.frame_rate_num}",
         f"frame_rate_den={profile.frame_rate_den}",
+        # avformat consumers otherwise retain MLT's PAL pixel aspect (16:15),
+        # squeezing square-pixel graphics even when s= and the XML match.
+        "sample_aspect_num=1",
+        "sample_aspect_den=1",
+        f"display_aspect_num={profile.width}",
+        f"display_aspect_den={profile.height}",
         "progressive=1",
         "colorspace=709",
+        "color_range=tv",
     ]
 
     melt_audio_cmd = [
@@ -180,7 +202,7 @@ def build_pipe_commands(
         "format=wav",
     ]
 
-    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, "-i", "-"]
+    video_inputs = ["-f", "rawvideo", "-pix_fmt", "nv12", "-s", size, "-r", fps, *REC709_TAGS, "-i", "-"]
     audio_inputs = ["-i", str(audio_wav)]
     overlay_inputs: list[str] = []
     for ov in normalized_overlays:
@@ -193,6 +215,8 @@ def build_pipe_commands(
                 "-i", f"pipe:{ov.pipe_fd}",
             ]
         else:
+            if ov.still:
+                overlay_inputs += ['-loop', '1', '-framerate', fps, '-t', str(ov.duration_sec)]
             overlay_inputs += ["-i", str(ov.media_path)]
 
     if normalized_overlays:
@@ -205,7 +229,7 @@ def build_pipe_commands(
             *video_inputs, *audio_inputs, *overlay_inputs,
             "-filter_complex", ";".join(filters),
             "-map", "[vout]", "-map", "1:a?",
-            "-c:v", spec.vcodec, *spec.ffmpeg_args,
+            "-c:v", spec.vcodec, *spec.ffmpeg_args, *REC709_TAGS,
             "-c:a", profile.acodec, "-b:a", audio_bitrate,
             str(output_mp4),
         ]
@@ -214,7 +238,7 @@ def build_pipe_commands(
             "ffmpeg", "-y",
             *video_inputs, *audio_inputs,
             "-map", "0:v", "-map", "1:a?",
-            "-c:v", spec.vcodec, *spec.ffmpeg_args,
+            "-c:v", spec.vcodec, *spec.ffmpeg_args, *REC709_TAGS,
             "-c:a", profile.acodec, "-b:a", audio_bitrate,
             str(output_mp4),
         ]

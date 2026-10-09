@@ -42,6 +42,7 @@ from open_edit.ir.types import (
     AddRemotionCompositionOp,
     AddTransitionOp,
     ChangeClipSpeedOp,
+    Clip,
     FreeFormCodeOp,
     GroupEditsOp,
     HtmlOverlay,
@@ -50,8 +51,10 @@ from open_edit.ir.types import (
     OperationUnion,
     RawMltXmlOp,
     RemotionComposition,
+    RemoveCaptionOp,
     RemoveClipOp,
     RemoveEffectOp,
+    RemoveGraphicsSourceOp,
     RemoveHtmlOverlayOp,
     RemoveKeyframeOp,
     RemoveRemotionCompositionOp,
@@ -59,8 +62,10 @@ from open_edit.ir.types import (
     ReplaceClipSourceOp,
     RippleDeleteClipOp,
     SetAudioGainOp,
+    SetCaptionOp,
     SetClipSpeedRampOp,
     SetEffectParamOp,
+    SetGraphicsSourceOp,
     SetKeyframeOp,
     SetTransitionPropertyOp,
     SlipClipOp,
@@ -88,6 +93,50 @@ def apply_operation(
     """
     timeline = timeline.model_copy(deep=True)
     if op.status != "applied":
+        return timeline
+    from open_edit.ir.studio_ops import STUDIO_OPERATIONS, apply
+
+    if isinstance(op, STUDIO_OPERATIONS):
+        return apply(timeline, op)
+
+    if isinstance(op, SetCaptionOp):
+        timeline.captions[op.caption_id] = op.cue.model_copy(deep=True)
+        return timeline
+    if isinstance(op, RemoveCaptionOp):
+        timeline.captions.pop(op.caption_id, None)
+        return timeline
+
+    if isinstance(op, SetGraphicsSourceOp):
+        old = timeline.graphics_documents.get(op.document_id)
+        timeline.graphics_documents[op.document_id] = {
+            'source': op.source, 'duration_sec': op.duration_sec, 'fps': op.fps,
+            'enabled': op.enabled, 'label': op.label, 'clip_id': op.clip_id,
+        }
+        _, original, _ = _find_clip(timeline, op.clip_id)
+        if original is not None and (original.document_id not in (None, op.document_id) or
+                                     (original.document_id is None and not op.adopt_clip)):
+            raise ApplyError('Graphics document would replace a different clip')
+        instances = [(track, clip, index) for track in timeline.tracks for index, clip in enumerate(track.clips)
+                     if clip.document_id == op.document_id or (clip is original and op.adopt_clip)]
+        for track, clip, index in instances:
+            full = clip.in_point_sec == 0 and old is not None and abs(clip.out_point_sec - old['duration_sec']) < 1e-6
+            if not full and clip.out_point_sec > op.duration_sec + 1e-6:
+                raise ApplyError('Graphics source is shorter than its explicit clip trim')
+            track.clips[index] = clip.model_copy(update={
+                'document_id': op.document_id, 'asset_hash': f'studio:{op.document_id}',
+                'out_point_sec': op.duration_sec if full else clip.out_point_sec,
+            })
+        if not instances and old is None:
+            track = _get_or_create_track(timeline, op.track_id, 'video')
+            track.clips.append(Clip(clip_id=op.clip_id, document_id=op.document_id,
+                                    asset_hash=f'studio:{op.document_id}', track_id=op.track_id,
+                                    track_kind='video', position_sec=op.position_sec,
+                                    in_point_sec=0, out_point_sec=op.duration_sec))
+        return timeline
+    if isinstance(op, RemoveGraphicsSourceOp):
+        timeline.graphics_documents.pop(op.document_id, None)
+        for track in timeline.tracks:
+            track.clips = [clip for clip in track.clips if clip.document_id != op.document_id]
         return timeline
 
     if isinstance(op, AddClipOp):

@@ -15,9 +15,10 @@ export const $$ = (sel, root = (typeof document !== 'undefined' ? document : nul
 };
 
 export function el(tag, props = {}, children = []) {
-  const node = document.createElement(tag);
+  const svg = tag === 'svg' && typeof document.createElementNS === 'function';
+  const node = svg ? document.createElementNS('http://www.w3.org/2000/svg', tag) : document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
-    if (k === 'class') node.className = v;
+    if (k === 'class' && !svg) node.className = v;
     else if (k === 'dataset') Object.assign(node.dataset, v);
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'html') node.innerHTML = v;
@@ -191,4 +192,41 @@ export function stopModalMedia(id) {
 export function truncate(s, n) {
   if (!s) return '';
   return s.length <= n ? s : s.slice(0, n - 1) + '…';
+}
+
+/* Inspector panels rebuild on every studio refresh. Keep what the user is
+   typing: capture edited fields inside `root`, rebuild, then restore them.
+   Fields are matched by their form's data-draft-key plus the field name, and
+   only restored when the rebuilt field still starts from the same value, so
+   a real external change to the object wins over a stale draft. `forms`
+   limits preservation to the forms this caller actually rebuilds. */
+export function keepDrafts(root, rebuild, forms = 'form[data-draft-key]') {
+  const drafts = new Map();
+  let focused = null;
+  if (root) for (const form of root.querySelectorAll(forms)) {
+    for (const field of form.elements) {
+      if (!field.name || field.type === 'submit' || field.type === 'button') continue;
+      const value = field.type === 'checkbox' ? String(field.checked) : field.value;
+      const id = `${form.dataset.draftKey}\u0000${field.name}`;
+      if (field.dataset.draftInitial !== undefined && value !== field.dataset.draftInitial) drafts.set(id, { value, initial: field.dataset.draftInitial });
+      if (field === document.activeElement) focused = { id, start: field.selectionStart, end: field.selectionEnd };
+    }
+  }
+  const result = rebuild();
+  if (root) for (const form of root.querySelectorAll(forms)) {
+    for (const field of form.elements) {
+      if (!field.name || field.type === 'submit' || field.type === 'button') continue;
+      const current = field.type === 'checkbox' ? String(field.checked) : field.value;
+      field.dataset.draftInitial = current;
+      const id = `${form.dataset.draftKey}\u0000${field.name}`, draft = drafts.get(id);
+      if (draft && draft.initial === current) {
+        if (field.type === 'checkbox') field.checked = draft.value === 'true'; else field.value = draft.value;
+      }
+      if (focused?.id === id && !field.disabled) {
+        field.focus({ preventScroll: true });
+        try { if (focused.start != null) field.setSelectionRange(focused.start, focused.end); } catch {}
+      }
+    }
+  }
+  return result;
 }

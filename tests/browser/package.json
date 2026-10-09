@@ -1,0 +1,8 @@
+{
+  "name": "openedit-browser-acceptance",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "playwright-core": "1.60.0"
+  }
+}

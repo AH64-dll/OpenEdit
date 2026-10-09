@@ -67,10 +67,12 @@ Use this for ALL read-only queries about the project:
 - "search_assets" → search the durable **internet stock** cascade
   (Pexels/Freesound → Openverse → Wikimedia Commons)
 - "get_transcript_packed" → get silence-aware, speaker-grouped phrase transcript
+- "get_authoring_view" → optional JSX media view and revision (source only with include_source=true)
 
 ## 2. edit_project (preferred for mutations)
 Use this for ALL project edits:
 - Operations are APPLIED IMMEDIATELY
+- "apply_authoring_edit" → revision-checked JSX/media source edits; see tool_surface for optional worker setup
 - "capture_style_hint" → persist a **confirmed** user style preference
 - "set_pinned_value" → hard pin (aspect ratio, durations, etc.)
 - For creative suggestions (SFX, music, visuals, silence cuts), use the "generate" parameter

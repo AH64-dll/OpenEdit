@@ -99,11 +99,22 @@ def build_render_plan(
         if frame_engine == "pull"
         else []
     )
-    video_overlays = _video_track_overlay_clips(timeline, asset_paths)
+    video_overlays = _video_track_overlay_clips(timeline, asset_paths, store=store,
+        profile=frame_profile or remotion_profile_for_mode(mode))
+    from open_edit.render.visual_transitions import transition_overlay
+
+    transitions = [transition_overlay(spec, asset_paths, store.assets_dir.parent / 'cache/transitions',
+        frame_profile or remotion_profile_for_mode(mode)) for spec in timeline.visual_transitions]
     overlay_clips = sorted(
-        remotion_overlays + frame_overlays + video_overlays,
-        key=lambda o: o.position_sec,
+        remotion_overlays + frame_overlays + video_overlays + transitions,
+        key=lambda o: o.z_index,
     )
+    if timeline.captions:
+        from open_edit.render.captions import caption_overlays
+
+        profile = frame_profile or remotion_profile_for_mode(mode)
+        width, height = map(int, profile.scale.split('x')) if profile.scale else (profile.width, profile.height)
+        overlay_clips.extend(caption_overlays(store.assets_dir.parent.parent, timeline.captions, width, height))
     return RenderPlan(
         melt_timeline=timeline_for_melt(timeline),
         overlay_clips=overlay_clips,
@@ -158,6 +169,10 @@ def _resolve_asset_paths_with_diagnostics(
     enqueue_missing_proxies: bool,
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     hashes: list[str] = []
+    for spec in timeline.visual_transitions:
+        for clip in (spec.clip_a, spec.clip_b):
+            if clip.asset_hash not in hashes:
+                hashes.append(clip.asset_hash)
     for op in ops:
         if isinstance(op, AddClipOp) and op.asset_hash not in hashes:
             hashes.append(op.asset_hash)
@@ -279,6 +294,7 @@ def _remotion_overlay_clips(
             media_path=Path(path),
             label=composition.composition_id,
             blur_under=bool((composition.props or {}).get("blur_under", False)),
+            z_index=next((i for i,t in enumerate(timeline.tracks) if t.track_id == composition.track_id), len(timeline.tracks)),
         ))
     overlays.sort(key=lambda o: o.position_sec)
     return overlays
@@ -309,6 +325,7 @@ def _frame_overlay_specs(
                 fps=profile.frame_rate_num / profile.frame_rate_den,
                 alpha=composition.alpha,
                 blur_under=bool(composition.props.get("blur_under", False)),
+                z_index=next((i for i,t in enumerate(timeline.tracks) if t.track_id == composition.track_id), len(timeline.tracks)),
             )
         )
     overlays.sort(key=lambda o: o.position_sec)
@@ -317,6 +334,7 @@ def _frame_overlay_specs(
 
 def _video_track_overlay_clips(
     timeline: Timeline, asset_paths: dict[str, str],
+    *, store: AssetStore | None = None, profile: RenderProfile | None = None,
 ) -> list[OverlayClip]:
     """Fullscreen clips on video tracks above v1 (e.g. screen recordings on v2).
 
@@ -332,10 +350,26 @@ def _video_track_overlay_clips(
     for track in video_tracks[1:]:
         if track.track_id == "video_graphics":
             continue
-        for clip in track.clips:
+        if track.hidden:
+            continue
+        visible = track.model_copy(deep=True, update={'clips': [c for c in track.clips if not c.hidden]})
+        if not visible.clips:
+            continue
+        audio_effects = {'volume', 'gain', 'panner', 'eq', 'sfx', 'music_bed', 'audio_fade_in', 'audio_fade_out'}
+        needs_effect_pass = any(e.enabled and e.effect_type not in audio_effects and not e.effect_type.startswith('transition_')
+                               for e in [*track.effects, *[e for c in visible.clips for e in c.effects]])
+        filtered = None
+        if needs_effect_pass:
+            from open_edit.render.layer_effects import materialize_layer
+
+            if store is None or profile is None:
+                raise ValueError('Layer effects require a checked render context')
+            filtered = materialize_layer(visible, timeline.duration_sec, asset_paths,
+                                         store.assets_dir.parent / 'cache' / 'layers', profile)
+        for clip in visible.clips:
             if clip.clip_id in remotion_clip_ids:
                 continue
-            path = asset_paths.get(clip.asset_hash)
+            path = filtered or asset_paths.get(clip.asset_hash)
             if not path:
                 continue
             dur = clip.out_point_sec - clip.in_point_sec
@@ -344,7 +378,9 @@ def _video_track_overlay_clips(
                 duration_sec=dur,
                 media_path=Path(path),
                 label=track.track_id,
-                alpha=False,
+                alpha=True,
+                in_point_sec=clip.position_sec if filtered else clip.in_point_sec,
+                z_index=timeline.tracks.index(track),
             ))
     return overlays
 
@@ -357,7 +393,28 @@ def timeline_for_melt(timeline: Timeline) -> Timeline:
     on Windows and can blank the base layer.
     """
     updated = timeline.model_copy(deep=True)
+    solo = any(t.solo for t in updated.tracks)
+    audio_tracks = []
+    from open_edit.ir.types import Track
+
     remotion_ids = {c.clip_id for c in updated.remotion_compositions}
+    base_id = next((t.track_id for t in updated.tracks if t.kind == 'video'), None)
+    for track in updated.tracks:
+        muted = track.muted or (solo and not track.solo)
+        if track.kind == 'video':
+            # Keep sound from every video layer, including hidden pictures.
+            audio_clips = [c.model_copy(deep=True, update={'track_id': f'audio:{track.track_id}', 'track_kind': 'audio'})
+                           for c in track.clips if not c.muted and not c.document_id and c.clip_id not in remotion_ids]
+            separate_audio = track.track_id != base_id or track.hidden or any(c.hidden or c.muted for c in track.clips)
+            if audio_clips and separate_audio:
+                audio_tracks.append(Track(track_id=f'audio:{track.track_id}', kind='audio', clips=audio_clips,
+                                          effects=track.effects, muted=muted))
+            track.muted = True if separate_audio else muted
+            track.clips = [c for c in track.clips if not c.hidden and not track.hidden]
+        else:
+            track.muted = muted
+            track.clips = [c for c in track.clips if not c.muted]
+        track.solo = False
     if remotion_ids:
         for track in updated.tracks:
             track.clips = [c for c in track.clips if c.clip_id not in remotion_ids]
@@ -369,4 +426,5 @@ def timeline_for_melt(timeline: Timeline) -> Timeline:
             if t.kind != "video" or t.track_id == base_id
         ]
     updated.tracks = [t for t in updated.tracks if t.clips]
+    updated.tracks.extend(audio_tracks)
     return updated

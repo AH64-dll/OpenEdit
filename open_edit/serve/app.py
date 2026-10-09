@@ -39,9 +39,20 @@ from . import projects as projects_mod
 from .auth import TokenAuthMiddleware, _websocket_auth_error  # noqa: F401 (re-exported for tests)
 from .diagnostics import collect_diagnostics
 from .diagnostics import get_health as _collect_health
+from .extensions import agent as chat_mod
 from .logging_setup import CorrelationIdMiddleware, setup_logging
-from .routers import assets, config, ops, preview_chunks, projects, renders
-from .ws import chat as chat_mod
+from .routers import (
+    assets,
+    authoring,
+    captions,
+    config,
+    exports,
+    ops,
+    preview_chunks,
+    projects,
+    renders,
+    studio,
+)
 
 
 @asynccontextmanager
@@ -72,7 +83,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Open Edit Server",
     version="0.1.0",
-    description="Chat-driven backend for the Open Edit AI-native video editor.",
+    description="Project editing, review and rendering for the Open Edit MCP server.",
     lifespan=_lifespan,
 )
 
@@ -142,10 +153,14 @@ async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse
 
 app.include_router(projects.router)
 app.include_router(renders.router)
+app.include_router(exports.router)
+app.include_router(captions.router)
 app.include_router(preview_chunks.router)
 app.include_router(ops.router)
 app.include_router(config.router)
 app.include_router(assets.router)
+app.include_router(authoring.router)
+app.include_router(studio.router)
 app.include_router(chat_mod.router)
 
 

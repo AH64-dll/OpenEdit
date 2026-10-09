@@ -144,6 +144,16 @@ def slice_timeline(
         raise ValueError(f"unsupported preview plane: {plane!r}")
 
     updated = timeline.model_copy(deep=True)
+    start_sec = _frames_to_seconds(render_start_frame, fps_num, fps_den)
+    end_sec = _frames_to_seconds(render_end_frame, fps_num, fps_den)
+    updated.visual_transitions = [t.model_copy(update={
+        'position_sec': max(t.position_sec, start_sec) - start_sec,
+        'in_point_sec': t.in_point_sec + max(0, start_sec - t.position_sec),
+        'visible_duration_sec': min(t.position_sec + t.visible_duration_sec, end_sec) - max(t.position_sec, start_sec),
+    }) for t in updated.visual_transitions if plane != 'audio' and t.position_sec < end_sec and t.position_sec + t.visible_duration_sec > start_sec]
+    updated.captions = {id: cue.model_copy(update={'start_sec': max(cue.start_sec, start_sec) - start_sec,
+        'end_sec': min(cue.end_sec, end_sec) - start_sec}) for id, cue in updated.captions.items()
+        if plane != 'audio' and cue.start_sec < end_sec and cue.end_sec > start_sec}
     updated.tracks = _slice_tracks(
         updated.tracks,
         render_start_frame=render_start_frame,
@@ -198,12 +208,14 @@ def _slice_tracks(
         else {plane}
     )
     sliced_tracks: list[Track] = []
+    has_solo = any(track.solo for track in tracks)
     for track in tracks:
         if track.kind not in selected_kinds:
             continue
         clips = [
             sliced
             for clip in track.clips
+            if not (plane == 'audio' and clip.document_id is not None)
             if (sliced := _slice_clip(
                 clip,
                 render_start_frame=render_start_frame,
@@ -214,7 +226,8 @@ def _slice_tracks(
         ]
         if clips:
             clips.sort(key=lambda clip: clip.position_sec)
-            sliced_tracks.append(track.model_copy(update={"clips": clips}))
+            sliced_tracks.append(track.model_copy(update={"clips": clips,
+                'muted': track.muted or (has_solo and not track.solo), 'solo': False}))
     return sliced_tracks
 
 
@@ -396,6 +409,7 @@ OperationPlane = Literal["video", "audio"]
 _AUDIO_ONLY_KINDS = frozenset({"set_audio_gain", "normalize_audio"})
 _VIDEO_ONLY_KINDS = frozenset(
     {
+        'set_caption', 'remove_caption',
         "add_html_overlay",
         "remove_html_overlay",
         "add_remotion_composition",
@@ -832,6 +846,10 @@ def _operation_intervals(
     """Return affected project-second intervals, or None for full timeline."""
 
     kind = str(_op_field(op, "kind", ""))
+    if kind in ('set_caption', 'remove_caption'):
+        id = _op_field(op, 'caption_id', '')
+        return [(c.start_sec, c.end_sec) for t in (old_timeline, new_timeline) if t is not None
+                if (c := t.captions.get(id)) is not None]
     if kind in _FULL_TIMELINE_KINDS or kind in {
         "group_edits",
         "ungroup_edits",
@@ -1141,6 +1159,8 @@ def _effect_in_plane(effect: Any, plane: OperationPlane) -> bool:
     if not isinstance(params, dict):
         params = {}
     is_audio = (
+        effect_type in ('audio_fade_in', 'audio_fade_out')
+        or
         effect_type in _AUDIO_EFFECT_NAMES
         or effect_type.startswith("audio_")
         or bool(params.get("normalize"))

@@ -1,0 +1,19 @@
+{
+  "name": "openedit-diffusion-graphics-worker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT AND MPL-2.0",
+  "dependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.29.7",
+    "babel-preset-solid": "1.9.12",
+    "esbuild": "0.28.1",
+    "ts-morph": "28.0.0",
+    "animejs": "4.5.0",
+    "colord": "2.9.3",
+    "koota": "0.6.6",
+    "mediabunny": "1.50.6",
+    "solid-js": "1.9.14",
+    "playwright-core": "1.60.0"
+  }
+}

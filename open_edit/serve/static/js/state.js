@@ -31,12 +31,18 @@ export const state = {
   costBadge: null,
   reviewOnly: false,
   autoProxy: false,
+  autoPreview: true,
+  previewChunksEnabled: true,
+  capabilities: {},
   playheadSec: 0,
   lastGraphRevision: null,
   proxyRenderInFlight: false,
   renderPollTimer: null,
   previewRenderId: null,
-  _autoSeedTimelineFor: null,
+  previewChunks: false,
+  previewManifest: null,
+  previewChunkStart: 0,
+  previewChunkEnd: 0,
 };
 
 // Hydrate from localStorage if it's available (browser). Tests stub
@@ -134,6 +140,7 @@ export function normalizeRenders(rawState) {
   // Prompt-1: separate /renders endpoint (handled in renderRendersList)
   if (Array.isArray(rawState.last_renders)) {
     return rawState.last_renders.map(r => ({
+      ...r,
       path: r.path || '',
       mode: r.mode || 'proxy',
       timestamp: r.timestamp || r.created_at || '',

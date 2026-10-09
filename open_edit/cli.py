@@ -164,13 +164,9 @@ def cmd_undo(args: argparse.Namespace) -> int:
         print("error: no open_edit project found", file=sys.stderr)
         return 1
     store = EditGraphStore(project_dir / "edit_graph.db")
-    ops = store.load_all()
-    for op in reversed(ops):
-        if op.status == "applied":
-            store.update_status(op.edit_id, "reverted")
-            print(f"Reverted: {op.kind} ({op.edit_id[:8]})")
-            return 0
-    print("Nothing to undo")
+    direction = getattr(args, 'cmd', 'undo')
+    result = store.history_step(direction, store.graph_revision())
+    print(f"{direction.capitalize()}: {result['label']}" if result['changed'] else f"Nothing to {direction}")
     return 0
 
 
@@ -627,6 +623,27 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from open_edit.integrations.readiness import readiness
+
+    result = readiness()
+    if args.json:
+        print(json.dumps(result))
+    else:
+        for check in result['checks']:
+            print(f"{'Ready' if check['ready'] else 'Setup needed'}: {check['name']}")
+            if not check['ready']:
+                print(f"  {check['help']}")
+    return 0
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    from open_edit.integrations.setup import install
+
+    install(args.feature)
+    return 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     """Start the local stdio MCP server for an external agent host."""
     from open_edit.mcp.server import main as mcp_main
@@ -651,6 +668,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--version", action="store_true")
     sub = parser.add_subparsers(dest="cmd")
+    p_doctor = sub.add_parser('doctor', help='Check editing capabilities and show setup instructions')
+    p_doctor.add_argument('--json', action='store_true')
+    p_doctor.set_defaults(func=cmd_doctor)
+    p_setup = sub.add_parser('setup', help='Install one optional editing capability')
+    p_setup.add_argument('feature', choices=['media', 'graphics', 'html', 'legacy-remotion'])
+    p_setup.set_defaults(func=cmd_setup)
 
     p_init = sub.add_parser("init", help="Initialize a project in the given folder")
     p_init.add_argument("folder", nargs="?", default=".", help="folder of raw video files")
@@ -662,8 +685,10 @@ def main(argv: list[str] | None = None) -> int:
     p_summary = sub.add_parser("summary", help="Show derived timeline")
     p_summary.set_defaults(func=cmd_summary)
 
-    p_undo = sub.add_parser("undo", help="Revert the most recent applied op")
+    p_undo = sub.add_parser("undo", help="Undo the most recent complete editing action")
     p_undo.set_defaults(func=cmd_undo)
+    p_redo = sub.add_parser('redo', help='Redo the most recently undone editing action')
+    p_redo.set_defaults(func=cmd_undo)
 
     p_render = sub.add_parser(
         "render",
@@ -786,12 +811,11 @@ def main(argv: list[str] | None = None) -> int:
     # --- chat UI serve (v1.3+) ------------------------------------------
     p_serve = sub.add_parser(
         "serve",
-        help="Start the chat-driven FastAPI backend (uvicorn).",
+        help="Start the editing and review workspace (uvicorn).",
         description=(
-            "Start the Open Edit HTTP + WebSocket server. The server "
-            "exposes a REST API under /api/ and a chat WebSocket at "
-            "/api/chat/{project_id}. The static frontend (if present) is "
-            "served at /."
+            "Start the Open Edit workspace at / and editing API under /api/. "
+            "Review, graphics and source editing are included. "
+            "Use --with-agent for the optional built-in chat extension."
         ),
     )
     p_serve.add_argument(

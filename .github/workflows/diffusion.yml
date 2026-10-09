@@ -1,0 +1,130 @@
+name: Diffusion acceptance
+
+on:
+  push:
+    branches: ["feat/**"]
+  pull_request:
+
+jobs:
+  compiler:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - if: matrix.os == 'macos-latest'
+        run: brew install ffmpeg
+      - if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # choco exits 0 on feed timeouts; retry, then verify ffmpeg exists.
+          foreach ($attempt in 1..3) {
+            choco install ffmpeg --yes --no-progress
+            if (@(Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue).Count -eq 2) { break }
+            Start-Sleep -Seconds 20
+          }
+          if (@(Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue).Count -ne 2) {
+            winget install --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements --silent
+            $links = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"
+            if (Test-Path $links) { $env:Path += ";$links"; Add-Content $env:GITHUB_PATH $links }
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") + ";$links"
+          }
+          if (@(Get-Command ffmpeg, ffprobe -ErrorAction SilentlyContinue).Count -ne 2) {
+            throw "ffmpeg/ffprobe still missing after choco and winget"
+          }
+          $global:LASTEXITCODE = 0
+      - run: pip install -e ".[dev]"
+      - run: python -m open_edit.integrations.diffusion.setup
+      - run: python -m open_edit.integrations.diffusion.setup --graphics
+      - run: pytest tests/test_diffusion_graphics.py tests/test_diffusion_graphics_contract.py tests/test_diffusion_setup.py -m "not browser" --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_studio_storage.py tests/test_studio_service.py tests/test_studio_source_writer.py tests/test_studio_graphics.py tests/test_studio_geometry.py -m "not browser" --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_request_history.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_timeline_controls.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_graphics_animation.py tests/test_asset_visuals.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_export_service.py -m "not browser" --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_captions.py --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_audio_controls.py -m "not browser" --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_media_marks.py tests/test_visual_transitions.py -m "not browser" --timeout=40 --timeout-method=thread
+      - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py tests/test_action_history.py tests/test_editing_setup.py --timeout=40 --timeout-method=thread
+      - if: matrix.os != 'ubuntu-latest'
+        run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
+      - if: matrix.os != 'ubuntu-latest'
+        env:
+          OPEN_EDIT_CHROMIUM_NO_SANDBOX: "1"
+        run: pytest tests/test_diffusion_graphics.py -m browser --timeout=240 --timeout-method=thread
+      - if: matrix.os != 'ubuntu-latest'
+        run: pytest tests/test_diffusion_timing.py --timeout=60 --timeout-method=thread
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.os != 'ubuntu-latest'
+        with:
+          name: graphics-${{ matrix.os }}
+          path: tests/browser/artifacts/
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      OPEN_EDIT_CHROMIUM_NO_SANDBOX: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg melt
+      - run: pip install -e ".[dev]"
+      - run: python -m open_edit.integrations.diffusion.setup
+      - run: npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund
+      - run: npx --prefix tests/browser playwright-core install --with-deps chromium
+      - run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
+      - name: Actual MLT preview and immutable export color parity
+        run: pytest tests/test_render/test_color_contract.py -m browser --timeout=180 --timeout-method=thread
+      - run: pytest tests/test_diffusion_graphics.py -m browser --timeout=240 --timeout-method=thread
+      - run: pytest tests/test_studio_graphics.py -m browser --timeout=240 --timeout-method=thread
+      - run: pytest tests/test_export_service.py -m browser --timeout=240 --timeout-method=thread
+      - run: pytest tests/test_audio_controls.py -m browser --timeout=240 --timeout-method=thread
+        if: success() || failure()
+      - run: pytest tests/test_visual_transitions.py -m browser --timeout=240 --timeout-method=thread
+        if: success() || failure()
+      - name: Install independent legacy Remotion compatibility
+        run: open_edit setup legacy-remotion
+      - name: Actual optional Remotion TSX and frame-pull compatibility
+        run: |
+          export OPEN_EDIT_REMOTION_BROWSER="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
+          export OPEN_EDIT_REMOTION_CHROME_BIN="$OPEN_EDIT_REMOTION_BROWSER"
+          pytest tests/test_legacy_remotion_browser.py -m browser --timeout=240 --timeout-method=thread
+      - run: node tests/browser/authoring.cjs
+        if: success() || failure()
+      - run: node tests/browser/studio.cjs
+        if: success() || failure()
+      - run: pytest tests/test_diffusion_timing.py --timeout=60 --timeout-method=thread
+      - run: python tools/benchmark_diffusion.py --render > tests/browser/artifacts/benchmark.json
+      - name: Existing render and legacy replay acceptance
+        env:
+          QT_QPA_PLATFORM: offscreen
+          SDL_VIDEODRIVER: dummy
+        run: pytest tests/test_e2e_render.py tests/test_graphics_overlay.py tests/test_remotion_proxy_golden.py --timeout=180 --timeout-method=thread
+      - name: Install pinned advanced HTML dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Actual HyperFrames browser and FFmpeg replay
+        env:
+          HYPERFRAMES_NO_TELEMETRY: "1"
+          DO_NOT_TRACK: "1"
+        run: |
+          export HYPERFRAMES_BROWSER_PATH="$(node -e 'console.log(require("./tests/browser/node_modules/playwright-core").chromium.executablePath())')"
+          pytest tests/test_html_overlay.py -m browser --timeout=180 --timeout-method=thread
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: authoring-browser-captures
+          path: tests/browser/artifacts/

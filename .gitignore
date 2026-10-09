@@ -38,3 +38,5 @@ static.bak.*/
 .commandcode/
 docs/superpowers/tmp/
 research/diffusion-compiler/.check-*/
+tests/browser/artifacts/
+.venv-*/

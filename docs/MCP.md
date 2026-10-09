@@ -155,6 +155,16 @@ Restart Cursor (or reload MCP servers) after editing the config.
 | `get_render_job` | Poll a durable render job by `job_id` |
 | `cancel_render_job` | Cancel a queued/running job |
 
+### Optional JSX media authoring
+
+`query_project` with `query="get_authoring_view"` returns a compact summary and
+graph revision; set `params.include_source=true` to export literal media JSX.
+`edit_project` with `operation="apply_authoring_edit"` accepts that revision as
+`params.expected_revision` plus either `params.source` or `params.edits`.
+The batch commits atomically and rejects stale revisions. Applying edits needs
+the optional pinned Node worker; exporting works without it. See
+[setup, examples and supported features](DIFFUSION_AUTHORING.md).
+
 ### Local media ingest
 
 ```json
@@ -324,8 +334,9 @@ Operator controls are configured through:
 - `OPEN_EDIT_PROXY_QC_POLICY` (`always`, `skip_on_hit`, or `never`) as the
   M1 compatibility override for proxy QC.
 - `OPEN_EDIT_AUTO_PROXY=1` keeps the existing auto-proxy behavior; it is
-  independent from `OPEN_EDIT_AUTO_PREVIEW=1`, which permits automatic
-  preview-chunk requests after graph changes.
+  independent from `OPEN_EDIT_AUTO_PREVIEW` (default on), which updates dirty
+  timeline ranges automatically. Set it to `0` for manual updates. Automatic
+  range previews take precedence over whole-file auto-proxy requests.
 - `OPEN_EDIT_PREVIEW_CACHE_MAX_BYTES` (512 MiB by default) caps preview
   artifacts, and `OPEN_EDIT_PREVIEW_CACHE_MAX_AGE_SEC` (7 days by default)
   controls preview artifact TTL.

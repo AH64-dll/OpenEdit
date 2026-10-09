@@ -24,6 +24,23 @@ def ir_instance():
     return IR(ops_buffer=[], project_id="proj1", parent_op_id="e_parent")
 
 
+def test_stable_studio_controls_work_in_the_generated_script_bootstrap(tmp_path):
+    from open_edit.agent.script_runner.bootstrap import render_bootstrap
+
+    globals = {'__name__': 'bootstrap_test'}
+    exec(compile(render_bootstrap('p', 'parent', originating_note_id='note', ops_file=str(tmp_path/'ops.jsonl')), '<bootstrap>', 'exec'), globals)
+    ops = []
+    ir = globals['IR'](ops_buffer=ops, project_id='p', parent_op_id='parent', originating_note_id='note')
+    ir.set_track_properties('new-track', track_kind='audio', label='Music', muted=True)
+    ir.set_clip_properties('original', hidden=True)
+    copied = ir.duplicate_clip('original', 5, effect_ids={'old':'fresh'})
+    effect = ir.control_effect('clip', copied, 'fresh', action='duplicate')
+    ir.remove_track('empty')
+    assert [op.kind for op in ops] == ['set_track_properties','set_clip_properties','duplicate_clip','control_effect','remove_track']
+    assert copied and effect != 'fresh'
+    assert all(op.author=='ai' and op.parent_id=='parent' and op.originating_note_id=='note' for op in ops)
+
+
 def test_add_clip_returns_clip_id_and_appends(ir_instance):
     cid = ir_instance.add_clip(
         asset_hash="abc", track_id="t1", position_sec=0.0,

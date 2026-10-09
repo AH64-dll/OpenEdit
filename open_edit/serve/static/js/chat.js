@@ -659,6 +659,7 @@ export function sendChatMessage(text) {
     message: text,
     conversation_id: state.conversationId,
     conv_id: state.conversationId,
+    editing_selection: state.editingSelection ? { ...state.editingSelection, playhead_sec: state.playheadSec || 0 } : undefined,
   };
   try {
     state.ws.send(JSON.stringify(payload));

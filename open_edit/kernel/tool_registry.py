@@ -24,6 +24,11 @@ _QUERY_PROJECT_DESC = (
     "to include Remotion rematerialized CAS."
     " Use params.offset/limit for paged assets (default limit 50); follow next_offset."
     " Packed transcripts use word offset/limit (default 500, max 2000); follow next_offset."
+    " get_authoring_view exports an optional Diffusion JSX media view; params.include_source=true returns source."
+    " get_history returns complete editing actions and the current Undo/Redo choices."
+    " get_graphics_view returns a revision-safe graphics view; params.clip_id selects a graphics clip."
+    " get_studio lists durable editable documents and AI marks; params.kind/document object_id filter, include_source=true returns literal source and stable element IDs."
+    " get_editing_context returns selected_ids, document_id, annotation_ids and playhead_sec with source and structured timeline context. No frame screenshots are needed to adjust authored edits."
 )
 
 _EDIT_PROJECT_DESC = (
@@ -34,13 +39,24 @@ _EDIT_PROJECT_DESC = (
     "change_clip_speed, remove_clip, set_audio_gain, apply_silence_gaps, "
     "auto_color_grade, apply_generated_ops. Prefer these timeline ops over "
     "run_script. "
+    "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
+    "apply_studio_changes atomically applies params={expected_revision,changes:[{kind,object_id,data}],ops:[],request_id,label}. "
+    "Use kind=document for editable graphics (data={source,clip_id,track_id,duration_sec,fps,label}); updating retains clip trims and effects. "
+    "Use kind=caption for {text,start_sec,end_sec,style,enabled,locked}; style includes font_id,font_size,color,background,stroke_color,stroke_width,x,y,width,align. "
+    "Use kind=style with {label,caption_style} to save a reusable editable style. Project font IDs come from the editing context. "
+    "Null data deletes an object. Annotations are AI instructions and never render. Respect document and layer locks; use one request_id for all writes in a request. "
+    "commit_graphics accepts a succeeded graphics job_id and expected_revision, then adds or replaces its clip after QC. "
+    "rewrite_graphics_source uses the pinned source writer for literal canvas property edits without committing a preview. "
+    "retime_asset bakes source ranges/rates or explicit speed segments into checked CAS media without editing the graph. "
     "Use ``generate`` for creative suggestions (SFX, music, visuals, "
     "remotion, silence_cuts) — review then commit via "
     "``operation=\"apply_generated_ops\"`` (or apply_silence_gaps for cuts). "
     "``operation=ingest_local`` ingests any readable absolute local media "
     "path and copies it into the project CAS. "
     "``operation=add_hyperframes_overlay`` adds native HTML/CSS/JS "
-    "graphics. New motion graphics should use HyperFrames, not Remotion. "
+    "graphics. Prefer Diffusion for editable titles/shapes/animation; use HyperFrames for advanced HTML. "
+    "undo/redo require params.expected_revision from get_history and reverse a complete editing action. "
+    "revert_request takes params={request_id,expected_revision,preview?}; preserves unrelated later work and returns conflicts/dependencies. "
     "``generate=remotion`` appends a legacy AddRemotionCompositionOp "
     "(materializes on proxy/final render; graphics burned via ffmpeg). "
     "``generate=init_remotion`` scaffolds ``.open_edit/remotion/``. "
@@ -71,6 +87,8 @@ _TRIGGER_RENDER_DESC = (
     "seconds, media is video/audio/both, and priority is interactive or "
     "background. Returns job_id when wait=false, or the manifest-oriented "
     "result when wait=true."
+    " Mode graphics renders literal Diffusion JSX to CAS without editing the graph; supply graphics={source,duration_sec,fps}"
+    " and expected_revision, then edit_project operation=commit_graphics after reviewing the completed job."
 )
 
 _GET_RENDER_JOB_DESC = (
@@ -97,6 +115,11 @@ class QueryProjectArgs(BaseModel):
         "get_transcript_packed",
         "get_silence_gaps",
         "get_timeline_view",
+        "get_authoring_view",
+        "get_graphics_view",
+        "get_history",
+        "get_studio",
+        "get_editing_context",
     ]
     params: dict = {}
 
@@ -129,7 +152,9 @@ class TriggerRenderArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid", title="trigger_render", description=_TRIGGER_RENDER_DESC
     )
-    mode: Literal["proxy", "final", "overlay", "preview-chunks"] = "proxy"
+    mode: Literal["proxy", "final", "overlay", "preview-chunks", "graphics"] = "proxy"
+    expected_revision: int | None = Field(default=None, ge=0)
+    graphics: dict | None = Field(default=None, description='Graphics source, duration_sec and fps; requires expected_revision.')
     encoder: Literal["gpu", "cpu"] | None = None
     wait: bool = False
     ranges: list[PreviewRange] = Field(default_factory=list)

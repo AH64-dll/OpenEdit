@@ -33,6 +33,9 @@ def render_bootstrap(
         "SetKeyframeOp", "RemoveKeyframeOp",
         "SlipClipOp", "RippleDeleteClipOp", "ChangeClipSpeedOp",
         "SplitClipOp", "ReplaceClipSourceOp", "SetClipSpeedRampOp",
+        "SetGraphicsSourceOp", "RemoveGraphicsSourceOp",
+        "SetCaptionOp", "RemoveCaptionOp",
+        "DuplicateClipOp", "SetTrackPropertiesOp", "RemoveTrackOp", "SetClipPropertiesOp", "ControlEffectOp",
         "SetAudioGainOp", "NormalizeAudioOp",
         "GroupEditsOp", "UngroupEditsOp",
         "RawMltXmlOp", "FreeFormCodeOp",
@@ -40,6 +43,8 @@ def render_bootstrap(
         "AddRemotionCompositionOp", "RemoveRemotionCompositionOp",
     ]
     op_sources = [inspect.getsource(getattr(_types, name)) for name in op_types]
+    from open_edit.ir.captions import CaptionCue, CaptionStyle
+    op_sources = [inspect.getsource(CaptionStyle), inspect.getsource(CaptionCue), *op_sources]
     new_id_source = inspect.getsource(_types.new_id)
     now_iso_source = inspect.getsource(_types.now_iso8601)
     # Single source of truth for the flushing buffer: inline the real class
@@ -59,7 +64,7 @@ def render_bootstrap(
         "import uuid",
         "from pathlib import Path",
         "from typing import Annotated, Any, Literal, Optional, Union",
-        "from pydantic import BaseModel, ConfigDict, Field",
+        "from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator",
         "from datetime import UTC, datetime",
         "",
         "# --- INLINED: open_edit/ir/ids.py:new_id ---",

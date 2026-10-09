@@ -34,6 +34,8 @@ class RenderRequest(BaseModel):
     preset: str | None = None
     scale: str | None = None
     codec: str | None = None
+    graphics: dict | None = None
+    preview_owner: str | None = Field(default=None, pattern=r'^[a-zA-Z0-9_-]{8,64}$')
 
 
 class RenderJobResponse(BaseModel):
@@ -55,20 +57,22 @@ class RenderJobResponse(BaseModel):
 @router.post("/api/projects/{project_id}/render", status_code=202)
 async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
     """Trigger a render in the background. Returns the job immediately."""
-    _check_rate_limit(f"render:{project_id}", max_requests=5, window_sec=300)
+    _check_rate_limit(f"render:{project_id}", max_requests=60 if req.mode in ('graphics', 'preview-chunks') else 5, window_sec=300)
     state = await _require_project(project_id)
-    if req.mode not in ("proxy", "final", "overlay", "preview-chunks"):
+    if req.mode not in ("proxy", "final", "overlay", "preview-chunks", "graphics"):
         raise HTTPException(
             status_code=400,
-            detail="mode must be 'proxy', 'final', 'overlay', or 'preview-chunks'",
+            detail="mode must be 'proxy', 'final', 'overlay', 'preview-chunks', or 'graphics'",
         )
 
     project_path = Path(state.path)
     from open_edit.kernel.render_jobs import RenderEnqueueError
 
     encoder = (req.encoder or "").strip().lower() or None
+    if encoder == 'auto':
+        encoder = None
     if encoder not in (None, "gpu", "cpu"):
-        raise HTTPException(status_code=400, detail="encoder must be 'gpu' or 'cpu'")
+        raise HTTPException(status_code=400, detail="encoder must be 'auto', 'gpu' or 'cpu'")
     quality = (req.quality or "").strip().lower() or None
     if quality is not None and quality not in ("fast", "standard", "high", "archival"):
         raise HTTPException(status_code=400, detail="quality must be fast|standard|high|archival")
@@ -107,11 +111,22 @@ async def post_render(project_id: str, req: RenderRequest) -> RenderJobResponse:
             "media": media,
             "priority": priority,
         }
+        if req.preview_owner:
+            # Distinguish UI sessions during job coalescing so a superseded
+            # automatic update cannot cancel an external client's render.
+            preview_params['preview_owner'] = req.preview_owner
     params = {k: v for k, v in (
         ("profile", req.profile), ("quality", quality), ("crf", req.crf),
         ("vb", req.vb), ("preset", req.preset), ("scale", req.scale), ("codec", codec),
     ) if v is not None}
     params.update(preview_params)
+    if req.mode == 'graphics':
+        from open_edit.integrations.diffusion.graphics import validate_params
+
+        try:
+            params = validate_params(req.graphics)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         job = DEFAULT_RENDER_JOB_SERVICE.enqueue(
@@ -172,6 +187,10 @@ async def get_render_file(project_id: str, render_id: str) -> FileResponse:
     """Stream a rendered MP4 for in-browser preview (HTTP Range supported)."""
     state = await _require_project(project_id)
     project_path = Path(state.path)
+    job=DEFAULT_RENDER_JOB_SERVICE.get(project_path,render_id)
+    if job and (job.result or {}).get('export_verification',{}).get('passed'):
+        from .exports import get_export_file
+        return await get_export_file(project_id,render_id)
     mp4_path = _resolve_render_mp4(project_path, render_id)
     if mp4_path is None:
         raise HTTPException(status_code=404, detail=f"render not found: {render_id}")

@@ -15,6 +15,8 @@ from open_edit.ir.types import (
     AddRemotionCompositionOp,
     AddTransitionOp,
     ChangeClipSpeedOp,
+    ControlEffectOp,
+    DuplicateClipOp,
     GroupEditsOp,
     MoveClipOp,
     NormalizeAudioOp,
@@ -22,6 +24,7 @@ from open_edit.ir.types import (
     Project,
     RemoveClipOp,
     RemoveEffectOp,
+    RemoveGraphicsSourceOp,
     RemoveKeyframeOp,
     RemoveRemotionCompositionOp,
     RemoveTransitionOp,
@@ -30,6 +33,7 @@ from open_edit.ir.types import (
     SetAudioGainOp,
     SetClipSpeedRampOp,
     SetEffectParamOp,
+    SetGraphicsSourceOp,
     SetKeyframeOp,
     SetTransitionPropertyOp,
     SlipClipOp,
@@ -57,21 +61,11 @@ def _get_default_catalog() -> EffectCatalog:
 
 
 def _known_clip_ids(project: Project) -> set[str]:
-    known: set[str] = set()
-    for op in project.edit_graph:
-        if isinstance(op, AddClipOp) and op.status == "applied":
-            known.add(op.clip_id)
-        elif isinstance(op, RemoveClipOp) and op.status == "applied":
-            known.discard(op.clip_id)
-    return known
+    return _known_ids_from_ops(project.edit_graph)[0]
 
 
 def _known_effect_ids(project: Project) -> set[str]:
-    return {
-        op.effect_id
-        for op in project.edit_graph
-        if isinstance(op, AddEffectOp) and op.status == "applied"
-    }
+    return _known_ids_from_ops(project.edit_graph)[1]
 
 
 def validate_op(
@@ -251,21 +245,57 @@ def _known_ids_from_ops(ops) -> tuple[set[str], set[str]]:
     """
     clips: set[str] = set()
     effects: set[str] = set()
+    documents: dict[str, set[str]] = {}
+    clip_effects: dict[str, set[str]] = {}
     for op in ops:
         if op.status != "applied":
             continue
         if isinstance(op, AddClipOp):
             clips.add(op.clip_id)
+        elif isinstance(op, SetGraphicsSourceOp):
+            if op.document_id not in documents:
+                documents[op.document_id] = {op.clip_id}
+                clips.add(op.clip_id)
+        elif isinstance(op, RemoveGraphicsSourceOp):
+            clips.difference_update(documents.pop(op.document_id, set()))
         elif isinstance(op, RemoveClipOp):
             clips.discard(op.clip_id)
+        elif isinstance(op, DuplicateClipOp):
+            clips.add(op.new_clip_id)
+            effects.update(op.effect_ids.values())
+            clip_effects[op.new_clip_id] = set(op.effect_ids.values())
+            for instances in documents.values():
+                if op.clip_id in instances:
+                    instances.add(op.new_clip_id)
         elif isinstance(op, SplitClipOp):
+            from uuid import NAMESPACE_URL, uuid5
+
+            copied = clip_effects.pop(op.clip_id, set())
+            clip_effects[op.left_clip_id] = copied
+            clip_effects[op.right_clip_id] = {str(uuid5(NAMESPACE_URL, f'openedit:split:{op.right_clip_id}:{id}')) for id in copied}
+            effects.update(clip_effects[op.right_clip_id])
             clips.discard(op.clip_id)
             clips.add(op.left_clip_id)
             clips.add(op.right_clip_id)
+            for instances in documents.values():
+                if op.clip_id in instances:
+                    instances.discard(op.clip_id)
+                    instances.update((op.left_clip_id, op.right_clip_id))
         elif isinstance(op, RippleDeleteClipOp):
             clips.discard(op.clip_id)
         elif isinstance(op, AddEffectOp):
             effects.add(op.effect_id)
+            if op.target_kind == 'clip':
+                clip_effects.setdefault(op.target_id, set()).add(op.effect_id)
+        elif isinstance(op, ControlEffectOp):
+            if op.action == 'duplicate':
+                effects.add(op.new_effect_id)
+                if op.target_kind == 'clip':
+                    clip_effects.setdefault(op.target_id, set()).add(op.new_effect_id)
+            elif op.action == 'remove':
+                effects.discard(op.effect_id)
+                if op.target_kind == 'clip':
+                    clip_effects.setdefault(op.target_id, set()).discard(op.effect_id)
         elif isinstance(op, (SetClipSpeedRampOp, NormalizeAudioOp)):
             effects.add(op.edit_id)
         # ReplaceClipSourceOp / MoveClipOp / TrimClipOp / SlipClipOp keep ids
@@ -486,6 +516,14 @@ def validate_op_references(
     in so a batch of ops can be validated incrementally against the growing
     working timeline; when omitted it is derived from ``project``.
     """
+    from open_edit.ir.studio_ops import STUDIO_OPERATIONS, references
+
+    if isinstance(op, STUDIO_OPERATIONS):
+        if timeline is None:
+            from open_edit.ir.derive import derive_timeline
+
+            timeline = derive_timeline(project)
+        return references(op, timeline) + (["op has no parent_id"] if strict and op.parent_id is None else [])
     if strict:
         if timeline is None:
             from open_edit.ir.derive import derive_timeline

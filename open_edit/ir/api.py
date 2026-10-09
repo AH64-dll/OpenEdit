@@ -20,6 +20,8 @@ from open_edit.ir.types import (
     AddRemotionCompositionOp,
     AddTransitionOp,
     ChangeClipSpeedOp,
+    ControlEffectOp,
+    DuplicateClipOp,
     FreeFormCodeOp,
     GroupEditsOp,
     MoveClipOp,
@@ -30,13 +32,16 @@ from open_edit.ir.types import (
     RemoveHtmlOverlayOp,
     RemoveKeyframeOp,
     RemoveRemotionCompositionOp,
+    RemoveTrackOp,
     RemoveTransitionOp,
     ReplaceClipSourceOp,
     RippleDeleteClipOp,
     SetAudioGainOp,
+    SetClipPropertiesOp,
     SetClipSpeedRampOp,
     SetEffectParamOp,
     SetKeyframeOp,
+    SetTrackPropertiesOp,
     SetTransitionPropertyOp,
     SlipClipOp,
     SplitClipOp,
@@ -74,6 +79,38 @@ class IR:
     def _note_id(self, originating_note_id: str | None) -> str | None:
         """Caller-supplied value wins; else fall back to the IR-level value."""
         return originating_note_id if originating_note_id is not None else self._originating_note_id
+
+    def _studio_op(self, cls, **params):
+        op = cls(author='ai', parent_id=self._parent_op_id,
+                 originating_note_id=self._originating_note_id, **params)
+        self._ops.append(op)
+        return op
+
+    def set_track_properties(self, track_id: str, **properties) -> None:
+        """Create/name/order/mute/solo/hide/lock a compatible track."""
+        self._studio_op(SetTrackPropertiesOp, track_id=track_id, **properties)
+
+    def remove_track(self, track_id: str) -> None:
+        """Remove an empty track, retaining its durable undo history."""
+        self._studio_op(RemoveTrackOp, track_id=track_id)
+
+    def set_clip_properties(self, clip_id: str, **properties) -> None:
+        self._studio_op(SetClipPropertiesOp, clip_id=clip_id, **properties)
+
+    def duplicate_clip(self, clip_id: str, position_sec: float, *, effect_ids: dict[str, str],
+                       new_track_id: str | None = None) -> str:
+        """Copy a clip using fresh authored IDs for each of its effects."""
+        op = self._studio_op(DuplicateClipOp, clip_id=clip_id, position_sec=position_sec,
+                             effect_ids=effect_ids, new_track_id=new_track_id)
+        return op.new_clip_id
+
+    def control_effect(self, target_kind: str, target_id: str, effect_id: str, **changes) -> str:
+        """Change one stable effect ID: update/bypass/reorder/reset/copy/remove."""
+        if changes.get('action') == 'duplicate' and 'new_effect_id' not in changes:
+            changes['new_effect_id'] = new_id()
+        op = self._studio_op(ControlEffectOp, target_kind=target_kind, target_id=target_id,
+                             effect_id=effect_id, **changes)
+        return op.new_effect_id or op.effect_id
 
     def add_clip(
         self, asset_hash: str, track_id: str, position_sec: float,
@@ -143,6 +180,7 @@ class IR:
     def add_transition(
         self, clip_a_id: str, clip_b_id: str, transition_type: str, duration_sec: float,
         originating_note_id: str | None = None,
+        *, layout: str = 'legacy',
     ) -> None:
         op = AddTransitionOp(
             edit_id=new_id(),
@@ -152,6 +190,7 @@ class IR:
             clip_b_id=clip_b_id,
             transition_type=transition_type,
             duration_sec=duration_sec,
+            layout=layout,
             originating_note_id=self._note_id(originating_note_id),
         )
         self._ops.append(op)
