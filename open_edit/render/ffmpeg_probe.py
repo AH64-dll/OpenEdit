@@ -46,18 +46,22 @@ def detect_silence_spans(
 ) -> list[tuple[float, float]]:
     """Detect silence spans via ffmpeg's silencedetect.
 
-    Returns ``(start, end)`` pairs in seconds, offset by ``start_sec`` when a
-    time window is given (mirroring ffmpeg's ``-ss`` output seeking).
+    Returns ``(start, end)`` pairs in seconds. With a time window the
+    command input-seeks to ``start_sec`` (0-based detector timestamps are
+    re-offset back onto the timeline) and limits decode with a duration
+    ``-t``, so spans stay inside ``[start_sec, end_sec]``.
     """
-    cmd = [
-        "ffmpeg", "-hide_banner", "-i", str(path), "-vn",
-        "-af", f"silencedetect=noise={threshold_db}dB:d={min_s}",
-        "-f", "null", "-",
-    ]
-    if start_sec > 0 or end_sec > 0:
+    cmd: list[str] = ["ffmpeg", "-hide_banner"]
+    if start_sec > 0:
+        # Input seek bounds decode cost; silencedetect then reports
+        # timestamps relative to the seek point.
         cmd += ["-ss", f"{start_sec:.3f}"]
+    cmd += ["-i", str(path), "-vn", "-af", f"silencedetect=noise={threshold_db}dB:d={min_s}"]
     if end_sec > 0:
-        cmd += ["-to", f"{(end_sec - start_sec):.3f}"]
+        # A duration, placed before the output URL: after input seek it
+        # covers exactly [start_sec, end_sec].
+        cmd += ["-t", f"{(end_sec - start_sec):.3f}"]
+    cmd += ["-f", "null", "-"]
 
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=timeout)
     starts: list[float] = []
@@ -70,7 +74,10 @@ def detect_silence_spans(
         if me:
             end = float(me.group(1)) + start_sec
             if starts:
-                spans.append((starts.pop(0), end))
+                start = max(start_sec, starts.pop(0))
+                end = min(end, end_sec) if end_sec > 0 else end
+                if end > start:
+                    spans.append((start, end))
     if proc.returncode != 0:
         # Decode failure: never report a partial "0 silence" success.
         raise FFprobeError(

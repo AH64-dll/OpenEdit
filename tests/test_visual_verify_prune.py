@@ -99,3 +99,29 @@ def test_text_summary_no_base64_after_build():
     stripped_text = json.dumps(_strip_verification_frames(result), default=str)
     assert "AAAA" not in stripped_text, "base64 leaked into text summary"
     assert "frame_count" in stripped_text
+
+
+def test_pending_render_keeps_only_newest_frames_without_mutating_history():
+    import copy
+
+    old = _make_tool_result_message(_make_verification_result(2))
+    newest = _make_tool_result_message(_make_verification_result(1))
+    newest["content"][0]["tool_use_id"] = "new"
+    newest["content"][0]["content"][1]["data"] = "new-frame"
+    summary = {
+        "role": "user", "content": [{
+            "type": "tool_result", "tool_use_id": "poll",
+            "content": json.dumps({"verification": {"render_id": "r1", "frame_count": 0}}),
+        }],
+    }
+    history = [old, newest, summary]
+    before = copy.deepcopy(history)
+    slim = prune_images(history, keep_render_id="r1")
+    images = [
+        (block["tool_use_id"], part["data"])
+        for message in slim if isinstance(message["content"], list) for block in message["content"]
+        if block.get("type") == "tool_result" and isinstance(block.get("content"), list)
+        for part in block["content"] if part.get("type") == "image"
+    ]
+    assert images == [("new", "new-frame")]
+    assert history == before

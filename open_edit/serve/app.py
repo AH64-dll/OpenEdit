@@ -20,12 +20,15 @@ diagnostics endpoints, and the static mount.
 """
 from __future__ import annotations
 
+import logging
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -54,6 +57,8 @@ from .routers import (
     studio,
 )
 
+_LOG = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -64,7 +69,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A process ID cannot be safely recovered after an application restart.
     # Preserve the audit trail and make the interrupted state explicit.
     for project in await projects_mod.list_projects():
-        DEFAULT_RENDER_JOB_SERVICE.recover(Path(project.path))
+        try:
+            DEFAULT_RENDER_JOB_SERVICE.recover(Path(project.path))
+        except (sqlite3.Error, OSError):
+            _LOG.warning("Render job recovery unavailable for %s; retaining legacy files",
+                         project.path, exc_info=True)
 
     # Source-proxy jobs are durable host workers too. On startup, pick up
     # rows left queued/running by a prior process (crashed CLI init, killed
@@ -122,6 +131,26 @@ async def _http_exception_handler(_request, exc: HTTPException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": msg},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _request_validation_handler(_request, exc: RequestValidationError) -> JSONResponse:
+    """Map FastAPI's ``{"detail": [...]}`` validation shape to the v1.4 flat
+    ``{"error": "..."}`` envelope while keeping the per-field messages (loc +
+    msg pairs). The toast therefore reads e.g. ``t_start: Field required``
+    instead of a JSON blob.
+    """
+    errors = exc.errors()
+    parts = [
+        f"{'.'.join(map(str, e['loc'][1:])) or 'body'}: {e['msg']}"
+        for e in errors[:3]
+    ]
+    if len(errors) > 3:
+        parts.append(f"(+{len(errors) - 3} more)")
+    return JSONResponse(
+        status_code=422,
+        content={"error": "; ".join(parts)},
     )
 
 

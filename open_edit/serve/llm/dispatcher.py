@@ -45,6 +45,58 @@ def _message_plain_text(message: dict[str, Any]) -> str:
     return ""
 
 
+# Plateau: reuse the same clip budget the role:"tool" branch had.
+_TOOL_RESULT_CLIP = 2_000
+
+
+def _clip_tool_text(text: str) -> str:
+    if len(text) > _TOOL_RESULT_CLIP:
+        return text[:_TOOL_RESULT_CLIP] + " ... [truncated]"
+    return text
+
+
+def _tool_content_plain(block_content: Any) -> str:
+    """Render a ``tool_result`` block's content as bounded plain text.
+
+    The durable history stores the serialized result text (image blocks were
+    already replaced by markers at append time); string or text-part content
+    passes through. Result dicts — only present in live pre-append history —
+    re-serialize; frame/marker lists stay textual. Nothing base64-shaped is
+    ever reproduced because the serializer runs below ``_make_slim_history``.
+    """
+    if isinstance(block_content, str):
+        return _clip_tool_text(block_content)
+    if isinstance(block_content, list):
+        texts: list[str] = []
+        for blk in block_content:
+            if isinstance(blk, dict) and blk.get("type") == "text" and isinstance(blk.get("text"), str):
+                texts.append(blk["text"])
+        return _clip_tool_text("\n".join(texts))
+    if block_content is not None:
+        return _clip_tool_text(json.dumps(block_content, default=str))
+    return ""
+
+
+def _tool_name_map(messages: list[dict[str, Any]]) -> dict[str, str]:
+    """Build ``tool_use_id -> tool name`` from every assistant tool_use block."""
+    names: dict[str, str] = {}
+    for message in messages:
+        if message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_use"
+                and block.get("id")
+                and block.get("name")
+            ):
+                names[block["id"]] = block["name"]
+    return names
+
+
 def _serialize_cli_conversation(
     messages: list[dict[str, Any]],
     *,
@@ -53,14 +105,36 @@ def _serialize_cli_conversation(
     """Serialize role-separated turns for CLI adapters without sessions.
 
     Oldest turns are dropped first when the transcript exceeds
-    ``char_budget``. Tool results are included as assistant-visible
-    context so prior decisions are not silently discarded.
+    ``char_budget``. Tool activity is preserved as bounded provenance so a
+    chat-only model switched mid-conversation still sees what was called,
+    with what input, and what the result was:
+
+    - ``tool_use`` blocks render as ``[assistant tool_call: <name> <json>]``
+      (in block order);
+    - ``tool_result`` blocks render as ``[tool result for <name> (<id>)]``
+      followed by the (clipped) result text.
     """
+    tool_names = _tool_name_map(messages)
     parts: list[str] = []
     for message in messages:
         role = message.get("role")
         if role == "system":
             continue
+        content = message.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    name = block.get("name") or "tool"
+                    input_json = json.dumps(block.get("input", {}), default=str)
+                    if len(input_json) > _TOOL_RESULT_CLIP:
+                        input_json = input_json[:_TOOL_RESULT_CLIP] + " ... [truncated]"
+                    parts.append(f"[assistant tool_call: {name} {input_json}]")
+                elif isinstance(block, dict) and block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id") or ""
+                    name = tool_names.get(tool_use_id, "unknown tool")
+                    result_text = _tool_content_plain(block.get("content"))
+                    if result_text:
+                        parts.append(f"[tool result for {name} ({tool_use_id})]\n{result_text}")
         text = _message_plain_text(message)
         if role == "tool":
             name = message.get("name") or message.get("tool_name") or "tool"

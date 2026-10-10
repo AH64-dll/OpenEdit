@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from open_edit.kernel import export_service as export
-from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE
+from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE, RenderJobService
 from open_edit.kernel.studio_service import commit_studio
 from open_edit.render.profiles import profile_to_mlt_args, profile_with_quality
 from open_edit.serve.app import app
@@ -250,8 +250,9 @@ async def test_export_http_captures_revision_and_verified_file_actions(project, 
         assert invalid.status_code == 400
 
 
+@pytest.mark.asyncio
 @pytest.mark.browser
-def test_actual_fixed_revision_range_export_to_local_folder(project, monkeypatch):
+async def test_actual_fixed_revision_range_export_to_local_folder(project, monkeypatch):
     if not shutil.which("melt"):
         pytest.skip("Actual MLT is required")
     root, store, _ = project
@@ -269,13 +270,21 @@ def test_actual_fixed_revision_range_export_to_local_folder(project, monkeypatch
         end_sec=0.75,
     )
     payload = export.capture_export(root, store.graph_revision(), settings)
+    service = RenderJobService()
+    job = service.enqueue(
+        "range", root, "final", expected_revision=store.graph_revision(), params={"export": payload},
+    )
     commit_studio(
         root,
         expected_revision=store.graph_revision(),
         changes=[],
         ops=[{"kind": "remove_clip", "clip_id": "clip"}],
     )
-    result = export.execute_export(root, payload)
+    completed = await service.wait(root, job.job_id)
+    assert completed.status == "succeeded", completed.error
+    result = completed.result
+    assert not (root / ".open_edit/exports" / payload["snapshot"]).exists()
+    await service.shutdown()
     assert result["ok"] and result["export_verification"]["full_decode"]
     assert Path(result["output_path"]).parent == root / "Desktop" and result["duration_sec"] == 0.5
     artifacts = Path("tests/browser/artifacts")
@@ -283,3 +292,97 @@ def test_actual_fixed_revision_range_export_to_local_folder(project, monkeypatch
     (artifacts / "local-export-verification.json").write_text(
         json.dumps(result["export_verification"])
     )
+
+
+@pytest.mark.asyncio
+async def test_queued_export_cancellation_reclaims_only_snapshot(project):
+    root, store, asset = project
+    source = AssetStore(root / ".open_edit/assets").path(asset.asset_hash)
+    original = source.read_bytes()
+    payload = export.capture_export(root, store.graph_revision(), export.ExportSettings(folder=str(root / "out")))
+    stage = root / ".open_edit/exports" / payload["snapshot"]
+    service = RenderJobService()
+    job = service.enqueue("queued", root, "final", params={"export": payload})
+    try:
+        await service.cancel(root, job.job_id)
+        assert service.get(root, job.job_id).status == "cancelled"
+        assert not stage.exists()
+        assert source.read_bytes() == original
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_terminal_snapshot_waits_for_other_active_reference(project):
+    root, store, _ = project
+    payload = export.capture_export(root, store.graph_revision(), export.ExportSettings(folder=str(root / "out")))
+    stage = root / ".open_edit/exports" / payload["snapshot"]
+    service = RenderJobService()
+    first = service.enqueue("shared", root, "final", encoder_backend="cpu", params={"export": payload})
+    second = service.enqueue("shared", root, "final", encoder_backend="gpu", params={"export": payload})
+    service._update(root, first.job_id, "failed", error="recorded failure")
+    try:
+        assert not export._discard_export_snapshot(root, payload)
+        assert stage.exists()
+        await service.cancel(root, second.job_id)
+        assert not stage.exists()
+        assert service.get(root, first.job_id).error == "recorded failure"
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_orphan_recovery_keeps_live_producer_then_reclaims_stage(project):
+    import sys
+
+    root, store, _ = project
+    payload = export.capture_export(root, store.graph_revision(), export.ExportSettings(folder=str(root / "out")))
+    stage = root / ".open_edit/exports" / payload["snapshot"]
+    service = RenderJobService()
+    job = service.enqueue("orphan", root, "final", params={"export": payload})
+    child = subprocess.Popen(
+        [sys.executable, "-u", "-c",
+         "import sys,time; from pathlib import Path; "
+         "from open_edit.kernel.render_jobs import _project_lease,_try_lease; "
+         "lease_context=_project_lease(Path(sys.argv[1])); lease=lease_context.__enter__(); "
+         "assert _try_lease(lease); print('locked',flush=True); time.sleep(60)",
+         str(stage / "project")],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        assert child.stdout.readline().strip() == "locked"
+        recovery = RenderJobService()
+        recovery.recover(root)
+        assert recovery.get(root, job.job_id).status == "orphaned"
+        assert stage.exists()
+        error = recovery.get(root, job.job_id).error
+        child.kill()
+        child.wait(timeout=5)
+        recovery.recover(root)
+        assert not stage.exists()
+        assert recovery.get(root, job.job_id).error == error
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+        child.stdout.close()
+        child.stderr.close()
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_terminal_cleanup_preserves_published_user_file_inside_snapshot(project):
+    root, store, _ = project
+    payload = export.capture_export(root, store.graph_revision(), export.ExportSettings(folder=str(root / "out")))
+    stage = root / ".open_edit/exports" / payload["snapshot"]
+    published = stage / "user-export.mp4"
+    published.write_bytes(b"published user data")
+    service = RenderJobService()
+    job = service.enqueue("publication", root, "final", params={"export": payload})
+    service._update(root, job.job_id, "succeeded", output_path=str(published))
+    try:
+        service._cleanup_terminal_exports(root)
+        assert published.read_bytes() == b"published user data"
+        assert service.get(root, job.job_id).output_path == str(published)
+    finally:
+        await service.shutdown()

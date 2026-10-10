@@ -186,3 +186,37 @@ def test_serialize_cli_conversation_drops_oldest_under_budget() -> None:
     assert "CCCC" in text
     assert "AAAA" not in text
 
+
+# ---------------------------------------------------------------------------
+# A3-3: chat_only full_history must surface bounded tool provenance
+# ---------------------------------------------------------------------------
+
+
+
+
+def test_cli_serializer_tool_result_capped() -> None:
+    from open_edit.serve.llm import _serialize_cli_conversation
+
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "t2", "name": "list_assets", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "R" * 30_000}]},
+    ]
+    text = _serialize_cli_conversation(messages)
+    assert "R" * 2100 not in text, "result text must be clipped far below 30k chars"
+
+
+def test_cli_serializer_newest_user_request_survives_budget() -> None:
+    """Overflow drops oldest parts first but the newest user request stays."""
+    from open_edit.serve.llm import _serialize_cli_conversation
+
+    big = "F" * 33_000
+    messages = [
+        {"role": "user", "content": big},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+        {"role": "user", "content": "newest request"},
+    ]
+    text = _serialize_cli_conversation(messages, char_budget=40)
+    assert "newest request" in text
+    assert big not in text
+

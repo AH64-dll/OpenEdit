@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import signal
 import sqlite3
@@ -25,6 +26,8 @@ JobStatus = Literal[
     "queued", "running", "cancelling", "cancelled", "succeeded", "failed", "orphaned",
 ]
 _TERMINAL = frozenset({"cancelled", "succeeded", "failed", "orphaned"})
+
+_log = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -204,7 +207,20 @@ class RenderJobService:
                     "WHERE status IN ('queued', 'running', 'cancelling')",
                     ("render service restarted before completion", now),
                 )
+        self._cleanup_terminal_exports(project_path)
         return cur.rowcount
+
+    def _cleanup_terminal_exports(self, project_path: Path) -> None:
+        from open_edit.kernel.export_service import _discard_export_snapshot
+
+        try:
+            for job in self.list_jobs(project_path):
+                if job.status in _TERMINAL and isinstance(job.params, dict):
+                    payload = job.params.get("export")
+                    if isinstance(payload, dict):
+                        _discard_export_snapshot(project_path, payload, output_path=job.output_path)
+        except (OSError, sqlite3.Error, ValueError) as error:
+            _log.warning("Could not inspect terminal export staging: %s", error)
 
     def get(self, project_path: Path, job_id: str) -> RenderJob | None:
         with self._connect(project_path) as con:
@@ -370,6 +386,7 @@ class RenderJobService:
                     current = self.get(project_path, jid)
                     if current is not None and current.status == "queued":
                         self._update(project_path, jid, "cancelled", error="cancelled")
+                self._cleanup_terminal_exports(project_path)
                 if self._tasks.get(jid) is task:
                     self._tasks.pop(jid, None)
             self._tasks[job.job_id].add_done_callback(finished)
@@ -408,7 +425,10 @@ class RenderJobService:
         task = self._tasks.get(job_id)
         if task is not None and not task.done():
             task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         self._update(project_path, job_id, "cancelled", error="cancelled by user")
+        self._cleanup_terminal_exports(project_path)
         return self.get(project_path, job_id)
 
     async def _terminate_process_group(self, proc: asyncio.subprocess.Process) -> None:
@@ -470,6 +490,7 @@ class RenderJobService:
             self._update(project_path, job_id, "failed", error=str(exc))
         finally:
             self._processes.pop(job_id, None)
+            self._cleanup_terminal_exports(project_path)
 
     async def shutdown(self) -> None:
         """Cancel owned workers before their event loop closes."""

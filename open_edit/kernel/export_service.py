@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -10,7 +11,7 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
-from contextlib import closing
+from contextlib import closing, nullcontext
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal
@@ -22,6 +23,7 @@ from open_edit.ir.types import Project, Timeline
 from open_edit.storage.assets import AssetStore, list_assets_from_disk
 from open_edit.storage.edit_graph import EditGraphStore, GraphRevisionConflict
 
+_log = logging.getLogger(__name__)
 
 class ExportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -443,16 +445,98 @@ def publish_export(source: Path, settings: ExportSettings, duration: float) -> t
         temporary.unlink(missing_ok=True)
 
 
-def execute_export(root: Path, payload: dict) -> dict:
-    """Worker entry point. Later project edits cannot change this render."""
-    from open_edit.render.encoder import resolve_backend, select_encoder
-    from open_edit.render.orchestrator import render_project
-    from open_edit.render.preview_invalidation import slice_timeline
+def _discard_export_snapshot(root: Path, payload: dict, *, output_path: str | None = None) -> bool:
+    """Reclaim only unreferenced staging after its producer has released it."""
+    nonce = payload.get("snapshot")
+    if not isinstance(nonce, str) or not re.fullmatch(r"[a-f0-9]{32}", nonce):
+        return False
+    data = root.resolve() / ".open_edit"
+    base = data / "exports"
+    folder = base / nonce
+    frozen = folder / "project"
+    if (
+        any(path.is_symlink() for path in (data, base, folder, frozen, frozen / ".open_edit"))
+        or not folder.is_dir()
+    ):
+        return False
+
+    from open_edit.kernel.render_jobs import _TERMINAL, _project_lease, _try_lease
+
+    jobs_db = data / "render_jobs.db"
+    try:
+        # Hold the same write lock used by enqueue while checking references
+        # and deleting. A new queued/running/cancelling row cannot race removal.
+        connection = closing(sqlite3.connect(jobs_db)) if jobs_db.exists() else nullcontext(None)
+        with connection as con:
+            protected_paths = [output_path] if output_path else []
+            if con is not None:
+                con.execute("BEGIN IMMEDIATE")
+                for status, params_json, published in con.execute(
+                    "SELECT status, params_json, output_path FROM render_jobs"
+                ):
+                    params = json.loads(params_json) if params_json else {}
+                    if not isinstance(params, dict):
+                        raise ValueError("Invalid render job parameters")
+                    captured = params.get("export") or {}
+                    if not isinstance(captured, dict):
+                        raise ValueError("Invalid export job parameters")
+                    if captured.get("snapshot") == nonce and status not in _TERMINAL:
+                        return False
+                    if published:
+                        protected_paths.append(published)
+                    settings = captured.get("settings") or {}
+                    if not isinstance(settings, dict):
+                        raise ValueError("Invalid export settings")
+                    destination = settings.get("folder")
+                    if destination:
+                        protected_paths.append(destination)
+            if any(Path(path).expanduser().resolve().is_relative_to(folder) for path in protected_paths):
+                # An explicitly selected export destination is user data even
+                # when the user placed it inside a staging directory.
+                return False
+            # A crashed scheduler may leave its child alive. That child holds
+            # this existing SQLite lease for its entire snapshot render.
+            with _project_lease(frozen) as lease:
+                if not _try_lease(lease):
+                    return False
+            # Close SQLite before unlinking its files (required on Windows).
+            # The jobs transaction still blocks any new registered producer.
+            shutil.rmtree(folder)
+        return True
+    except (OSError, sqlite3.Error, ValueError) as error:
+        _log.warning("Could not reclaim export snapshot %s: %s", nonce, error)
+        return False
+
+
+def execute_export(root: Path, payload: dict, job_id: str) -> dict:
+    """Render a registered export while protecting its captured source bytes."""
+    from open_edit.kernel.render_jobs import RenderJobService, _project_lease, _try_lease
 
     nonce = payload["snapshot"]
     if not re.fullmatch(r"[a-f0-9]{32}", nonce):
         raise ValueError("Invalid export snapshot")
     folder = root / ".open_edit/exports" / nonce
+    result = None
+    try:
+        with _project_lease(folder / "project") as lease:
+            if not _try_lease(lease):
+                raise ValueError("Export snapshot is already being rendered")
+            job = RenderJobService().get(root, job_id)
+            if job is None or job.mode != "final" or job.status not in ("queued", "running") or (job.params or {}).get("export") != payload:
+                raise ValueError("Export job is unavailable")
+            result = _execute_frozen_export(root, payload, folder)
+        return result
+    finally:
+        _discard_export_snapshot(root, payload, output_path=result["output_path"] if result else None)
+
+
+def _execute_frozen_export(root: Path, payload: dict, folder: Path) -> dict:
+    """Later project edits cannot change this render."""
+    from open_edit.render.encoder import resolve_backend, select_encoder
+    from open_edit.render.orchestrator import render_project
+    from open_edit.render.preview_invalidation import slice_timeline
+
+    nonce = payload["snapshot"]
     captured = json.loads((folder / "export.json").read_text())
     if captured != payload:
         raise ValueError("Export snapshot settings changed")

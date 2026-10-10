@@ -3,16 +3,52 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
+import math
 import shutil
+import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from open_edit.kernel.render_overlay import _probe_duration
-
 from .. import visual_verify
 from ..llm_config import load_llm_config
+
+
+def _probe_media_timing(mp4_path: Path) -> tuple[float, float]:
+    """Read video timing, excluding audio/container overhang."""
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=duration,avg_frame_rate,r_frame_rate:format=duration",
+            "-of", "json", str(mp4_path),
+        ],
+        capture_output=True, text=True, check=False, shell=False, timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffprobe failed for {mp4_path}")
+    data = json.loads(proc.stdout)
+    streams = data.get("streams") or []
+    if not streams:
+        raise RuntimeError(f"no video stream in {mp4_path}")
+    stream = streams[0]
+    duration = stream.get("duration")
+    if duration in (None, "N/A"):
+        duration = data.get("format", {}).get("duration")
+    duration_s = float(duration)
+    if not math.isfinite(duration_s) or duration_s <= 0:
+        raise RuntimeError("ffprobe returned no positive video duration")
+    for key in ("avg_frame_rate", "r_frame_rate"):
+        num, _, den = str(stream.get(key, "")).partition("/")
+        try:
+            fps = float(num) / float(den) if den else float(num)
+        except (ValueError, ZeroDivisionError):
+            continue
+        if math.isfinite(fps) and fps > 0:
+            return duration_s, fps
+    raise RuntimeError("ffprobe returned no positive video frame rate")
 
 
 def _render_failure_source(error_msg: str) -> str:
@@ -123,7 +159,7 @@ async def _maybe_verify_render(
         return events, invalid, None
 
     try:
-        duration_s = await asyncio.to_thread(_probe_duration, mp4_path)
+        duration_s, frame_rate = await asyncio.to_thread(_probe_media_timing, mp4_path)
     except Exception:
         invalid = visual_verify.build_failure_tool_result(
             "no_video_stream", render_id=render_id, detail=str(output_path),
@@ -142,6 +178,16 @@ async def _maybe_verify_render(
     model_id = load_llm_config(project_path).model
     cap = visual_verify.model_capability(model_id)
     supports_images = bool(cap.get("supports_images", False))
+
+    # Bound every sampled timestamp by the start of the last decodable
+    # frame. A seek past the last frame returns rc=0 with an empty output
+    # file, and a nominal ``duration - 0.1`` still overshoots when the
+    # frame interval is larger than 0.1s (six frames @ 2 fps, 3.0 s stream
+    # -> last usable sample is 2.5 s). Truncate to the microsecond grid so
+    # the seek never lands after the frame it targets on 30 fps /
+    # 30000:1001 tails.
+    last_frame_start = max(0.0, duration_s - (1.0 / frame_rate))
+    frames_ts = [min(t, last_frame_start) for t in frames_ts]
 
     events.append({
         "type": "verification_started",
@@ -179,6 +225,13 @@ async def _maybe_verify_render(
         "stage": "encoding",
     })
 
+    # F-S1t: the configured total verification budget (existing
+    # ``OPEN_EDIT_VERIFY_TOTAL_TIMEOUT_SECONDS``) is shared across the
+    # sampled frames and the encoder attempts; each encode_jpeg call gets
+    # the remaining budget as its subprocess timeout.
+    stage_started = time.monotonic()
+    total_budget_s = float(cfg["total_timeout_seconds"])
+
     tmpdir = Path(tempfile.mkdtemp(prefix="oe_verify_"))
     try:
         frames: list[dict[str, Any]] = []
@@ -200,6 +253,7 @@ async def _maybe_verify_render(
                 return events, fail, None
             frame_path = tmpdir / f"frame_{int(ts * 1000)}.jpg"
             try:
+                remaining = total_budget_s - (time.monotonic() - stage_started)
                 await asyncio.to_thread(
                     visual_verify.encode_jpeg,
                     mp4_path,
@@ -207,6 +261,8 @@ async def _maybe_verify_render(
                     cfg["max_edge_px"],
                     cfg["jpeg_quality"],
                     cfg["max_image_bytes"],
+                    ts,
+                    max(remaining, 0),
                 )
             except Exception as exc:
                 events.append(_build_verification_result(

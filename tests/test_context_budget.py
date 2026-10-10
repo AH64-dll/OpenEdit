@@ -99,3 +99,177 @@ def test_compact_history_keeps_tool_result_separate_from_preceding_text():
     assert len(out) == 3
     assert out[1]["content"][0]["type"] == "tool_result"
     assert out[2]["content"] == "follow-up"
+
+
+# ---------------------------------------------------------------------------
+# A3-1: pending verification frames must survive ContextBudget.truncate
+# even when a later, smaller non-verification exchange exists.
+# ---------------------------------------------------------------------------
+
+def _frame_tool_result_message(rid: str, tu: str, fill: str = "Q") -> dict:
+    import json
+    return {"role": "user", "content": [{
+        "type": "tool_result",
+        "tool_use_id": tu,
+        "content": [
+            {"type": "text", "text": json.dumps({
+                "status": "ok", "render_id": rid, "verification": {"frame_count": 3},
+            })},
+            {"type": "image", "data": fill * 4096, "mimeType": "image/jpeg"},
+        ],
+    }]}
+
+
+def _frame_history() -> list[dict]:
+    import json
+    hist = [
+        {"role": "user", "content": "first request"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {}}]},
+        _frame_tool_result_message("r1", "t1"),
+        ["x0", "x1", "x2"],
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "q1", "name": "get_history", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "q1", "content": json.dumps({"ok": True})}]},
+    ]
+    # flatten the three small middle exchanges
+    middle: list[dict] = []
+    for rid in hist[3]:
+        middle.extend([
+            {"role": "assistant", "content": [{"type": "tool_use", "id": rid, "name": "list_assets", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": rid, "content": json.dumps({"ok": True})}]},
+        ])
+    return hist[:3] + middle + hist[4:]
+
+
+def test_truncate_pins_oversized_frame_exchange_before_later_small_exchange():
+    """The whole frame-bearing exchange survives a tight budget even though a
+    later non-verification exchange exists (pre-fix: it was evicted first)."""
+    budget = ContextBudget(max_tokens=400, reserve_tokens=50)
+    hist = _frame_history()
+    out = budget.truncate(hist, required_render_id="r1")
+
+    def _tool_use_ids(msgs):
+        return [b.get("id") for m in msgs for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+                if isinstance(b, dict) and b.get("type") == "tool_use"]
+
+    ids = _tool_use_ids(out)
+    assert "t1" in ids, f"pinned frame exchange evicted: {ids}"
+    frames_kept = any(
+        isinstance(x, dict) and x.get("type") == "image"
+        for m in out
+        for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+        if isinstance(b, dict) and b.get("type") == "tool_result" and isinstance(b.get("content"), list)
+        for x in b["content"]
+    )
+    assert frames_kept, "frame image evicted while its exchange was pinned"
+    assert _tool_use_ids(out) == [i for i in _tool_use_ids(hist) if i in _tool_use_ids(out)], \
+        "preserved exchanges must keep their original order"
+
+
+
+
+def test_truncate_without_frames_evicts_oversize_by_age():
+    """Without a frame summary the old eviction behavior still applies:
+    middle exchanges drop, the newest stays."""
+    import json
+    budget = ContextBudget(max_tokens=400, reserve_tokens=50)
+    hist = [
+        {"role": "user", "content": "first request"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "old", "name": "list_assets", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "old", "content": json.dumps({"ok": "Q" * 6000})}]},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "new", "name": "list_assets", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "new", "content": json.dumps({"ok": True})}]},
+    ]
+    out = budget.truncate(hist)
+    ids = [b.get("id") for m in out for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+           if isinstance(b, dict) and b.get("type") == "tool_use"]
+    assert "old" not in ids
+    assert "new" in ids
+
+
+def test_old_render_summary_is_not_pinned_without_pending_verification():
+    import json
+
+    history = _frame_history()
+    history[2]["content"][0]["content"] = json.dumps({
+        "render_id": "r1", "verification": {"frame_count": 0}, "notes": "Q" * 6000,
+    })
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(history)
+    ids = [
+        block["id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_use"
+    ]
+    assert "t1" not in ids
+    assert "q1" in ids
+
+
+def test_pending_nonvision_summary_and_matching_call_survive_budget():
+    import json
+
+    history = _frame_history()
+    history[2]["content"][0]["content"] = json.dumps({
+        "render_id": "r1", "verification": {"frame_count": 0}, "notes": "Q" * 6000,
+    })
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(
+        history, required_render_id="r1",
+    )
+    calls = [
+        block["id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_use"
+    ]
+    results = [
+        block["tool_use_id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_result"
+    ]
+    assert "t1" in calls and "t1" in results
+    assert calls == results
+
+
+def test_repeated_render_id_pins_only_newest_exchange():
+    history = _frame_history()
+    history.extend([
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t2", "name": "trigger_render", "input": {}},
+        ]},
+        _frame_tool_result_message("r1", "t2"),
+    ])
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(
+        history, required_render_id="r1",
+    )
+    calls = [
+        block["id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_use"
+    ]
+    assert "t2" in calls
+    assert "t1" not in calls
+
+
+def test_later_image_free_summary_keeps_pending_frames_exchange():
+    import json
+
+    history = _frame_history()
+    history.extend([
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "poll", "name": "poll_render_job", "input": {}},
+        ]},
+        {"role": "user", "content": [{
+            "type": "tool_result", "tool_use_id": "poll",
+            "content": json.dumps({"render_id": "r1", "verification": {"frame_count": 0}}),
+        }]},
+    ])
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(
+        history, required_render_id="r1",
+    )
+    blocks = [
+        block for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+    ]
+    assert any(block.get("type") == "tool_use" and block.get("id") == "t1" for block in blocks)
+    assert any(
+        block.get("type") == "tool_result" and block.get("tool_use_id") == "t1"
+        and any(part.get("type") == "image" for part in block["content"])
+        for block in blocks if isinstance(block.get("content"), list)
+    )

@@ -85,8 +85,7 @@ def _patched_agent_with_render(monkeypatch, tmp_path, *, render_result=None, ffp
     """Fixture-style helper: patch the agent loop's I/O dependencies and
     return a ``run_agent_turn`` function ready to be awaited."""
     if render_result is None:
-        # Create a real MP4 on disk so the verify stage's ffprobe + ffmpeg
-        # mock can find it.
+        # Create the on-disk render fixture used by the mocked media tools.
         mp4_path = tmp_path / "renders" / "r.mp4"
         mp4_path.parent.mkdir(parents=True, exist_ok=True)
         mp4_path.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100)
@@ -116,7 +115,11 @@ def _patched_agent_with_render(monkeypatch, tmp_path, *, render_result=None, ffp
                     break
         m = mock.Mock(returncode=0, stdout="", stderr="")
         if "ffprobe" in cmd:
-            m.stdout = f"{ffprobe_duration}\n"
+            m.stdout = json.dumps({
+                "streams": [{"codec_type": "video", "duration": str(ffprobe_duration),
+                             "avg_frame_rate": "30/1"}],
+                "format": {"duration": str(ffprobe_duration)},
+            })
         elif "ffmpeg" in cmd and out_path:
             Path(out_path).parent.mkdir(parents=True, exist_ok=True)
             Path(out_path).write_bytes(b"\xff\xd8\xff\xe0FAKE")
@@ -428,15 +431,23 @@ async def test_no_verdict_line_emits_no_verdict_line_verdict_source(monkeypatch,
 
 
 @pytest.mark.asyncio
-async def test_tool_result_with_images_does_not_bloat_persistent_history(monkeypatch, tmp_path):
-    """After a verified render, the slim view sent to the next LLM call has no image blocks."""
+async def test_tool_result_images_reach_verdict_but_persist_image_free(monkeypatch, tmp_path):
+    """After a verified render the durable history must be image-free, while
+    the pending verdict call (last slim view) keeps the newest frames so the
+    model can actually judge them (A3-1), and the final post-verdict slim
+    view prunes them again (keep_last_n summaries still collapse)."""
     monkeypatch.setattr(agent_mod, "effective_provider", lambda project_path: "anthropic")
     render_result = _patched_agent_with_render(monkeypatch, tmp_path)
     monkeypatch.setattr(
         agent_mod, "_execute_tool",
         lambda name, args, path, command_id=None: render_result,
     )
+    async def _fake_get_state(project_id):
+        return _make_fake_project_state(tmp_path)
+    monkeypatch.setattr(projects_mod, "get_project_state", _fake_get_state)
+    monkeypatch.setattr(agent_mod, "_resolve_project_path", lambda pid: tmp_path)
     seen_messages: list[list[dict]] = []
+    per_turn_tool_result = True
     async def _spy_stream(messages, **kwargs):
         seen_messages.append(list(messages))
         for ev in [
@@ -457,17 +468,47 @@ async def test_tool_result_with_images_does_not_bloat_persistent_history(monkeyp
         s = streams[min(idx["i"], len(streams) - 1)]
         idx["i"] += 1
         async for ev in s(messages, **kwargs):
-            if ev.get("type") == "tool_use":
+            if ev.get("type") == "tool_use" and per_turn_tool_result:
                 yield {"type": "tool_result", "name": ev["name"], "result": render_result}
             yield ev
+    appended: list[dict] = []
+    real_append = agent_mod.append_to_conversation
+    def _spy_append(project_id, conv_id, message):
+        appended.append(message)
+        return real_append(project_id, conv_id, message)
+    monkeypatch.setattr(agent_mod, "append_to_conversation", _spy_append)
     monkeypatch.setattr(agent_mod, "stream_chat", _dispatch)
     events: list[dict] = []
     async for ev in agent_mod.run_agent_turn("testproject", "Render.", [], conv_id=None):
         events.append(ev)
-    last = seen_messages[-1]
-    blob = json.dumps(last, default=str)
-    assert '"type": "image"' not in blob
-    assert "[VISUAL VERIFICATION SUMMARY" in blob
+
+    assert idx["i"] >= 2, "expected a verdict call after the render call"
+    verdict_call = seen_messages[1]
+    verdict_blob = json.dumps(verdict_call, default=str)
+
+    # Verdict call: newest frame-bearing tool_result keeps its frames so the
+    # model actually sees the rendering (A3-1 fix).
+    verdict_images = sum(
+        1 for m in verdict_call
+        for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+        if isinstance(b, dict) and b.get("type") == "tool_result"
+        and isinstance(b.get("content"), list)
+        and any(isinstance(x, dict) and x.get("type") == "image" for x in b["content"])
+    )
+    assert verdict_images >= 1, "verdict call lost the pending verification frames"
+    assert "[VISUAL VERIFICATION SUMMARY" in verdict_blob
+    # anchor summary stays parseable: render_id readable (top-level or nested),
+    # frame_count present — the next prune can still match this tool_result.
+    assert "render_aaa" in verdict_blob
+    # NOTE: the summary text sits inside a JSON string, so its quotes are
+    # escaped in the slim-view dump; match the unescaped key part.
+    assert 'frame_count' in verdict_blob
+
+    # Durable copies are image-free regardless of the verdict state.
+    for msg in appended:
+        blob = json.dumps(msg, default=str)
+        assert '"type": "image"' not in blob, "durable history must stay image-free"
+        assert "[VISUAL VERIFICATION SUMMARY" in blob or "render_aaa" in blob
 
 
 @pytest.mark.asyncio

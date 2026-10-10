@@ -42,6 +42,7 @@ def delete_op(
         )
         if cur.fetchone() is None:
             return False
+        previous_ops = store._load_all_in(conn)
         conn.execute(
             "UPDATE edits SET parent_id = NULL WHERE parent_id = ?",
             (edit_id,),
@@ -49,6 +50,7 @@ def delete_op(
         conn.execute(
             "DELETE FROM edits WHERE edit_id = ?", (edit_id,)
         )
+        store._validate_centered_transition_changes(store._load_all_in(conn), previous_ops)
         _invalidate_project_snapshots(conn, store)
         store._check_and_bump_revision(conn, expected_revision)
     return True
@@ -75,6 +77,7 @@ def move_arbitrary(
         old_pos = row[0]
         if old_pos == new_sequence_num:
             return True
+        previous_ops = store._load_all_in(conn)
         if old_pos < new_sequence_num:
             conn.execute(
                 "UPDATE edits SET sequence_num = sequence_num - 1 "
@@ -91,6 +94,7 @@ def move_arbitrary(
             "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
             (new_sequence_num, edit_id),
         )
+        store._validate_centered_transition_changes(store._load_all_in(conn), previous_ops)
         _invalidate_project_snapshots(conn, store)
         store._check_and_bump_revision(conn, expected_revision)
     return True
@@ -122,6 +126,7 @@ def reorder_all(
             if unknown:
                 details.append(f"unknown IDs: {', '.join(unknown)}")
             raise ValueError("reorder must be a complete permutation (" + "; ".join(details) + ")")
+        previous_ops = store._load_all_in(conn)
         # A two-phase update avoids transient duplicate sequence numbers
         # if a future schema makes sequence_num unique.
         offset = len(existing) + 1
@@ -129,6 +134,7 @@ def reorder_all(
             conn.execute("UPDATE edits SET sequence_num = ? WHERE edit_id = ?", (offset + index, edit_id))
         for index, edit_id in enumerate(edit_ids):
             conn.execute("UPDATE edits SET sequence_num = ? WHERE edit_id = ?", (index, edit_id))
+        store._validate_centered_transition_changes(store._load_all_in(conn), previous_ops)
         _invalidate_project_snapshots(conn, store)
         return store._check_and_bump_revision(conn, expected_revision)
 
@@ -158,6 +164,7 @@ def reorder(
                 f"Edits must be adjacent to reorder; "
                 f"got sequence_num gap {abs(seq1 - seq2)}"
             )
+        previous_ops = store._load_all_in(conn)
         conn.execute(
             "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
             (seq2, id1),
@@ -166,5 +173,6 @@ def reorder(
             "UPDATE edits SET sequence_num = ? WHERE edit_id = ?",
             (seq1, id2),
         )
+        store._validate_centered_transition_changes(store._load_all_in(conn), previous_ops)
         _invalidate_project_snapshots(conn, store)
         return store._check_and_bump_revision(conn, expected_revision)

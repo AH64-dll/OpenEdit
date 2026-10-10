@@ -328,34 +328,40 @@ class RenderCache:
             return 0
         protected = str(Path(protect).resolve()) if protect is not None else None
 
-        entries: list[tuple[float, int, Path]] = []
-        total_bytes = 0
+        entries: list[tuple[float, list[tuple[Path, int]]]] = []
         for path in self.cache_dir.iterdir():
-            if not path.is_file() or path.name.startswith("."):
+            if path.is_symlink() or not path.is_file() or path.name.startswith("."):
                 continue
-            size = path.stat().st_size
-            # A protected (just-written) entry still counts toward the cap so
-            # the cap is honored globally, but it is never itself evicted.
-            total_bytes += size
-            if protected is not None and str(path.resolve()) == protected:
-                continue
-            entries.append((self._last_accessed_at(path), size, path))
+            entries.append((self._last_accessed_at(path), [(path, path.stat().st_size)]))
 
-        if total_bytes <= self.max_bytes:
-            return 0
+        audio = self.cache_dir / "audio"
+        if audio.is_dir() and not audio.is_symlink():
+            pairs: dict[str, list[tuple[Path, int]]] = {}
+            for path in audio.iterdir():
+                if path.is_symlink() or not path.is_file() or path.suffix not in (".wav", ".m4a"):
+                    continue
+                pairs.setdefault(path.stem, []).append((path, path.stat().st_size))
+            for members in pairs.values():
+                # Audio has no metadata sidecars. A hit refreshes both members.
+                entries.append((max(path.stat().st_mtime for path, _ in members), members))
 
+        total_bytes = sum(size for _, members in entries for _, size in members)
         deleted_bytes = 0
-        for _, size, path in sorted(entries, key=lambda item: (item[0], item[2].name)):
+        for _, members in sorted(entries, key=lambda item: (item[0], item[1][0][0].name)):
             if total_bytes <= self.max_bytes:
                 break
-            try:
-                path.unlink()
-            except OSError:
+            if protected is not None and any(str(path.resolve()) == protected for path, _ in members):
                 continue
-            total_bytes -= size
-            deleted_bytes += size
-            with contextlib.suppress(OSError):
-                self._metadata_path_for_artifact(path).unlink(missing_ok=True)
+            for path, size in members:
+                try:
+                    path.unlink()
+                except OSError:
+                    continue
+                total_bytes -= size
+                deleted_bytes += size
+                if path.parent == self.cache_dir:
+                    with contextlib.suppress(OSError):
+                        self._metadata_path_for_artifact(path).unlink(missing_ok=True)
         return deleted_bytes
 
     def remove(self, key: str, ext: str = "mp4") -> bool:

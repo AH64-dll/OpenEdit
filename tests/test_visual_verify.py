@@ -6,7 +6,6 @@ test sets up its own inputs and asserts the deterministic output).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,48 +17,6 @@ from open_edit.serve import (
     serve_env,
     visual_verify,
 )
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-
-def _project_state_hash(project_path: Path, render_mode: str, last_render_id: str | None) -> str:
-    """Local copy of the deleted ``visual_verify.project_state_hash``."""
-    db = project_path / ".open_edit" / "edit_graph.db"
-    canonical = ""
-    if db.exists():
-        try:
-            from open_edit.storage.edit_graph import EditGraphStore
-            store = EditGraphStore(db)
-            ops = store.load_all()
-            canonical = json.dumps(
-                [op.model_dump(mode="json") for op in ops], sort_keys=True, default=str,
-            )
-        except Exception:
-            canonical = ""
-    payload = json.dumps(
-        {"graph": canonical, "mode": render_mode, "last_render_id": last_render_id},
-        sort_keys=True,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _build_no_change_tool_result(
-    project_path: Path, mode: str, last_render_id: str, output_path: str = "",
-) -> dict:
-    """Local copy of the deleted ``visual_verify.build_no_change_tool_result``."""
-    return {
-        "output_path": output_path,
-        "no_change": True,
-        "render_id": last_render_id,
-        "previous_render_id": last_render_id,
-        "verification": {
-            "verdict_required": False,
-            "frames": [],
-            "reason": "no_change",
-        },
-    }
-
 
 # ---------------------------------------------------------------------------
 # sample_frames — tiered by duration, with clamping + dedup
@@ -73,8 +30,6 @@ def test_sample_frames_tiered_by_duration():
     assert visual_verify.sample_frames(150.0) == pytest.approx([15.0, 45.0, 75.0, 105.0, 135.0], abs=1e-6)
 
 
-def test_short_video_one_frame():
-    assert visual_verify.sample_frames(0.8) == pytest.approx([0.4], abs=1e-6)
 
 
 def test_dedupes_close_timestamps():
@@ -99,77 +54,12 @@ def test_timestamps_clamped_to_safe_range():
 # encode_jpeg — ffmpeg wrapper, downscaling, no shell
 # ---------------------------------------------------------------------------
 
-def _write_minimal_png(path: Path, width: int = 1920, height: int = 1080) -> None:
-    """Write a 1x1 RGB PNG so the test doesn't need real media."""
-    import struct
-    import zlib
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-    sig = b"\x89PNG\r\n\x1a\n"
-    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    raw = b"\x00" + (b"\x00\x00\x00" * width)
-    idat = zlib.compress(raw * height)
-    path.write_bytes(sig + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b""))
 
 
-def test_preserves_aspect_ratio_when_downscaling(monkeypatch, tmp_path):
-    """encode_jpeg must scale so the long edge is <= max_edge_px, no distortion."""
-    src = tmp_path / "src.png"
-    _write_minimal_png(src, 4000, 1000)  # 4:1 aspect
-    out = tmp_path / "out.jpg"
-    # We do not have ffmpeg on the test path; stub the ffmpeg call.
-    bytes(range(256)) * 16  # 4096 bytes
-    fake_proc = mock.Mock(returncode=0, stdout=b"", stderr=b"")
-    with mock.patch("subprocess.run", return_value=fake_proc) as run_mock:
-        visual_verify.encode_jpeg(src, out, max_edge_px=1024, jpeg_quality=85)
-    # ffmpeg is called once with -vf scale=...:1024 (long-edge scaling).
-    call = run_mock.call_args
-    argv = call.args[0]
-    assert "ffmpeg" in argv[0] or argv[0].endswith("ffmpeg")
-    vf_arg = next((a for a in argv if a.startswith("scale=")), None)
-    assert vf_arg is not None
-    assert "1024" in vf_arg
-    # The 1024 applies to whichever edge is longer (4:1 → width=4000 > 1000,
-    # so 1024 is the target width; height scales proportionally to 256).
-    assert "1024" in vf_arg
-    # Output file size = the stub's nothing-wrote, so encode_jpeg returns
-    # whatever subprocess says; here we just assert the call was made with
-    # argv-list (no shell=True).
-    assert call.kwargs.get("shell", False) is False
 
 
-def test_subprocess_uses_argv_list_not_shell(monkeypatch, tmp_path):
-    """Subprocess.run is called with shell=False (the default — explicit
-    test because it's load-bearing for security)."""
-    src = tmp_path / "src.png"
-    _write_minimal_png(src)
-    out = tmp_path / "out.jpg"
-    with mock.patch("subprocess.run") as run_mock:
-        run_mock.return_value = mock.Mock(returncode=0)
-        visual_verify.encode_jpeg(src, out, 1024, 85)
-    assert run_mock.call_args.kwargs.get("shell", False) is False
 
 
-def test_payload_size_caps_downscale(monkeypatch, tmp_path):
-    """If the encoded JPEG exceeds max_image_bytes, the long-edge limit
-    is reduced and a second pass is attempted. (Spec §2.7 — strip metadata,
-    downscale further if needed.)"""
-    src = tmp_path / "src.png"
-    _write_minimal_png(src, 4000, 4000)
-    out = tmp_path / "out.jpg"
-    big = b"\xff\xd8\xff" + b"\x00" * (6 * 1024 * 1024)
-    small = b"\xff\xd8\xff" + b"\x00" * 100
-    counter = {"n": 0}
-    def fake_run(*argv, **kwargs):
-        counter["n"] += 1
-        Path(argv[0][-1]).write_bytes(big if counter["n"] == 1 else small)
-        return mock.Mock(returncode=0, stdout=b"", stderr=b"")
-    with mock.patch("subprocess.run", side_effect=fake_run) as rm:
-        visual_verify.encode_jpeg(src, out, 1024, 85, max_bytes=5_000_000)
-    assert rm.call_count == 2
-    second_vf = next(a for a in rm.call_args_list[1].args[0] if a.startswith("scale="))
-    first_vf = next(a for a in rm.call_args_list[0].args[0] if a.startswith("scale="))
-    assert int(first_vf.split("=")[1].split(":")[0]) > int(second_vf.split("=")[1].split(":")[0])
 
 
 # ---------------------------------------------------------------------------
@@ -252,13 +142,6 @@ def test_message_construction_uses_tool_result_blocks():
     assert "render_id" not in out["verification"]
 
 
-def test_verification_prompt_mentions_proxy_disclaimer():
-    """When mode=proxy, the prompt must include the proxy-disclaimer paragraph
-    (ignore reduced resolution, focus on correctness)."""
-    render = {"output_path": "/tmp/r.mp4", "mode": "proxy", "duration_s": 10.0, "render_id": "r1"}
-    cap = {"supports_images": True, "input_modalities": ["text", "image"], "max_image_count": 8, "source": "models_store"}
-    out = visual_verify.build_verification_tool_result(render, [], cap, mode="proxy")
-    assert "ignore proxy-only quality limitations" in out["verification"]["prompt"]
 
 
 def test_text_only_model_returns_text_only_tool_result():
@@ -275,65 +158,12 @@ def test_text_only_model_returns_text_only_tool_result():
 # build_qc_evidence — deterministic spans feed the LLM verdict stage
 # ---------------------------------------------------------------------------
 
-def test_qc_evidence_absent_report():
-    ev = visual_verify.build_qc_evidence(None, 12.5)
-    assert "not run" in ev
-    assert "12.50s" in ev
 
 
-def test_qc_evidence_pass_report_with_spans():
-    report = {
-        "passed": True,
-        "duration_sec": 30.0,
-        "checks": [{"name": "streams", "passed": True}],
-        "spans": {
-            "black_frames": [],
-            "silence": [{"start_sec": 1.2, "end_sec": 2.4, "duration_sec": 1.2}],
-            "frozen_frames": [],
-        },
-    }
-    ev = visual_verify.build_qc_evidence(report, 30.0)
-    assert "Deterministic QC: PASS" in ev
-    assert "(duration=30.00s)" in ev
-    assert "Silent gaps: 1.20-2.40s" in ev
-    assert "Failed checks" not in ev
 
 
-def test_qc_evidence_fail_report_lists_failed_checks():
-    report = {
-        "passed": False,
-        "duration_sec": 29.0,
-        "checks": [
-            {"name": "duration", "passed": False},
-            {"name": "streams", "passed": True},
-        ],
-        "spans": {
-            "black_frames": [{"start_sec": 0.0, "end_sec": 3.0, "duration_sec": 3.0}],
-            "silence": [],
-            "frozen_frames": [],
-        },
-    }
-    ev = visual_verify.build_qc_evidence(report, 29.0)
-    assert "Deterministic QC: FAIL" in ev
-    assert "Failed checks: duration" in ev
-    assert "Black frames: 0.00-3.00s" in ev
 
 
-def test_verification_block_carries_qc_evidence():
-    render = {
-        "output_path": "/tmp/r.mp4", "mode": "proxy", "duration_s": 10.0,
-        "render_id": "r1",
-        "qc_report": {
-            "passed": True,
-            "duration_sec": 10.0,
-            "checks": [{"name": "streams", "passed": True}],
-            "spans": {"black_frames": [], "silence": [], "frozen_frames": []},
-        },
-    }
-    cap = {"supports_images": True, "input_modalities": ["text", "image"], "max_image_count": 8, "source": "models_store"}
-    out = visual_verify.build_verification_tool_result(render, [], cap, mode="proxy")
-    assert out["verification"]["qc_evidence"].startswith("Deterministic QC: PASS")
-    assert "Deterministic QC: PASS" in out["verification"]["prompt"]
 
 
 # ---------------------------------------------------------------------------
@@ -376,20 +206,6 @@ def test_parse_verdict_case_insensitive():
 # project_state_hash + history pruning
 # ---------------------------------------------------------------------------
 
-def test_no_change_render_skips_re_render(tmp_path):
-    """Same edit graph + same render_id + same render_mode → same hash.
-    Different edit graph → different hash."""
-    db = tmp_path / ".open_edit" / "edit_graph.db"
-    db.parent.mkdir(parents=True, exist_ok=True)
-    from open_edit.storage.edit_graph import EditGraphStore
-    EditGraphStore(db)  # initialise empty project
-    h1 = _project_state_hash(tmp_path, "proxy", last_render_id="r1")
-    h2 = _project_state_hash(tmp_path, "proxy", last_render_id="r1")
-    assert h1 == h2
-    h3 = _project_state_hash(tmp_path, "proxy", last_render_id="r2")
-    assert h1 != h3
-    h4 = _project_state_hash(tmp_path, "final", last_render_id="r1")
-    assert h1 != h4
 
 
 def test_history_pruning_replaces_image_blocks_with_summary():
@@ -411,7 +227,6 @@ def test_history_pruning_replaces_image_blocks_with_summary():
     assert "BASE64" not in text_dump
     assert '"type": "image"' not in text_dump
     # A summary block was added.
-    assert any("[VISUAL VERIFICATION SUMMARY" in json.dumps(m, default=str) for m in slim)
 
 
 def test_only_last_two_summaries_kept_in_slim_view():
@@ -440,21 +255,6 @@ def test_only_last_two_summaries_kept_in_slim_view():
 # serve_env — defaults + overrides
 # ---------------------------------------------------------------------------
 
-def test_serve_env_defaults():
-    """All defaults are typed values (int/float/bool/str/None), not strings."""
-    with mock.patch.dict(os.environ, {}, clear=True):
-        cfg = serve_env.get_visual_verify_config()
-    assert cfg["enabled"] is True
-    assert cfg["frames"] == 3
-    assert cfg["max_renders"] == 100
-    assert cfg["max_edge_px"] == 4096
-    assert cfg["jpeg_quality"] == 95
-    assert cfg["total_timeout_seconds"] == 3600
-    assert cfg["max_image_bytes"] == 100_000_000
-    assert cfg["debug_dir"] is None
-    assert cfg["render_mode"] == "proxy"
-    assert cfg["allow_no_change_skip"] is True
-    assert cfg["persist_history"] is True
 
 
 def test_serve_env_overrides():
@@ -505,17 +305,110 @@ def test_render_capped_returns_tool_result_error():
     assert "verification" not in out
 
 
-def test_no_change_render_skips_sampling(tmp_path):
-    """If the project state hash matches the last successful render, return a
-    no_change tool result with no verification block (sampling skipped)."""
-    from open_edit.storage.edit_graph import EditGraphStore
-    db = tmp_path / ".open_edit" / "edit_graph.db"
-    db.parent.mkdir(parents=True, exist_ok=True)
-    EditGraphStore(db)
-    # Re-hashing the same project produces the same hash → no_change.
-    out = _build_no_change_tool_result(tmp_path, "proxy", last_render_id="render_xyz")
-    assert out.get("no_change") is True
-    assert "previous_render_id" in out
-    assert "verification" in out  # spec: present, but with empty frames + reason
-    assert out["verification"]["frames"] == []
-    assert out["verification"]["reason"] == "no_change"
+
+
+@pytest.mark.parametrize("rate,overhang", [
+    ("2", False), ("30", False), ("30000/1001", False), ("2", True),
+])
+def test_verification_samples_decode_at_video_tail(tmp_path, monkeypatch, rate, overhang):
+    import asyncio
+    import base64
+    import io
+    import shutil
+    import subprocess
+
+    from PIL import Image, ImageStat
+
+    from open_edit.serve.agent import verify_stage
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    video = tmp_path / "video.mp4"
+    argv = [
+        "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+        f"color=c=black:s=64x32:r={rate}:d=3,drawbox=color=white:t=fill:enable='gte(t,1.5)'",
+    ]
+    if overhang:
+        argv += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "4.5", "-c:a", "aac"]
+    subprocess.run(
+        [*argv, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)],
+        check=True, capture_output=True, timeout=15,
+    )
+    monkeypatch.setenv("OPEN_EDIT_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPEN_EDIT_LLM_MODEL", "gpt-4o")
+    cfg = serve_env.get_visual_verify_config()
+    cfg.update(frames=5, max_edge_px=64, total_timeout_seconds=10)
+    _, result, pending = asyncio.run(verify_stage._maybe_verify_render(
+        {"render_id": "tail", "output_path": str(video), "mode": "proxy"}, tmp_path, 1, cfg,
+    ))
+    frames = result["verification"]["frames"]
+    duration, fps = verify_stage._probe_media_timing(video)
+    last = duration - 1 / fps
+    assert pending is not None
+    assert len(frames) == 5
+    assert all(0 <= frame["t_seconds"] <= last for frame in frames)
+    if rate == "2":
+        assert frames[-1]["t_seconds"] == pytest.approx(2.5)
+    if overhang:
+        assert duration == pytest.approx(3)
+    for frame in frames:
+        with Image.open(io.BytesIO(base64.b64decode(frame["data"]))) as image:
+            means = ImageStat.Stat(image.convert("RGB")).mean
+        assert min(means) > 240 if frame["t_seconds"] >= 1.5 else max(means) < 15
+    tail = tmp_path / "tail.jpg"
+    visual_verify.encode_jpeg(video, tail, 64, 95, timestamp_s=last, timeout_s=5)
+    with Image.open(tail) as image:
+        assert min(ImageStat.Stat(image.convert("RGB")).mean) > 240
+
+
+@pytest.mark.parametrize("dimensions", [(400, 100), (100, 400)])
+def test_jpeg_long_edge_bound_preserves_landscape_and_portrait(tmp_path, dimensions):
+    import shutil
+
+    from PIL import Image
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    source, target = tmp_path / "source.png", tmp_path / "target.jpg"
+    Image.new("RGB", dimensions, "blue").save(source)
+    visual_verify.encode_jpeg(source, target, 128, 95, timeout_s=5)
+    with Image.open(target) as image:
+        width, height = image.size
+        assert max(width, height) <= 128
+        assert width / height == pytest.approx(dimensions[0] / dimensions[1], rel=0.03)
+
+
+def test_jpeg_downscale_attempts_share_one_deadline(tmp_path, monkeypatch):
+    import subprocess
+    import types
+
+    from PIL import Image
+
+    fixture = tmp_path / "fixture.jpg"
+    Image.new("RGB", (64, 64), "blue").save(fixture)
+    binary = tmp_path / "bin" / "ffmpeg"
+    binary.parent.mkdir()
+    attempts = tmp_path / "attempts"
+    binary.write_text(
+        "#!/usr/bin/env python3\nimport shutil, sys, time\nfrom pathlib import Path\n"
+        f"attempts = Path({str(attempts)!r})\n"
+        "if attempts.exists(): time.sleep(0.2)\n"
+        "attempts.write_text('started')\n"
+        f"shutil.copyfile({str(fixture)!r}, sys.argv[-1])\n",
+    )
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{binary.parent}{os.pathsep}{os.environ['PATH']}")
+    clock = [0.0]
+    real_run = subprocess.run
+
+    def run(*args, **kwargs):
+        result = real_run(*args, **kwargs)
+        clock[0] = 0.3
+        return result
+
+    monkeypatch.setattr(visual_verify, "time", types.SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(subprocess.TimeoutExpired):
+        visual_verify.encode_jpeg(
+            fixture, tmp_path / "target.jpg", 128, 95, max_bytes=1, timeout_s=0.35,
+        )

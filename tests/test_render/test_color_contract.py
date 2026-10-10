@@ -85,13 +85,15 @@ def test_actual_ffmpeg_raw_pipe_and_rgb_overlay_preserve_palette(tmp_path, pipel
     _samples(output)
 
 
+@pytest.mark.asyncio
 @pytest.mark.browser
-def test_actual_mlt_checked_preview_matches_immutable_final_export(tmp_path, monkeypatch):
+async def test_actual_mlt_checked_preview_matches_immutable_final_export(tmp_path, monkeypatch):
     if not all(shutil.which(binary) for binary in ('melt', 'ffmpeg', 'ffprobe')):
         pytest.skip('MLT and FFmpeg required')
     from open_edit.ir.derive import derive_timeline
     from open_edit.ir.types import AddClipOp, Project
-    from open_edit.kernel.export_service import ExportSettings, capture_export, execute_export
+    from open_edit.kernel.export_service import ExportSettings, capture_export
+    from open_edit.kernel.render_jobs import RenderJobService
     from open_edit.render.emitter import EmitterConfig, emit_timeline
     from open_edit.render.orchestrator import render_project
     from open_edit.render.preview_chunks import run_preview_pipe
@@ -129,7 +131,13 @@ def test_actual_mlt_checked_preview_matches_immutable_final_export(tmp_path, mon
 
     settings = ExportSettings(filename='Palette parity', folder=str(tmp_path / 'Local Desktop'),
                               width=320, height=180, fps_num=30, encoder='cpu', audio=False)
-    final = execute_export(tmp_path, capture_export(tmp_path, revision, settings))
+    service = RenderJobService()
+    payload = capture_export(tmp_path, revision, settings)
+    job = service.enqueue("palette", tmp_path, "final", expected_revision=revision, params={"export": payload})
+    completed = await service.wait(tmp_path, job.job_id)
+    assert completed.status == "succeeded", completed.error
+    final = completed.result
+    await service.shutdown()
     assert final['export_verification']['passed'] and final['export_verification']['full_decode']
     exported = _samples(Path(final['output_path']))
     for preview in previews.values():

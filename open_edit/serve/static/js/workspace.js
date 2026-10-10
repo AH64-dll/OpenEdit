@@ -53,7 +53,7 @@ async function revertRequest(requestId) {
       body: JSON.stringify({ request_id: requestId, expected_revision: history.graph_revision }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Request revert failed.');
+    if (!response.ok) throw new Error(result.error || result.detail || 'Request revert failed.');
     if (id !== state.currentProjectId) return;
     if (result.conflicts?.length) {
       const report = el('div', { class: 'studio-revert-report', role: 'alert' }, [el('strong', {}, 'This request has later dependencies')]);

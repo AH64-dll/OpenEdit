@@ -12,6 +12,7 @@ structured RenderResult.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import os
@@ -978,6 +979,10 @@ def render_project(
                 shutil.copyfile(audio_cache_path, cmds.audio_wav)
                 melt_audio_cmd = []
                 diagnostics.setdefault("audio_cache", {})["hit"] = True
+                # A copied mix is a real hit; keep its paired AAC equally hot.
+                for member in (audio_cache_path, audio_cache_path.with_suffix(".m4a")):
+                    with contextlib.suppress(OSError):
+                        os.utime(member, None)
             except OSError:
                 wav_hit = False
         if not wav_hit:
@@ -1330,7 +1335,7 @@ def render_project(
             diagnostics=diagnostics,
         )
 
-    cache.put(cache_key, output_mp4)
+    cached_video = cache.put(cache_key, output_mp4)
     # Write-back the audio mix for identical-graph reuse (skip when the wav
     # was already a cache hit).
     if not diagnostics.get("audio_cache", {}).get("hit") and cmds.audio_wav.is_file():
@@ -1339,6 +1344,9 @@ def render_project(
             diagnostics.setdefault("audio_cache", {})["cached"] = True
         except OSError as exc:
             diagnostics.setdefault("audio_cache", {})["writeback_error"] = str(exc)[:200]
+    # put() ran before WAV write-back. Account for the new audio only after
+    # muxing has finished, while preserving this render's fresh video.
+    cache.evict(protect=cached_video)
     if not frame_pull_enabled:
         try:
             successful_manifest = build_materialization_manifest(

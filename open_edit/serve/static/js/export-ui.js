@@ -33,7 +33,7 @@ async function request(suffix, body, captured = project) {
     body: JSON.stringify(body)
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data.error || 'Export request failed'));
+  if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : typeof data.detail === 'string' ? data.detail : 'Export request failed');
   return data;
 }
 function status(text, error = false) {
