@@ -157,13 +157,15 @@ def test_root_has_proper_html_document_structure(tmp_path):
     assert "<body>" in html
 
 
-def test_one_overlay_produces_single_clip_div(tmp_path):
-    """Test 4: 1 overlay → 1 clip <div>."""
+def test_one_overlay_produces_single_nested_composition(tmp_path):
+    """Test 4: 1 overlay → 1 nested composition with overlay-local time."""
+    overlay = _overlay()
     html = html_overlay.generate_composition_html(
-        _timeline([_overlay()]), tmp_path, _render_spec()
+        _timeline([overlay]), tmp_path, _render_spec()
     )
-    # Exactly one class="clip" div in the body.
-    assert html.count('class="clip"') == 1
+    clip_id = html_overlay._clip_id(overlay)
+    assert html.count('data-composition-id="overlay_') == 1
+    assert f'id="{clip_id}" data-composition-id="{clip_id}"' in html
 
 
 def test_timed_template_does_not_create_nested_hyperframes_clip(tmp_path):
@@ -208,8 +210,8 @@ def test_clip_divs_have_stable_unique_ids(tmp_path):
     assert 'id="overlay_def"' in html
     # No clip <div> without an id.
     import re
-    clip_divs = re.findall(r'<div class="clip"[^>]*>', html)
-    assert all('id="' in d for d in clip_divs)
+    clip_divs = re.findall(r'<div [^>]*data-composition-id="overlay_[^>]*>', html)
+    assert len(clip_divs) == 2 and all(d.startswith('<div id="') for d in clip_divs)
 
 
 def test_track_assignment_non_overlapping_shares_index(tmp_path):
@@ -223,7 +225,7 @@ def test_track_assignment_non_overlapping_shares_index(tmp_path):
     )
     # Both clips on track 0.
     import re
-    clip_divs = re.findall(r'<div class="clip"[^>]*data-track-index="(\d+)"', html)
+    clip_divs = re.findall(r'<div id="overlay_[^"]*" data-composition-id=[^>]*data-track-index="(\d+)"', html)
     assert clip_divs == ["0", "0"]
 
 
@@ -237,7 +239,7 @@ def test_track_assignment_overlapping_gets_new_index(tmp_path):
         _timeline(overlays), tmp_path, _render_spec()
     )
     import re
-    clip_divs = re.findall(r'<div class="clip"[^>]*data-track-index="(\d+)"', html)
+    clip_divs = re.findall(r'<div id="overlay_[^"]*" data-composition-id=[^>]*data-track-index="(\d+)"', html)
     # One on track 0, one on track 1 (order is sorted by position_sec).
     assert sorted(clip_divs) == ["0", "1"]
 

@@ -175,5 +175,29 @@ def build_context(timeline, objects, revision, focus, *, include_source, include
             'total': len(entries), 'returned': len(page), 'section': name,
             'next_offset': end if end < len(entries) else None}
     if include_timeline:
-        result['timeline'] = timeline.model_dump(mode='json', exclude={'graphics_documents'})
+        full = timeline.model_dump(mode='json', exclude={'graphics_documents'})
+        # include_source asks for every field; otherwise list IDs/timing only.
+        result['timeline'] = full if include_source else _timeline_index(full)
     return result
+
+
+def _scalars(value: dict) -> dict:
+    """Scalar fields of one object; nested lists/objects become ``<key>_count``."""
+    out = {}
+    for key, item in value.items():
+        if isinstance(item, (list, dict)):
+            if item:
+                out[f'{key}_count'] = len(item)
+        elif item is not None:
+            out[key] = item
+    return out
+
+
+def _timeline_index(full: dict) -> dict:
+    """Compact clip/track index: enough to address any clip without the full model."""
+    index = _scalars({k: v for k, v in full.items() if k != 'tracks'})
+    index['tracks'] = [{**_scalars({k: v for k, v in track.items() if k != 'clips'}),
+                        'clips': [_scalars(clip) for clip in track.get('clips', [])]}
+                       for track in full.get('tracks', [])]
+    index['detail'] = 'compact index; pass include_source=true for every field'
+    return index

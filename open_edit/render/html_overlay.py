@@ -283,7 +283,11 @@ def generate_composition_html(
         template_path = _resolve_template_path(overlay.template_path, project_workdir)
         template_html = template_path.read_text(encoding="utf-8")
         clip_id = _clip_id(overlay)
-        inlined = _inline_variables(template_html, overlay.variables, namespace=clip_id)
+        # Reserved values let a template register overlay-local animation:
+        # window.__timelines["{{composition_id}}"] = gsap.timeline({paused: true}).
+        reserved = {"composition_id": clip_id, "start_sec": overlay.position_sec,
+                    "duration_sec": overlay.duration_sec}
+        inlined = _inline_variables(template_html, {**reserved, **overlay.variables}, namespace=clip_id)
         has_timed_children = bool(
             re.search(
                 r"class\s*=\s*['\"][^'\"]*\bclip\b",
@@ -298,11 +302,15 @@ def generate_composition_html(
                 f'    </div>'
             )
         else:
+            # A nested composition gives its registered timeline overlay-local
+            # time (t=0 at position_sec); a plain clip would see timeline time.
             clip_divs.append(
-                f'    <div class="clip" id="{clip_id}" '
+                f'    <div id="{clip_id}" data-composition-id="{clip_id}" '
                 f'data-start="{overlay.position_sec}" '
                 f'data-duration="{overlay.duration_sec}" '
-                f'data-track-index="{track_idx}">\n'
+                f'data-track-index="{track_idx}" '
+                f'data-width="{width}" data-height="{height}" '
+                f'style="position: absolute; inset: 0;">\n'
                 f'      {inlined.strip()}\n'
                 f'    </div>'
             )
