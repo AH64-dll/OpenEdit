@@ -632,8 +632,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     else:
         for check in result['checks']:
             print(f"{'Ready' if check['ready'] else 'Setup needed'}: {check['name']}")
+            if check.get('detail'):
+                print(f"  found: {check['detail']}")
             if not check['ready']:
-                print(f"  {check['help']}")
+                print(f"  fix:   {check['help']}")
     return 0
 
 
@@ -893,6 +895,10 @@ def main(argv: list[str] | None = None) -> int:
     if not hasattr(args, "func"):
         parser.print_help()
         return 0
+    from open_edit.integrations.binaries import ensure_runtime_path
+
+    # Hosts often launch us without the user's shell PATH (nvm Node, Shotcut melt).
+    ensure_runtime_path()
     return args.func(args)
 
 

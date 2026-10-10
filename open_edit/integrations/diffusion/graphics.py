@@ -16,6 +16,7 @@ import threading
 import time
 from pathlib import Path
 
+from open_edit.integrations.binaries import node_bin
 from open_edit.ir.types import AddClipOp, ReplaceClipSourceOp, TrimClipOp
 from open_edit.storage.assets import AssetStore, _hash_file, _probe_media, list_assets_from_disk
 from open_edit.storage.edit_graph import GraphRevisionConflict
@@ -32,17 +33,28 @@ def browser_directory() -> Path:
     return Path(os.environ.get('OPEN_EDIT_DIFFUSION_BROWSER_DIR') or Path(__file__).with_name('browser')).resolve()
 
 
-def graphics_ready() -> bool:
+def graphics_problem() -> str | None:
+    """Why the graphics worker cannot run, with the exact fix; None when ready."""
+    if not node_bin():
+        return ('Node.js 24+ not found (checked OPEN_EDIT_NODE_BIN, PATH, nvm/fnm/asdf/volta). '
+                'Install Node 24 or set OPEN_EDIT_NODE_BIN; query_project get_readiness shows details.')
     directory = browser_directory()
-    if not (shutil.which('node') and (directory / 'node_modules/playwright-core').is_dir()):
-        return False
+    if not (directory / 'node_modules/playwright-core').is_dir():
+        return 'Graphics worker dependencies are not installed. Run: open_edit setup graphics'
     # The pinned runtime needs the upstream koota Or-across-generations fix
     # (browser/patches/koota+0.6.6.patch). An npm ci that skipped it leaves a
     # worker that renders empty frames, so 'ready' requires the marker.
     dist = directory / 'node_modules/koota/dist'
-    return dist.is_dir() and any(
+    patched = dist.is_dir() and any(
         'staticOrMatched' in path.read_text(errors='replace')
         for path in dist.glob('*.js') if path.stat().st_size < 8 * 1024 * 1024)
+    if not patched:
+        return 'Graphics worker is missing its koota patch. Run: open_edit setup graphics'
+    return None
+
+
+def graphics_ready() -> bool:
+    return graphics_problem() is None
 
 
 def validate_params(params: dict) -> dict:
@@ -81,12 +93,12 @@ def stop_worker() -> None:
 
 def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
     if not graphics_ready():
-        raise ValueError('Graphics worker missing. Run python -m open_edit.integrations.diffusion.setup --graphics --chromium')
+        raise ValueError(graphics_problem() or 'Graphics worker is not ready')
     request_path = scratch / 'request.json'
     request_path.write_text(json.dumps({**request, 'scratch': str(scratch)}), encoding='utf-8')
-    with tempfile.TemporaryFile() as output:
-        _ACTIVE.process = subprocess.Popen([shutil.which('node'), str(browser_directory() / 'render.cjs'), str(request_path)],
-                                   stdout=output, stderr=subprocess.DEVNULL, start_new_session=os.name == 'posix')
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        _ACTIVE.process = subprocess.Popen([node_bin(), str(browser_directory() / 'render.cjs'), str(request_path)],
+                                   stdout=output, stderr=errors, start_new_session=os.name == 'posix')
         proc = _ACTIVE.process
         try:
             proc.wait(timeout=timeout)
@@ -100,12 +112,16 @@ def _worker(request: dict, scratch: Path, *, timeout: int = 180) -> dict:
         raw = output.read(8 * 1024 * 1024 + 1)
         if len(raw) > 8 * 1024 * 1024:
             raise ValueError('Graphics worker response exceeds 8 MiB')
+        errors.seek(max(0, errors.seek(0, os.SEEK_END) - 600))
+        stderr_tail = errors.read().decode('utf-8', 'replace').strip()[-500:]
         try:
             result = json.loads(raw)
         except (ValueError, UnicodeError) as exc:
-            raise ValueError('Graphics worker exited without a valid response') from exc
+            detail = f': {stderr_tail}' if stderr_tail else ''
+            raise ValueError(f'Graphics worker exited without a valid response{detail}') from exc
         if not isinstance(result, dict) or not result.get('ok') or proc.returncode:
-            raise ValueError(str(result.get('error', 'Graphics worker failed'))[:500] if isinstance(result, dict) else 'Graphics worker failed')
+            fallback = f'Graphics worker failed: {stderr_tail}' if stderr_tail else 'Graphics worker failed'
+            raise ValueError(str(result.get('error') or fallback)[:500] if isinstance(result, dict) else fallback[:500])
         return result
 
 
@@ -119,7 +135,7 @@ def editor_bundle() -> bytes:
     """Build the fixed trusted editor host, independently of project source."""
     if not graphics_ready():
         raise ValueError('Install the optional graphics compiler to use the live canvas')
-    result = subprocess.run([shutil.which('node'), str(browser_directory() / 'bundle-editor.cjs')],
+    result = subprocess.run([node_bin(), str(browser_directory() / 'bundle-editor.cjs')],
                             capture_output=True, timeout=30)
     if result.returncode or not result.stdout or len(result.stdout) > 8 * 1024 * 1024:
         raise ValueError('The interactive graphics runtime could not be built')

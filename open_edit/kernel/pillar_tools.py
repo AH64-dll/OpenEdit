@@ -84,7 +84,10 @@ def _with_project_id(params: dict[str, Any], project_path: Path) -> dict[str, An
 
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
-    """Dispatch a query to one of the 6 read-only tools."""
+    """Dispatch a query to one of the read-only tools."""
+    if query == 'get_readiness':
+        from open_edit.integrations.readiness import compact_readiness, readiness
+        return {'status': 'ok', **(readiness() if params.get('detail') else compact_readiness())}
     if query == 'get_tracking_job':
         from open_edit.kernel.tracking_jobs import get_tracking_job
         try:

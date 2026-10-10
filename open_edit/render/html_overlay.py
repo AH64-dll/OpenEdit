@@ -381,9 +381,14 @@ def _run_subprocess_with_cancel(
         raise OverlayRenderError(f"cancelled during {operation}")
 
     if proc.returncode != 0:
-        raise OverlayRenderError(
-            f"{nonzero_label} ({proc.returncode}): stderr={stderr.strip()[-1000:]}"
-        )
+        tail = stderr.strip()[-1000:]
+        if proc.returncode == 127 and "node" in tail:
+            raise OverlayRenderError(
+                f"{nonzero_label} (127): Node.js was not found for the HyperFrames CLI. "
+                "Install Node 24 or set OPEN_EDIT_NODE_BIN; query_project get_readiness "
+                f"shows details. stderr={tail}"
+            )
+        raise OverlayRenderError(f"{nonzero_label} ({proc.returncode}): stderr={tail}")
 
     if not output_path.exists() or output_path.stat().st_size == 0:
         raise OverlayRenderError(

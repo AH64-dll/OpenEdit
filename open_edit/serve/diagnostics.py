@@ -14,10 +14,8 @@ only booleans, versions, and coarse info.
 from __future__ import annotations
 
 import os
-import shutil
 import sqlite3
 import sys
-from pathlib import Path
 
 
 def _sqlite_ok() -> bool:
@@ -38,7 +36,9 @@ def _sqlite_ok() -> bool:
 def _mlt_available() -> bool:
     """Best-effort check for MLT: the ``melt`` binary or the python binding."""
     try:
-        if shutil.which("melt") is not None:
+        from open_edit.integrations.binaries import melt_bin
+
+        if melt_bin() is not None:
             return True
     except Exception:
         pass
@@ -53,16 +53,11 @@ def _mlt_available() -> bool:
 def _chromium_available() -> bool:
     """Best-effort check for the overlay compositor (hyperframes/chromium)."""
     try:
-        if os.environ.get("OPEN_EDIT_HYPERFRAMES_BIN", "").strip():
-            return True
-        if Path("node_modules/.bin/hyperframes").is_file():
-            return True
-        for binary in ("chromium", "chromium-browser", "google-chrome", "chrome"):
-            if shutil.which(binary) is not None:
-                return True
+        from open_edit.integrations.binaries import resolve_chromium, resolve_hyperframes_browser
+
+        return resolve_chromium().found or resolve_hyperframes_browser().found
     except Exception:
         return False
-    return False
 
 
 def _disk_free_bytes() -> int | None:

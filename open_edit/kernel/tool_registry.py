@@ -124,6 +124,7 @@ class QueryProjectArgs(BaseModel):
         "get_studio",
         "get_editing_context",
         "get_tracking_job",
+        "get_readiness",
     ]
     params: dict = {}
 

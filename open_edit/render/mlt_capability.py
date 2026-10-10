@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import functools
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -42,7 +41,9 @@ def _melt_version_output(binary: str, mtime: float) -> str:
 
 def mlt_version() -> tuple[int, int, int] | None:
     """Installed MLT version from the melt on PATH, or None when unknown."""
-    binary = shutil.which('melt')
+    from open_edit.integrations.binaries import melt_bin
+
+    binary = melt_bin()
     if not binary:
         return None
     try:

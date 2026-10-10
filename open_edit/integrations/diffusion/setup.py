@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import shutil
 import subprocess
 from pathlib import Path
 
+from open_edit.integrations.binaries import node_bin, resolve_npm
 from open_edit.integrations.diffusion.compiler import worker_directory
 
 
@@ -93,9 +93,10 @@ def main() -> None:
     parser.add_argument('--graphics', action='store_true', help='also install the browser graphics worker')
     parser.add_argument('--chromium', action='store_true', help='also download the pinned Chromium browser')
     args = parser.parse_args()
-    npm = shutil.which('npm')
+    npm = resolve_npm().path if node_bin() else None
     if not npm:
-        raise SystemExit('Node.js and npm are required for optional Diffusion authoring')
+        raise SystemExit('Node.js 24+ and npm are required (checked OPEN_EDIT_NODE_BIN, PATH, '
+                         'nvm/fnm/asdf/volta). Install Node 24 and re-run.')
     subprocess.run(
         [npm, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'],
         cwd=worker_directory(), check=True, timeout=180,
@@ -111,7 +112,7 @@ def main() -> None:
         for name in applied:
             print(f'Applied dependency patch {name}')
         if args.chromium:
-            node = shutil.which('node')
+            node = node_bin()
             subprocess.run([node, str(directory / 'node_modules/playwright-core/cli.js'), 'install', 'chromium'],
                            cwd=directory, check=True, timeout=300)
         print('Diffusion graphics worker installed')

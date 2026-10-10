@@ -255,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"open-edit-mcp: {exc}", file=sys.stderr)
         return 2
 
+    from open_edit.integrations.binaries import ensure_runtime_path
+
+    # GUI-launched agent hosts rarely pass the shell PATH; render workers inherit this.
+    ensure_runtime_path()
     try:
         asyncio.run(run_stdio(project_path))
     except KeyboardInterrupt:

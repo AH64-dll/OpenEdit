@@ -347,11 +347,12 @@ def _gpu_decode_available() -> bool:
     global _gpu_decode_ok
     if _gpu_decode_ok is not None:
         return _gpu_decode_ok
-    import shutil as _sh
     import subprocess as _sp
     import time as _time
 
-    melt_bin = _sh.which("melt")
+    from open_edit.integrations.binaries import melt_bin as _resolve_melt
+
+    melt_bin = _resolve_melt()
     if melt_bin is None:
         _gpu_decode_ok = False
         return False
@@ -448,13 +449,16 @@ def render_project(
             ),
         )
 
-    melt_bin = shutil.which("melt")
+    from open_edit.integrations.binaries import MELT_MISSING
+    from open_edit.integrations.binaries import melt_bin as _resolve_melt
+
+    melt_bin = _resolve_melt()
     if melt_bin is None:
         return RenderResult(
             ok=False,
             profile=profile.model_dump(),
             mode=mode,
-            error="melt not on PATH",
+            error=MELT_MISSING,
             diagnostics=_contractualize_diagnostics(
                 mode, profile, {"stages": recorder.stages},
             ),
@@ -879,6 +883,8 @@ def render_project(
     output_mp4 = workdir / f"project_{graph_hash[:12]}.mp4"
 
     spec = resolve_encoder_args(profile, encoder_backend)
+    # encoder_backend is the request; the probe may have fallen back to CPU.
+    diagnostics["profile"]["encoder_vcodec"] = spec.vcodec
     audio_bitrate = profile.ab or ("320k" if mode == "final" else "96k")
     cmds = build_pipe_commands(
         melt_bin, xml_path, output_mp4, profile, spec, plan.overlay_clips,

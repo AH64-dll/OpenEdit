@@ -87,6 +87,7 @@ addopts = "-ra -q"
 markers = [
     "agent_ui: exercise optional built-in chat and provider routes",
     "browser: render with HyperFrames/Chrome; may download browser dependencies",
+    "render_preflight: use the real trigger_render dependency preflight",
 ]
 
 [tool.ruff]
