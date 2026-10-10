@@ -61,7 +61,9 @@ def test_mcp_tool_schemas_include_pillars_and_helpers() -> None:
 
 
 def test_result_to_json_stable() -> None:
-    assert '"ok": true' in result_to_json({"ok": True, "a": 1})
+    assert result_to_json({"ok": True, "a": 1}) == '{"a":1,"ok":true}'
+    # Non-ASCII stays readable instead of \u-escaped (fewer tokens for agents).
+    assert result_to_json({"text": "مرحبا"}) == '{"text":"مرحبا"}'
 
 
 @pytest.mark.asyncio
