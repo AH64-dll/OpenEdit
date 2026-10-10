@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -96,3 +98,35 @@ def test_hyperframes_tool_rejects_template_escape(tmp_path: Path) -> None:
     )
     assert result["status"] == "error"
     assert "inside project" in result["error"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stub")
+def test_overlay_returns_compact_hyperframes_lint(tmp_path: Path, monkeypatch) -> None:
+    report = {"ok": False, "errorCount": 1, "warningCount": 0, "findings": [{
+        "code": "media_missing_data_start", "severity": "error", "message": "no data-start",
+        "fixHint": "Add data-start", "elementId": "a-roll", "snippet": "<video ...>", "file": "/x/index.html"}],
+        "_meta": {"version": "0.7.65"}}
+    stub = tmp_path / "hyperframes"
+    stub.write_text(f"#!/bin/sh\ncat <<'JSON'\n{json.dumps(report)}\nJSON\n", encoding="utf-8")
+    stub.chmod(0o755)
+    monkeypatch.setenv("OPEN_EDIT_HYPERFRAMES_BIN", str(stub))
+    (tmp_path / ".open_edit").mkdir()
+    (tmp_path / "title.html").write_text("<div>title</div>", encoding="utf-8")
+    with patch("open_edit.agent.tools.pyagent_timeline_ops.make_ir"):
+        result = add_hyperframes_overlay(
+            {"template_path": "title.html", "position_sec": 0, "duration_sec": 1}, str(tmp_path))
+    assert result["lint"] == {"status": "issues", "errors": 1, "warnings": 0, "findings": [{
+        "severity": "error", "code": "media_missing_data_start", "message": "no data-start",
+        "fixHint": "Add data-start", "elementId": "a-roll"}]}
+    assert "fixHint" in result["next"]
+
+
+def test_lint_reports_unavailable_engine(tmp_path: Path, monkeypatch) -> None:
+    from open_edit.render import html_overlay
+
+    def missing() -> str:
+        raise html_overlay.OverlayRenderError("HyperFrames binary not found")
+
+    monkeypatch.setattr(html_overlay, "_resolve_hyperframes_bin", missing)
+    (tmp_path / "t.html").write_text("<div/>", encoding="utf-8")
+    assert html_overlay.lint_composition(tmp_path / "t.html")["status"] == "unavailable"

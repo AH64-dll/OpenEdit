@@ -49,6 +49,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -71,6 +72,41 @@ class OverlayRenderError(Exception):
     def __init__(self, message: str, bg_path: Path | None = None) -> None:
         super().__init__(message)
         self.bg_path = bg_path
+
+
+_LINT_KEYS = ("severity", "code", "message", "fixHint", "elementId")
+
+
+def lint_composition(template: Path, *, timeout_s: float = 20.0, limit: int = 10) -> dict[str, Any]:
+    """Run ``hyperframes lint --json`` on one composition and return compact findings.
+
+    Agents get the engine's own fix hints instead of reverse-engineering the
+    runtime. Never raises: a missing engine reports ``status='unavailable'``.
+    """
+    try:
+        binary = _resolve_hyperframes_bin()
+    except OverlayRenderError as exc:
+        return {"status": "unavailable", "reason": str(exc)[:300]}
+    env = {**os.environ, "HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
+    with tempfile.TemporaryDirectory(prefix="openedit-hflint-") as scratch:
+        # Lint scans a directory; isolate the template so project files are not scanned.
+        shutil.copyfile(template, Path(scratch) / "index.html")
+        try:
+            proc = subprocess.run([binary, "lint", "--json", scratch], capture_output=True,
+                                  text=True, timeout=timeout_s, env=env)
+            report = json.loads(proc.stdout)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            return {"status": "unavailable", "reason": f"hyperframes lint failed: {exc}"[:300]}
+    findings = [
+        {key: finding[key] for key in _LINT_KEYS if finding.get(key)}
+        for finding in report.get("findings", []) if isinstance(finding, dict)
+    ]
+    return {
+        "status": "ok" if report.get("ok") else "issues",
+        "errors": report.get("errorCount", 0),
+        "warnings": report.get("warningCount", 0),
+        "findings": findings[:limit],
+    }
 
 
 def _resolve_hyperframes_bin() -> str:

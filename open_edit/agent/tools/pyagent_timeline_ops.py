@@ -57,12 +57,18 @@ def add_hyperframes_overlay(args: dict, project_path: str) -> dict[str, Any]:
         position_sec=position_sec,
         duration_sec=duration_sec,
     ))
-    return {
+    from open_edit.render.html_overlay import lint_composition
+
+    result = {
         "status": "ok",
         "kind": "add_html_overlay",
         "overlay_id": overlay_id,
         "engine": "hyperframes",
+        "lint": lint_composition(template),
     }
+    if result["lint"].get("errors"):
+        result["next"] = "Fix the lint errors (see fixHint), then re-render; renders may fail or diverge."
+    return result
 
 
 @tool_result
