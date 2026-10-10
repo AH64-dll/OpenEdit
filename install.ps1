@@ -178,8 +178,8 @@ if ($nodeCmd) {
     try {
         $nodeVer = (& node --version 2>$null)
         if ($nodeVer -match "^v(\d+)\.") {
-            if ([int]$Matches[1] -ge 22) { $nodeBin = "node" }
-            else { Write-WarnMsg "node $nodeVer is too old (>=22 required by hyperframes 0.7.65); attempting to install Node.js LTS" }
+            if ([int]$Matches[1] -ge 24) { $nodeBin = "node" }
+            else { Write-WarnMsg "node $nodeVer is too old (>=24 required by the editing workers); attempting to install Node.js LTS" }
         }
     } catch { }
 }
@@ -195,7 +195,7 @@ if (-not $nodeBin) {
                 if ($nodeCmd) {
                     try {
                         $nodeVer = (& node --version 2>$null)
-                        if (($nodeVer -match "^v(\d+)\.") -and ([int]$Matches[1] -ge 22)) { $nodeBin = "node" }
+                        if (($nodeVer -match "^v(\d+)\.") -and ([int]$Matches[1] -ge 24)) { $nodeBin = "node" }
                     } catch { }
                 }
             }
@@ -214,7 +214,7 @@ if (-not $nodeBin) {
         $nodeZip = Join-Path $env:TEMP "open-edit-node-lts.zip"
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/latest-v22.x/node-v22.23.2-win-x64.zip" -OutFile $nodeZip -TimeoutSec 180
+            Invoke-WebRequest -UseBasicParsing "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip" -OutFile $nodeZip -TimeoutSec 180
             Expand-Archive -Path $nodeZip -DestinationPath $nodeDir -Force
             $nodeRoot = Get-ChildItem -Path $nodeDir -Directory | Select-Object -First 1
             if ($nodeRoot -and (Test-Path -LiteralPath (Join-Path $nodeRoot.FullName "node.exe"))) {
@@ -227,7 +227,7 @@ if (-not $nodeBin) {
     }
 }
 if (-not $nodeBin) {
-    Write-WarnMsg "Node.js is not available; skipping npm ci. The HyperFrames overlay engine will be missing. Install Node.js LTS (22+) from https://nodejs.org/en/download and re-run."
+    Write-WarnMsg "Node.js is not available; skipping npm ci. The HyperFrames overlay engine will be missing. Install Node.js LTS (24+) from https://nodejs.org/en/download and re-run."
 } else {
     Write-Ok "Using Node.js: $nodeBin"
     Write-Step "Installing Node.js dependencies (npm ci --no-audit --no-fund) ..."

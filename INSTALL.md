@@ -56,7 +56,7 @@ chrome → READY or manual steps). Nothing needs sudo.
 |---|---|---|---|---|
 | Git | yes | yes | clone | manual (prerequisite) |
 | Python 3.11+ | yes | yes | MCP server | manual (prerequisite) |
-| Node.js >= 22 | auto-installed if missing | winget / user-local zip | HyperFrames overlay engine (`npm install`) | install.sh / install.ps1 |
+| Node.js >= 24 | auto-installed if missing (nvm/fnm/volta installs are found automatically) | winget / user-local zip | HyperFrames overlay engine (`npm install`) | install.sh / install.ps1 |
 | hyperframes 0.7.65 | `npm install` in repo | same | HTML/CSS/JS overlay + logo/motion rendering | install.sh / install.ps1 |
 | ffmpeg / ffprobe | detected; manual commands printed | winget `Gyan.FFmpeg` | media probe, proxy, overlay burn-in, final encode | installers detect / provision |
 | melt (MLT) | detected; manual commands printed | no packaged install — manual/WSL (see below) | base-video timeline render | installers detect / provision |
@@ -67,8 +67,11 @@ Windows** — no winget or chocolatey package exists, and official MLT builds
 are source-only (github.com/mltframework/mlt/releases). The installer
 detects melt and, if missing, prints a warning. Options for Windows users
 who need video-clip timelines: install MLT inside WSL (`apt install melt`)
-and call it from there, or build MLT yourself. Overlay/motion-graphics-only
-renders (HyperFrames) do not require melt.
+and call it from there, or build MLT yourself. Every render needs melt,
+including graphics-only timelines (HyperFrames output is composited on the MLT
+timeline). A Shotcut portable `melt` works: set `OPEN_EDIT_MELT` to it, or
+leave it at `~/.local/share/OpenEdit/runtime/bin/melt`, which is found
+automatically. Run `open_edit doctor` to see exactly what was found.
 
 **GPU (NVENC) encode:** `trigger_render` with `encoder=gpu` probes
 NVENC → AMF → QSV → VAAPI and falls back to CPU `libx264` when no GPU
