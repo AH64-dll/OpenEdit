@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from unittest import mock
@@ -173,7 +175,13 @@ def test_manifest_adds_urls_and_reports_scoped_jobs(
     cache.write_manifest(_manifest(project_id, artifact))
     proxy = project_path / ".open_edit" / "renders" / "proxy.mp4"
     proxy.parent.mkdir(parents=True, exist_ok=True)
-    proxy.write_bytes(b"x" * 10_000)
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+         "color=blue:s=64x64:r=5:d=1", "-c:v", "libx264", str(proxy)],
+        check=True, capture_output=True, timeout=15,
+    )
     now = time.time()
     active = RenderJob(
         job_id="preview-job",

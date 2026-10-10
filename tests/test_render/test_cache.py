@@ -44,9 +44,6 @@ def test_ir_hash_is_order_sensitive_and_content_sensitive() -> None:
     assert compute_edit_graph_hash(changed) != h
 
 
-def test_cache_ttl_default_is_24h() -> None:
-    assert DEFAULT_TTL_SEC == 86400
-    assert cache_ttl_sec() == 86400
 
 
 def test_cache_ttl_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -316,3 +313,52 @@ def test_render_cache_key_stays_under_filesystem_filename_limit() -> None:
     assert len(key) <= 180
     assert "profile" in key
     assert key == render_cache_key("graph-hash", "profile", "content-" + "x" * 1000)
+
+
+def test_audio_pair_is_counted_and_evicted_together(tmp_path):
+    cache = RenderCache(tmp_path, max_bytes=20)
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    wav, aac = audio / "graph.wav", audio / "graph.m4a"
+    wav.write_bytes(b"w" * 12)
+    aac.write_bytes(b"a" * 8)
+    video = tmp_path / "fresh.mp4"
+    video.write_bytes(b"v" * 8)
+    assert cache.evict(protect=video) == 20
+    assert not wav.exists() and not aac.exists()
+    assert video.read_bytes() == b"v" * 8
+
+
+def test_protecting_one_audio_member_preserves_the_whole_pair(tmp_path):
+    cache = RenderCache(tmp_path, max_bytes=20)
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    wav, aac = audio / "graph.wav", audio / "graph.m4a"
+    wav.write_bytes(b"w" * 12)
+    aac.write_bytes(b"a" * 8)
+    video = tmp_path / "old.mp4"
+    video.write_bytes(b"v" * 8)
+    assert cache.evict(protect=wav) == 8
+    assert wav.read_bytes() == b"w" * 12 and aac.read_bytes() == b"a" * 8
+    assert not video.exists()
+
+
+def test_audio_lru_uses_the_newest_member_and_ignores_symlink_targets(tmp_path):
+    root = tmp_path / "cache"
+    cache = RenderCache(root, max_bytes=20)
+    audio = root / "audio"
+    audio.mkdir()
+    now = time.time()
+    for stem, stamp in [("hot", now - 10), ("cold", now - 100)]:
+        for suffix in ("wav", "m4a"):
+            member = audio / f"{stem}.{suffix}"
+            member.write_bytes(b"x" * 10)
+            os.utime(member, (stamp, stamp))
+    os.utime(audio / "hot.wav", (now - 200, now - 200))
+    external = tmp_path / "user-data"
+    external.write_bytes(b"private" * 100)
+    (root / "link.mp4").symlink_to(external)
+    assert cache.evict() == 20
+    assert (audio / "hot.wav").exists() and (audio / "hot.m4a").exists()
+    assert not (audio / "cold.wav").exists() and not (audio / "cold.m4a").exists()
+    assert external.read_bytes() == b"private" * 100

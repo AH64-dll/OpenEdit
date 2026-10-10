@@ -15,10 +15,6 @@ import pytest
 from open_edit.qc.silence import list_silence
 from open_edit.render.ffmpeg_probe import detect_silence_spans
 
-# A span may overshoot the requested end by at most one audio frame of the
-# 44.1 kHz AAC fixture (~0.108 s is generous for the last partial frame).
-_FRAME_GRACE_SEC = 0.15
-
 pytestmark = pytest.mark.skipif(
     not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
     reason="ffmpeg/ffprobe not installed",
@@ -66,14 +62,12 @@ def loud_then_silent(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def test_ranged_spans_stay_within_the_requested_window(
     loud_then_silent: Path,
 ) -> None:
-    """A [1, 3] window reports the loud/silent boundary; no span leaks
-    outside the window and nothing is re-offset by start_sec. The final
-    frame-length overshoot of the last AAC frame is allowed."""
+    """The detected boundary is asset-global and the AAC tail is bounded."""
     spans = detect_silence_spans(loud_then_silent, start_sec=1.0, end_sec=3.0)
     assert spans, "expected the [2, end) silence inside a [1, 3] window"
     for start, end in spans:
-        assert 1.0 <= start
-        assert end <= 3.0 + _FRAME_GRACE_SEC
+        assert start >= 1.0
+        assert end <= 3.0
     # The detected boundary matches the fixture's real 2.0 s transition
     # (frame quantization shifts the transition by at most one AAC frame).
     starts = [start for start, _ in spans]
@@ -103,8 +97,8 @@ def test_ranged_window_reports_no_spans_after_the_file(
     never re-offsets absolute timestamps past the file duration."""
     spans = detect_silence_spans(loud_then_silent, start_sec=2.5, end_sec=4.0)
     for start, end in spans:
-        assert 2.5 <= start
-        assert end <= 4.0 + _FRAME_GRACE_SEC
+        assert start >= 2.5
+        assert end <= 4.0
 
 
 def test_list_silence_forwards_the_ranged_window(loud_then_silent: Path) -> None:
@@ -112,35 +106,27 @@ def test_list_silence_forwards_the_ranged_window(loud_then_silent: Path) -> None
     result = list_silence(str(loud_then_silent), 1.0, 3.0)
     assert result.ok, result.error
     for span in result.spans:
-        assert 1.0 <= span.start_sec
-        assert span.end_sec <= 3.0 + _FRAME_GRACE_SEC
+        assert span.start_sec >= 1.0
+        assert span.end_sec <= 3.0
 
 
 def test_get_audio_levels_sees_only_the_requested_window(
     loud_then_silent: Path,
 ) -> None:
     """Windowed astats differ from the whole-file result and from silence."""
-    import subprocess  # noqa: PLC0415 (local import mirrors call site)
 
-    from open_edit.qc.silence import get_audio_levels  # noqa: PLC0415
+    from open_edit.qc.silence import get_audio_levels
 
     loud = get_audio_levels(str(loud_then_silent), 0.0, 1.5)
     quiet = get_audio_levels(str(loud_then_silent), 2.0, 4.0)
     at_window = get_audio_levels(str(loud_then_silent), 1.0, 2.0)
     full = get_audio_levels(str(loud_then_silent))
 
-    assert loud.ok and quiet.ok and full.ok, (loud.error, quiet.error, full.error)
+    assert loud.ok and quiet.ok and at_window.ok and full.ok, (loud.error, quiet.error, at_window.error, full.error)
     assert quiet.rms_db < loud.rms_db - 20.0, (quiet.rms_db, loud.rms_db)
     # The R1 bug produced the same whole-file value for every window;
     # windowed stats are distinctly lower inside the silent half.
     assert at_window.rms_db > quiet.rms_db + 10.0
-    # Aggregate values must reflect the window, not silently the whole file.
-    measured_window_rms = subprocess.run(
-        [
-            "ffmpeg", "-nostdin", "-hide_banner", "-ss", "1.000",
-            "-i", str(loud_then_silent), "-vn", "-af", "astats=metadata=1:reset=0",
-            "-t", "1.000", "-f", "null", "-",
-        ],
-        capture_output=True, text=True, check=False,
-    ).stderr
-    assert at_window.rms_db == pytest.approx(-21.27, abs=0.5), measured_window_rms
+    # A half-silent signal has half the loud window's mean-square power.
+    assert full.rms_db == pytest.approx(loud.rms_db - 3.01, abs=1.0)
+    assert at_window.rms_db == pytest.approx(loud.rms_db, abs=1.0)

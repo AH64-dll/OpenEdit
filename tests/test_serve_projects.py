@@ -469,6 +469,8 @@ async def test_list_renders_falls_back_to_dir_scan_on_corrupt_job_db(
     AND servable through the existing per-render file route (200 + Range).
     """
     import argparse
+    import shutil
+    import subprocess
 
     from fastapi.testclient import TestClient
 
@@ -483,8 +485,13 @@ async def test_list_renders_falls_back_to_dir_scan_on_corrupt_job_db(
     renders_dir = proj / ".open_edit" / "renders"
     renders_dir.mkdir(parents=True)
     mp4 = renders_dir / "project_proxytest.mp4"
-    # Real MP4 header + padding to pass the 10 KiB completeness heuristic.
-    mp4.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * (20 * 1024))
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+         "testsrc2=s=320x180:r=30:d=1", "-c:v", "libx264", "-crf", "18", str(mp4)],
+        check=True, capture_output=True, timeout=15,
+    )
     original_bytes = mp4.read_bytes()
 
     db_path = proj / ".open_edit" / "render_jobs.db"
@@ -502,21 +509,21 @@ async def test_list_renders_falls_back_to_dir_scan_on_corrupt_job_db(
     assert db_path.read_bytes() == db_bytes_before  # never recreate/repair
     assert mp4.read_bytes() == original_bytes
 
-    client = TestClient(app_mod.app)
-    resp = client.get(f"/api/projects/{project_id}/renders")
-    assert resp.status_code == 200
-    assert any(r.get("id") == "project_proxytest" for r in resp.json())
+    with TestClient(app_mod.app) as client:
+        resp = client.get(f"/api/projects/{project_id}/renders")
+        assert resp.status_code == 200
+        assert any(r.get("id") == "project_proxytest" for r in resp.json())
 
-    # The existing render file endpoint resolves the dir-scanned MP4 by its
-    # listed id (no job row required) and serves full + ranged reads.
-    file_url = f"/api/projects/{project_id}/renders/project_proxytest/file"
-    full = client.get(file_url)
-    assert full.status_code == 200
-    assert full.headers.get("accept-ranges") == "bytes"
-    assert full.content == original_bytes
-    ranged = client.get(file_url, headers={"Range": "bytes=0-7"})
-    assert ranged.status_code == 206
-    assert ranged.content == original_bytes[:8]
+        # Startup recovery and file serving must both tolerate corrupt job metadata.
+        file_url = f"/api/projects/{project_id}/renders/project_proxytest/file"
+        full = client.get(file_url)
+        assert full.status_code == 200
+        assert full.headers.get("accept-ranges") == "bytes"
+        assert full.content == original_bytes
+        ranged = client.get(file_url, headers={"Range": "bytes=0-7"})
+        assert ranged.status_code == 206
+        assert ranged.content == original_bytes[:8]
+    assert db_path.read_bytes() == db_bytes_before
 
 
 @pytest.mark.asyncio
@@ -562,3 +569,42 @@ async def test_get_project_state_logs_warning_on_corrupt_notes_db(projects_root_
     assert matching, "expected a WARNING log when notes.db is corrupt"
     assert any("notes" in r.getMessage().lower() for r in matching)
     assert any(r.exc_info is not None for r in matching)
+
+
+@pytest.mark.asyncio
+async def test_short_complete_render_downloads_but_incomplete_containers_do_not(projects_root_tmp):
+    import shutil
+    import subprocess
+
+    from fastapi.testclient import TestClient
+
+    from open_edit.serve import app as app_mod
+
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    info = await projects_mod.create_project("short-render")
+    renders = Path(info.path) / ".open_edit/renders"
+    renders.mkdir(parents=True, exist_ok=True)
+    short = renders / "project_short.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+         "color=blue:s=64x64:r=5:d=1", "-c:v", "libx264", "-movflags", "+faststart", str(short)],
+        check=True, capture_output=True, timeout=15,
+    )
+    media = short.read_bytes()
+    assert len(media) < 10_000
+    (renders / "project_partial.mp4").write_bytes(media[:-8])
+    (renders / "project_junk.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"x" * 20_000)
+    (renders / "project_intermediate.melt.mp4").write_bytes(media)
+
+    client = TestClient(app_mod.app)
+    listed = client.get(f"/api/projects/{info.id}/renders")
+    assert listed.status_code == 200
+    assert {row["id"] for row in listed.json()} == {"project_short"}
+    url = f"/api/projects/{info.id}/renders/project_short/file"
+    full = client.get(url)
+    assert full.status_code == 200 and full.content == media
+    ranged = client.get(url, headers={"Range": "bytes=0-7"})
+    assert ranged.status_code == 206 and ranged.content == media[:8]
+    for render_id in ("project_partial", "project_junk", "project_intermediate.melt"):
+        assert client.get(f"/api/projects/{info.id}/renders/{render_id}/file").status_code == 404

@@ -443,7 +443,6 @@ def test_unreverting_creator_restores_track_and_mismatch_still_rejects(project):
     commit_studio(root, expected_revision=1, changes=[
         {'kind': 'object_track', 'object_id': 'target', 'data': manual_track(asset)}])
     creator = next(op for op in store.load_all() if op.kind == 'add_clip')
-    set_op = next(op for op in store.load_all() if op.kind == 'set_object_track')
     store.update_status(creator.edit_id, 'reverted')
     store.update_status(creator.edit_id, 'applied')
     timeline = derive_timeline(Project(name='core02b', edit_graph=store.load_all()))

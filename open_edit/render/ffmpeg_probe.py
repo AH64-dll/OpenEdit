@@ -74,7 +74,10 @@ def detect_silence_spans(
         if me:
             end = float(me.group(1)) + start_sec
             if starts:
-                spans.append((starts.pop(0), end))
+                start = max(start_sec, starts.pop(0))
+                end = min(end, end_sec) if end_sec > 0 else end
+                if end > start:
+                    spans.append((start, end))
     if proc.returncode != 0:
         # Decode failure: never report a partial "0 silence" success.
         raise FFprobeError(

@@ -106,7 +106,7 @@ def _quantize_seek(seconds: float) -> str:
     (a lossy-container ``.3f`` rounding of ``1.966666`` seeks to ``1.967``
     and yields an empty output on a 30 fps tail).
     """
-    micros = int(math.floor(max(0.0, float(seconds)) * 1_000_000))
+    micros = math.floor(max(0.0, float(seconds)) * 1_000_000)
     return f"{micros // 1_000_000}.{micros % 1_000_000:06d}"
 
 
@@ -432,6 +432,8 @@ def _summary_render_id_from_tool_result(content: Any) -> str | None:
     embedded next to the text.
     """
     inner = content.get("content") if isinstance(content, dict) else None
+    if isinstance(inner, str):
+        return _parse_render_id_from_summary(inner)
     if not isinstance(inner, list):
         return None
     for block in inner:
@@ -465,14 +467,30 @@ def prune_images(
         verified render's frames stay available for its verdict call.
         Older frame-bearing tool_results are still fully pruned.
     """
+    keep_anchor = None
+    if keep_render_id is not None:
+        for message_index, message in enumerate(history):
+            blocks = message.get("content")
+            if not isinstance(blocks, list):
+                continue
+            for block_index, block in enumerate(blocks):
+                if (
+                    isinstance(block, dict) and block.get("type") == "tool_result"
+                    and _summary_render_id_from_tool_result(block) == keep_render_id
+                ):
+                    inner = block.get("content")
+                    if isinstance(inner, list) and any(
+                        isinstance(part, dict) and part.get("type") == "image" for part in inner
+                    ):
+                        keep_anchor = (message_index, block_index)
     out: list[dict] = []
-    for msg in history:
+    for message_index, msg in enumerate(history):
         msg = json.loads(json.dumps(msg, default=str))
         content = msg.get("content")
         stripped_summary = False
         if isinstance(content, list):
             new_blocks: list[dict] = []
-            for block in content:
+            for block_index, block in enumerate(content):
                 if isinstance(block, dict) and block.get("type") == "image":
                     continue
                 if isinstance(block, dict) and block.get("type") == "tool_result":
@@ -481,7 +499,7 @@ def prune_images(
                         # The pending render's frames are kept verbatim: its
                         # images are still the model's only view of the
                         # frames for the upcoming verdict decision.
-                        if keep_render_id is not None and _summary_render_id_from_tool_result(block) == keep_render_id:
+                        if (message_index, block_index) == keep_anchor:
                             new_blocks.append(block)
                             continue
                         stripped_inner = [b for b in inner if not (isinstance(b, dict) and b.get("type") == "image")]

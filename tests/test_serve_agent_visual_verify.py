@@ -85,8 +85,7 @@ def _patched_agent_with_render(monkeypatch, tmp_path, *, render_result=None, ffp
     """Fixture-style helper: patch the agent loop's I/O dependencies and
     return a ``run_agent_turn`` function ready to be awaited."""
     if render_result is None:
-        # Create a real MP4 on disk so the verify stage's ffprobe + ffmpeg
-        # mock can find it.
+        # Create the on-disk render fixture used by the mocked media tools.
         mp4_path = tmp_path / "renders" / "r.mp4"
         mp4_path.parent.mkdir(parents=True, exist_ok=True)
         mp4_path.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100)
@@ -116,7 +115,11 @@ def _patched_agent_with_render(monkeypatch, tmp_path, *, render_result=None, ffp
                     break
         m = mock.Mock(returncode=0, stdout="", stderr="")
         if "ffprobe" in cmd:
-            m.stdout = f"{ffprobe_duration}\n"
+            m.stdout = json.dumps({
+                "streams": [{"codec_type": "video", "duration": str(ffprobe_duration),
+                             "avg_frame_rate": "30/1"}],
+                "format": {"duration": str(ffprobe_duration)},
+            })
         elif "ffmpeg" in cmd and out_path:
             Path(out_path).parent.mkdir(parents=True, exist_ok=True)
             Path(out_path).write_bytes(b"\xff\xd8\xff\xe0FAKE")
@@ -465,9 +468,8 @@ async def test_tool_result_images_reach_verdict_but_persist_image_free(monkeypat
         s = streams[min(idx["i"], len(streams) - 1)]
         idx["i"] += 1
         async for ev in s(messages, **kwargs):
-            if ev.get("type") == "tool_use":
-                if per_turn_tool_result:
-                    yield {"type": "tool_result", "name": ev["name"], "result": render_result}
+            if ev.get("type") == "tool_use" and per_turn_tool_result:
+                yield {"type": "tool_result", "name": ev["name"], "result": render_result}
             yield ev
     appended: list[dict] = []
     real_append = agent_mod.append_to_conversation

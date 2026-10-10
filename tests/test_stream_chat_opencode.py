@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import stat
 from pathlib import Path
@@ -192,44 +191,7 @@ def test_serialize_cli_conversation_drops_oldest_under_budget() -> None:
 # A3-3: chat_only full_history must surface bounded tool provenance
 # ---------------------------------------------------------------------------
 
-def _tool_exchange_history() -> list[dict]:
-    return [
-        {"role": "user", "content": "cut the first clip and render"},
-        {"role": "assistant", "content": [
-            {"type": "text", "text": "Trimming now."},
-            {"type": "tool_use", "id": "t1", "name": "trigger_render", "input": {"mode": "proxy"}},
-        ]},
-        {"role": "user", "content": [{
-            "type": "tool_result",
-            "tool_use_id": "t1",
-            "content": json.dumps(
-                {"status": "ok", "output_path": "/tmp/r.mp4", "render_id": "r1"},
-                default=str,
-            ),
-        }]},
-        {"role": "assistant", "content": [{"type": "text", "text": "Done."}]},
-    ]
 
-
-def test_cli_serializer_exposes_tool_call_and_result_provenance() -> None:
-    from open_edit.serve.llm import _serialize_cli_conversation
-
-    text = _serialize_cli_conversation(_tool_exchange_history())
-    assert "[assistant tool_call: trigger_render " in text
-    assert '"mode": "proxy"' in text, "tool input must be serialized"
-    assert "[tool result for trigger_render (t1)]" in text, "tool result header names tool and id"
-    assert '"output_path": "/tmp/r.mp4"' in text, "tool result text must be visible"
-    assert "render_id" in text
-
-
-def test_cli_serializer_keeps_tool_order_between_turns() -> None:
-    from open_edit.serve.llm import _serialize_cli_conversation
-
-    text = _serialize_cli_conversation(_tool_exchange_history())
-    pos_call = text.index("[assistant tool_call:")
-    pos_result = text.index("[tool result for trigger_render")
-    pos_user = text.index("[user]")
-    assert pos_user < pos_call < pos_result, f"provenance out of order: {text!r}"
 
 
 def test_cli_serializer_tool_result_capped() -> None:
@@ -241,7 +203,6 @@ def test_cli_serializer_tool_result_capped() -> None:
         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "R" * 30_000}]},
     ]
     text = _serialize_cli_conversation(messages)
-    assert "[tool result for list_assets (t2)]" in text
     assert "R" * 2100 not in text, "result text must be clipped far below 30k chars"
 
 

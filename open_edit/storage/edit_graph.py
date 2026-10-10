@@ -182,6 +182,82 @@ class EditGraphStore:
             sequence_num=sequence_num,
         )[0]
 
+    @staticmethod
+    def _validate_centered_transition_changes(
+        current_ops: list[OperationUnion], changed_ops: list[OperationUnion],
+    ) -> None:
+        """Reject cut-breaking writes without validating unrelated history."""
+        affected_clips: set[str] = set()
+        transition_change = False
+        geometry_kinds = {
+            'add_clip', 'remove_clip', 'move_clip', 'trim_clip', 'slip_clip',
+            'split_clip', 'duplicate_clip', 'replace_clip_source', 'set_graphics_source',
+        }
+        geometry_params = {'duration_sec', 'layout', 'clip_b_id'}
+        for op in changed_ops:
+            if op.kind in geometry_kinds or op.kind == 'remove_effect':
+                affected_clips.add(op.clip_id)
+            elif op.kind in (
+                'add_transition', 'remove_transition', 'ripple_delete_clip',
+                'remove_track', 'remove_graphics_source',
+            ) or (op.kind == 'set_transition_property' and op.prop_name in geometry_params):
+                transition_change = True
+            elif op.kind == 'set_effect_param' and op.param_name in geometry_params:
+                affected_clips.add(op.clip_id)
+            elif op.kind == 'add_effect' and op.params.get('layout') == 'centered':
+                transition_change = True
+            elif op.kind == 'control_effect' and op.target_kind == 'clip' and (
+                op.action in ('reset', 'remove', 'duplicate')
+                or geometry_params.intersection(op.params)
+            ):
+                affected_clips.add(op.target_id)
+        if not affected_clips and not transition_change:
+            return
+
+        cut_clips: set[str] = set()
+        has_centered_transition = False
+        for op in current_ops:
+            if op.status != 'applied':
+                continue
+            if op.kind == 'add_transition' and op.layout == 'centered':
+                has_centered_transition = True
+                cut_clips.update((op.clip_a_id, op.clip_b_id))
+            elif op.kind == 'add_effect' and op.target_kind == 'clip' and op.params.get('layout') == 'centered':
+                has_centered_transition = True
+                cut_clips.add(op.target_id)
+                clip_b = op.params.get('clip_b_id')
+                if isinstance(clip_b, str):
+                    cut_clips.add(clip_b)
+            elif (
+                (op.kind == 'set_transition_property' and op.prop_name == 'layout' and op.value == 'centered')
+                or (op.kind == 'set_effect_param' and op.param_name == 'layout' and op.value == 'centered')
+                or (op.kind == 'control_effect' and op.params.get('layout') == 'centered')
+            ):
+                has_centered_transition = True
+                transition_change = True
+        if not has_centered_transition:
+            return
+        # Copies can inherit a centered effect even though its source operation
+        # names the original clip. This is only an eligibility check; the
+        # existing derivation remains the authority on final cut geometry.
+        for op in current_ops:
+            if op.status != 'applied' or getattr(op, 'clip_id', None) not in cut_clips:
+                continue
+            if op.kind == 'duplicate_clip':
+                cut_clips.add(op.new_clip_id)
+            elif op.kind == 'split_clip':
+                cut_clips.update((op.left_clip_id, op.right_clip_id))
+        if not transition_change and not affected_clips.intersection(cut_clips):
+            return
+
+        from open_edit.ir.derive import derive_timeline
+        from open_edit.ir.types import Project
+
+        try:
+            derive_timeline(Project(name='transition-authoring', edit_graph=current_ops))
+        except ValueError as error:
+            raise _ir_validate.OpValidationError(str(error)) from error
+
     def append_many(
         self, ops: list[OperationUnion], *, command_id: str | None = None,
         expected_revision: int | None = None, sequence_num: int | None = None,
@@ -255,6 +331,11 @@ class EditGraphStore:
                 current_ops.append(op)
                 sequences.append(next_sequence)
                 next_sequence += 1
+            if not status_changes:
+                self._validate_centered_transition_changes(
+                    self._load_all_in(conn) if sequence_num is not None else current_ops,
+                    ops,
+                )
             if not ops and (object_changes or status_changes or reverted_targets):
                 self._check_and_bump_revision(conn, None)
             if object_changes:
@@ -348,6 +429,8 @@ class EditGraphStore:
                     command_id, reason, now_iso8601(),
                 ),
             )
+            current_ops = self._load_all_in(conn)
+            self._validate_centered_transition_changes(current_ops, current_ops)
             return self._check_and_bump_revision(conn, expected_revision)
 
     def record_command(

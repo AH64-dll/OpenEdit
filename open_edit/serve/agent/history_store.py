@@ -49,7 +49,7 @@ def _strip_image_blocks(message: dict[str, Any]) -> dict[str, Any]:
     identify the original record. No file reads, no cache, no sidecar.
     """
     def _marker() -> dict[str, Any]:
-        return {"type": "image_stripped", "note": "frame data omitted from durable store"}
+        return {"type": "text", "text": "[Verification image omitted from durable history]"}
 
     stripped = deepcopy(message)
     content = stripped.get("content")
@@ -141,20 +141,7 @@ def _compact_jsonl(path: Path) -> None:
         if not messages:
             return
         # Legacy records may still carry embedded base64 image blocks.
-        messages = [
-            _strip_image_blocks(msg)
-            if any(
-                isinstance(block, dict) and block.get("type") == "tool_result"
-                and isinstance(block.get("content"), list)
-                and any(
-                    isinstance(inner, dict) and inner.get("type") == "image"
-                    for inner in block["content"]
-                )
-                for block in msg.get("content", []) if isinstance(block, dict)
-            )
-            else msg
-            for msg in messages
-        ]
+        messages = [_strip_image_blocks(msg) for msg in messages]
         compacted = _compact_history(messages)
         tmp = None
         try:
@@ -266,4 +253,4 @@ def _make_slim_history(
                         except (json.JSONDecodeError, TypeError):
                             pass
 
-    return budget.truncate(slimmed)
+    return budget.truncate(slimmed, required_render_id=keep_render_id)

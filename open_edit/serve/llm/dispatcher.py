@@ -69,9 +69,8 @@ def _tool_content_plain(block_content: Any) -> str:
     if isinstance(block_content, list):
         texts: list[str] = []
         for blk in block_content:
-            if isinstance(blk, dict) and blk.get("type") == "text":
-                if isinstance(blk.get("text"), str):
-                    texts.append(blk["text"])
+            if isinstance(blk, dict) and blk.get("type") == "text" and isinstance(blk.get("text"), str):
+                texts.append(blk["text"])
         return _clip_tool_text("\n".join(texts))
     if block_content is not None:
         return _clip_tool_text(json.dumps(block_content, default=str))

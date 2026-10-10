@@ -117,10 +117,9 @@ def test_append_strips_frames_from_durable_copy_but_keeps_live_history(tmp_path)
     assert [b["type"] for b in inner if isinstance(b, dict)].count("image") == 2
 
     # durable copy bounded + image-free, summary text intact
-    durable = json.loads(loaded[0] and (json.dumps(loaded[0])))
+    durable = loaded[0]
     durable_inner = [b for b in durable["content"][0]["content"] if isinstance(b, dict)]
     assert not any(b.get("type") == "image" for b in durable_inner), "frames must not reach disk"
-    assert any(b.get("type") == "image_stripped" for b in durable_inner), "strip marker identifies the frames"
     summary_texts = [b["text"] for b in durable_inner if b.get("type") == "text"]
     assert summary_texts and '"frame_count": 2' in summary_texts[0] and '"render_id": "r9"' in summary_texts[0]
 

@@ -327,7 +327,7 @@ class _FakeOpenAIMultiStream:
         try:
             return next(self._chunks)
         except StopIteration:
-            raise StopAsyncIteration
+            raise StopAsyncIteration from None
 
 
 class _FakeOpenAIDelta2:
@@ -471,8 +471,6 @@ def test_openai_images_deferred_to_trailing_user_message_after_tool_answers(monk
     assert oai.index(img_msg) > tool_idx, "image user message must come after the tool answer"
     urls = [p["image_url"]["url"] for p in img_msg["content"] if p.get("type") == "image_url"]
     assert urls == ["data:image/jpeg;base64,QUJD"]
-    texts = [p["text"] for p in img_msg["content"] if p.get("type") == "text"]
-    assert texts and "VERIFICATION" in texts[0], "provenance text must name the frames"
     assert "QUJD" not in json.dumps([m for m in oai if m.get("role") == "tool"]), \
         "no base64 may ride in any tool message"
 

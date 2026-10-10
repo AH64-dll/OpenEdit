@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from open_edit.ir.derive import derive_timeline
-from open_edit.ir.types import AddClipOp, AddTransitionOp, Project
+from open_edit.ir.types import AddClipOp, AddTransitionOp, MoveClipOp, Project, RemoveTransitionOp
+from open_edit.kernel.edit_graph_service import apply_command
 from open_edit.kernel.studio_service import commit_studio
 from open_edit.render.preview_invalidation import slice_timeline
 from open_edit.render.profiles import RenderProfile
@@ -45,6 +46,78 @@ def test_transition_keeps_trim_cut_history_and_validates_resizing(tmp_path):
     assert not current().visual_transitions and current().tracks[0].clips[0].out_point_sec == 2
     store.history_step('undo',store.graph_revision())
     assert current().visual_transitions[0].kind == 'wipe'
+
+
+def _cut_store(root):
+    store = EditGraphStore(root / '.open_edit/edit_graph.db')
+    store.append_many([
+        AddClipOp(author='user', edit_id='add-a', clip_id='a', asset_hash='a', track_id='v', position_sec=0, out_point_sec=2),
+        AddClipOp(author='user', edit_id='add-b', clip_id='b', asset_hash='b', track_id='v', position_sec=2, out_point_sec=2),
+        AddTransitionOp(author='user', edit_id='cut', clip_a_id='a', clip_b_id='b', duration_sec=1, transition_type='dissolve', layout='centered'),
+    ])
+    return store
+
+
+def _cut_state(store):
+    with store._conn() as conn:
+        return (
+            store.graph_revision(),
+            [(op.model_dump(mode='json'), op.sequence_num) for op in store.load_all()],
+            [tuple(row) for row in conn.execute('SELECT * FROM edit_status_events ORDER BY rowid')],
+            store.history(),
+        )
+
+
+@pytest.mark.parametrize('mutation', ['move', 'trim', 'status', 'delete', 'swap', 'move_op', 'reorder_all'])
+def test_cut_breaking_writes_roll_back_graph_revision_events_and_history(tmp_path, mutation):
+    store = _cut_store(tmp_path)
+    if mutation not in ('move', 'trim'):
+        store.append_many([
+            RemoveTransitionOp(author='user', edit_id='remove-cut', transition_id='transition_cut'),
+            MoveClipOp(author='user', edit_id='move-b', clip_id='b', new_track_id='v', new_position_sec=6),
+        ])
+    before = _cut_state(store)
+    with pytest.raises(ValueError, match='Remove or resize the transition'):
+        if mutation == 'move':
+            apply_command(tmp_path, 'move_clip', {'clip_id': 'b', 'new_track_id': 'v', 'new_position_sec': 6})
+        elif mutation == 'trim':
+            apply_command(tmp_path, 'trim_clip', {'clip_id': 'a', 'in_point_sec': 0, 'out_point_sec': .5})
+        elif mutation == 'status':
+            store.update_status('remove-cut', 'reverted')
+        elif mutation == 'delete':
+            store.delete_op('remove-cut')
+        elif mutation == 'swap':
+            store.reorder('cut', 'remove-cut')
+        elif mutation == 'move_op':
+            store.move_arbitrary('remove-cut', 2)
+        else:
+            store.reorder_all(['add-a', 'add-b', 'remove-cut', 'cut', 'move-b'])
+    assert _cut_state(store) == before
+    result = derive_timeline(Project(name='cut', edit_graph=store.load_all()))
+    assert [(clip.clip_id, clip.position_sec) for clip in result.tracks[0].clips] == [
+        ('a', 0), ('b', 2 if mutation in ('move', 'trim') else 6),
+    ]
+
+
+def test_cut_geometry_is_validated_after_the_whole_batch_and_undo(tmp_path):
+    store = _cut_store(tmp_path)
+    store.append_many([
+        MoveClipOp(author='user', clip_id='a', new_track_id='v', new_position_sec=3),
+        MoveClipOp(author='user', clip_id='b', new_track_id='v', new_position_sec=5),
+    ], action_label='Move the cut')
+    current = derive_timeline(Project(name='cut', edit_graph=store.load_all()))
+    assert [(clip.clip_id, clip.position_sec) for clip in current.tracks[0].clips] == [('a', 3), ('b', 5)]
+    assert current.visual_transitions[0].position_sec == 4.5
+    store.history_step('undo', store.graph_revision())
+    restored = derive_timeline(Project(name='cut', edit_graph=store.load_all()))
+    assert [(clip.clip_id, clip.position_sec) for clip in restored.tracks[0].clips] == [('a', 0), ('b', 2)]
+    store.append_many([
+        RemoveTransitionOp(author='user', transition_id='transition_cut'),
+        MoveClipOp(author='user', clip_id='b', new_track_id='v', new_position_sec=6),
+    ])
+    without_cut = derive_timeline(Project(name='cut', edit_graph=store.load_all()))
+    assert not without_cut.visual_transitions
+    assert without_cut.tracks[0].clips[1].position_sec == 6
 
 
 def test_transition_slice_retains_both_source_windows_and_offset():

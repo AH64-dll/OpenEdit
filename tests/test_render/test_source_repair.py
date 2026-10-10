@@ -481,3 +481,74 @@ def test_render_only_repair_rewrites_output_not_source(tmp_path: Path) -> None:
     assert output.is_file()
     assert hashlib.sha256(source.read_bytes()).hexdigest() == before
     assert not mod.list_black_frames(str(output)).spans
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_failed_frame_pump_reaps_both_real_children(partial, monkeypatch):
+    import sys
+
+    decoder = subprocess.Popen(
+        [sys.executable, "-u", "-c", "import os,time; " +
+         ("os.write(1,b'x'); " if partial else "") + "os.close(1); time.sleep(60)"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    encoder = subprocess.Popen(
+        [sys.executable, "-u", "-c", "import sys,time; sys.stdin.buffer.read(); time.sleep(60)"],
+        stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    real_wait = decoder.wait
+    monkeypatch.setattr(decoder, "wait", lambda timeout=None: real_wait(
+        timeout=0.05 if timeout == 30 else timeout,
+    ))
+    try:
+        with pytest.raises(RuntimeError) as error:
+            mod._pump_frames(decoder, encoder, 6, [])
+        assert decoder.poll() is not None and encoder.poll() is not None
+        if partial:
+            assert error.value.__cause__ is None
+        else:
+            assert isinstance(error.value.__cause__, subprocess.TimeoutExpired)
+    finally:
+        for process in (decoder, encoder):
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
+
+
+def test_encoder_start_failure_reaps_decoder_without_masking_error(tmp_path, monkeypatch):
+    import sys
+
+    real_popen = subprocess.Popen
+    children = []
+    error = OSError("encoder startup failed")
+
+    def start(*args, **kwargs):
+        if children:
+            raise error
+        process = real_popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        children.append(process)
+        return process
+
+    monkeypatch.setattr(mod.shutil, "which", lambda _: sys.executable)
+    monkeypatch.setattr(mod, "_repair_video_codec", lambda: ("libx264", ()))
+    monkeypatch.setattr(subprocess, "Popen", start)
+    try:
+        with pytest.raises(OSError) as raised:
+            mod._repair_stream(
+                tmp_path / "source.mp4", tmp_path / "output.mp4",
+                width=2, height=2, fps=30, spans=[],
+            )
+        assert raised.value is error
+        assert children[0].poll() is not None
+        assert children[0].stdout.closed and children[0].stderr.closed
+    finally:
+        for process in children:
+            if process.poll() is None:
+                process.kill()
+            process.wait()

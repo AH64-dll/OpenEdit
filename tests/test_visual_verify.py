@@ -18,13 +18,6 @@ from open_edit.serve import (
     visual_verify,
 )
 
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # sample_frames — tiered by duration, with clamping + dedup
 # ---------------------------------------------------------------------------

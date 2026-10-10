@@ -85,7 +85,7 @@ def _append_speed_clip(project, clip_id='c1'):
 
 
 def test_keyframe_on_first_speed_effect_accepted():
-    from open_edit.ir.types import AddClipOp, ChangeClipSpeedOp, SetKeyframeOp
+    from open_edit.ir.types import ChangeClipSpeedOp, SetKeyframeOp
     from open_edit.ir.validate import validate_op
 
     project = Project(project_id='p', name='p', workdir='/tmp', assets={})
@@ -98,7 +98,7 @@ def test_keyframe_on_first_speed_effect_accepted():
 
 
 def test_keyframe_on_later_speed_op_id_still_rejected():
-    from open_edit.ir.types import AddClipOp, ChangeClipSpeedOp, SetKeyframeOp
+    from open_edit.ir.types import ChangeClipSpeedOp, SetKeyframeOp
     from open_edit.ir.validate import validate_op
 
     project = Project(project_id='p', name='p', workdir='/tmp', assets={})
@@ -119,8 +119,12 @@ def test_keyframe_on_later_speed_op_id_still_rejected():
 
 
 def test_index_removal_is_faithful_then_speed_re_mints():
-    from open_edit.ir.types import (AddClipOp, AddEffectOp, ChangeClipSpeedOp,
-                                    RemoveEffectOp, SetKeyframeOp)
+    from open_edit.ir.types import (
+        AddEffectOp,
+        ChangeClipSpeedOp,
+        RemoveEffectOp,
+        SetKeyframeOp,
+    )
     from open_edit.ir.validate import validate_op
 
     project = Project(project_id='p', name='p', workdir='/tmp', assets={})
@@ -145,8 +149,12 @@ def test_index_removal_is_faithful_then_speed_re_mints():
 
 
 def test_removal_at_neighbor_index_keeps_speed_identity():
-    from open_edit.ir.types import (AddClipOp, AddEffectOp, ChangeClipSpeedOp,
-                                    RemoveEffectOp, SetKeyframeOp)
+    from open_edit.ir.types import (
+        AddEffectOp,
+        ChangeClipSpeedOp,
+        RemoveEffectOp,
+        SetKeyframeOp,
+    )
     from open_edit.ir.validate import validate_op
 
     project = Project(project_id='p', name='p', workdir='/tmp', assets={})
@@ -171,8 +179,7 @@ def test_removal_at_neighbor_index_keeps_speed_identity():
 def test_split_copy_speed_id_is_recognized_for_keyframes():
     from uuid import NAMESPACE_URL, uuid5
 
-    from open_edit.ir.types import (AddClipOp, ChangeClipSpeedOp, SetKeyframeOp,
-                                    SplitClipOp)
+    from open_edit.ir.types import ChangeClipSpeedOp, SetKeyframeOp, SplitClipOp
     from open_edit.ir.validate import validate_op
 
     project = Project(project_id='p', name='p', workdir='/tmp', assets={})
@@ -186,3 +193,65 @@ def test_split_copy_speed_id_is_recognized_for_keyframes():
                              param='rate', keyframes=[(0.0, 1.0, 'linear')])
     errors = validate_op(keyframe, project)
     assert not any('not found' in e for e in errors), errors
+
+
+@pytest.mark.parametrize("case", ["move", "duplicate", "transition_target"])
+def test_effect_slot_projection_matches_replay_after_control_and_removal(tmp_path, case):
+    from open_edit.ir.types import (
+        AddClipOp,
+        AddEffectOp,
+        AddTransitionOp,
+        ChangeClipSpeedOp,
+        ControlEffectOp,
+        RemoveEffectOp,
+        RemoveTransitionOp,
+        SetKeyframeOp,
+    )
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    store = EditGraphStore(tmp_path / ".open_edit/edit_graph.db")
+    store.append(AddClipOp(
+        author="user", clip_id="a", asset_hash="a", track_id="v", position_sec=0, out_point_sec=2,
+    ))
+    if case == "transition_target":
+        store.append(AddClipOp(
+            author="user", clip_id="b", asset_hash="b", track_id="v", position_sec=2, out_point_sec=2,
+        ))
+        store.append(AddTransitionOp(
+            author="user", edit_id="cut", clip_a_id="a", clip_b_id="b",
+            transition_type="dissolve", duration_sec=1,
+        ))
+    store.append(ChangeClipSpeedOp(author="user", edit_id="speed", clip_id="a", rate=2))
+    if case == "transition_target":
+        store.append(RemoveTransitionOp(author="user", transition_id="b"))
+    else:
+        store.append(AddEffectOp(
+            author="user", effect_id="bright", target_kind="clip", target_id="a",
+            effect_type="brightness", params={"level": 1},
+        ))
+        store.append(ControlEffectOp(
+            author="user", target_kind="clip", target_id="a",
+            effect_id="bright" if case == "move" else "speed",
+            action="move" if case == "move" else "duplicate",
+            index=0 if case == "move" else None,
+            new_effect_id="copy-speed" if case == "duplicate" else None,
+        ))
+    store.append(RemoveEffectOp(
+        author="user", clip_id="a", effect_index=1 if case == "duplicate" else 0,
+    ))
+    target = "copy-speed" if case == "duplicate" else "speed"
+    keyframe = SetKeyframeOp(
+        author="user", effect_id=target, param="rate", keyframes=[(0, 1, "linear")],
+    )
+    if case == "move":
+        store.append(keyframe)
+        timeline = derive_timeline(Project(name="effects", edit_graph=store.load_all()))
+        effect = timeline.tracks[0].clips[0].effects[0]
+        assert effect.effect_id == target
+        assert effect.keyframes["rate"] == [(0, 1, "linear")]
+    else:
+        revision, ops = store.graph_revision(), store.load_all()
+        with pytest.raises(ValueError):
+            store.append(keyframe)
+        assert store.graph_revision() == revision
+        assert store.load_all() == ops

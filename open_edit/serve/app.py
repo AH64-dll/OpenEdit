@@ -20,6 +20,8 @@ diagnostics endpoints, and the static mount.
 """
 from __future__ import annotations
 
+import logging
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -55,6 +57,8 @@ from .routers import (
     studio,
 )
 
+_LOG = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -65,7 +69,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A process ID cannot be safely recovered after an application restart.
     # Preserve the audit trail and make the interrupted state explicit.
     for project in await projects_mod.list_projects():
-        DEFAULT_RENDER_JOB_SERVICE.recover(Path(project.path))
+        try:
+            DEFAULT_RENDER_JOB_SERVICE.recover(Path(project.path))
+        except (sqlite3.Error, OSError):
+            _LOG.warning("Render job recovery unavailable for %s; retaining legacy files",
+                         project.path, exc_info=True)
 
     # Source-proxy jobs are durable host workers too. On startup, pick up
     # rows left queued/running by a prior process (crashed CLI init, killed

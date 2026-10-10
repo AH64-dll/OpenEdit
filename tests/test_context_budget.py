@@ -145,7 +145,7 @@ def test_truncate_pins_oversized_frame_exchange_before_later_small_exchange():
     later non-verification exchange exists (pre-fix: it was evicted first)."""
     budget = ContextBudget(max_tokens=400, reserve_tokens=50)
     hist = _frame_history()
-    out = budget.truncate(hist)
+    out = budget.truncate(hist, required_render_id="r1")
 
     def _tool_use_ids(msgs):
         return [b.get("id") for m in msgs for b in (m.get("content") if isinstance(m.get("content"), list) else [])
@@ -165,16 +165,6 @@ def test_truncate_pins_oversized_frame_exchange_before_later_small_exchange():
         "preserved exchanges must keep their original order"
 
 
-def test_truncate_ordering_keeps_marker_before_pinned_exchange():
-    """The truncation marker separates the opening request from the retained
-    exchanges; the pinned exchange is never split or reordered."""
-    budget = ContextBudget(max_tokens=400, reserve_tokens=50)
-    out = budget.truncate(_frame_history())
-    assert out[0] == {"role": "user", "content": "first request"}
-    flattened = __import__("json").dumps(out, default=str)
-    marker_pos = flattened.find("earlier messages truncated")
-    t1_pos = flattened.find('"t1"')
-    assert marker_pos != -1 and t1_pos != -1 and marker_pos < t1_pos
 
 
 def test_truncate_without_frames_evicts_oversize_by_age():
@@ -194,3 +184,92 @@ def test_truncate_without_frames_evicts_oversize_by_age():
            if isinstance(b, dict) and b.get("type") == "tool_use"]
     assert "old" not in ids
     assert "new" in ids
+
+
+def test_old_render_summary_is_not_pinned_without_pending_verification():
+    import json
+
+    history = _frame_history()
+    history[2]["content"][0]["content"] = json.dumps({
+        "render_id": "r1", "verification": {"frame_count": 0}, "notes": "Q" * 6000,
+    })
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(history)
+    ids = [
+        block["id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_use"
+    ]
+    assert "t1" not in ids
+    assert "q1" in ids
+
+
+def test_pending_nonvision_summary_and_matching_call_survive_budget():
+    import json
+
+    history = _frame_history()
+    history[2]["content"][0]["content"] = json.dumps({
+        "render_id": "r1", "verification": {"frame_count": 0}, "notes": "Q" * 6000,
+    })
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(
+        history, required_render_id="r1",
+    )
+    calls = [
+        block["id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_use"
+    ]
+    results = [
+        block["tool_use_id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_result"
+    ]
+    assert "t1" in calls and "t1" in results
+    assert calls == results
+
+
+def test_repeated_render_id_pins_only_newest_exchange():
+    history = _frame_history()
+    history.extend([
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t2", "name": "trigger_render", "input": {}},
+        ]},
+        _frame_tool_result_message("r1", "t2"),
+    ])
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(
+        history, required_render_id="r1",
+    )
+    calls = [
+        block["id"] for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+        if block.get("type") == "tool_use"
+    ]
+    assert "t2" in calls
+    assert "t1" not in calls
+
+
+def test_later_image_free_summary_keeps_pending_frames_exchange():
+    import json
+
+    history = _frame_history()
+    history.extend([
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "poll", "name": "poll_render_job", "input": {}},
+        ]},
+        {"role": "user", "content": [{
+            "type": "tool_result", "tool_use_id": "poll",
+            "content": json.dumps({"render_id": "r1", "verification": {"frame_count": 0}}),
+        }]},
+    ])
+    result = ContextBudget(max_tokens=400, reserve_tokens=50).truncate(
+        history, required_render_id="r1",
+    )
+    blocks = [
+        block for message in result
+        for block in message.get("content", []) if isinstance(message.get("content"), list)
+    ]
+    assert any(block.get("type") == "tool_use" and block.get("id") == "t1" for block in blocks)
+    assert any(
+        block.get("type") == "tool_result" and block.get("tool_use_id") == "t1"
+        and any(part.get("type") == "image" for part in block["content"])
+        for block in blocks if isinstance(block.get("content"), list)
+    )

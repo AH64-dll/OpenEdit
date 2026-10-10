@@ -570,22 +570,27 @@ function renderRendersList(renders) {
 export async function refreshRendersList() {
   if (!state.currentProjectId) return;
   const projectId = state.currentProjectId;
+  const renderGen = state.renderGeneration;
   try {
     const renders = await api.listRenders(projectId);
-    if (projectId !== state.currentProjectId) return;
+    if (projectId !== state.currentProjectId || renderGen !== state.renderGeneration) return;
     renderRendersList(renders);
     const active = renders.some(r => r.status === 'queued' || r.status === 'running');
-    if (active && !state.renderPollTimer) {
-      state.renderPollTimer = setInterval(() => refreshRendersList(), 5000);
-    } else if (!active && state.renderPollTimer) {
-      clearInterval(state.renderPollTimer);
-      state.renderPollTimer = null;
-      setRenderButtonsBusy(false);
+    // Listing fallback must not cancel a foreground proxy owner's job poll.
+    if (!state.proxyRenderInFlight) {
+      if (active && !state.renderPollTimer) {
+        state.renderPollTimer = setInterval(() => refreshRendersList(), 5000);
+      } else if (!active && state.renderPollTimer) {
+        clearInterval(state.renderPollTimer);
+        state.renderPollTimer = null;
+        setRenderButtonsBusy(false);
+      }
     }
     maybeAutoLoadPreview(renders);
     const warn = $('#renders-degraded-warn');
     if (warn) warn.classList.add('hidden');
   } catch (err) {
+    if (projectId !== state.currentProjectId || renderGen !== state.renderGeneration) return;
     let warn = $('#renders-degraded-warn');
     if (!warn) {
       const list = $('#renders-list');
@@ -1364,6 +1369,7 @@ export async function loadLLMConfig() {
     if (llmModelSelect) llmModelSelect.disabled = false;
     updateToolsWarning(cfg.provider);
   } catch (err) {
+    if (projectId !== state.currentProjectId) return;
     console.error('loadLLMConfig failed', err);
     showToast(`Failed to load LLM config: ${err.message || err}`, 'error');
   }
@@ -1876,10 +1882,7 @@ function fitTimelineToWindow() {
 let tlScrubbing = false;
 let tlAutoFitPending = false;
 
-/** Click-to-seek handler shared by the persistent ruler and tracks-area
- *  nodes. Bound once (see ``bindTimelineSeek``) — ``renderTimeline`` runs
- *  on every snapshot paint, and re-binding here fanned one click out to N
- *  seeks. */
+/** Bound once on the persistent ruler column, including its track rows. */
 function onTimelineSeekClick(evt) {
   if (evt.target.closest('.timeline-edit-marker, .timeline-note-marker')) return;
   const col = $('#timeline-ruler-col');
@@ -1887,15 +1890,10 @@ function onTimelineSeekClick(evt) {
 }
 
 function bindTimelineSeek() {
-  const ruler = $('#timeline-ruler');
-  const tracksArea = $('#timeline-tracks-area');
-  if (ruler && ruler.dataset.seekBound !== '1') {
-    ruler.dataset.seekBound = '1';
-    ruler.addEventListener('click', onTimelineSeekClick);
-  }
-  if (tracksArea && tracksArea.dataset.seekBound !== '1') {
-    tracksArea.dataset.seekBound = '1';
-    tracksArea.addEventListener('click', onTimelineSeekClick);
+  const rulerCol = $('#timeline-ruler-col');
+  if (rulerCol && rulerCol.dataset.seekBound !== '1') {
+    rulerCol.dataset.seekBound = '1';
+    rulerCol.addEventListener('click', onTimelineSeekClick);
   }
 }
 

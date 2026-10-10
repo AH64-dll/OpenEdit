@@ -19,7 +19,7 @@ def main() -> int:
         job = RenderJobService().get(args.project, args.job_id)
         if job is None or job.mode != "final" or not (job.params or {}).get("export"):
             raise ValueError("Export job is unavailable")
-        result = execute_export(args.project, job.params["export"])
+        result = execute_export(args.project, job.params["export"], args.job_id)
         print(json.dumps(result, allow_nan=False))
         return 0
     except Exception as error:

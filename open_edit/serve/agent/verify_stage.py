@@ -13,10 +13,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-
 from .. import visual_verify
 from ..llm_config import load_llm_config
-
 
 
 def _probe_media_timing(mp4_path: Path) -> tuple[float, float]:

@@ -17,6 +17,27 @@ https://github.com/AH64-dll/OpenEdit/releases for downloads.
   mode. Separate pinned Remotion/React compatibility dependencies from the
   normal Node package; retain old project installations and explicit wrappers.
   Add fresh TSX and frame-pull browser compatibility acceptance.
+- Enforce centered-transition invariants transactionally across edits, history
+  changes, deletion and reordering. Preserve tolerant replay of object tracks
+  after undoing their clip creator; keep effect identities aligned with replay.
+- Reclaim terminal export snapshots without deleting active producers, shared
+  snapshots or published files. Include WAV/AAC mixes in render-cache quotas
+  and refresh their LRU age on reuse; reap both source-repair processes on failure.
+- Respect audio analysis windows and parse FFmpeg's astats dB output. Sample
+  verification frames using video timing, preserve decodable tail frames,
+  honor requested counts and bound portrait images by their longest edge.
+  Share the existing verification timeout across frame extraction and retries.
+- Preserve only the pending render's newest verification frames through context
+  limits. Send provider-native tool exchanges and defer images until all OpenAI
+  tool calls are answered. Keep durable histories image-free without mutating
+  live frames; retain bounded CLI tool provenance and streamed usage accounting.
+- Fence render polling, list refreshes and provider settings by their owning
+  project; release proxy controls on failure or polling exhaustion. Bind
+  timeline seeking once and prevent overlapping toast timers from hiding newer
+  messages. Return flat validation errors. Isolate unreadable render-job
+  metadata during startup and retain legacy downloads with byte ranges.
+  Validate complete MP4 containers instead of rejecting valid short clips
+  below an arbitrary file-size threshold.
 
 - Remove the Pi extension, bridge and provider. MCP is included in the default
   package; built-in chat SDKs remain optional and the UI defaults to review mode.

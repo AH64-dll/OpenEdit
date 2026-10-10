@@ -107,6 +107,7 @@ class ContextBudget:
         self,
         history: list[dict[str, Any]],
         groups: list[list[dict[str, Any]]],
+        required_render_id: str | None = None,
     ) -> set[int]:
         """Indexes in ``groups`` that must survive truncation as whole units.
 
@@ -119,6 +120,8 @@ class ContextBudget:
         Message order is never reordered here — pinned groups preserve
         their original position in ``truncate``.
         """
+        if required_render_id is None:
+            return set()
         from .visual_verify import _summary_render_id_from_tool_result
 
         message_index_to_group: list[int] = []
@@ -126,21 +129,26 @@ class ContextBudget:
             message_index_to_group.extend([gi] * len(group))
 
         pinned: set[int] = set()
+        image_pin: set[int] = set()
         for i, msg in enumerate(history):
             if msg.get("role") != "user":
                 continue
             for block in msg.get("content", []) if isinstance(msg.get("content"), list) else []:
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") == "tool_result"
-                    and isinstance(block.get("content"), list)
-                    and _summary_render_id_from_tool_result(block) is not None
-                ):
-                    gi = message_index_to_group[i]
-                    pinned.add(gi)
-        return pinned
+                if not isinstance(block, dict) or block.get("type") != "tool_result":
+                    continue
+                render_id = _summary_render_id_from_tool_result(block)
+                if render_id == required_render_id:
+                    # Re-polling a cached render can repeat its ID; pin
+                    # only the newest matching exchange.
+                    pinned = {message_index_to_group[i]}
+                    inner = block.get("content")
+                    if isinstance(inner, list) and any(
+                        isinstance(part, dict) and part.get("type") == "image" for part in inner
+                    ):
+                        image_pin = {message_index_to_group[i]}
+        return image_pin or pinned
 
-    def truncate(self, history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def truncate(self, history: list[dict[str, Any]], *, required_render_id: str | None = None) -> list[dict[str, Any]]:
         """Retain the opening request, current request and complete exchanges.
 
         An indivisible newest exchange or user request may exceed the configured
@@ -155,7 +163,7 @@ class ContextBudget:
         if count_tokens_history(history) <= budget:
             return history
         groups = _exchange_groups(history)
-        pinned = self.pin_required_exchanges(history, groups)
+        pinned = self.pin_required_exchanges(history, groups, required_render_id)
         if not groups:
             return []
         current = next((i for i in range(len(groups) - 1, -1, -1) if any(

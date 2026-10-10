@@ -592,16 +592,42 @@ async def list_renders(project_id: str) -> list[dict[str, Any]]:
 
 
 def _is_complete_render_mp4(path: Path) -> bool:
-    """Skip melt intermediates / tiny stubs so the preview never auto-loads junk."""
+    """Accept finished MP4 containers, including small highly compressed clips."""
     name = path.name.lower()
-    if path.suffix.lower() != ".mp4":
-        return False
-    # melt writes ``project_<hash>.melt.mp4`` while rendering; that file is not
-    # a finished proxy and breaks the <video> element if auto-loaded.
-    if name.endswith(".melt.mp4") or ".melt." in name:
+    if path.suffix.lower() != ".mp4" or name.endswith(".melt.mp4") or ".melt." in name:
         return False
     try:
-        return path.is_file() and path.stat().st_size >= 10_000
+        if not path.is_file():
+            return False
+        with path.open("rb") as handle:
+            file_size = handle.seek(0, 2)
+            handle.seek(0)
+            offset = 0
+            required = {b"ftyp", b"moov", b"mdat"}
+            while offset < file_size:
+                header = handle.read(8)
+                if len(header) != 8:
+                    return False
+                atom_size = int.from_bytes(header[:4], "big")
+                atom_type = header[4:]
+                header_size = 8
+                if atom_size == 1:
+                    extended = handle.read(8)
+                    if len(extended) != 8:
+                        return False
+                    atom_size = int.from_bytes(extended, "big")
+                    header_size = 16
+                elif atom_size == 0:
+                    atom_size = file_size - offset
+                if atom_size < header_size or atom_size > file_size - offset:
+                    return False
+                if atom_type in required:
+                    if atom_size == header_size:
+                        return False
+                    required.remove(atom_type)
+                offset += atom_size
+                handle.seek(offset)
+            return not required
     except OSError:
         return False
 

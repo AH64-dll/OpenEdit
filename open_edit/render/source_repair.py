@@ -562,18 +562,26 @@ def _repair_stream(
             ],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
-        encoder = subprocess.Popen(
-            [
-                ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-                "-f", "rawvideo", "-pix_fmt", "yuv420p",
-                "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
-                "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?",
-                "-c:v", vcodec, *vargs,
-                "-pix_fmt", "yuv420p", "-c:a", "copy", "-shortest",
-                str(output_path),
-            ],
-            stdin=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
+        try:
+            encoder = subprocess.Popen(
+                [
+                    ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "rawvideo", "-pix_fmt", "yuv420p",
+                    "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
+                    "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?",
+                    "-c:v", vcodec, *vargs,
+                    "-pix_fmt", "yuv420p", "-c:a", "copy", "-shortest",
+                    str(output_path),
+                ],
+                stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+        except BaseException:
+            decoder.kill()
+            decoder.wait()
+            for pipe in (decoder.stdout, decoder.stderr):
+                if pipe is not None:
+                    pipe.close()
+            raise
         try:
             _pump_frames(decoder, encoder, frame_size, spans)
             return
@@ -584,7 +592,6 @@ def _repair_stream(
                 vcodec, vargs = "libx264", ("-preset", "veryfast", "-crf", "18")
                 continue
             raise
-    _pump_frames(decoder, encoder, frame_size, spans)
 
 
 def _pump_frames(
@@ -599,8 +606,8 @@ def _pump_frames(
     span_index = 0
     frame_index = 0
     previous: bytes | None = None
-    frame = _read_frame(decoder.stdout, frame_size)
     try:
+        frame = _read_frame(decoder.stdout, frame_size)
         while frame is not None:
             while span_index < len(spans) and frame_index >= spans[span_index][1]:
                 span_index += 1
@@ -625,19 +632,34 @@ def _pump_frames(
                 previous = repaired_window[-1]
             # ``frame`` is the first frame after the span and is processed on
             # the next loop iteration without being discarded.
-    except (BrokenPipeError, OSError):
-        raise RuntimeError("frame repair encoder closed unexpectedly") from None
-    finally:
-        with contextlib.suppress(OSError):
-            encoder.stdin.close()
+        encoder.stdin.close()
         decoder.stdout.close()
         decoder_rc = decoder.wait(timeout=30)
         encoder_rc = encoder.wait(timeout=30)
-    if decoder_rc != 0 or encoder_rc != 0:
-        error = (encoder.stderr.read() if encoder.stderr else b"").decode(
-            "utf-8", errors="replace",
-        ).strip()
-        raise RuntimeError(error or "frame repair ffmpeg failed")
+        if decoder_rc != 0 or encoder_rc != 0:
+            error = (encoder.stderr.read() if encoder.stderr else b"").decode(
+                "utf-8", errors="replace",
+            ).strip()
+            raise RuntimeError(error or "frame repair ffmpeg failed")
+    except BaseException as error:
+        # Reap both children before a caller retries with the CPU encoder.
+        # A timeout on the decoder must not bypass cleanup of the encoder.
+        for process in (decoder, encoder):
+            if process.poll() is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+        for process in (decoder, encoder):
+            process.wait()
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise RuntimeError("frame repair ffmpeg timed out") from error
+        if isinstance(error, (BrokenPipeError, OSError)):
+            raise RuntimeError("frame repair encoder closed unexpectedly") from error
+        raise
+    finally:
+        for pipe in (encoder.stdin, decoder.stdout, decoder.stderr, encoder.stderr):
+            if pipe is not None:
+                with contextlib.suppress(OSError):
+                    pipe.close()
 
 
 def _merge_repair_spans(
