@@ -53,7 +53,7 @@ Notes:
   - No sudo required; everything stays under your home directory.
   - Re-running is safe: an existing clone is reused and updated.
   - Prerequisites: git, and Python 3.11 or newer.
-  - Node.js 22+ is required for motion-graphics (hyperframes) rendering;
+  - Node.js 24+ is required for editing workers and hyperframes rendering;
     when missing, a user-local Node is downloaded from nodejs.org (no sudo).
 EOF
 }
@@ -161,9 +161,9 @@ fi
 
 # ---- Node.js (required for hyperframes rendering) --------------------------
 # The render pipeline pins hyperframes@0.7.65 in package.json; its CLI needs
-# Node >= 22. When the system Node is missing (or too old) we download the
+# Node >= 22 and the editing workers need Node >= 24. When the system Node is missing (or too old) we download the
 # official tarball into $INSTALL_DIR/.node — user-local, no sudo.
-NODE_LTS_FALLBACK="v22.14.0"
+NODE_LTS_FALLBACK="v24.18.0"
 NODE_BIN=""
 NODE_DIR=""
 NODE_VERSION=""
@@ -199,12 +199,12 @@ install_node_local() {
   case "$os" in
     Darwin)
       warn "Node.js is missing and macOS auto-install is not supported by this installer."
-      warn "Install Node 22+ first, e.g. 'brew install node' (or https://nodejs.org), then re-run."
+      warn "Install Node 24+ first, e.g. 'brew install node' (or https://nodejs.org), then re-run."
       return 1
       ;;
     Linux) ;;
     *)
-      warn "Unsupported OS '$os' for Node auto-install; install Node 22+ manually from https://nodejs.org and re-run."
+      warn "Unsupported OS '$os' for Node auto-install; install Node 24+ manually from https://nodejs.org and re-run."
       return 1
       ;;
   esac
@@ -213,7 +213,7 @@ install_node_local() {
     x86_64|amd64) node_arch="x64" ;;
     aarch64|arm64) node_arch="arm64" ;;
     *)
-      warn "Unsupported architecture '$arch' for Node auto-install; install Node 22+ manually from https://nodejs.org and re-run."
+      warn "Unsupported architecture '$arch' for Node auto-install; install Node 24+ manually from https://nodejs.org and re-run."
       return 1
       ;;
   esac
@@ -226,12 +226,12 @@ install_node_local() {
   say "Downloading Node.js $node_version ($node_arch) from nodejs.org ..."
   if ! fetch_url "$url" "$tmp_tar"; then
     rm -f "$tmp_tar" 2>/dev/null || true
-    warn "downloading $url failed; install Node 22+ manually from https://nodejs.org and re-run."
+    warn "downloading $url failed; install Node 24+ manually from https://nodejs.org and re-run."
     return 1
   fi
   if ! tar -xJf "$tmp_tar" -C "$NODE_DIR" --strip-components=1; then
     rm -f "$tmp_tar" 2>/dev/null || true
-    warn "extracting Node from $tmp_tar failed; install Node 22+ manually from https://nodejs.org and re-run."
+    warn "extracting Node from $tmp_tar failed; install Node 24+ manually from https://nodejs.org and re-run."
     return 1
   fi
   rm -f "$tmp_tar" 2>/dev/null || true
@@ -240,7 +240,7 @@ install_node_local() {
     NODE_BIN="$NODE_DIR/bin/node"
     return 0
   fi
-  warn "Node install did not produce $NODE_DIR/bin/node; install Node 22+ manually from https://nodejs.org and re-run."
+  warn "Node install did not produce $NODE_DIR/bin/node; install Node 24+ manually from https://nodejs.org and re-run."
   return 1
 }
 
@@ -253,18 +253,18 @@ node_check() {
     case "$major" in
       ''|*[!0-9]*) return 1 ;;
     esac
-    if [ "" -ge 22 ]; then
+    if [ "$major" -ge 24 ]; then
       NODE_BIN="$(command -v node)"
       NODE_VERSION="$ver"
       return 0
     fi
-    warn "system node () is older than 22; installing a user-local Node instead."
+    warn "system node ($ver) is older than 24; installing a user-local Node instead."
     return 1
   fi
   return 1
 }
 
-say "Checking Node.js (>=22 required for hyperframes rendering) ..."
+say "Checking Node.js (>=24 required for editing workers and hyperframes) ..."
 if node_check; then
   say "Using Node.js ${NODE_VERSION} ($NODE_BIN)"
 else
@@ -274,7 +274,7 @@ else
     say "Add it to your shell profile (append to ~/.bashrc or ~/.zshrc):"
     say "  export PATH=\"$NODE_DIR/bin:\$PATH\""
   else
-    warn "Node.js 22+ is required for motion-graphics (hyperframes) rendering; the MCP server itself works without it."
+    warn "Node.js 24+ is required for editing workers and hyperframes rendering; the MCP server itself works without it."
   fi
 fi
 
@@ -317,7 +317,7 @@ if command -v npm >/dev/null 2>&1; then
   if [ -f "$HYPERFRAMES_BIN" ]; then
     say "hyperframes ready at $HYPERFRAMES_BIN"
     if ! "$HYPERFRAMES_BIN" --version >/dev/null 2>&1; then
-      warn "node_modules/.bin/hyperframes exists but could not run (is Node 22+ active?)."
+      warn "node_modules/.bin/hyperframes exists but could not run (is Node 24+ active?)."
       warn "Install the pinned engine with npm ci or set OPEN_EDIT_HYPERFRAMES_BIN to an installed engine."
     fi
   else
@@ -326,7 +326,7 @@ if command -v npm >/dev/null 2>&1; then
   fi
 else
   warn "npm was not found on PATH; skipping npm ci (hyperframes rendering unavailable)."
-  warn "Install Node.js 22+ (see above), then run:  cd \"$INSTALL_DIR\" && npm ci --no-audit --no-fund"
+  warn "Install Node.js 24+ (see above), then run:  cd \"$INSTALL_DIR\" && npm ci --no-audit --no-fund"
 fi
 
 # ---- Verify the MCP server -------------------------------------------------
@@ -376,6 +376,12 @@ else
   PROJECT_HINT="
      Create a project later with: $OPEN_EDIT_BIN init <folder>"
 fi
+# Pin the Node the installer used: GUI-launched hosts rarely inherit shell PATH.
+MCP_ENV_NODE=""
+INSTALLED_NODE="$(command -v node 2>/dev/null || true)"
+if [ -n "$INSTALLED_NODE" ]; then
+  MCP_ENV_NODE="\"OPEN_EDIT_NODE_BIN\": \"$INSTALLED_NODE\", "
+fi
 
 cat <<EOF
 
@@ -397,12 +403,12 @@ Next steps:
          "open-edit": {
            "command": "$MCP_BIN",
            ${MCP_ARGS_LINE}
-           "env": { "OPEN_EDIT_RENDER_BACKEND": "cpu" }
+           "env": { ${MCP_ENV_NODE}"OPEN_EDIT_RENDER_BACKEND": "cpu" }
          }
        }
      }
 
-     Then reload MCP in Cursor.
+     Then reload MCP in Cursor. Check setup any time with: $OPEN_EDIT_BIN doctor
 
   2. Start the Review Studio:
 
@@ -483,14 +489,14 @@ if [ -n "$NODE_BIN" ]; then
   NODE_MAJOR="${NODE_VERSION#v}"
   NODE_MAJOR="${NODE_MAJOR%%.*}"
   case "$NODE_MAJOR" in
-    1[89]|2[01]) NODE_DETAIL="$NODE_DETAIL (hyperframes 0.7.65 prefers Node >=22)" ;;
+    1[89]|2[0-3]) NODE_DETAIL="$NODE_DETAIL (editing workers need Node >=24)" ;;
   esac
 else
   NODE_STATUS="MANUAL STEPS"
   if [ "$(uname -s)" = "Darwin" ]; then
     NODE_DETAIL="brew install node (or https://nodejs.org)"
   else
-    NODE_DETAIL="install Node 22+ from https://nodejs.org"
+    NODE_DETAIL="install Node 24+ from https://nodejs.org"
   fi
 fi
 if [ -f "$HYPERFRAMES_BIN" ]; then

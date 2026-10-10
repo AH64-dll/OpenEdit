@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,11 +19,12 @@ from open_edit.render.profiles import RenderProfile
 def materialize_layer(track: Track, duration: float, asset_paths: dict[str, str],
                       cache_dir: Path, profile: RenderProfile) -> Path:
     """Never publish a partial or unprobed cache file; keep project source intact."""
+    from open_edit.integrations.binaries import MELT_MISSING, melt_bin
     from open_edit.storage.assets import _probe_media as probe_file
 
-    melt = shutil.which('melt')
+    melt = melt_bin()
     if not melt:
-        raise ValueError('MLT is required to check effects on video layers')
+        raise ValueError(MELT_MISSING)
     if profile.scale:
         width, height = map(int, profile.scale.split('x'))
         profile = profile.model_copy(update={'width': width, 'height': height, 'scale': None})

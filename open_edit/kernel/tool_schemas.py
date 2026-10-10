@@ -50,135 +50,61 @@ def get_tool_schema(name: str) -> dict[str, Any] | None:
 TOOL_USAGE_GUIDE = """\
 # Tool usage guide
 
-Harness playbook (preferred over exploring source): skills/open-edit-mcp.md
-(also MCP resource open-edit://skills/open-edit-mcp / prompt open-edit-playbook).
-Style memory: skills/style-memory.md (prompt open-edit-style-memory).
+Skills (preferred over exploring source): skills/open-edit/SKILL.md, also MCP
+resource open-edit://skills/open-edit and prompt open-edit. Exact parameters:
+open-edit-ops. Notes/style/undo: open-edit-review. Graphics: open-edit-graphics.
 
-You have 6 tools available: the 4 pillars below plus the
-``get_render_job`` / ``cancel_render_job`` render helpers. Use the
-pillars in this order of priority:
+Six tools: query_project, edit_project, run_script, trigger_render, plus the
+get_render_job / cancel_render_job helpers. Priority:
 
-## 1. query_project (preferred first)
-Use this for ALL read-only queries about the project:
-- "list_assets" → list all assets
-- "get_pending_notes" → get pending review notes
-- "get_style_profile" → get the project's style profile (call early)
-- "analyze_narrative" → analyze narrative structure of assets
-- "search_assets" → search the durable **internet stock** cascade
-  (Pexels/Freesound → Openverse → Wikimedia Commons)
-- "get_transcript_packed" → get silence-aware, speaker-grouped phrase transcript
-- "get_authoring_view" → optional JSX media view and revision (source only with include_source=true)
-- "get_editing_context" → compact targets, timed regions/marks, revision and pagination; fetch full objects only as needed
-
-## 2. edit_project (preferred for mutations)
-Use this for ALL project edits:
-- Operations are APPLIED IMMEDIATELY
-- "apply_authoring_edit" → revision-checked JSX/media source edits; see tool_surface for optional worker setup
-- "apply_graphics_edits" → adjust stored graphics by document and source IDs without resending literal JSX
-- "capture_style_hint" → persist a **confirmed** user style preference
-- "set_pinned_value" → hard pin (aspect ratio, durations, etc.)
-- For creative suggestions (SFX, music, visuals, silence cuts), use the "generate" parameter
-- **Search before generate:** before any generate=visual / music / sfx call
-  search_assets and use import_asset for suitable licensed
-  provider stock; generate only when stock is unavailable or unsuitable.
-- Generated ops are returned for review; commit them with operation="apply_generated_ops"
-
-## 3. run_script (only when edit_project can't do it)
-Write Python that calls the ir module. The IR version header is auto-injected.
-For complex multi-step edits that can't be expressed as a single edit_project operation.
-Scripts run with the MCP host account permissions and a bounded timeout.
-
-## 4. trigger_render (when you need to see the result)
-Render the current timeline to a video file for preview or verification.
-
-## 5. get_render_job / cancel_render_job (render polling helpers)
-Use after a non-blocking ``trigger_render``: poll ``get_render_job``
-with the returned ``job_id`` for status, or ``cancel_render_job`` to
-stop a queued/running job.
+1. query_project for every read: list_assets, get_transcript_packed,
+   get_silence_gaps, get_pending_notes, get_style_profile (PascalCase op_type),
+   search_assets, get_editing_context (include_timeline lists clip IDs),
+   get_history, get_readiness (call on any missing_dependency error).
+2. edit_project for every write (applied immediately). generate=silence_cuts /
+   music / sfx / visual returns suggested ops; commit with apply_generated_ops
+   (or apply_silence_gaps). Search stock (search_assets + import_asset) before
+   generating music, SFX or visuals. capture_style_hint only when confirmed.
+3. run_script only when no operation fits: Python using the preloaded ``ir``
+   builder (below). It cannot read project state; fetch IDs first.
+4. trigger_render (async): proxy for review, final after approval; poll
+   get_render_job until terminal and check qc_report.passed/complete.
 """
 
 
-# ---------------------------------------------------------------------------
-# IR op model summary — also embedded in the system prompt
-# ---------------------------------------------------------------------------
+def _ir_method_lines() -> str:
+    """One line per IR builder method, generated so it cannot drift from the API."""
+    import inspect
 
-IR_MODEL_SUMMARY = """\
-## Open Edit IR (intermediate representation) summary
+    from open_edit.ir.api import IR
 
-The edit graph is an **append-only log of ops** stored in
-``edit_graph.db`` (table ``edits``). Every op has these base fields:
-``edit_id, parent_id, kind, author, timestamp, status, sequence_num, payload``.
-Status is one of ``applied | reverted | superseded``. To "modify" an op,
-you add a new op that supersedes it (via ``parent_id`` linking).
+    lines = []
+    for name, fn in inspect.getmembers(IR, inspect.isfunction):
+        if name.startswith('_') or name == 'append':
+            continue
+        params = [p for p in inspect.signature(fn).parameters.values()
+                  if p.name not in ('self', 'originating_note_id')]
+        lines.append(f"- ``ir.{name}({', '.join(str(p).split(':')[0] for p in params)})``")
+    return "\n".join(lines)
 
-There are **28 concrete op kinds** in ``open_edit.ir.types``. The
-``kind`` field is the operation class name in snake_case. The full list:
 
-**Clip ops** (manage clips on tracks):
-- ``add_clip`` — add a clip from an asset. Payload: ``{asset_hash, track_id, position_sec, in_point_sec, out_point_sec}``.
-- ``remove_clip`` — remove a clip by op_id. Payload: ``{clip_id}``.
-- ``move_clip`` — move a clip to a new position. Payload: ``{clip_id, new_position_sec, new_track_id?}``.
-- ``trim_clip`` — change in/out points. Payload: ``{clip_id, in_point_sec, out_point_sec}``.
-- ``slip_clip`` — slide source window without changing clip length. Payload: ``{clip_id, delta_sec}``.
-- ``ripple_delete_clip`` — remove a clip and shift subsequent clips. Payload: ``{clip_id}``.
-- ``change_clip_speed`` — retime. Payload: ``{clip_id, rate}``.
-- ``split_clip`` — split a clip at a position. Payload: ``{clip_id, split_at_sec}``.
-- ``replace_clip_source`` — point a clip at a different asset. Payload: ``{clip_id, new_asset_hash}``.
-- ``set_clip_speed_ramp`` — variable speed. Payload: ``{clip_id, ramp_points[]}``.
+IR_MODEL_SUMMARY = f"""\
+## Open Edit IR summary
 
-**Transition ops**:
-- ``add_transition`` — add a transition between two clips. Payload: ``{from_clip_id, to_clip_id, transition_type, duration_sec}``.
-- ``remove_transition`` — remove a transition. Payload: ``{transition_id}``.
-- ``set_transition_property`` — change a transition's params. Payload: ``{transition_id, property, value}``.
+The edit graph is an ordered log of IR ops (``open_edit.ir.types``); the
+timeline is derived from it. Edits append ops; undo/redo/revert reverse whole
+actions. ``run_script`` code builds ops with the preloaded ``ir`` object (the
+IR version header is injected) and the ops are validated and appended
+atomically. Clip timing fields are ``in_point_sec``/``out_point_sec``/
+``position_sec``; transitions join ``clip_a_id``/``clip_b_id`` with type
+``cut``, ``fade``, ``dissolve``, ``wipe`` or ``luma``.
 
-**Effect ops**:
-- ``add_effect`` — add an effect to a clip or the timeline. Payload: ``{target_clip_id?, effect_type, params}``.
-- ``remove_effect`` — remove an effect. Payload: ``{effect_id}``.
-- ``set_effect_param`` — change a single effect param. Payload: ``{effect_id, param, value}``.
-- ``set_keyframe`` — set a keyframe. Payload: ``{effect_id, time_sec, value}``.
-- ``remove_keyframe`` — remove a keyframe. Payload: ``{keyframe_id}``.
+``ir`` methods:
+{_ir_method_lines()}
 
-**Audio ops**:
-- ``set_audio_gain`` — change clip volume. Payload: ``{clip_id, gain_db}``.
-- ``normalize_audio`` — normalize audio. Payload: ``{clip_id, target_dbfs}``.
-
-**Grouping ops**:
-- ``group_edits`` — group ops into an atomic block. Payload: ``{edit_ids[]}``.
-- ``ungroup_edits`` — dissolve a group. Payload: ``{group_id}``.
-
-**Overlay / motion-graphics ops**:
-- ``add_html_overlay`` — native HyperFrames HTML/CSS/JS overlay. Payload: ``{template_path, variables, position_sec, duration_sec}``.
-- ``remove_html_overlay`` — remove HTML overlay. Payload: ``{overlay_id}``.
-- ``add_remotion_composition`` — legacy Remotion migration input; do not create new operations. Payload: ``{entry_point, composition_id, props, position_sec, duration_sec, track_id, alpha}``.
-- ``remove_remotion_composition`` — remove Remotion composition. Payload: ``{composition_uid}``.
-
-**Escape hatches**:
-- ``raw_mlt_xml`` — paste raw MLT XML. Payload: ``{xml, scope}``.
-- ``free_form_code`` — embed Python code (the result of ``run_script``).
-  Payload: ``{code, project_id, parent_op_id}``.
-
-**Common fields** every op carries (inherited from the ``Operation`` base):
-``edit_id`` (UUID), ``parent_id`` (UUID of the op this one descends from;
-``None`` for root ops), ``author`` (``"ai"`` or ``"user"``),
-``timestamp`` (ISO 8601 string), ``status``, ``sequence_num`` (auto-assigned
-by ``EditGraphStore``), ``payload`` (JSON blob of op-specific data).
-
-**To build an op programmatically**, use ``open_edit.ir.api.IR``. Each
-op type has a method on the ``IR`` class (e.g. ``ir.add_clip(...)``,
-``ir.add_remotion_composition(...)``, ``ir.add_html_overlay(...)``). The
-agent's ``run_script`` tool gives you access to ``IR`` and the op classes
-in the script subprocess.
-
-**Review notes** are NOT ops. They live in ``notes.db`` (table ``notes``)
-with fields ``note_id, project_id, anchor_type, anchor, text, source,
-status, created_at, processed_at, commit_token, resulting_op_ids``.
-``anchor`` is JSON-encoded (e.g. ``'{"t_start": 3.2, "t_end": 3.5}'`` for a
-timestamp anchor). Use ``add_marker`` (via ``edit_project``) to create
-agent-sourced notes.
-
-**Style profile** is a separate key/value store pinned at the project
-level. Pinned values override inferred defaults when generating new ops.
-Use ``edit_project`` with ``operation=\"set_pinned_value\"`` to pin,
-and ``query_project`` with ``query=\"get_style_profile\"`` to read the
-slice for a given op kind.
+Captions, graphics documents and object tracks change through
+``edit_project`` (apply_studio_changes, apply_graphics_edits, tracking
+operations), not ``run_script``. Review notes are not ops: read them with
+``get_pending_notes``; ``add_marker`` creates an agent note. Pinned style
+values (``set_pinned_value``) override inferred defaults.
 """

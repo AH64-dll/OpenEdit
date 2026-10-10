@@ -1,6 +1,6 @@
 """QC gate — runs all 10 checks and aggregates the results.
 
-Implements the check set documented in ``skills/qc-standards.md``
+Implements the check set documented in ``skills/open-edit-editing/SKILL.md`` (QC section)
 (``streams``, ``duration``, ``audio_sync``, ``black_frames``,
 ``frozen_frames``, ``overlays_burned``) plus the pipeline-internal
 integrity checks (``render_completed``, ``proxy_render``, ``silence``,

@@ -23,7 +23,8 @@ def mcp_tool_schemas() -> list[dict[str, Any]]:
 
 def result_to_json(result: Any) -> str:
     """Serialize a tool result for MCP TextContent."""
-    return json.dumps(result, default=str, sort_keys=True)
+    # Compact, UTF-8 output: agents pay per token, not per escaped byte.
+    return json.dumps(result, default=str, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 async def dispatch_mcp_tool(

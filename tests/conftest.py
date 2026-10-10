@@ -15,6 +15,15 @@ def disable_dependency_telemetry(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def render_dependencies_present(request, monkeypatch):
+    """Mocked render services need no melt; render_preflight tests exercise the real check."""
+    if not request.node.get_closest_marker("render_preflight"):
+        from open_edit.kernel import tool_executor
+
+        monkeypatch.setattr(tool_executor, "_render_dependency_problem", lambda mode: None)
+
+
+@pytest.fixture(autouse=True)
 def optional_agent_ui(request, monkeypatch):
     """Tests of optional chat/config endpoints explicitly enable that mode."""
     if request.node.get_closest_marker("agent_ui"):

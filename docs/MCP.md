@@ -45,11 +45,11 @@ Core IR edits, ingest, overlays, and rendering need the PATH tools below.
 | Python 3.11+ | MCP server |
 | ffmpeg / ffprobe | probe, HyperFrames overlay burn-in, final encode |
 | melt (MLT) | proxy/final timeline render (edit/query still work without it) |
-| Node.js (>= 22) | HyperFrames overlay engine — run `npm install` in the repo (`OPEN_EDIT_NODE_BIN` → `node.exe`) |
+| Node.js (>= 24) | editing workers and HyperFrames — run `npm install` in the repo (`OPEN_EDIT_NODE_BIN` → `node.exe`) |
 | hyperframes (npm) | HTML/CSS/JS motion graphics, pinned `0.7.65`; `node_modules/.bin/hyperframes` |
 
-Safe render default on Windows: `OPEN_EDIT_RENDER_BACKEND=cpu` (already the
-unset default). Set `gpu` to try NVENC/QSV.
+The default encoder backend is `gpu`: each render probes NVENC/QSV/AMF and falls
+back to libx264. Set `OPEN_EDIT_RENDER_BACKEND=cpu` to skip the probe.
 
 #### Windows smoke checklist
 
@@ -355,10 +355,15 @@ Cache eviction protects canonical source CAS and sidecars, active jobs, and
 newest deliverables. It may remove regenerable source proxies, Remotion
 materialize outputs, render-cache entries, and orphaned temporary files.
 
-### Render runtime / Node
+### Render runtime / PATH
 
-Prefer Node 22+ for the HyperFrames overlay engine (pinned `hyperframes@0.7.65`
-requires Node >= 22; Remotion is legacy/migration-only):
+Desktop agent hosts often start the MCP server without your shell `PATH`.
+Open Edit therefore finds Node 24+ under nvm/fnm/asdf/volta and melt under
+`~/.local/share/OpenEdit/runtime/bin` or a Shotcut install on its own, and adds
+them to the server's `PATH` so render workers inherit them. Check the result
+with `open_edit doctor` or the MCP query `query_project get_readiness`; each
+failing check names what was found and the exact fix. Override explicitly
+when needed (see `docs/OPERATIONS.md`):
 
 ```json
 {
@@ -367,53 +372,44 @@ requires Node >= 22; Remotion is legacy/migration-only):
       "command": "/path/to/OpenEdit/.venv/bin/open-edit-mcp",
       "args": ["--project", "/absolute/path/to/project"],
       "env": {
-        "OPEN_EDIT_NODE_BIN": "/path/to/node22/bin/node",
-        "OPEN_EDIT_WHISPER_LANGUAGE": "ar",
-        "OPEN_EDIT_WHISPER_MODEL": "small"
+        "OPEN_EDIT_NODE_BIN": "/home/me/.nvm/versions/node/v24.18.0/bin/node",
+        "OPEN_EDIT_MELT": "/opt/shotcut/Shotcut.app/melt",
+        "OPEN_EDIT_WHISPER_LANGUAGE": "ar"
       }
     }
   }
 }
 ```
 
+OpenCode uses `"environment"` instead of `"env"` for the same keys.
+
 ## Agent skills (all harnesses)
 
-Canonical playbooks live in the repo **`skills/`** folder — not Cursor-only:
+Five skills in `skills/<name>/SKILL.md` (standard skill layout, also shipped
+as `open_edit/harness_skills/`; override with `OPEN_EDIT_SKILLS_DIR`):
 
-| File | Role |
+| Skill | Role |
 |---|---|
-| [`skills/open-edit-mcp.md`](../skills/open-edit-mcp.md) | **Start here** — tools, when to use, recipes |
-| [`skills/review-notes.md`](../skills/review-notes.md) | Timeline notes (edit/delete/audio) |
-| [`skills/open-edit-mcp-reference.md`](../skills/open-edit-mcp-reference.md) | IR / `run_script` |
-| [`skills/README.md`](../skills/README.md) | Full skill index |
+| [`open-edit`](../skills/open-edit/SKILL.md) | **Start here**: workflow, defaults, error recovery |
+| [`open-edit-ops`](../skills/open-edit-ops/SKILL.md) | Exact params for every query, operation, render option, `run_script` |
+| [`open-edit-editing`](../skills/open-edit-editing/SKILL.md) | Cutting craft, effects catalog, QC fixes |
+| [`open-edit-graphics`](../skills/open-edit-graphics/SKILL.md) | Diffusion JSX, HyperFrames overlay contract, Remotion migration |
+| [`open-edit-review`](../skills/open-edit-review/SKILL.md) | Review notes, style memory, undo/revert |
 
-Also shipped inside the Python package as `open_edit/harness_skills/` (for
-installed wheels). Override search path with `OPEN_EDIT_SKILLS_DIR`.
+How hosts get them:
 
-### How hosts load them
+1. **MCP initialize `instructions`**: a short summary (under 900 characters)
+   that points at the skills; skills are not embedded in every session.
+2. **MCP resources**: `open-edit://skills/<name>`; **MCP prompts**: same names.
+   Pre-1.4 names (`open-edit-mcp`, `tool_surface`, `open-edit-playbook`, …)
+   still resolve.
+3. **Filesystem / Python**: `skills/` or `open_edit.mcp.skills.load_skill`.
 
-1. **Filesystem** — read `skills/open-edit-mcp.md`
-2. **MCP initialize `instructions` (mandatory)** — embeds `open-edit-mcp`,
-   `tool_surface`, `edit-planning`, `review-notes`, and `style-memory` so
-   harnesses do not explore the repository to rediscover workflows
-3. **MCP resources** — `open-edit://skills/open-edit-mcp`, `…/review-notes`, …
-4. **MCP prompts** — `open-edit-playbook`, `open-edit-reference`,
-   `open-edit-review-notes`, `open-edit-style-memory`, …
-5. **Python** — `from open_edit.mcp.skills import load_skill`
-
-Cursor also has a thin pointer under `.cursor/skills/open-edit-mcp/` that
-redirects to the same project files.
+Cursor has a thin pointer under `.cursor/skills/open-edit/`.
 
 Review Studio UI (`open_edit serve`, review-only by default) is the human
 preview/notes surface for MCP. Use `--with-agent` only if you need the
 built-in chat UI. Provider/API-key fields are not part of the MCP-first UI.
-
-Longer planning docs:
-
-- [`skills/tool_surface.md`](../skills/tool_surface.md)
-- [`skills/edit-planning.md`](../skills/edit-planning.md)
-- [`skills/remotion_motion.md`](../skills/remotion_motion.md)
-- [`skills/style-memory.md`](../skills/style-memory.md)
 
 ## Security notes
 

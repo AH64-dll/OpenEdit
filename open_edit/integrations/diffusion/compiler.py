@@ -4,11 +4,12 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import shutil
 import signal
 import subprocess
 import tempfile
 from pathlib import Path
+
+from open_edit.integrations.binaries import node_bin
 
 MAX_SOURCE_BYTES = 512 * 1024
 WORKER_TIMEOUT_SEC = 20
@@ -22,16 +23,26 @@ def worker_directory() -> Path:
     return Path(os.environ.get('OPEN_EDIT_DIFFUSION_WORKER_DIR') or Path(__file__).with_name('worker')).resolve()
 
 
-def worker_ready() -> bool:
+def worker_problem() -> str | None:
+    """Why the authoring worker cannot run, with the exact fix; None when ready."""
+    if not node_bin():
+        return ('Node.js 24+ not found (checked OPEN_EDIT_NODE_BIN, PATH, nvm/fnm/asdf/volta). '
+                'Install Node 24 or set OPEN_EDIT_NODE_BIN; query_project get_readiness shows details.')
     directory = worker_directory()
-    return bool(shutil.which('node') and (directory / 'worker.cjs').is_file() and (directory / 'node_modules' / 'ts-morph').is_dir())
+    if not ((directory / 'worker.cjs').is_file() and (directory / 'node_modules' / 'ts-morph').is_dir()):
+        return 'Diffusion authoring worker dependencies are not installed. Run: open_edit setup media'
+    return None
+
+
+def worker_ready() -> bool:
+    return worker_problem() is None
 
 
 def parse_and_compile(source: str, *, edits: list | None = None) -> dict:
     if not isinstance(source, str) or len(source.encode('utf-8')) > MAX_SOURCE_BYTES:
         raise CompilerError('JSX source must be a string of at most 512 KiB')
     if not worker_ready():
-        raise CompilerError('Diffusion worker is not installed. Run python -m open_edit.integrations.diffusion.setup to install its pinned Node dependencies.')
+        raise CompilerError(worker_problem() or 'Diffusion worker is not ready')
     request = {'source': source}
     if edits is not None:
         request['edits'] = edits
@@ -40,7 +51,7 @@ def parse_and_compile(source: str, *, edits: list | None = None) -> dict:
         raise CompilerError('Authoring request exceeds 1 MiB')
     with tempfile.TemporaryDirectory(prefix='openedit-authoring-') as scratch, tempfile.TemporaryFile() as output:
         proc = subprocess.Popen(
-            [shutil.which('node'), str(worker_directory() / 'worker.cjs')],
+            [node_bin(), str(worker_directory() / 'worker.cjs')],
             cwd=scratch, stdin=subprocess.PIPE, stdout=output, stderr=subprocess.DEVNULL,
             start_new_session=os.name == 'posix',
         )

@@ -49,6 +49,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -71,6 +72,41 @@ class OverlayRenderError(Exception):
     def __init__(self, message: str, bg_path: Path | None = None) -> None:
         super().__init__(message)
         self.bg_path = bg_path
+
+
+_LINT_KEYS = ("severity", "code", "message", "fixHint", "elementId")
+
+
+def lint_composition(template: Path, *, timeout_s: float = 20.0, limit: int = 10) -> dict[str, Any]:
+    """Run ``hyperframes lint --json`` on one composition and return compact findings.
+
+    Agents get the engine's own fix hints instead of reverse-engineering the
+    runtime. Never raises: a missing engine reports ``status='unavailable'``.
+    """
+    try:
+        binary = _resolve_hyperframes_bin()
+    except OverlayRenderError as exc:
+        return {"status": "unavailable", "reason": str(exc)[:300]}
+    env = {**os.environ, "HYPERFRAMES_NO_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
+    with tempfile.TemporaryDirectory(prefix="openedit-hflint-") as scratch:
+        # Lint scans a directory; isolate the template so project files are not scanned.
+        shutil.copyfile(template, Path(scratch) / "index.html")
+        try:
+            proc = subprocess.run([binary, "lint", "--json", scratch], capture_output=True,
+                                  text=True, timeout=timeout_s, env=env)
+            report = json.loads(proc.stdout)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            return {"status": "unavailable", "reason": f"hyperframes lint failed: {exc}"[:300]}
+    findings = [
+        {key: finding[key] for key in _LINT_KEYS if finding.get(key)}
+        for finding in report.get("findings", []) if isinstance(finding, dict)
+    ]
+    return {
+        "status": "ok" if report.get("ok") else "issues",
+        "errors": report.get("errorCount", 0),
+        "warnings": report.get("warningCount", 0),
+        "findings": findings[:limit],
+    }
 
 
 def _resolve_hyperframes_bin() -> str:
@@ -247,7 +283,11 @@ def generate_composition_html(
         template_path = _resolve_template_path(overlay.template_path, project_workdir)
         template_html = template_path.read_text(encoding="utf-8")
         clip_id = _clip_id(overlay)
-        inlined = _inline_variables(template_html, overlay.variables, namespace=clip_id)
+        # Reserved values let a template register overlay-local animation:
+        # window.__timelines["{{composition_id}}"] = gsap.timeline({paused: true}).
+        reserved = {"composition_id": clip_id, "start_sec": overlay.position_sec,
+                    "duration_sec": overlay.duration_sec}
+        inlined = _inline_variables(template_html, {**reserved, **overlay.variables}, namespace=clip_id)
         has_timed_children = bool(
             re.search(
                 r"class\s*=\s*['\"][^'\"]*\bclip\b",
@@ -262,11 +302,15 @@ def generate_composition_html(
                 f'    </div>'
             )
         else:
+            # A nested composition gives its registered timeline overlay-local
+            # time (t=0 at position_sec); a plain clip would see timeline time.
             clip_divs.append(
-                f'    <div class="clip" id="{clip_id}" '
+                f'    <div id="{clip_id}" data-composition-id="{clip_id}" '
                 f'data-start="{overlay.position_sec}" '
                 f'data-duration="{overlay.duration_sec}" '
-                f'data-track-index="{track_idx}">\n'
+                f'data-track-index="{track_idx}" '
+                f'data-width="{width}" data-height="{height}" '
+                f'style="position: absolute; inset: 0;">\n'
                 f'      {inlined.strip()}\n'
                 f'    </div>'
             )
@@ -381,9 +425,14 @@ def _run_subprocess_with_cancel(
         raise OverlayRenderError(f"cancelled during {operation}")
 
     if proc.returncode != 0:
-        raise OverlayRenderError(
-            f"{nonzero_label} ({proc.returncode}): stderr={stderr.strip()[-1000:]}"
-        )
+        tail = stderr.strip()[-1000:]
+        if proc.returncode == 127 and "node" in tail:
+            raise OverlayRenderError(
+                f"{nonzero_label} (127): Node.js was not found for the HyperFrames CLI. "
+                "Install Node 24 or set OPEN_EDIT_NODE_BIN; query_project get_readiness "
+                f"shows details. stderr={tail}"
+            )
+        raise OverlayRenderError(f"{nonzero_label} ({proc.returncode}): stderr={tail}")
 
     if not output_path.exists() or output_path.stat().st_size == 0:
         raise OverlayRenderError(

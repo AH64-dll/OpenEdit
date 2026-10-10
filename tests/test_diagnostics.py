@@ -45,7 +45,13 @@ def test_collect_diagnostics_types():
 
 
 def test_collect_diagnostics_never_raises_when_detectors_fail(monkeypatch):
-    monkeypatch.setattr(diagnostics.shutil, "which", lambda *a, **k: (_ for _ in ()).throw(OSError))
+    from open_edit.integrations import binaries
+
+    def broken(*_a, **_k):
+        raise OSError
+
+    for name in ("melt_bin", "resolve_chromium", "resolve_hyperframes_browser"):
+        monkeypatch.setattr(binaries, name, broken)
     monkeypatch.setattr(diagnostics.os, "statvfs", lambda *a, **k: (_ for _ in ()).throw(OSError))
     diag = diagnostics.collect_diagnostics()
     assert set(diag) == _EXPECTED_KEYS

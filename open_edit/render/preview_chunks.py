@@ -1471,7 +1471,9 @@ def render_preview_chunks(
             params,
             injected_runner=run_commands is not None,
         )
-        melt_bin = shutil.which("melt") or "melt"
+        from open_edit.integrations.binaries import melt_bin as _resolve_melt
+
+        melt_bin = _resolve_melt() or "melt"
         for index in selected:
             _check_graph(store, graph_revision, graph_hash)
             metrics.counts["processed_chunks"] += 1

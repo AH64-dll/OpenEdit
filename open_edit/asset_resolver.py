@@ -10,11 +10,14 @@ import os
 import re
 from typing import Any
 
+# Resolved from the package, not the caller's working directory.
+DEFAULT_MANIFEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets_manifest.json")
+
 
 class AssetResolver:
     """Interface for querying and resolving media assets from open_edit/assets_manifest.json."""
 
-    def __init__(self, manifest_path: str = "open_edit/assets_manifest.json"):
+    def __init__(self, manifest_path: str = DEFAULT_MANIFEST):
         self.manifest_path = manifest_path
         self.assets: list[dict[str, Any]] = []
         self.load_manifest()
@@ -110,7 +113,7 @@ class AssetResolver:
 _default_resolver: AssetResolver | None = None
 
 
-def get_resolver(manifest_path: str = "open_edit/assets_manifest.json") -> AssetResolver:
+def get_resolver(manifest_path: str = DEFAULT_MANIFEST) -> AssetResolver:
     global _default_resolver
     if _default_resolver is None or _default_resolver.manifest_path != manifest_path:
         _default_resolver = AssetResolver(manifest_path)

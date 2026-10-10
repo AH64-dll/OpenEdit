@@ -351,6 +351,17 @@ async def execute_trigger_render(
     return result
 
 
+def _render_dependency_problem(mode: str) -> str | None:
+    """Fail fast instead of queueing a job whose worker cannot start."""
+    if mode == "graphics":
+        from open_edit.integrations.diffusion.graphics import graphics_problem
+
+        return graphics_problem()
+    from open_edit.integrations.binaries import MELT_MISSING, melt_bin
+
+    return None if melt_bin() else MELT_MISSING
+
+
 async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[str, Any]:
     args = _strip_injected_project_id("trigger_render", args)
     err = validate_or_error("trigger_render", args)
@@ -417,6 +428,10 @@ async def _run_trigger_render(args: dict[str, Any], project_path: Path) -> dict[
     if args.get("wait") is None and "wait" not in args:
         wait = False
 
+    missing = _render_dependency_problem(mode)
+    if missing is not None:
+        return {"ok": False, "error": missing, "error_code": "missing_dependency",
+                "hint": "query_project query=get_readiness lists each missing dependency and its fix."}
 
     from open_edit.kernel.render_jobs import DEFAULT_RENDER_JOB_SERVICE, RenderEnqueueError
 

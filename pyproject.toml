@@ -65,21 +65,6 @@ exclude = [
   "open_edit/**/*.pyc",
 ]
 
-# Ship harness skill markdown with the wheel (not Cursor-only).
-[tool.hatch.build.targets.wheel.force-include]
-"open_edit/harness_skills/README.md" = "open_edit/harness_skills/README.md"
-"open_edit/harness_skills/open-edit-mcp.md" = "open_edit/harness_skills/open-edit-mcp.md"
-"open_edit/harness_skills/open-edit-mcp-reference.md" = "open_edit/harness_skills/open-edit-mcp-reference.md"
-"open_edit/harness_skills/tool_surface.md" = "open_edit/harness_skills/tool_surface.md"
-"open_edit/harness_skills/edit-planning.md" = "open_edit/harness_skills/edit-planning.md"
-"open_edit/harness_skills/remotion_motion.md" = "open_edit/harness_skills/remotion_motion.md"
-"open_edit/harness_skills/hyperframes_native.md" = "open_edit/harness_skills/hyperframes_native.md"
-"open_edit/harness_skills/qc-standards.md" = "open_edit/harness_skills/qc-standards.md"
-"open_edit/harness_skills/freeform_and_effects.md" = "open_edit/harness_skills/freeform_and_effects.md"
-"open_edit/harness_skills/style-memory.md" = "open_edit/harness_skills/style-memory.md"
-"open_edit/harness_skills/review-notes.md" = "open_edit/harness_skills/review-notes.md"
-"open_edit/harness_skills/asset_catalog_guide.md" = "open_edit/harness_skills/asset_catalog_guide.md"
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -87,6 +72,7 @@ addopts = "-ra -q"
 markers = [
     "agent_ui: exercise optional built-in chat and provider routes",
     "browser: render with HyperFrames/Chrome; may download browser dependencies",
+    "render_preflight: use the real trigger_render dependency preflight",
 ]
 
 [tool.ruff]

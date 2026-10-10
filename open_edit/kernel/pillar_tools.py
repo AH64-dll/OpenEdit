@@ -84,7 +84,10 @@ def _with_project_id(params: dict[str, Any], project_path: Path) -> dict[str, An
 
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
-    """Dispatch a query to one of the 6 read-only tools."""
+    """Dispatch a query to one of the read-only tools."""
+    if query == 'get_readiness':
+        from open_edit.integrations.readiness import compact_readiness, readiness
+        return {'status': 'ok', **(readiness() if params.get('detail') else compact_readiness())}
     if query == 'get_tracking_job':
         from open_edit.kernel.tracking_jobs import get_tracking_job
         try:
@@ -100,7 +103,13 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
             return {'status': 'error', 'error': str(exc)}
     if query == 'get_history':
         from open_edit.kernel.edit_graph_service import open_store
-        return {'status': 'ok', **open_store(project_path).history()}
+        limit = params.get('limit', 20)
+        if type(limit) is not int or not 1 <= limit <= 100:
+            return {'status': 'error', 'error': 'limit must be an integer between 1 and 100'}
+        history = open_store(project_path).history()
+        actions = history.get('actions', [])
+        return {'status': 'ok', **history, 'actions': actions[:limit],
+                'more_actions': max(0, len(actions) - limit)}
     fn = TOOL_TABLE[_QUERY_ROUTING[query]] if query in _QUERY_ROUTING else None
     if fn is None:
         return {"status": "error", "error": f"unknown query: {query!r}"}
@@ -155,7 +164,10 @@ def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) ->
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
             return {'status': 'error', 'error': 'expected_revision must be a nonnegative integer'}
         try:
-            return {'status': 'ok', **open_store(project_path).history_step(operation, revision)}
+            result = open_store(project_path).history_step(operation, revision)
+            # Agents need the new revision and next choices, not the action log again.
+            result.pop('actions', None)
+            return {'status': 'ok', **result}
         except (ValueError, GraphRevisionConflict) as exc:
             return {'status': 'error', 'error': str(exc)}
     if operation == "apply_generated_ops":

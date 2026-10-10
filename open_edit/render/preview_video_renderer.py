@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 
 from open_edit.ir.types import Timeline
@@ -37,7 +36,9 @@ class HostPreviewVideoRenderer:
         encoder: EncoderSpec | None = None,
     ) -> None:
         self.project_path = Path(project_path).resolve()
-        self.melt_bin = melt_bin or shutil.which("melt") or "melt"
+        from open_edit.integrations.binaries import melt_bin as _resolve_melt
+
+        self.melt_bin = melt_bin or _resolve_melt() or "melt"
         self.encoder = encoder
 
     def render(self, request: PreviewVideoRequest) -> Path:
