@@ -119,7 +119,7 @@
       "height": 2160,
       "fps": 30.0,
       "codec": "prores",
-      "has_alpha": False,
+      "has_alpha": false,
       "recommended_blend_mode": "Screen",
       "secondary_blend_mode": "Add"
     },
@@ -148,7 +148,7 @@
       "height": 1080,
       "fps": 30.0,
       "codec": "h264",
-      "has_alpha": False,
+      "has_alpha": false,
       "recommended_blend_mode": "Screen",
       "secondary_blend_mode": "Overlay"
     },
@@ -175,7 +175,7 @@
       "height": 1080,
       "fps": 30.0,
       "codec": "prores",
-      "has_alpha": True,
+      "has_alpha": true,
       "recommended_blend_mode": "Screen",
       "secondary_blend_mode": "Add"
     },
@@ -204,7 +204,7 @@
       "height": 1080,
       "fps": 30.0,
       "codec": "json",
-      "has_alpha": True,
+      "has_alpha": true,
       "recommended_blend_mode": "Alpha",
       "secondary_blend_mode": "Normal"
     }

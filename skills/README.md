@@ -1,51 +1,31 @@
-# Open Edit harness skills
+# Open Edit agent skills
 
-Markdown skills for **any** agent host that drives Open Edit (MCP, built-in
-serve agent, Claude Code, Cursor, custom loops). Prefer these files over
-exploring `open_edit/**` source.
+Skills for any agent that drives Open Edit through its MCP server (Claude Code,
+Cursor, OpenCode, Codex, custom hosts). Each is a standard `<name>/SKILL.md`
+with `name`/`description` frontmatter, so the folders can also be copied into a
+host's own skills directory.
 
-> Generated — edit `skills/` only. `open_edit/harness_skills/` ships
-> byte-identical copies for wheel installs; do not edit them in place.
-
-## Start here
-
-| Skill | File | When to load |
-|---|---|---|
-| **MCP playbook** | [`open-edit-mcp.md`](open-edit-mcp.md) | Every editing / render session |
-| MCP reference | [`open-edit-mcp-reference.md`](open-edit-mcp-reference.md) | Timeline IR / `run_script` details |
-
-## Planning & QC
-
-| Skill | File |
+| Skill | Load when |
 |---|---|
-| Edit planning | [`edit-planning.md`](edit-planning.md) |
-| Asset catalog & effects | [`asset_catalog_guide.md`](asset_catalog_guide.md) |
-| Tool surface (long) | [`tool_surface.md`](tool_surface.md) |
-| Style memory | [`style-memory.md`](style-memory.md) |
-| Review notes | [`review-notes.md`](review-notes.md) |
-| Legacy Remotion migration | [`remotion_motion.md`](remotion_motion.md) |
-| Native HyperFrames route | [`hyperframes_native.md`](hyperframes_native.md) |
-| Free-form / effects | [`freeform_and_effects.md`](freeform_and_effects.md) |
-| QC standards | [`qc-standards.md`](qc-standards.md) |
+| [`open-edit`](open-edit/SKILL.md) | Every session: workflow, defaults, error recovery |
+| [`open-edit-ops`](open-edit-ops/SKILL.md) | You need an exact parameter, return shape or run_script method |
+| [`open-edit-editing`](open-edit-editing/SKILL.md) | Planning/revising a cut, effects, QC failures |
+| [`open-edit-graphics`](open-edit-graphics/SKILL.md) | Creating or editing any graphic |
+| [`open-edit-review`](open-edit-review/SKILL.md) | Review notes, style preferences, undo/revert |
 
-## How hosts should load them
+## How hosts get them
 
-1. **Filesystem:** read this directory (`OPEN_EDIT_SKILLS_DIR` overrides path).
-2. **MCP resources:** `open-edit://skills/open-edit-mcp`,
-   `open-edit://skills/review-notes`, etc.
-3. **MCP prompts:** `open-edit-playbook`, `open-edit-reference`,
-   `open-edit-review-notes`, `open-edit-style-memory`, …
-4. **MCP instructions:** initialization provides a short workflow and links
-   to these resources. Load the guide needed for the current operation;
-   full playbooks are not inserted into every session's startup context.
+- **MCP resources:** `open-edit://skills/<name>`; **MCP prompts:** same names.
+- **Startup instructions:** a short summary that points at these resources;
+  full skills are never inserted into every session.
+- **Filesystem:** this directory (`OPEN_EDIT_SKILLS_DIR` overrides it).
 
-Python helper: `open_edit.mcp.skills.load_skill("open-edit-mcp")`.
+Operator configuration (cache/QC variables, preview routes, binary
+resolution) is in [`docs/OPERATIONS.md`](../docs/OPERATIONS.md), not here.
 
-Cursor users also get a thin pointer under `.cursor/skills/open-edit-mcp/`;
-the **project** files above remain canonical for all harnesses.
+## Editing
 
-## Not agent skills
-
-Python modules under `open_edit/agent/skills/` (e.g. `silence_cutter.py`) are
-**runtime libraries** called by tools — not docs for the LLM. Do not read them
-to discover the tool API; use the MCP tools + this folder instead.
+Edit only `skills/`, then run `python tools/sync_harness_skills.py` to refresh
+the packaged mirror in `open_edit/harness_skills/`. Tests fail when the mirror
+drifts, when a skill names an operation the server does not have, or when a
+skill grows past its token budget.

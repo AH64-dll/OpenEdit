@@ -210,78 +210,31 @@ def test_harness_skills_loadable() -> None:
 
     root = skills_dir()
     assert root is not None
-    playbook = load_skill("open-edit-mcp")
+    playbook = load_skill("open-edit")
     assert "trigger_render" in playbook
     assert "silence_cuts" in playbook
-    native = load_skill("hyperframes_native")
-    assert "HTML/CSS/JavaScript" in native
-    ref = load_skill("open-edit-mcp-reference")
-    assert "add_clip" in ref
+    assert "get_readiness" in playbook
+    graphics = load_skill("open-edit-graphics")
+    assert "Diffusion" in graphics and "composition_id" in graphics
+    assert "add_clip" in load_skill("open-edit-ops")
     assert "query_project" in mcp_instructions()
     assert "get_pending_notes" in mcp_instructions()
-    assert "Skill: review-notes" in mcp_instructions()
-    assert stem_from_uri(resource_uri("open-edit-mcp")) == "open-edit-mcp"
-    assert load_skill("review-notes")
-    assert "track_kind" in load_skill("review-notes")
+    assert "get_readiness" in mcp_instructions()
+    assert stem_from_uri(resource_uri("open-edit")) == "open-edit"
+    assert "track_kind" in load_skill("open-edit-review")
 
 
-def test_mcp_playbook_distinguishes_proxy_and_preview_chunks() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    text = (repo_root / "skills" / "open-edit-mcp.md").read_text(
-        encoding="utf-8",
-    )
+def test_ops_skill_distinguishes_proxy_and_preview_chunks() -> None:
+    from open_edit.mcp.skills import load_skill
+
+    text = load_skill("open-edit-ops")
     assert "`preview-chunks`" in text
     assert "whole-file" in text
-    assert "audio" in text and "independent" in text
-    assert "live MLT" in text and "M4" in text
+    assert "independent" in text and "same-range" in text and "sequential" in text
 
 
-def test_qc_skill_copies_document_render_policy() -> None:
-    """Canonical and packaged QC guidance must expose the same policy."""
-    repo_root = Path(__file__).resolve().parents[1]
-    canonical_skill = (repo_root / "skills" / "qc-standards.md").read_text(
-        encoding="utf-8",
-    )
-    harness_skill = (
-        repo_root / "open_edit" / "harness_skills" / "qc-standards.md"
-    ).read_text(encoding="utf-8")
-
-    required_terms = (
-        "mode=proxy",
-        "source proxy",
-        "preview chunks",
-        "qc_report",
-        "complete",
-        "final export",
-    )
-    for term in required_terms:
-        assert term in canonical_skill
-        assert term in harness_skill
-    assert canonical_skill == harness_skill
-
-
-def test_packaged_harness_skills_match_repo() -> None:
-    """Wheel-bundled copies must stay in sync with repo skills/."""
-    from pathlib import Path
-
-    # Flat layout: tests/ sits at the repo root next to open_edit/.
-    pkg_root = Path(__file__).resolve().parents[1]
-    repo_root = Path(__file__).resolve().parents[1]
-    packaged = pkg_root / "open_edit" / "harness_skills"
-    repo_skills = repo_root / "skills"
-    for name in (
-        "open-edit-mcp.md",
-        "open-edit-mcp-reference.md",
-        "style-memory.md",
-        "tool_surface.md",
-        "edit-planning.md",
-        "hyperframes_native.md",
-        "remotion_motion.md",
-    ):
-        pkg_file = packaged / name
-        repo_file = repo_skills / name
-        if not (pkg_file.is_file() and repo_file.is_file()):
-            pytest.skip(f"missing {name} in repo or package")
-        assert pkg_file.read_text(encoding="utf-8") == repo_file.read_text(
-            encoding="utf-8"
-        ), f"{name} drifted between skills/ and open_edit/harness_skills/"
+def test_operations_doc_keeps_render_policy() -> None:
+    """Operator render/QC policy moved out of agent skills into docs/OPERATIONS.md."""
+    text = (Path(__file__).resolve().parents[1] / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+    for term in ("mode=proxy", "source proxy", "preview-chunks", "qc_report", "complete", "delivery export"):
+        assert term in text

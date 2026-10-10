@@ -17,11 +17,23 @@ from open_edit.mcp.adapters import dispatch_mcp_tool, mcp_tool_schemas, result_t
 from open_edit.mcp.context import ProjectPathError, resolve_project_path
 from open_edit.mcp.skills import (
     MCP_SKILL_STEMS,
+    canonical_stem,
     load_skill,
     mcp_instructions,
     resource_uri,
+    skill_description,
     stem_from_uri,
 )
+
+# Prompt names from before the five-skill layout; still accepted, not listed.
+_LEGACY_PROMPTS = {
+    "open-edit-playbook": "open-edit",
+    "open-edit-reference": "open-edit-ops",
+    "open-edit-tool-surface": "open-edit-ops",
+    "open-edit-edit-planning": "open-edit-editing",
+    "open-edit-style-memory": "open-edit-review",
+    "open-edit-review-notes": "open-edit-review",
+}
 
 
 def _require_mcp():
@@ -123,7 +135,7 @@ def build_server(project_path: Path):
                 resource(
                     uri=resource_uri(stem),
                     name=stem,
-                    description=f"Open Edit harness skill: {stem}",
+                    description=skill_description(stem) or f"Open Edit skill: {stem}",
                     mimeType="text/markdown",
                 )
             )
@@ -144,61 +156,13 @@ def build_server(project_path: Path):
 
     @server.list_prompts()
     async def list_prompts() -> list[Any]:
-        return [
-            prompt(
-                name="open-edit-playbook",
-                description=(
-                    "Load the Open Edit MCP playbook (tools, when to use them, "
-                    "recipes). Prefer this over exploring source code."
-                ),
-            ),
-            prompt(
-                name="open-edit-reference",
-                description=(
-                    "Load IR / run_script recipes for timeline construction."
-                ),
-            ),
-            prompt(
-                name="open-edit-style-memory",
-                description=(
-                    "Capture and reuse user style preferences "
-                    "(get_style_profile, capture_style_hint, pins)."
-                ),
-            ),
-            prompt(
-                name="open-edit-review-notes",
-                description=(
-                    "Read/act on timeline review notes (including audio-targeted "
-                    "notes). Prefer get_pending_notes over exploring source."
-                ),
-            ),
-            prompt(
-                name="open-edit-tool-surface",
-                description=(
-                    "4-pillar tool surface reference (query/edit/run_script/render)."
-                ),
-            ),
-            prompt(
-                name="open-edit-edit-planning",
-                description=(
-                    "Edit planning playbook: silence, music, SFX, narrative order."
-                ),
-            ),
-        ]
+        return [prompt(name=stem, description=skill_description(stem)) for stem in MCP_SKILL_STEMS]
 
     @server.get_prompt()
     async def get_prompt(name: str, arguments: dict | None = None) -> Any:
         del arguments  # no prompt args yet
-        stem_map = {
-            "open-edit-playbook": "open-edit-mcp",
-            "open-edit-reference": "open-edit-mcp-reference",
-            "open-edit-style-memory": "style-memory",
-            "open-edit-review-notes": "review-notes",
-            "open-edit-tool-surface": "tool_surface",
-            "open-edit-edit-planning": "edit-planning",
-        }
-        stem = stem_map.get(name)
-        if stem is None:
+        stem = canonical_stem(_LEGACY_PROMPTS.get(name, name))
+        if stem is None or stem not in MCP_SKILL_STEMS:
             raise ValueError(f"Unknown prompt: {name}")
         text = load_skill(stem)
         return get_prompt_result(
