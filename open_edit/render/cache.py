@@ -52,19 +52,22 @@ def render_cache_key(
     parts = [graph_hash, profile_fingerprint]
     if content_fingerprint:
         parts.append(content_fingerprint)
-    raw = "|".join(parts).replace("|", "_")
-    if len(raw) <= 180:
+    original = "|".join(parts)
+    raw = original.replace("|", "_")
+    if (len(raw.encode('utf-8')) <= 180 and
+            not re.search(r'[<>:"/\\?*\x00-\x1f]', raw) and not raw.endswith(('.', ' '))):
         return raw
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    def portable(value: str) -> str:
+        return re.sub(r'[^A-Za-z0-9_.=@-]', '_', value).strip('. ')
     markers: list[str] = []
     for marker in ("source_proxy_", "hyperframes=", "source-repair-", "emission="):
         match = re.search(rf"{re.escape(marker)}[^|]*", raw)
         if match:
             markers.append(match.group(0)[:36])
-    readable = "_".join(markers)
-    profile = profile_fingerprint.replace("|", "_")[:64]
-    key = f"{graph_hash[:32]}_{profile}_{readable}_{digest}"
-    return key[:180] if len(key) > 180 else key
+    readable = portable("_".join(markers))[:32]
+    profile = portable(profile_fingerprint)[:64]
+    return f"{portable(graph_hash)[:16]}_{profile}_{readable}_{digest}"
 
 
 def _file_hash(path: Path) -> str:
