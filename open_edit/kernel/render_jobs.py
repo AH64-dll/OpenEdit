@@ -723,15 +723,19 @@ class RenderJobService:
                 if current is not None and current.status in ("cancelling", "cancelled"):
                     raise asyncio.CancelledError
             stdout, stderr = await communication
-        except (TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError) as exc:
+            detail = ''
             try:
                 # Keep draining while terminating. Cancelling communicate
                 # first can strand wait() behind a full stdout/stderr pipe.
                 await self._terminate_process_group(proc)
-                await asyncio.wait_for(communication, timeout=max(1.0, self.cancel_grace_s))
+                _stdout, stderr = await asyncio.wait_for(communication, timeout=max(1.0, self.cancel_grace_s))
+                detail = stderr.decode('utf-8', errors='replace')[-4000:]
             finally:
                 communication.cancel()
                 await asyncio.gather(communication, return_exceptions=True)
+            if isinstance(exc, TimeoutError) and detail:
+                raise TimeoutError(f'render timed out:\n{detail}') from exc
             raise
         if proc.returncode != 0:
             stdout_text = stdout.decode("utf-8", errors="replace").strip()

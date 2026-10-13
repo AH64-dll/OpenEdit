@@ -336,6 +336,9 @@ def cmd_preview_chunks(args: argparse.Namespace) -> int:
 
 def cmd_render(args: argparse.Namespace) -> int:
     """Render the current project to MP4."""
+    if os.environ.get('OPEN_EDIT_DEBUG_RENDER') == '1':
+        import faulthandler
+        faulthandler.dump_traceback_later(60, repeat=True)
     project_dir = _find_existing_project(Path.cwd())
     if project_dir is None:
         print("error: no open_edit project found", file=sys.stderr)
