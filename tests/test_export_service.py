@@ -129,6 +129,42 @@ def test_snapshot_retains_source_history_metadata_and_cas_after_later_edits(proj
     assert len(list((root / ".open_edit/exports").iterdir())) == 1
 
 
+def test_completed_graphics_cache_survives_export_snapshot_cleanup(project, monkeypatch):
+    from open_edit.integrations.diffusion import graphics
+    from open_edit.storage.assets import list_assets_from_disk
+
+    if not graphics.graphics_ready():
+        pytest.skip('Optional graphics runtime is not installed')
+    root, store, _ = project
+    params = {'source': graphics.DEFAULT_SOURCE, 'duration_sec': .2, 'fps': 10}
+    commit_studio(root, expected_revision=store.graph_revision(), changes=[{
+        'kind': 'document', 'object_id': 'cached-graphics', 'data': {
+            **params, 'clip_id': 'graphic', 'track_id': 'graphic'}}])
+    settings = export.ExportSettings(width=320, height=180, fps_num=24)
+    first = export.capture_export(root, store.graph_revision(), settings)
+    first_root = root / '.open_edit/exports' / first['snapshot'] / 'project'
+    rendered = graphics.materialize(first_root, params)
+    assert rendered['cache_hit'] is False
+    assert export._reuse_graphics_cache(first_root, root) == 1
+    shutil.rmtree(first_root.parent)
+    second = export.capture_export(root, store.graph_revision(), settings)
+    second_root = root / '.open_edit/exports' / second['snapshot'] / 'project'
+    # Deleting the live cache cannot alter a captured revision's retained bytes.
+    shutil.rmtree(root / '.open_edit/graphics')
+    AssetStore(root / '.open_edit/assets').path(rendered['asset_hash']).unlink()
+    worker = graphics._worker
+    def no_render(request, *args, **kwargs):
+        if request.get('validate_only'):
+            return worker(request, *args, **kwargs)
+        raise AssertionError('Unchanged graphics must not render again')
+    monkeypatch.setattr(graphics, '_worker', no_render)
+    cached = graphics.materialize(second_root, params)
+    assert cached['cache_hit'] is True
+    assert cached['asset_hash'] == rendered['asset_hash']
+    assert store.graph_revision() == 2
+    assert len(list_assets_from_disk(root)) == 1  # Derived cache stays out of the library.
+
+
 @pytest.mark.parametrize(
     "container,audio_codec,audio",
     [("mp4", "aac", True), ("mov", "aac", False), ("mkv", "pcm_s16le", True)],

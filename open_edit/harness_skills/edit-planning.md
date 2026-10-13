@@ -174,8 +174,8 @@ fail at render time. Always dry-run a free-form op with
 
 ### Tool priority (always follow this)
 
-1. `query_project` — inspect state. Read `TOOL_USAGE_GUIDE` in
-   `open_edit/kernel/tool_schemas.py` for the authoritative schema.
+1. `query_project` — inspect state. Read `query_project describe` in
+   `open_edit/kernel/tool_registry.py` for the authoritative schema.
 2. `edit_project` — make changes (mutations + `generate` for creative
    suggestions like `silence_cuts` / `sfx` / `music` / `visual`).
 3. `run_script` — ONLY when `edit_project` cannot express the goal

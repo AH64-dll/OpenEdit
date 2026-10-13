@@ -149,7 +149,8 @@ def step(store: EditGraphStore, direction: str, expected_revision: int) -> dict:
         studio.apply(conn, object_changes, revision, direction='before' if direction == 'undo' else 'after')
         for format, source in json.loads(row['before_sources' if direction == 'undo' else 'after_sources']).items():
             store._save_authoring_source(conn, (format, source))
-        conn.execute('DELETE FROM timeline_snapshots')
+        # Hash-keyed snapshots remain valid for their recorded revision and
+        # allow previews to compare Undo/Redo changes with the previous cut.
         return {'graph_revision': revision, 'changed': True, 'label': row['label'], **summary(conn)}
 
 

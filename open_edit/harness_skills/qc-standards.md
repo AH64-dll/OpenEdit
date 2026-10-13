@@ -214,7 +214,7 @@ for them explicitly.
 ### Stale server code
 
 - **Symptom:** a tool returns an error referencing a function or
-  schema that doesn't match the current `TOOL_USAGE_GUIDE`.
+  schema that doesn't match the current `query_project describe`.
 - **Cause:** the Open Edit server is running an older version of the
   code than the agent's skill files describe.
 - **Fix:** restart the server with the current code before retrying.

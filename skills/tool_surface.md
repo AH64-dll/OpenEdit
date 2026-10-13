@@ -253,12 +253,12 @@ free.
 
 ## Authoritative source
 
-`open_edit/kernel/tool_schemas.py` — `TOOL_USAGE_GUIDE`. If anything
-in this file disagrees with `TOOL_USAGE_GUIDE`, the guide wins.
+`open_edit/kernel/tool_registry.py` — `query_project describe`. If anything
+in this file disagrees with `query_project describe`, the guide wins.
 
 ## Relevant source (read these in the real codebase)
 
-- `open_edit/kernel/tool_schemas.py` — `TOOL_USAGE_GUIDE` (authoritative)
+- `open_edit/kernel/tool_registry.py` — `query_project describe` (authoritative)
 - `open_edit/kernel/pillar_tools.py` — the dispatch layer:
   - `dispatch_query` (maps the 6 query names)
   - `dispatch_edit` (`add_marker` / `set_pinned_value` / `import_asset` / `ingest_local` / `apply_generated_ops` / timeline ops: `add_clip` / `trim_clip` / `replace_clip_source` / `change_clip_speed` / `remove_clip` / `set_audio_gain` / `apply_silence_gaps`)

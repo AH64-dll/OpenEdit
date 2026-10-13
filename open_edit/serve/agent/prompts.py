@@ -4,40 +4,16 @@ from __future__ import annotations
 import json
 import os
 
-from open_edit.kernel.tool_schemas import (
-    IR_MODEL_SUMMARY,
-    TOOL_SCHEMAS,
-    TOOL_USAGE_GUIDE,
-)
+from open_edit.kernel.tool_schemas import TOOL_SCHEMAS
+from open_edit.mcp.skills import mcp_instructions
 
 from .. import projects as projects_mod
 
-_SYSTEM_PREAMBLE = """\
-You are the Open Edit agent — an AI assistant that drives the Open Edit
-video editor through a chat interface. You operate on ONE project at a
-time, and the user's intent is to make edits to that project's video.
-
-You have access to a set of tools (passed via the `tools` parameter).
-Always prefer calling a dedicated tool over writing Python. Only fall
-back to `run_script` when no dedicated tool fits the request, or when
-you need to compose multiple ops atomically.
-
-Honor the user's style: query_project(get_style_profile) / the <prior_state> block
-before planning edits. When the user states a clear preference, persist it
-with edit_project(capture_style_hint, confirmed=true) or edit_project(set_pinned_value) — do not ask
-them to re-explain later. Prefer query_project(search_assets) + edit_project(import_asset) for stock
-media before generating visuals/music/SFX.
-
-Be concise in your text responses. The user sees your text streamed in
-real time, so don't pad with filler. If you're about to call a tool,
-a one-line lead-in is enough (e.g. "Let me check the project's assets.").
-
-If a tool call fails, you'll see an `error` event in the tool_result.
-Surface the failure to the user briefly and propose a fix or a fallback.
-NEVER retry an identical failing call with identical arguments — read the
-error, change something, or stop and explain. A circuit breaker aborts
-the turn after repeated identical failures.
-"""
+_SYSTEM_PREAMBLE = (
+    "You edit the selected video project. Follow the user's creative direction; "
+    "choose your own editing strategy and keep responses concise. "
+    "Use list_assets to discover media. " + mcp_instructions()
+)
 
 
 _TEXT_ONLY_PREAMBLE = """\
@@ -78,7 +54,7 @@ def _build_system_prompt(state: projects_mod.ProjectState, supports_tools: bool 
     Deterministic: the same ``state`` always produces the same prompt,
     so prompt caching works.
     """
-    if state_summary_only:
+    if state_summary_only or supports_tools:
         state_json = _build_state_summary(state)
     else:
         # Project state as sorted/indented JSON — deterministic.
@@ -101,47 +77,11 @@ def _build_system_prompt(state: projects_mod.ProjectState, supports_tools: bool 
         return "\n\n".join([
             _TEXT_ONLY_PREAMBLE,
             state_block,
-            IR_MODEL_SUMMARY,
         ])
 
-    # Tool name + description summary (full schemas are passed via `tools`).
-    tool_lines = []
-    for t in TOOL_SCHEMAS:
-        tool_lines.append(f"- {t['name']}: {t['description'].splitlines()[0]}")
-    tool_summary = "\n".join(tool_lines)
-
-    prior_state = ""
-    try:
-        from pathlib import Path
-
-        from open_edit.agent.style_inject import build_prior_state
-        from open_edit.storage.config import get_user_project_meta
-
-        workdir = str(Path(state.path))
-        creativity = "balanced"
-        try:
-            creativity = str(
-                get_user_project_meta(state.id).get("creativity_level") or "balanced"
-            )
-        except (AttributeError, OSError, TypeError, ValueError):
-            creativity = "balanced"
-        # Deterministic default op_type so prompt caching stays stable.
-        prior_state = build_prior_state(
-            project_id=state.id,
-            expected_op_type="AddClip",
-            creativity_level=creativity,
-            workdir=workdir,
-        )
-    except Exception:
-        prior_state = ""
-
-    parts = [
+    # Schemas already travel in the tools parameter; never duplicate them.
+    return "\n\n".join([
         _SYSTEM_PREAMBLE,
         state_block,
-        IR_MODEL_SUMMARY,
-        "## Available tools\n" + tool_summary,
-        TOOL_USAGE_GUIDE,
-    ]
-    if prior_state:
-        parts.insert(2, "## Style prior state\n" + prior_state)
-    return "\n\n".join(parts)
+        "## Available tools\n" + ", ".join(t['name'] for t in TOOL_SCHEMAS),
+    ])

@@ -65,6 +65,16 @@ def test_result_to_json_stable() -> None:
 
 
 @pytest.mark.asyncio
+async def test_describe_studio_change_is_actionable_and_omits_internal_arguments(project: Path):
+    result = await dispatch_mcp_tool('query_project', {
+        'query': 'describe', 'params': {'name': 'apply_studio_changes'}}, project)
+    assert 'project_path' not in result['parameters']
+    assert '_preview' not in result['parameters']
+    assert 'clip_id,track_id' in result['documentation']
+    assert 'expected_revision' in result['documentation']
+
+
+@pytest.mark.asyncio
 async def test_dispatch_query_injects_project_path(project: Path) -> None:
     seen: dict[str, Any] = {}
 
@@ -218,8 +228,9 @@ def test_harness_skills_loadable() -> None:
     ref = load_skill("open-edit-mcp-reference")
     assert "add_clip" in ref
     assert "query_project" in mcp_instructions()
-    assert "get_pending_notes" in mcp_instructions()
-    assert "Skill: review-notes" in mcp_instructions()
+    assert "inspect_media" in mcp_instructions()
+    assert "describe" in mcp_instructions()
+    assert len(mcp_instructions()) < 800
     assert stem_from_uri(resource_uri("open-edit-mcp")) == "open-edit-mcp"
     assert load_skill("review-notes")
     assert "track_kind" in load_skill("review-notes")
@@ -233,7 +244,7 @@ def test_mcp_playbook_distinguishes_proxy_and_preview_chunks() -> None:
     assert "`preview-chunks`" in text
     assert "whole-file" in text
     assert "audio" in text and "independent" in text
-    assert "live MLT" in text and "M4" in text
+    assert "`final`" in text and "original media" in text
 
 
 def test_qc_skill_copies_document_render_policy() -> None:

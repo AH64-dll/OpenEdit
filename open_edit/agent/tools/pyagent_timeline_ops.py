@@ -25,6 +25,7 @@ from open_edit.storage.paths import ProjectPaths
 
 @tool_result
 def add_hyperframes_overlay(args: dict, project_path: str) -> dict[str, Any]:
+    """params: template_path (project-relative HTML), position_sec, duration_sec, variables?."""
     template_path = str(args.get("template_path") or "").strip()
     if not template_path:
         return {
@@ -67,6 +68,10 @@ def add_hyperframes_overlay(args: dict, project_path: str) -> dict[str, Any]:
 
 @tool_result
 def add_clip(args: dict, project_path: str) -> dict[str, Any]:
+    """params: asset_hash, out_point_sec; track_id='v1', track_kind='video'|'audio',
+    position_sec=0, in_point_sec=0. Returns the new clip_id. Times use source seconds
+    for in/out and timeline seconds for position.
+    """
     if "asset_hash" not in args:
         return {"status": "error", "error": "asset_hash is required"}
     if args.get("out_point_sec") is None:
@@ -110,6 +115,7 @@ def add_clip(args: dict, project_path: str) -> dict[str, Any]:
 
 @tool_result
 def trim_clip(args: dict, project_path: str) -> dict[str, Any]:
+    """params: clip_id, out_point_sec, in_point_sec=0 (source seconds)."""
     if "clip_id" not in args:
         return {"status": "error", "error": "clip_id is required"}
     out_raw = args.get("out_point_sec")
@@ -131,6 +137,7 @@ def trim_clip(args: dict, project_path: str) -> dict[str, Any]:
 
 @tool_result
 def replace_clip_source(args: dict, project_path: str) -> dict[str, Any]:
+    """params: clip_id, new_asset_hash. Replace source while retaining placement."""
     ir = make_ir(project_path, parent_op_id=None)
     op = ReplaceClipSourceOp(
         edit_id=new_id(),
@@ -145,6 +152,7 @@ def replace_clip_source(args: dict, project_path: str) -> dict[str, Any]:
 
 @tool_result
 def change_clip_speed(args: dict, project_path: str) -> dict[str, Any]:
+    """params: clip_id, rate=1 (positive playback multiplier)."""
     ir = make_ir(project_path, parent_op_id=None)
     rate = float(args.get("rate", 1.0))
     op = ChangeClipSpeedOp(
@@ -160,6 +168,7 @@ def change_clip_speed(args: dict, project_path: str) -> dict[str, Any]:
 
 @tool_result
 def remove_clip(args: dict, project_path: str) -> dict[str, Any]:
+    """params: clip_id. Removes a clip; history retains the source and placement."""
     if "clip_id" not in args:
         return {"status": "error", "error": "clip_id is required"}
     ir = make_ir(project_path, parent_op_id=None)

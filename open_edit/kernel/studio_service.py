@@ -193,6 +193,18 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
                   request_id: str | None = None, label: str | None = None,
                   _status_changes: dict | None = None, _reverted_targets: list[str] | None = None,
                   _preview: bool = False) -> dict:
+    """Commit one reversible editing action.
+
+    params={expected_revision, changes:[{kind,object_id,data}], ops:[], label?,request_id?}.
+    An empty changes list is valid for timeline-only edits. Ops are literal IR
+    objects with kind and author='ai'; query describe(name='ir') lists the API.
+    Graphics: kind='document', data={source:literal JSX,clip_id,track_id,
+    duration_sec,fps,label?}. Captions: kind='caption', data={text,start_sec,end_sec}.
+    AI marks: kind='annotation', data={tool:'note',points:[[0,0]],text,anchor_sec}.
+    Null data deletes an object. The revision comes from get_editing_context.
+    All changes and operations validate and commit together; failures preserve
+    the previous project. Updating a document retains its clip identity.
+    """
     project_path=Path(project_path)
     from pydantic import TypeAdapter
 
@@ -354,7 +366,14 @@ def commit_studio(project_path: str | Path, *, expected_revision: int, changes: 
 def apply_graphics_edits(project_path: str | Path, *, expected_revision: int, document_id: str,
                         edits: list[dict], author: str = 'ai', request_id: str | None = None,
                         label: str | None = None) -> dict:
-    """Edit stored literal JSX by stable source IDs without a source round trip."""
+    """Edit stored literal JSX by stable source IDs without retrieving source.
+
+    params={expected_revision,document_id,edits:[{kind:'text',
+    source:'index.tsx:title',text:'New title'}],label?,request_id?}.
+    Query get_editing_context or get_studio for revision and source IDs.
+    Text edits retain all existing animation tracks. Change literal properties
+    with {kind:'set',source,props:{x:100,opacity:0.5}}.
+    """
     if type(expected_revision) is not int or expected_revision < 0:
         raise ValueError('expected_revision must be a nonnegative integer')
     if not isinstance(document_id, str) or not document_id or len(document_id) > 128:

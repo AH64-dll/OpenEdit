@@ -1,36 +1,43 @@
-# Agent prompt: configure Open Edit as an MCP server
+# Connect an agent to OpenEdit
 
-This prompt wires Open Edit into your MCP host: it detects the host (Cursor,
-Claude Code, OpenCode, or another MCP client), resolves the absolute paths
-to the MCP binary and the edit project, and registers the server in the
-host's configuration. The agent verifies the server speaks MCP on stdio and
-reports exactly which file it wrote and the paths it used. It must not
-modify anything outside the clone and the new project folder.
+Create or choose a project, then run the installed CLI:
 
-```text
-Open Edit is installed and an edit project exists (the folder that contains .open_edit/). Configure your MCP host to launch Open Edit as an MCP server. Do it yourself, then verify.
-
-1. Detect the host you are running in: Cursor, Claude Code, OpenCode, or another MCP client.
-2. Resolve the absolute path to the Open Edit MCP binary:
-   Linux / macOS: <clone>/.venv/bin/open-edit-mcp
-   Windows: <clone>\.venv\Scripts\open-edit-mcp.exe
-   Substitute the real clone path from the install step.
-3. Resolve the absolute path to the edit project folder (the one containing .open_edit/).
-4. Register the server:
-   - Cursor: edit ~/.cursor/mcp.json (Linux/macOS) or %USERPROFILE%\.cursor\mcp.json (Windows). If the file exists, back it up, then merge the new server into its mcpServers object without removing other servers.
-   - Claude Code: the same mcpServers shape goes into the project's .mcp.json.
-   - OpenCode: use OpenCode's own MCP config format (a per-server object with type and command). Do not paste the Cursor shape into OpenCode's config.
-   The entry to add (Cursor and Claude Code), with real absolute paths substituted:
-   {
-     "mcpServers": {
-       "open-edit": {
-         "command": "<absolute path to open-edit-mcp>",
-         "args": ["--project", "<absolute path to the edit project>"],
-         "env": { "OPEN_EDIT_RENDER_BACKEND": "cpu" }
-       }
-     }
-   }
-   On Windows, JSON strings escape backslashes, so the command value looks like: C:\\OpenEdit\\.venv\\Scripts\\open-edit-mcp.exe
-5. Verify: run the configured command once (open-edit-mcp --project "<project>") and confirm it speaks MCP on stdio, or reload the host's MCP list and confirm the open-edit server appears with its six tools: query_project, edit_project, run_script, trigger_render, get_render_job, cancel_render_job.
-6. Tell the user to reload MCP servers in their host (Cursor: Cmd/Ctrl+Shift+P, then "Reload MCP Servers"). Report exactly which file you wrote, the absolute command path, and the pinned project path.
+```bash
+open_edit init /absolute/path/to/project
+open_edit mcp-config --project /absolute/path/to/project --format mcp
 ```
+
+The generated configuration contains the installation's Python executable and
+absolute project path. It retains the virtual environment and automatically
+loads its provisioned media/Node runtime. Paths with spaces are supported.
+Use `--output FILE` to write UTF-8 rather than copying console output.
+
+| Host | Format and destination |
+|---|---|
+| Cursor | `--format mcp`; merge `mcpServers.openedit` into your project or user MCP JSON |
+| Claude Desktop / standard MCP host | `--format mcp`; merge the `mcpServers` entry into the host's configuration |
+| OpenCode | `--format opencode`; merge `mcp.openedit` into `opencode.json` |
+| Codex CLI | `--format codex`; merge `[mcp_servers.openedit]` into `~/.codex/config.toml` |
+
+The installer saves all three formats for its starter project. It does not
+replace host settings, add model credentials or change unrelated agent tools.
+Reload the host's MCP servers and confirm `query_project`, `edit_project`,
+`run_script`, `trigger_render`, `get_render_job` and `cancel_render_job` are listed.
+
+Try: “Inspect this project's timeline and make a precise edit to my selection.”
+The server supplies compact startup instructions. Your agent can ask
+`query_project` with `query: "describe"` for parameter examples when needed.
+It does not need to read the application repository to learn how to edit.
+
+MCP uses local stdio. No HTTP server or provider key in OpenEdit is required.
+The same project can be opened by `open_edit serve` for human review. Keep your
+agent host's authentication separate; cloud destination policies can still block
+its chosen model provider even when local MCP connects successfully.
+
+For OpenEdit's optional built-in OpenCode panel, start `open_edit serve --with-agent`
+and select the installed OpenCode CLI/model. That app-owned editing agent gets a
+project MCP connection and reports real tool results. An independently launched
+OpenCode instance uses its own configuration and permissions.
+
+To change projects, generate a new entry with the desired `--project` path. To
+remove the connection, remove only the OpenEdit entry from your host's settings.

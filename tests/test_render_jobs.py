@@ -404,7 +404,7 @@ async def test_preview_launch_uses_durable_job_id_without_shell_params(
 
     assert result["mode"] == "preview-chunks"
     assert captured["cmd"] == [
-        sys.executable, "-m", "open_edit.cli", "preview-chunks",
+        sys.executable, "-I", "-m", "open_edit.cli", "preview-chunks",
         "--job-id", "preview-job", "--json",
     ]
 

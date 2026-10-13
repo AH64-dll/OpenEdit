@@ -1435,6 +1435,16 @@ def render_preview_chunks(
                 metrics=metrics,
             )
 
+        # A previous range request may have produced only part of this
+        # revision. Equal timeline keys do not imply an artifact exists.
+        fingerprints = [
+            dataclasses.replace(
+                fingerprint,
+                video_dirty=fingerprint.video_dirty or chunk.video.current is None or chunk.playback.current is None,
+                audio_dirty=fingerprint.audio_dirty or chunk.audio.current is None,
+            )
+            for fingerprint, chunk in zip(fingerprints, active.chunks, strict=True)
+        ]
         selected = select_dirty_windows(
             _new_fingerprint_for_media(fingerprints, media),
             requested_ranges,

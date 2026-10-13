@@ -11,7 +11,7 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
-from contextlib import closing, nullcontext
+from contextlib import closing, nullcontext, suppress
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal
@@ -181,6 +181,61 @@ def export_defaults(root: Path) -> dict:
     }
 
 
+def _reuse_graphics_cache(source: Path, target: Path,
+                         documents: set[tuple[str, float, int]] | None = None) -> int:
+    """Retain completed, content-addressed graphics without sharing mutable source."""
+    source_cache = source / '.open_edit/graphics'
+    target_cache = target / '.open_edit/graphics'
+    copied = 0
+    for path in source_cache.glob('*.json'):
+        key = path.stem
+        if not re.fullmatch(r'[a-f0-9]{64}', key):
+            continue  # Skip pointers and in-flight capture directories.
+        temporary = None
+        try:
+            record = json.loads(path.read_text())
+            if documents is not None and (record.get('source'), record.get('duration_sec'),
+                                          record.get('fps')) not in documents:
+                continue
+            hash_ = record.get('asset_hash', '')
+            if (not isinstance(hash_, str) or not re.fullmatch(r'[a-f0-9]{64}', hash_)
+                    or record.get('content_key') != key
+                    or record.get('qc_report', {}).get('passed') is not True):
+                continue
+            files = [source_cache / f'{key}{suffix}' for suffix in ('.png', '.webm')]
+            if not all(file.is_file() for file in files):
+                continue
+            original = AssetStore(source / '.open_edit/assets').path(hash_)
+            if original is None:
+                continue
+            # Derived CAS entries have no import sidecar and do not clutter the
+            # media library. Each snapshot owns its retained bytes independently.
+            actual = AssetStore(target / '.open_edit/assets').store_derived(original)
+            if actual != hash_:
+                continue
+            target_cache.mkdir(parents=True, exist_ok=True)
+            for file in files:
+                temporary = target_cache / f'.{file.name}.{uuid.uuid4().hex}.tmp'
+                try:
+                    os.link(file, temporary)
+                except OSError:
+                    shutil.copyfile(file, temporary)
+                temporary.replace(target_cache / file.name)
+            record.update(poster_path=str(target_cache / f'{key}.png'),
+                          preview_path=str(target_cache / f'{key}.webm'))
+            temporary = target_cache / f'.{key}.{uuid.uuid4().hex}.tmp'
+            temporary.write_text(json.dumps(record), encoding='utf-8')
+            temporary.replace(target_cache / path.name)  # Publish only when complete.
+            copied += 1
+        except (OSError, ValueError, TypeError, AttributeError) as error:
+            _log.debug('Skipped optional graphics cache %s: %s', key, error)
+        finally:
+            if temporary is not None:
+                with suppress(OSError):
+                    temporary.unlink(missing_ok=True)
+    return copied
+
+
 def capture_export(root: Path, expected_revision: int, settings: ExportSettings) -> dict:
     """Freeze the database and referenced bytes before any background rendering."""
     nonce = uuid.uuid4().hex
@@ -227,6 +282,9 @@ def capture_export(root: Path, expected_revision: int, settings: ExportSettings)
                     ignore=shutil.ignore_patterns("node_modules", ".cache", "out", "tmp"),
                 )
         timeline = project_timeline(frozen)
+        _reuse_graphics_cache(root, frozen, {
+            (doc['source'], doc['duration_sec'], doc['fps'])
+            for doc in timeline.graphics_documents.values()})
         if timeline.duration_sec <= 0:
             raise ValueError("Add media or a composition before exporting")
         if settings.range_mode == "range" and settings.end_sec > timeline.duration_sec + 1e-6:
@@ -525,6 +583,7 @@ def execute_export(root: Path, payload: dict, job_id: str) -> dict:
             if job is None or job.mode != "final" or job.status not in ("queued", "running") or (job.params or {}).get("export") != payload:
                 raise ValueError("Export job is unavailable")
             result = _execute_frozen_export(root, payload, folder)
+            _reuse_graphics_cache(folder / 'project', root)
         return result
     finally:
         _discard_export_snapshot(root, payload, output_path=result["output_path"] if result else None)

@@ -128,7 +128,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
         name="opencode",
         label="OpenCode CLI",
         transport="cli",
-        agent_mode="chat_only",
+        agent_mode="native_cli",
         stream=_cli_stream_for("opencode"),
         missing_error=(
             "opencode provider: `opencode` binary not found on PATH. "
@@ -143,8 +143,8 @@ PROVIDERS: dict[str, ProviderSpec] = {
         ),
         binary_names=("opencode",),
         env_keys=("OPENCODE_API_KEY", "OPEN_EDIT_LLM_API_KEY"),
-        supports_tools=False,
-        supports_images=False,
+        supports_tools=True,
+        supports_images=True,
         context_strategy="full_history",
     ),
     "antigravity": ProviderSpec(

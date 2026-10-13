@@ -128,28 +128,13 @@ def stem_from_uri(uri: str) -> str | None:
 
 @lru_cache(maxsize=1)
 def mcp_instructions() -> str:
-    """Keep startup context small; expose detailed playbooks on demand."""
-    return _FALLBACK_INSTRUCTIONS + (
-        "Read the playbook when needed: open-edit-playbook prompt or "
-        f"{resource_uri('open-edit-mcp')}.\n"
-        "Skill: review-notes — query_project query=get_pending_notes before "
-        "acting on review feedback. Honor track_kind and track_id.\n"
-        "Use get_style_profile for preferences; capture confirmed hints.\n"
-        "Detailed IR recipes, edit planning, review notes, style memory, "
-        "HyperFrames, and QC guides are MCP resources under "
-        f"{RESOURCE_URI_PREFIX}. Load only the guide needed for the task.\n"
-        "Prefer native HyperFrames for new graphics; preserve legacy graph ops.\n"
-        "Renders return job_id by default. Poll get_render_job when needed "
-        "and wait for completion before requesting another render.\n"
+    """Models choose the edit; the engine owns timing, storage and rendering."""
+    return (
+        "Open Edit is pinned to one project. Inspect selection and revision with "
+        "query_project get_editing_context; use inspect_media for timestamped frames and "
+        "range transcripts. query_project describe provides operation parameters on demand. "
+        "Apply edits with edit_project or trusted run_script; use expected_revision for "
+        "atomic batches and keep Undo/Redo. The engine handles previews and final exports. "
+        "Render jobs are asynchronous; poll or cancel by job_id. "
+        "Detailed guides are optional MCP resources under " + RESOURCE_URI_PREFIX + "."
     )
-
-
-_FALLBACK_INSTRUCTIONS = """\
-Open Edit MCP tools: query_project, edit_project, run_script, trigger_render,
-get_render_job, cancel_render_job. Prefer tools over exploring source.
-Priority: query → edit → run_script (only if needed) → trigger_render (proxy then final).
-Silence: edit_project generate=silence_cuts — never ffmpeg silencedetect.
-Ingest: edit_project operation=ingest_local with absolute paths.
-Notes: query_project get_pending_notes; honor track_kind hints but fix audio or video as asked.
-Project path is pinned at server start; never pass project_path as an argument.
-"""

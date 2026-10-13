@@ -1,7 +1,6 @@
-"""OpenCode CLI event normalization for optional chat.
+"""OpenCode CLI event normalization for project editing.
 
-Maps step_finish usage, text and error events to the shared StreamEvent
-contract. CLI chat has no editing tool support; external agents edit over MCP.
+Maps native editing activity, usage, text and errors to StreamEvent.
 """
 from __future__ import annotations
 
@@ -9,6 +8,42 @@ import json
 import sys
 from collections.abc import AsyncIterator
 from typing import Any
+
+
+def normalize_native_tool(
+    name: str, call_id: str, arguments: Any, status: str,
+    output: Any = None, error: Any = None,
+) -> list[dict[str, Any]]:
+    """CLI tools execute through MCP; report activity without executing twice."""
+    from open_edit.kernel.tool_schemas import TOOL_BY_NAME
+    name = name.removeprefix('mcp__openedit__').removeprefix('openedit_')
+    if name not in TOOL_BY_NAME:
+        return []
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            arguments = {}
+    start = {'type':'tool_use', 'id':call_id, 'name':name, 'input':arguments or {}}
+    if status in ('pending', 'running'):
+        return [start]
+    if status not in ('completed', 'error'):
+        return []
+    if isinstance(output, dict) and isinstance(output.get('structuredContent'), dict):
+        output = output['structuredContent']
+    if isinstance(output, dict) and isinstance(output.get('content'), list):
+        output = next((b.get('text') for b in output['content'] if b.get('type') == 'text'), '')
+    if isinstance(output, str):
+        try:
+            output = json.loads(output)
+        except ValueError:
+            output = {'summary':output[:1200]}
+    result = output if isinstance(output, dict) else {'status':status}
+    if error:
+        result = {'status':'error', 'error':error.get('message', str(error)) if isinstance(error, dict) else str(error)}
+    # Completed parts may arrive without a start. The agent loop deduplicates
+    # starts by call ID so both streaming formats produce a complete log.
+    return [start, {'type':'tool_result', 'id':call_id, 'name':name, 'result':result}]
 
 _STOP_REASON_MAP = {
     "stop": "end_turn",
@@ -73,6 +108,12 @@ def normalize_opencode_line(line: str) -> list[dict[str, Any]]:
     if not isinstance(obj, dict):
         return []
     et = obj.get("type")
+    if et == 'tool_use':
+        part = obj.get('part') or {}
+        state = part.get('state') or {}
+        return normalize_native_tool(part.get('tool', ''), part.get('id', ''),
+                                     state.get('input') or {}, state.get('status', ''),
+                                     state.get('output'), state.get('error'))
     if et == "text":
         part = obj.get("part") or {}
         text = part.get("text") if isinstance(part, dict) else None
@@ -103,11 +144,9 @@ def normalize_opencode_line(line: str) -> list[dict[str, Any]]:
     elif et == "step_start":
         return []
     elif et == "toolCall":
-        # Opencode has no open_edit tool extension in v1.7; if a
-        # tool call somehow arrives, we drop it (rather than try
-        # to execute) and log so the operator can see it.
+        # Older, unstructured events cannot establish a completed MCP call.
         print(
-            "opencode_adapter: ignoring toolCall event (no extension in v1.7)",
+            "opencode_adapter: ignoring unstructured toolCall event",
             file=sys.stderr,
         )
     # All other event types are silently dropped — the spike

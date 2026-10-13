@@ -237,6 +237,32 @@ async def test_agent_loop_two_turn_with_tool_call(patched_agent):
 
 
 @pytest.mark.asyncio
+async def test_native_cli_tool_results_are_observed_without_duplicate_execution(patched_agent, monkeypatch):
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Native CLI already executed this MCP mutation")
+
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda _path: "opencode")
+    monkeypatch.setattr(agent_mod, "_execute_tool", fail_if_called)
+
+    async def stream(**kwargs):
+        for _ in range(2):  # Some CLIs emit both running and completed parts.
+            yield {"type": "tool_use", "id": "native-1", "name": "edit_project",
+                   "input": {"operation": "apply_graphics_edits"}}
+        yield {"type": "tool_result", "id": "native-1", "name": "edit_project",
+               "result": {"status": "ok", "graph_revision": 3}}
+        yield {"type": "text_delta", "text": "Updated the title."}
+        yield {"type": "done", "stop_reason": "end_turn"}
+
+    monkeypatch.setattr(agent_mod, "stream_chat", stream)
+    history = []
+    events = [event async for event in agent_mod.run_agent_turn("testproject", "Update title", history)]
+    assert len([event for event in events if event["type"] == "tool_start"]) == 1
+    assert len([event for event in events if event["type"] == "tool_result"]) == 1
+    assert events[-2] == {"type": "done", "stop_reason": "end_turn"}
+    assert history[2]["content"][0]["tool_use_id"] == "native-1"
+
+
+@pytest.mark.asyncio
 async def test_chat_only_provider_never_executes_emitted_tool(patched_agent, monkeypatch):
     """A non-conforming chat adapter cannot turn an edit request into a mutation."""
     executed = False
@@ -246,7 +272,7 @@ async def test_chat_only_provider_never_executes_emitted_tool(patched_agent, mon
         executed = True
         raise AssertionError("chat-only provider must not execute a tool")
 
-    monkeypatch.setattr(agent_mod, "effective_provider", lambda _path: "opencode")
+    monkeypatch.setattr(agent_mod, "effective_provider", lambda _path: "antigravity")
     monkeypatch.setattr(agent_mod, "_execute_tool", fail_if_called)
     seen_tools: list[list[dict[str, Any]]] = []
 
@@ -472,3 +498,54 @@ async def test_provider_resolved_once_per_turn(patched_agent, monkeypatch):
     assert call_count["n"] == 1, (
         f"expected effective_provider() to be called once per turn; got {call_count['n']}"
     )
+
+
+@pytest.mark.asyncio
+async def test_native_cli_subprocess_really_edits_through_project_mcp(patched_agent, monkeypatch):
+    """A scripted CLI checks transport, not model intelligence or inference."""
+    import os
+    import sys
+
+    from open_edit.kernel.studio_service import get_studio
+    from open_edit.serve.llm import stream_chat
+    from open_edit.storage.edit_graph import EditGraphStore
+
+    root = patched_agent
+    EditGraphStore(root / '.open_edit/edit_graph.db')
+    binary = root / 'opencode'
+    binary.write_text(f'#!{sys.executable}\n' + '''
+import asyncio, json, os
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+async def main():
+    config=json.loads(os.environ['OPENCODE_CONFIG_CONTENT'])['mcp']['openedit']
+    command=config['command']
+    async with stdio_client(StdioServerParameters(command=command[0],args=command[1:],env=dict(os.environ))) as (r,w):
+        async with ClientSession(r,w) as session:
+            await session.initialize()
+            context=await session.call_tool('query_project',{'query':'get_editing_context','params':{}})
+            revision=json.loads(context.content[0].text)['graph_revision']
+            args={'operation':'apply_studio_changes','params':{'expected_revision':revision,
+                  'changes':[{'kind':'annotation','object_id':'native-edit','data':
+                    {'tool':'note','points':[[12,34]],'text':'Applied by native CLI'}}]}}
+            result=await session.call_tool('edit_project',args)
+            print(json.dumps({'type':'tool_use','part':{'id':'native-real','tool':'openedit_edit_project',
+                'state':{'status':'completed','input':args,'output':result.content[0].text}}}),flush=True)
+    print(json.dumps({'type':'text','part':{'text':'Applied the edit.'}}),flush=True)
+asyncio.run(main())
+''')
+    binary.chmod(0o755)
+    monkeypatch.setenv('PATH', str(root) + os.pathsep + os.environ.get('PATH', ''))
+    monkeypatch.setenv('OPEN_EDIT_LLM_PROVIDER', 'opencode')
+    monkeypatch.setenv('OPEN_EDIT_LLM_MODEL', 'test/model')
+    monkeypatch.setattr(agent_mod, 'effective_provider', lambda _: 'opencode')
+    monkeypatch.setattr(agent_mod, 'stream_chat', stream_chat)
+    def no_duplicate(*args, **kwargs):
+        raise AssertionError('MCP already executed this operation')
+    monkeypatch.setattr(agent_mod, '_execute_tool', no_duplicate)
+    events=[event async for event in agent_mod.run_agent_turn('testproject','Add a note',[])]
+    snapshot=get_studio(root,kind='annotation',object_id='native-edit')
+    assert snapshot['graph_revision'] == 1
+    assert snapshot['objects'][0]['data']['text'] == 'Applied by native CLI'
+    assert len([event for event in events if event['type']=='tool_result']) == 1
+    assert not any(event['type']=='error' for event in events)

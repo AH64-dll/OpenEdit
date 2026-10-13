@@ -1,8 +1,11 @@
-"""Subprocess streaming for optional CLI chat providers."""
+"""Subprocess streaming and project MCP connections for CLI providers."""
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import signal
+import sys
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from pathlib import Path
@@ -66,6 +69,9 @@ async def _stream_cli(
     )
 
     env = dict(os.environ)
+    from ...runtimes.registry import get_expanded_path_env
+
+    env['PATH'] = get_expanded_path_env()
     import open_edit
     pkg_root = str(Path(open_edit.__file__).resolve().parents[1])
     env["PYTHONPATH"] = (
@@ -73,6 +79,19 @@ async def _stream_cli(
     )
     if project_path:
         env["OPEN_EDIT_PROJECT"] = str(project_path)
+    if adapter.name == 'opencode' and project_path:
+        config = json.loads(env.get('OPENCODE_CONFIG_CONTENT') or '{}')
+        config.setdefault('mcp', {})['openedit'] = {
+            'type':'local', 'command':[sys.executable, '-m', 'open_edit.mcp.server', '--project', str(project_path)],
+            'enabled':True,
+        }
+        config.setdefault('agent', {})['openedit'] = {
+            'description':'Edit this video project through OpenEdit', 'mode':'primary',
+            'permission':{'*':'deny', 'openedit_*':'allow'},
+            'prompt':'Use the OpenEdit MCP tools to edit the video project. Query describe for parameter help. '
+                     'The media engine handles previews and exports. Finish requested edits, then report actual results.',
+        }
+        env['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -80,6 +99,8 @@ async def _stream_cli(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            cwd=project_path,
+            start_new_session=os.name == 'posix',
             limit=65536,
         )
     except FileNotFoundError as exc:
@@ -122,14 +143,14 @@ async def _stream_cli(
             if len(buf) > max_line_bytes:
                 raise ValueError("CLI output line exceeds the 1 MiB limit")
 
-    saw_text = False
     stop_reason = "end_turn"
     try:
         async for ev in adapter.stream_events(read_lines()):
-            if ev.get("type") == "text_delta":
-                saw_text = True
+            if ev.get("type") == "error":
+                stop_reason = "error"
             if ev.get("type") == "done":
-                stop_reason = ev.get("stop_reason", "end_turn")
+                if stop_reason != "error":
+                    stop_reason = ev.get("stop_reason", "end_turn")
                 continue
             yield ev
         remaining = deadline - loop.time()
@@ -137,7 +158,7 @@ async def _stream_cli(
             raise TimeoutError
         await asyncio.wait_for(proc.wait(), timeout=remaining)
         await asyncio.wait_for(asyncio.shield(stderr_task), timeout=max(0.01, deadline - loop.time()))
-        if adapter.check_exit_status and proc.returncode != 0 and not saw_text:
+        if adapter.check_exit_status and proc.returncode != 0:
             yield {
                 "type": "error",
                 "message": stderr_tail.decode("utf-8", errors="replace").strip()
@@ -154,12 +175,21 @@ async def _stream_cli(
         yield {"type": "error", "message": str(exc)}
         stop_reason = "error"
     finally:
-        if proc.returncode is None:
-            with suppress(ProcessLookupError):
-                proc.kill()
         stderr_task.cancel()
         with suppress(asyncio.CancelledError):
             await stderr_task
+        if proc.returncode is None:
+            # Give the CLI time to close and reap its MCP subprocess.
+            with suppress(ProcessLookupError):
+                proc.terminate()
+            try:
+                await asyncio.wait_for(proc.communicate(), timeout=2)
+            except TimeoutError:
+                with suppress(ProcessLookupError):
+                    if os.name == "posix":
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    else:
+                        proc.kill()
         # Drain both pipes after killing; otherwise Process.wait can hang on
         # buffered stdout during cancellation or an oversized output line.
         with suppress(TimeoutError):

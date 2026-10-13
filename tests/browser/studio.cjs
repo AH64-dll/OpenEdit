@@ -76,7 +76,7 @@ async function parity(browser) {
 
 (async () => {
   fs.mkdirSync(artifacts,{recursive:true});
-  const browser = await chromium.launch({headless:true,args:['--no-sandbox']});
+  const browser = await chromium.launch({executablePath:process.env.OPEN_EDIT_CHROMIUM,headless:true,args:['--no-sandbox']});
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'openedit-studio-')), python = process.env.OPEN_EDIT_TEST_PYTHON || 'python';
   let server, page;
   try {
@@ -205,7 +205,7 @@ async function parity(browser) {
     await page.locator('#workspace-graphics').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-status').textContent.startsWith('Interactive canvas'),null,{timeout:60000});
     await page.locator('#graphics-commit').click(); await page.waitForFunction(()=>document.querySelector('#graphics-status').textContent.startsWith('Saved editable'));
-    await page.locator('.tab[data-tab="layers"]').click();
+    await page.locator('#library-view').selectOption('layers');
     await page.locator('[data-object-id="title"]').click();
     await page.locator('#graphics-properties [name=text]').fill('Manually editable title');
     await page.locator('#graphics-properties [type=submit]').click();
@@ -277,7 +277,7 @@ async function parity(browser) {
     await page.locator('#graphics-properties input[name=fontSize]').fill('64');
     await page.locator('#graphics-properties button').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('fontSize={64}') && !document.querySelector('#graphics-commit').disabled);
-    await page.locator('.tab[data-tab=edits]').click();
+    await page.locator('#library-view').selectOption('edits');
     await page.locator('[data-revert-request="browser-ai-request"]').click();
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('Manually editable title') && document.querySelector('#graphics-source').value.includes('fontSize={64}'));
     assert.ok((await page.locator('#history-status').textContent()).includes('Unrelated later edits preserved'));
@@ -288,7 +288,7 @@ async function parity(browser) {
     await page.waitForFunction(()=>document.querySelector('#graphics-source').value.includes('Manually editable title') && document.querySelector('#graphics-source').value.includes('fontSize={64}'));
     assert.ok((await api('/studio?kind=annotation')).objects.some(o=>o.data.text==='Move this title along this arrow'));
     await page.locator('#workspace-review').click();
-    await page.locator('.tab[data-tab="captions"]').click();
+    await page.locator('#library-view').selectOption('captions');
     await page.locator('#caption-editor').getByRole('button',{name:'Add caption',exact:true}).click();
     await page.locator('#caption-properties [name=text]').fill('Editable export caption');
     await page.locator('#caption-properties [name=start_sec]').fill('0');
@@ -318,6 +318,7 @@ async function parity(browser) {
     assert.equal(video.width,640);assert.equal(video.height,360);
     fs.writeFileSync(path.join(artifacts,'studio-browser-export.json'),JSON.stringify({output,video},null,2));
     await page.locator('#export-dialog').getByRole('button',{name:'Close export settings'}).click();
+    await page.locator('.editor-quality-check > summary').click();
     await page.locator('#quality-check-form input[name=start_sec]').fill('0');
     await page.locator('#quality-check-form input[name=end_sec]').fill('0.5');
     await page.locator('#quality-check-form').getByRole('button',{name:'Check range',exact:true}).click();

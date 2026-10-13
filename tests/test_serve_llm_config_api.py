@@ -52,8 +52,8 @@ def test_get_llm_config_returns_current_config(
     # (or [] if binary missing); we only assert it's a list.
     assert isinstance(body["available_models"], list)
     capabilities = {item["id"]: item for item in body["provider_capabilities"]}
-    assert capabilities["opencode"]["agent_mode"] == "chat_only"
-    assert capabilities["opencode"]["supports_tools"] is False
+    assert capabilities["opencode"]["agent_mode"] == "native_cli"
+    assert capabilities["opencode"]["supports_tools"] is True
     assert capabilities["anthropic"]["agent_mode"] == "openedit_loop"
 
 

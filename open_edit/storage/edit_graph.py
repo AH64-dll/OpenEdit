@@ -351,7 +351,8 @@ class EditGraphStore:
             action_id = _history.record(conn, ops, action_label, current_revision,
                             object_changes=object_changes, author=author, request_id=request_id,
                             status_changes=status_changes, reverted_targets=reverted_targets)
-            conn.execute('DELETE FROM timeline_snapshots')
+            # Snapshots are keyed by graph hash. Retain prior revisions for
+            # localized preview comparisons; a changed graph cannot hit them.
             if receipt is not None:
                 receipt.update(graph_revision=self._revision_in(conn), changed=True, action_id=action_id,
                                changed_object_ids=[change['object_id'] for change in object_changes])

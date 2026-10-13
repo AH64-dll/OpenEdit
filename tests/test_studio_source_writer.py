@@ -45,6 +45,16 @@ def test_property_and_text_edits_preserve_comments_and_stable_ids(rewrite):
     assert title['text'] == 'Hello <world> & {you} — أهلاً'
 
 
+def test_duplicate_keyframes_identify_the_track_and_frame(rewrite):
+    source = DEFAULT_SOURCE.replace('end={3} />', '''end={3}>
+      <keyframeTrack id="panel-fade" property="opacity">
+        <keyframe id="fade-a" time={0} value={0} />
+        <keyframe id="fade-b" time={0} value={1} />
+      </keyframeTrack></rect>''', 1)
+    with pytest.raises(ValueError, match=r'track panel-fade, frame fade-b, time 0'):
+        rewrite(source, [])
+
+
 def test_insert_group_duplicate_move_and_delete_are_source_edits(rewrite):
     result = rewrite(DEFAULT_SOURCE, [
         {'kind': 'group', 'sources': ['index.tsx:panel', 'index.tsx:title'], 'id': 'lower-third'},

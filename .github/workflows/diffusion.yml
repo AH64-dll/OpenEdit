@@ -12,6 +12,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      OPEN_EDIT_CHROMIUM_NO_SANDBOX: "1"
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,7 +48,7 @@ jobs:
           $global:LASTEXITCODE = 0
       - run: pip install -e ".[dev]"
       - run: python -m open_edit.integrations.diffusion.setup
-      - run: python -m open_edit.integrations.diffusion.setup --graphics
+      - run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
       - run: pytest tests/test_diffusion_graphics.py tests/test_diffusion_graphics_contract.py tests/test_diffusion_setup.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_studio_storage.py tests/test_studio_service.py tests/test_targeted_editing_context.py tests/test_studio_source_writer.py tests/test_studio_graphics.py tests/test_studio_geometry.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_request_history.py --timeout=40 --timeout-method=thread
@@ -57,8 +60,6 @@ jobs:
       - run: pytest tests/test_audio_controls.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_media_marks.py tests/test_visual_transitions.py -m "not browser" --timeout=40 --timeout-method=thread
       - run: pytest tests/test_diffusion_authoring.py tests/test_diffusion_authoring_api.py tests/test_migrations.py tests/test_action_history.py tests/test_editing_setup.py --timeout=40 --timeout-method=thread
-      - if: matrix.os != 'ubuntu-latest'
-        run: python -m open_edit.integrations.diffusion.setup --graphics --chromium
       - if: matrix.os != 'ubuntu-latest'
         env:
           OPEN_EDIT_CHROMIUM_NO_SANDBOX: "1"

@@ -650,23 +650,23 @@ class RenderJobService:
         job = self.get(project_path, job_id)
         params = (job.params if job is not None else None) or {}
         if mode=='final' and params.get('export'):
-            command=[sys.executable,'-m','open_edit.kernel.export_worker','--project',str(project_path),'--job-id',job_id]
+            command=[sys.executable,'-I','-m','open_edit.kernel.export_worker','--project',str(project_path),'--job-id',job_id]
         elif mode == 'graphics':
-            command = [sys.executable, '-m', 'open_edit.integrations.diffusion.render_job',
+            command = [sys.executable, '-I', '-m', 'open_edit.integrations.diffusion.render_job',
                        '--project', str(project_path), '--job-id', job_id]
         elif mode == "overlay":
             command = [
-                sys.executable, "-m", "open_edit.kernel.render_overlay",
+                sys.executable, "-I", "-m", "open_edit.kernel.render_overlay",
                 "--project", str(project_path),
             ]
         elif mode == "preview-chunks":
             command = [
-                sys.executable, "-m", "open_edit.cli", "preview-chunks",
+                sys.executable, "-I", "-m", "open_edit.cli", "preview-chunks",
                 "--job-id", job_id, "--json",
             ]
         else:
             command = [
-                sys.executable, "-m", "open_edit.cli", "render",
+                sys.executable, "-I", "-m", "open_edit.cli", "render",
                 "--mode", mode, "--json",
             ]
         if mode not in ("overlay", "preview-chunks", "graphics") and not params.get('export'):

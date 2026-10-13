@@ -9,7 +9,13 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 let chrome; let browser;
 async function cleanup() {
   if (browser) await browser.close().catch(() => {});
-  if (chrome && chrome.exitCode === null) chrome.kill('SIGTERM');
+  if (chrome && chrome.exitCode === null) {
+    await new Promise(resolve => {
+      const timer = setTimeout(() => { chrome.kill('SIGKILL'); resolve(); }, 1000);
+      chrome.once('exit', () => { clearTimeout(timer); resolve(); });
+      chrome.kill('SIGTERM');
+    });
+  }
 }
 process.on('SIGTERM', () => cleanup().finally(() => process.exit(143)));
 process.on('SIGINT', () => cleanup().finally(() => process.exit(130)));
