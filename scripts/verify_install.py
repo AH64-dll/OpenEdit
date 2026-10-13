@@ -137,70 +137,77 @@ async def verify(root: Path, graphics: bool, progress: dict) -> dict:
         listener.bind(('127.0.0.1', 0))
         port = listener.getsockname()[1]
     env = dict(os.environ, OPEN_EDIT_PROJECTS_ROOT=str(project.parent))
-    ui = subprocess.Popen([sys.executable, '-I', '-m', 'open_edit.cli', 'serve',
-                           '--host', '127.0.0.1', '--port', str(port), '--log-level', 'warning'],
-                          env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        for _ in range(100):
-            try:
-                with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=1) as response:
-                    assert json.loads(response.read())['status'] == 'ok'
-                break
-            except OSError:
-                if ui.poll() is not None:
-                    raise RuntimeError(ui.communicate()[1].decode(errors='replace')) from None
-                await asyncio.sleep(.1)
-        else:
-            raise RuntimeError('Installed UI did not become ready')
-        with urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=5) as response:
-            assert b'id="preview-player"' in response.read()
-        with urllib.request.urlopen(f'http://127.0.0.1:{port}/app.js', timeout=5) as response:
-            assert response.status == 200 and len(response.read()) > 1000
-        stage('export through installed UI API')
-        def api(path, body=None):
-            request = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
-                data=json.dumps(body).encode() if body is not None else None,
-                headers={'Content-Type': 'application/json'})
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.loads(response.read())
-        projects = api('/api/projects')
-        # Windows temporary paths can use 8.3 aliases; the UI returns canonical paths.
-        match = next((p for p in projects if Path(p['path']).resolve() == project.resolve()), None)
-        if match is None:
-            raise RuntimeError(f'Test project is missing from installed UI: {projects!r}')
-        project_id = match['id']
-        exported = api(f'/api/projects/{project_id}/export', {
-            'expected_revision': saved_revision,
-            'settings': {'filename': 'Release export', 'folder': str(root / 'exports with spaces'),
-                         'width': 320, 'height': 180, 'fps_num': 30, 'fps_den': 1,
-                         'quality': 'high', 'encoder': 'cpu'}})
-        deadline = time.monotonic() + 120
-        while time.monotonic() < deadline:
-            job = api(f"/api/projects/{project_id}/render_jobs/{exported['job_id']}")
-            if job['status'] == 'succeeded':
-                break
-            if job['status'] in ('failed', 'cancelled', 'orphaned'):
-                raise RuntimeError(json.dumps(job))
-            await asyncio.sleep(.1)
-        else:
-            raise RuntimeError('Installed UI export did not finish')
-        assert job['result']['export_verification']['passed']
-        assert job['graph_revision'] == saved_revision
-        output = Path(job['output_path'])
-        command(['ffmpeg', '-v', 'error', '-i', str(output), '-f', 'null', '-'])
-        for t, color in ((.1, 0), (1.4, 2)):
-            assert sample(t, 300, 150)[color] > 180
-        if graphics:
-            assert sample(1.4, 225, 32)[1] > 140
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/projects/{project_id}/exports/{exported['job_id']}/file", timeout=10) as response:
-            assert hashlib.sha256(response.read()).digest() == hashlib.sha256(output.read_bytes()).digest()
-    finally:
-        ui.terminate()
+    with tempfile.TemporaryFile() as ui_log:
+        ui = subprocess.Popen([sys.executable, '-I', '-m', 'open_edit.cli', 'serve',
+                               '--host', '127.0.0.1', '--port', str(port), '--log-level', 'warning'],
+                              env=env, stdout=ui_log, stderr=ui_log)
         try:
-            ui.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            ui.kill()
-            ui.communicate()
+            for _ in range(100):
+                try:
+                    with urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=1) as response:
+                        assert json.loads(response.read())['status'] == 'ok'
+                    break
+                except OSError:
+                    if ui.poll() is not None:
+                        raise RuntimeError('Installed UI exited early') from None
+                    await asyncio.sleep(.1)
+            else:
+                raise RuntimeError('Installed UI did not become ready')
+            with urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=5) as response:
+                assert b'id="preview-player"' in response.read()
+            with urllib.request.urlopen(f'http://127.0.0.1:{port}/app.js', timeout=5) as response:
+                assert response.status == 200 and len(response.read()) > 1000
+            stage('export through installed UI API')
+            def api(path, body=None):
+                progress['phase'] = f'UI request {path}'
+                request = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
+                    data=json.dumps(body).encode() if body is not None else None,
+                    headers={'Content-Type': 'application/json'})
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return json.loads(response.read())
+            projects = api('/api/projects')
+            # Windows temporary paths can use 8.3 aliases; the UI returns canonical paths.
+            match = next((p for p in projects if Path(p['path']).resolve() == project.resolve()), None)
+            if match is None:
+                raise RuntimeError(f'Test project is missing from installed UI: {projects!r}')
+            project_id = match['id']
+            exported = api(f'/api/projects/{project_id}/export', {
+                'expected_revision': saved_revision,
+                'settings': {'filename': 'Release export', 'folder': str(root / 'exports with spaces'),
+                             'width': 320, 'height': 180, 'fps_num': 30, 'fps_den': 1,
+                             'quality': 'high', 'encoder': 'cpu'}})
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                job = api(f"/api/projects/{project_id}/render_jobs/{exported['job_id']}")
+                if job['status'] == 'succeeded':
+                    break
+                if job['status'] in ('failed', 'cancelled', 'orphaned'):
+                    raise RuntimeError(json.dumps(job))
+                await asyncio.sleep(.1)
+            else:
+                raise RuntimeError('Installed UI export did not finish')
+            assert job['result']['export_verification']['passed']
+            assert job['graph_revision'] == saved_revision
+            output = Path(job['output_path'])
+            command(['ffmpeg', '-v', 'error', '-i', str(output), '-f', 'null', '-'])
+            for t, color in ((.1, 0), (1.4, 2)):
+                assert sample(t, 300, 150)[color] > 180
+            if graphics:
+                assert sample(1.4, 225, 32)[1] > 140
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/projects/{project_id}/exports/{exported['job_id']}/file", timeout=10) as response:
+                assert hashlib.sha256(response.read()).digest() == hashlib.sha256(output.read_bytes()).digest()
+        except Exception as error:
+            ui_log.seek(0, 2)
+            ui_log.seek(max(0, ui_log.tell() - 4000))
+            detail = ui_log.read().decode('utf-8', errors='replace')
+            raise RuntimeError(f'{progress["phase"]}: {error!r}; UI log: {detail}') from error
+        finally:
+            ui.terminate()
+            try:
+                ui.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                ui.kill()
+                ui.communicate()
     return {'passed': True, 'installed_ui_verified': True, 'ui_export_verified': True,
             'tools': names, 'saved_revision': saved_revision,
             'graphics': graphics, 'duration_sec': float(video['duration']),
