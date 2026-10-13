@@ -77,11 +77,26 @@ jobs:
           if ($parseErrors) { throw ($parseErrors | Out-String) }
       - name: Install and verify actual downloaded Linux release
         if: runner.os == 'Linux'
-        run: bash "$DOWNLOAD_ROOT/install.sh" --dir "$INSTALL_ROOT" --no-project
+        shell: bash
+        run: |
+          set +e
+          bash "$DOWNLOAD_ROOT/install.sh" --dir "$INSTALL_ROOT" --no-project 2>&1 | tee "$RUNNER_TEMP/install-full.log"
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then
+            python -c "import os; from pathlib import Path; text=Path(os.environ['RUNNER_TEMP']).joinpath('install-full.log').read_text()[-3000:]; print('::error::'+text.replace('%','%25').replace('\n','%0A').replace('\r','%0D'))"
+          fi
+          exit "$result"
       - name: Install and verify actual downloaded Windows release
         if: runner.os == 'Windows'
         shell: pwsh
-        run: '& "$env:DOWNLOAD_ROOT\install.ps1" -InstallDir "$env:INSTALL_ROOT" -NoProject'
+        run: |
+          try {
+            & "$env:DOWNLOAD_ROOT\install.ps1" -InstallDir "$env:INSTALL_ROOT" -NoProject *>&1 | Tee-Object "$env:RUNNER_TEMP\install-full.log"
+          } catch {
+            $tail = (Get-Content "$env:RUNNER_TEMP\install-full.log" -Tail 25) -join "`n"
+            Write-Host ('::error::' + $tail.Replace('%','%25').Replace("`n",'%0A').Replace("`r",'%0D'))
+            throw
+          }
       - name: Check fresh installed-wheel dependencies and capabilities
         shell: python
         run: |
