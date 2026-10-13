@@ -11,7 +11,11 @@ provider SDKs, advanced HTML and legacy Remotion remain separate.
 
 Preview scheduling prioritizes the playhead and reuses unaffected ranges.
 Completed graphics survive frozen export snapshots, preventing repeated
-composition capture on unchanged exports. OpenCode CLI editing is connected to
+composition capture on unchanged exports. Queued exports also reuse matching
+previews that finish after source capture. Rich graphics support 500 visual
+layers and 4,096 total nodes including animation tracks and keyframes.
+An original ten-second 1080p/60 fps trailer and editable project are included
+under `examples/openedit-explainer` in the repository. OpenCode CLI editing is connected to
 project MCP tools and reports actual mutations without duplicate execution.
 
 Requirements and instructions are in INSTALL.md inside each ZIP. Model provider

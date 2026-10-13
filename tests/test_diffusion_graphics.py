@@ -58,6 +58,32 @@ def test_actual_graphics_compiler_rejects_executable_sources(graphics_worker):
             inspect_source(bad)
 
 
+def test_animation_keyframes_do_not_consume_visual_layer_budget(graphics_worker):
+    frames = ''.join(f'<keyframe id="k{i}" time={{{i / 100}}} value={{{i}}}/>'
+                     for i in range(600))
+    source = DEFAULT_SOURCE.replace('</scene>',
+        f'<rect id="animated"><keyframeTrack id="motion" property="x">{frames}'
+        '</keyframeTrack></rect></scene>')
+    document = inspect_source(source)
+    assert len(document['elements']) > 600
+    assert document['elements'][-1]['id'] == 'k599'
+
+
+@pytest.mark.parametrize('kind, count, message', [
+    ('layer', 501, '500 visual layers'),
+    ('frame', 4096, '4096 total nodes'),
+])
+def test_graphics_visual_and_animation_budgets_remain_bounded(graphics_worker, kind, count, message):
+    if kind == 'layer':
+        nodes = ''.join(f'<rect id="r{i}"/>' for i in range(count))
+    else:
+        frames = ''.join(f'<keyframe id="k{i}" time={{{i / 100}}} value={{{i}}}/>' for i in range(count))
+        nodes = f'<rect id="animated"><keyframeTrack id="motion" property="x">{frames}</keyframeTrack></rect>'
+    source = DEFAULT_SOURCE.replace('</scene>', nodes + '</scene>')
+    with pytest.raises(ValueError, match=message):
+        inspect_source(source)
+
+
 def test_rgba_encoding_quality_gate(tmp_path):
     if not shutil.which('ffmpeg'):
         pytest.skip('FFmpeg required')

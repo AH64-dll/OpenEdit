@@ -1,0 +1,134 @@
+{
+  "project": "openedit-kinetic-trailer",
+  "graph_revision": 5,
+  "animation": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "frames": 600,
+    "video_duration_sec": 10,
+    "audio_duration_sec": 10.005,
+    "source_bytes": 258105,
+    "source_sha256": "c42d97d4810af1881adfcc045914da02c07355df9407c6f0f2ee00364e6c8533",
+    "graphics_nodes": 2938
+  },
+  "exports": {
+    "first": {
+      "elapsed_sec": 125.952,
+      "status": "Export verified and saved.",
+      "errors": []
+    },
+    "richer_before_cache_fix": {
+      "elapsed_sec": 136.979,
+      "status": "Export verified and saved.",
+      "errors": []
+    },
+    "final_after_cache_fix": {
+      "elapsed_sec": 82.695,
+      "status": "Export verified and saved.",
+      "errors": []
+    }
+  },
+  "live_canvas": {
+    "state": {
+      "revision": 5,
+      "duration": 10,
+      "layers": 3
+    },
+    "timings": [
+      {
+        "seconds": 0.85,
+        "update_ms": 32
+      },
+      {
+        "seconds": 2.6,
+        "update_ms": 35.19999999552965
+      },
+      {
+        "seconds": 3.6,
+        "update_ms": 41.899999998509884
+      },
+      {
+        "seconds": 5.6,
+        "update_ms": 29.19999999552965
+      },
+      {
+        "seconds": 7.3,
+        "update_ms": 34.80000000447035
+      },
+      {
+        "seconds": 9.2,
+        "update_ms": 29.5
+      }
+    ],
+    "errors": []
+  },
+  "audio": {
+    "peak": 0.8473216891288757,
+    "rms": 0.10827372223138809,
+    "clipped_samples": 0,
+    "channels": 2,
+    "sample_rate": 48000,
+    "integrated_loudness_lufs": -17.63,
+    "true_peak_dbtp": -1.23
+  },
+  "decode": {
+    "exit_code": 0,
+    "errors": ""
+  },
+  "output": {
+    "bytes": 2297808,
+    "sha256": "081e4552c1e7b814da57634c5def03ef3bc6bdf3691613c763587d5480d27828"
+  },
+  "archive": {
+    "relocated_project_readable": true,
+    "captured_media_paths_local": true,
+    "duration_sec": 10,
+    "graph_revision": 5,
+    "archive_bytes": 2807823,
+    "archive_sha256": "e98ec35b949a3ce526a6e44b72293ae6f8641cd24f68e9c362e25268647498df"
+  },
+  "tests": {
+    "tests": "1797",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "202.136",
+    "browser_marked_deselected": 11
+  },
+  "archive_reopen": {
+    "state": {
+      "revision": 5,
+      "duration": 10,
+      "layers": 3
+    },
+    "timings": [
+      {
+        "seconds": 0.85,
+        "update_ms": 42.70000000298023
+      },
+      {
+        "seconds": 2.6,
+        "update_ms": 32.100000001490116
+      },
+      {
+        "seconds": 3.6,
+        "update_ms": 28.399999998509884
+      },
+      {
+        "seconds": 5.6,
+        "update_ms": 31
+      },
+      {
+        "seconds": 7.3,
+        "update_ms": 38.80000000447035
+      },
+      {
+        "seconds": 9.2,
+        "update_ms": 23.299999997019768
+      }
+    ],
+    "errors": [],
+    "audio_download_hash_verified": true
+  }
+}

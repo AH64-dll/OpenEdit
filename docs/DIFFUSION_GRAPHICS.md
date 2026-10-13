@@ -112,7 +112,8 @@ complete MOV is probed and fully decoded before publication; dimensions,
 duration, alpha and absence of audio are checked. A second revision check
 protects the graph commit. Failed or cancelled jobs never append visual ops.
 
-Limits: 512 KiB source, 500 elements, 20 nesting levels, 1,000 property edits,
+Limits: 512 KiB source, 500 visual layers, 4,096 total nodes including animation
+tracks/keyframes, 20 nesting levels, 1,000 property edits,
 60 seconds, 1..60 fps and at most 1,800 output frames. Duration rounds up to the
 next output frame. Compilation and rendering have separate bounded worker
 deadlines. Images are limited to 32 MiB each and 64 images / 64 MiB / 32 million

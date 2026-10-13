@@ -318,7 +318,7 @@ def materialize(project_path: str | Path, params: dict) -> dict:
         poster = cache / f'{key}.png'
         shutil.copyfile(scratch / 'frame-000000.png', poster)
         record = {'asset_hash': asset.asset_hash, 'content_key': key, 'duration_sec': params['duration_sec'],
-                  'fps': params['fps'], 'scene': scene, 'elements': document['elements'][:500],
+                  'fps': params['fps'], 'scene': scene, 'elements': document['elements'],
                   'upstream': UPSTREAM, 'browser_version': rendered['browser_version'], 'qc_report': qc,
                   'source': params['source'], 'poster_path': str(poster)}
         record['preview_path'] = str(preview)

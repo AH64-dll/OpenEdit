@@ -69,10 +69,15 @@ function parse(source) {
   const fn = decl.declaration;
   if (fn.async || fn.generator || fn.params.length || fn.body.body.length !== 1 || fn.body.body[0].type !== 'ReturnStatement') throw new Error('Graphics functions may only return literal JSX');
   const ids = new Set(); const assets = new Set(); const elements = [];
+  let layerCount = 0;
   function visit(node, parent, depth = 0, parentId = null) {
     const tag = node?.openingElement?.name?.name;
     if (node?.type !== 'JSXElement' || node.openingElement.name.type !== 'JSXIdentifier' || !props[tag] || (parent && !children[parent].includes(tag))) throw new Error(`Unsupported graphics element or nesting: ${tag}`);
-    if (depth > 20 || elements.length >= 500) throw new Error('Graphics supports at most 500 elements and 20 nesting levels');
+    if (depth > 20) throw new Error('Graphics supports at most 20 nesting levels');
+    if (elements.length >= 4096) throw new Error('Graphics supports at most 4096 total nodes, including animation keyframes');
+    if (['group', 'rect', 'text', 'image', 'sequence'].includes(tag) && ++layerCount > 500) {
+      throw new Error('Graphics supports at most 500 visual layers');
+    }
     const values = {};
     for (const attr of node.openingElement.attributes) {
       const name = attr.name?.name;

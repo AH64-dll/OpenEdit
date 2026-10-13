@@ -1,0 +1,86 @@
+[
+  {
+    "time": 0.13,
+    "effect": "low impact + transient"
+  },
+  {
+    "time": 0.43,
+    "effect": "low impact + transient"
+  },
+  {
+    "time": 0.74,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 0.84,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 0.94,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 1.53,
+    "effect": "stereo sweep",
+    "duration": 0.37
+  },
+  {
+    "time": 1.8,
+    "effect": "low impact + transient"
+  },
+  {
+    "time": 2.35,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 2.6,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 3.3,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 3.88,
+    "effect": "stereo sweep",
+    "duration": 0.37
+  },
+  {
+    "time": 4.17,
+    "effect": "low impact + transient"
+  },
+  {
+    "time": 4.62,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 4.74,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 4.86,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 6.28,
+    "effect": "stereo sweep",
+    "duration": 0.37
+  },
+  {
+    "time": 6.57,
+    "effect": "low impact + transient"
+  },
+  {
+    "time": 7.58,
+    "effect": "magnetic snap / UI tick"
+  },
+  {
+    "time": 7.88,
+    "effect": "stereo sweep",
+    "duration": 0.37
+  },
+  {
+    "time": 8.12,
+    "effect": "low impact + transient"
+  }
+]

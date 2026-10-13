@@ -582,6 +582,13 @@ def execute_export(root: Path, payload: dict, job_id: str) -> dict:
             job = RenderJobService().get(root, job_id)
             if job is None or job.mode != "final" or job.status not in ("queued", "running") or (job.params or {}).get("export") != payload:
                 raise ValueError("Export job is unavailable")
+            # A preview may finish while this export waits for the project lease.
+            # Reuse only exact documents from the immutable captured timeline.
+            frozen = folder / 'project'
+            timeline = project_timeline(frozen)
+            _reuse_graphics_cache(root, frozen, {
+                (doc['source'], doc['duration_sec'], doc['fps'])
+                for doc in timeline.graphics_documents.values()})
             result = _execute_frozen_export(root, payload, folder)
             _reuse_graphics_cache(folder / 'project', root)
         return result

@@ -165,6 +165,49 @@ def test_completed_graphics_cache_survives_export_snapshot_cleanup(project, monk
     assert len(list_assets_from_disk(root)) == 1  # Derived cache stays out of the library.
 
 
+@pytest.mark.asyncio
+async def test_export_reuses_preview_completed_after_capture_without_changing_source(project, monkeypatch):
+    from open_edit.integrations.diffusion import graphics
+
+    if not graphics.graphics_ready():
+        pytest.skip('Optional graphics runtime is not installed')
+    root, store, _ = project
+    params = {'source': graphics.DEFAULT_SOURCE, 'duration_sec': .2, 'fps': 10}
+    def commit(values):
+        commit_studio(root, expected_revision=store.graph_revision(), changes=[{
+            'kind': 'document', 'object_id': 'late-preview', 'data': {
+                **values, 'clip_id': 'graphic', 'track_id': 'graphic'}}])
+    commit(params)
+    captured_revision = store.graph_revision()
+    payload = export.capture_export(root, captured_revision, export.ExportSettings())
+    first = graphics.materialize(root, params)
+    changed = {**params, 'source': params['source'].replace('Your title', 'Later edit')}
+    second = graphics.materialize(root, changed)
+    commit(changed)
+    worker = graphics._worker
+    def no_render(request, *args, **kwargs):
+        if request.get('validate_only'):
+            return worker(request, *args, **kwargs)
+        raise AssertionError('Completed preview must not capture frames again')
+    monkeypatch.setattr(graphics, '_worker', no_render)
+    def execute(_root, _payload, folder):
+        frozen = folder / 'project'
+        assert next(iter(export.project_timeline(frozen).graphics_documents.values()))['source'] == params['source']
+        assert not (frozen / '.open_edit/graphics' / f"{second['content_key']}.json").exists()
+        cached = graphics.materialize(frozen, params)
+        assert cached['cache_hit'] and cached['asset_hash'] == first['asset_hash']
+        return {'output_path': str(root / 'verified.mp4')}
+    monkeypatch.setattr(export, '_execute_frozen_export', execute)
+    service = RenderJobService()
+    job = service.enqueue('late-preview', root, 'final', params={'export': payload})
+    try:
+        export.execute_export(root, payload, job.job_id)
+    finally:
+        await service.shutdown()
+    assert next(iter(export.project_timeline(root).graphics_documents.values()))['source'] == changed['source']
+    assert store.graph_revision() > captured_revision
+
+
 @pytest.mark.parametrize(
     "container,audio_codec,audio",
     [("mp4", "aac", True), ("mov", "aac", False), ("mkv", "pcm_s16le", True)],
