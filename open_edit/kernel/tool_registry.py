@@ -13,96 +13,32 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from open_edit.render.preview_manifest import PreviewRange
 
 _QUERY_PROJECT_DESC = (
-    "Read-only queries about the project. Use this for ALL "
-    "read-only operations — listing assets, pending notes, style "
-    "profile, narrative analysis, asset search, and packed transcript. "
-    "get_silence_gaps returns structured silence + filler spans for cutting; "
-    "get_timeline_view renders an on-demand filmstrip+waveform+word-label PNG "
-    "(the transcript-first visual layer). "
-    "list_assets is compact by default (hash/filename/duration); pass "
-    "params.detail=true for full metadata, params.include_derivatives=true "
-    "to include Remotion rematerialized CAS."
-    " Use params.offset/limit for paged assets (default limit 50); follow next_offset."
-    " Packed transcripts use word offset/limit (default 500, max 2000); follow next_offset."
-    " get_authoring_view exports an optional Diffusion JSX media view; params.include_source=true returns source."
-    " get_history returns complete editing actions and the current Undo/Redo choices."
-    " get_graphics_view returns a revision-safe graphics view; params.clip_id selects a graphics clip."
-    " get_studio lists durable editable documents and AI marks; params.kind/document object_id filter, include_source=true returns literal source and stable element IDs."
-    " get_editing_context returns compact selected objects, timed marks, region (canvas coordinates and frame time), visible region_clips, object_tracks (range, loss, current box and three samples) and timeline counts. Default pages are 20 objects with explicit omissions/next_offset; use section plus offset/limit (1..100) to page one collection. Fetch get_studio(kind,object_id,include_source:true) before replacing a summarized object; include_source/include_timeline on context explicitly expand details. No frame screenshots are needed to adjust authored edits. get_tracking_job({job_id}) polls local analysis without returning every frame."
+    "Inspect project state with get_editing_context (selection, region, revision), list_assets, "
+    "inspect_media (asset_hash, optional start_sec/end_sec, frames 1..12, transcript_limit 0..500), "
+    "or get_history. inspect_media returns timestamped visual references and a bounded transcript. "
+    "Use describe with params.name for operation parameters; omit name to list capabilities. "
+    "Fetch source, full timelines and specialized analysis only when needed."
 )
-
 _EDIT_PROJECT_DESC = (
-    "Apply edits to the project or generate creative suggestions. "
-    "Use ``operation`` for immediate mutations: add_marker, "
-    "set_pinned_value, capture_style_hint, import_asset, ingest_local, "
-    "add_clip, add_hyperframes_overlay, trim_clip, replace_clip_source, "
-    "change_clip_speed, remove_clip, set_audio_gain, apply_silence_gaps, "
-    "auto_color_grade, apply_generated_ops. Prefer these timeline ops over "
-    "run_script. "
-    "apply_authoring_edit accepts an exported expected_revision plus source or source edits for the optional Diffusion adapter. "
-    "apply_studio_changes atomically applies params={expected_revision,changes:[{kind,object_id,data}],ops:[],request_id,label}. "
-    "For video objects use start_tracking({expected_revision,clip_id,region,direction?,start_sec?,end_sec?,object_id?,request_id?}); local analysis accepts the selected box and frame, a maximum 300-second range, and forward/backward/both direction. Poll get_tracking_job, then apply_tracking_job({expected_revision,job_id,request_id?}) to commit a completed result. cancel_tracking({job_id}) cancels analysis. edit_object_track({expected_revision,object_id,edits,request_id?,label?}) supports properties(values:label/locked/enabled), set_frame(frame:time_sec/x/y/width/height/valid), remove_frame(time_sec), add_effect(effect:effect_id/kind), update_effect(effect_id,values), remove_effect(effect_id). Boxes are normalized original-source coordinates; time_sec is original source time. Following kinds: highlight,label,cover,blur,pixelate; properties: enabled,color,text,strength,padding,offset_x,offset_y,scale. Tracks preserve motion samples, locks and Undo; loss stops effects and requires correction/retracking. Do not replace a summary as a complete track. "
-    "For existing graphics prefer apply_graphics_edits with {expected_revision,document_id,edits,request_id,label}; no literal source is needed. "
-    "Edits use stable source IDs: {kind:'set',source:'index.tsx:title',props:{x:144}} or {kind:'text',source:'index.tsx:title',text:'Hello'}. Locks, trims, effects and Undo are preserved. "
-    "Use kind=document for editable graphics (data={source,clip_id,track_id,duration_sec,fps,label}); updating retains clip trims and effects. "
-    "Use kind=caption for {text,start_sec,end_sec,style,enabled,locked}; style includes font_id,font_size,color,background,stroke_color,stroke_width,x,y,width,align. "
-    "Use kind=style with {label,caption_style} to save a reusable editable style. Project font IDs come from the editing context. "
-    "Null data deletes an object. Annotations are AI instructions and never render. Respect document and layer locks; use one request_id for all writes in a request. "
-    "commit_graphics accepts a succeeded graphics job_id and expected_revision, then adds or replaces its clip after QC. "
-    "rewrite_graphics_source uses the pinned source writer for literal canvas property edits without committing a preview. "
-    "retime_asset bakes source ranges/rates or explicit speed segments into checked CAS media without editing the graph. "
-    "Use ``generate`` for creative suggestions (SFX, music, visuals, "
-    "remotion, silence_cuts) — review then commit via "
-    "``operation=\"apply_generated_ops\"`` (or apply_silence_gaps for cuts). "
-    "``operation=ingest_local`` ingests any readable absolute local media "
-    "path and copies it into the project CAS. "
-    "``operation=add_hyperframes_overlay`` adds native HTML/CSS/JS "
-    "graphics. Prefer Diffusion for editable titles/shapes/animation; use HyperFrames for advanced HTML. "
-    "undo/redo require params.expected_revision from get_history and reverse a complete editing action. "
-    "revert_request takes params={request_id,expected_revision,preview?}; preserves unrelated later work and returns conflicts/dependencies. "
-    "``generate=remotion`` appends a legacy AddRemotionCompositionOp "
-    "(materializes on proxy/final render; graphics burned via ffmpeg). "
-    "``generate=init_remotion`` scaffolds ``.open_edit/remotion/``. "
-    "``generate=write_remotion`` writes a TSX composition file."
+    "Edit the project. Common operations: ingest_local, add_clip, trim_clip, remove_clip, "
+    "change_clip_speed, set_audio_gain. apply_studio_changes batches IR ops and objects "
+    "atomically with expected_revision, changes, ops and label. undo/redo use expected_revision. "
+    "Use query_project describe for parameters and other capabilities. "
+    "run_script supports arbitrary IR edits. Existing project formats remain supported."
 )
-
 _RUN_SCRIPT_DESC = (
-    "Run Python in the trusted Python subprocess for complex edits. "
-    "The IR version header is injected automatically — do NOT add it "
-    "manually. Use this when no single edit_project operation fits "
-    "— e.g. multi-step edits that need to fetch state, compose "
-    "ops, and append them programmatically."
+    "Execute trusted Python for complex IR edits in a timed subprocess. "
+    "The IR version header is supplied automatically. Changes validate and commit atomically."
 )
-
 _TRIGGER_RENDER_DESC = (
-    "Trigger a render of the current edit graph. Use this when "
-    "the user says 'render it', 'give me a preview', or 'export "
-    "the final cut'. Modes: 'proxy' (fast, low-res review artifact), "
-    "'final' (full quality export), 'overlay' (legacy HyperFrames "
-    "composite mode), or 'preview-chunks' (range-limited, "
-    "manifest-backed video/audio artifacts). Motion graphics should use "
-    "the native HyperFrames composition path; legacy Remotion operations "
-    "remain migration inputs only. "
-    "encoder: 'gpu' (default) or 'cpu' for video encoding backend. "
-    "wait: defaults to false so agents return immediately with job_id "
-    "(poll with get_render_job). Pass wait=true only when a synchronous "
-    "result path is required. For preview-chunks, ranges are project "
-    "seconds, media is video/audio/both, and priority is interactive or "
-    "background. Returns job_id when wait=false, or the manifest-oriented "
-    "result when wait=true."
-    " Mode graphics renders literal Diffusion JSX to CAS without editing the graph; supply graphics={source,duration_sec,fps}"
-    " and expected_revision, then edit_project operation=commit_graphics after reviewing the completed job."
+    "Preview or export through the media engine. preview-chunks renders changed ranges "
+    "in project seconds; final exports original media at high quality; proxy is a whole preview. "
+    "Returns job_id unless wait=true. Poll get_render_job; cancel obsolete jobs. "
+    "graphics renders editable JSX without committing; commit_graphics publishes the checked result. "
+    "Encoder selection is automatic unless cpu/gpu is specified."
 )
-
-_GET_RENDER_JOB_DESC = (
-    "Poll a durable render job by job_id. Use after trigger_render "
-    "when you need status without blocking. Set include_details=true "
-    "only when full diagnostics and logs are needed."
-)
-
-_CANCEL_RENDER_JOB_DESC = (
-    "Cancel a queued or running render job by job_id."
-)
+_GET_RENDER_JOB_DESC = "Read render job status. include_details=true adds diagnostics and logs."
+_CANCEL_RENDER_JOB_DESC = "Cancel a queued or running render job."
 
 
 class QueryProjectArgs(BaseModel):
@@ -110,6 +46,8 @@ class QueryProjectArgs(BaseModel):
         extra="forbid", title="query_project", description=_QUERY_PROJECT_DESC
     )
     query: Literal[
+        "describe",
+        "inspect_media",
         "list_assets",
         "get_pending_notes",
         "get_style_profile",

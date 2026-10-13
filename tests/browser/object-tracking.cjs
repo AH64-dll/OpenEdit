@@ -23,7 +23,7 @@ const artifacts = path.join(__dirname,'artifacts');
     assert.ok(ready,'Server did not start');
     const projects=await(await fetch(`${base}/api/projects`)).json(), id=projects[0].id;
     const api=async(suffix,body)=>{const response=await fetch(`${base}/api/projects/${encodeURIComponent(id)}${suffix}`,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await response.json();assert.ok(response.ok,JSON.stringify(result));return result;};
-    browser=await chromium.launch({headless:true,args:['--no-sandbox']});page=await browser.newPage({viewport:{width:1600,height:1050}});
+    browser=await chromium.launch({executablePath:process.env.OPEN_EDIT_CHROMIUM,headless:true,args:['--no-sandbox']});page=await browser.newPage({viewport:{width:1600,height:1050}});
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.goto(base); await page.locator('.timeline-clip[data-clip-id="hero"]').waitFor();
     await page.waitForFunction(()=>Number.isInteger(window.OpenEdit.state.editingSelection?.expected_revision));
@@ -99,6 +99,7 @@ const artifacts = path.join(__dirname,'artifacts');
     }
     await page.locator('#export-dialog').getByRole('button',{name:'Close export settings'}).click();
     // The same tracked source is consumed by a sliced, full-quality preview.
+    await page.locator('.editor-quality-check > summary').click();
     await page.locator('#quality-check-form input[name=start_sec]').fill('1');await page.locator('#quality-check-form input[name=end_sec]').fill('2');
     await page.locator('#quality-check-form').getByRole('button',{name:'Check range',exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('#quality-check-status').textContent==='Full-quality range verified',null,{timeout:120000});

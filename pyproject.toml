@@ -1,11 +1,11 @@
 [project]
 name = "open_edit"
 version = "1.4.0"
-description = "AI-native video editor — IR, MCP server, render (melt/ffmpeg/Remotion)"
+description = "AI-native video editor with precise timelines, compact MCP tools and verified rendering"
 license = "MIT AND MPL-2.0 AND OFL-1.1"
 license-files = ["LICENSE", "open_edit/integrations/diffusion/worker/vendor/LICENSE", "open_edit/integrations/diffusion/browser/fonts/OFL.txt"]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11.8"
 dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
@@ -42,7 +42,7 @@ open_edit = "open_edit.cli:main"
 open-edit-mcp = "open_edit.mcp.server:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -58,6 +58,15 @@ only-include = [
   "pyproject.toml",
   "README.md",
   "LICENSE",
+  "INSTALL.md",
+  "install.sh",
+  "install.ps1",
+  "scripts",
+  "requirements",
+  "docs/agent-configure.md",
+  "docs/MCP.md",
+  "docs/RUNTIME_LICENSES.md",
+  "docs/RELEASE_NOTES.md",
 ]
 exclude = [
   "open_edit/**/node_modules/**",

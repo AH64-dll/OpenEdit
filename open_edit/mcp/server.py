@@ -106,8 +106,20 @@ def build_server(project_path: Path):
     async def call_tool(name: str, arguments: dict | None) -> Any:
         result = await dispatch_mcp_tool(name, arguments, project_path)
         failed = result.get("ok") is False or result.get("status") in {"error", "retry"} or bool(result.get("error"))
+        content = [text_content(type="text", text=result_to_json(result))]
+        # Only explicit visual queries attach images; arbitrary script output
+        # cannot cause the server to read a file selected by the caller.
+        if not failed and name == 'query_project' and (arguments or {}).get('query') in {
+            'inspect_media', 'get_timeline_view'
+        } and result.get('image_path'):
+            from mcp.types import ImageContent
+
+            from open_edit.kernel.media_context import query_image
+            attachment = query_image(result, arguments or {}, project_path)
+            if attachment:
+                content.append(ImageContent(**attachment))
         return call_tool_result(
-            content=[text_content(type="text", text=result_to_json(result))],
+            content=content,
             isError=failed,
         )
 
@@ -248,6 +260,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from open_edit.runtime import activate
+
+    activate()
     args = parse_args(argv)
     try:
         project_path = resolve_project_path(args.project)

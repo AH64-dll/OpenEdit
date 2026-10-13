@@ -1,0 +1,34 @@
+{
+  "node": {
+    "windows-x64": {
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+      "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
+      "directory": "node-v24.21.0-win-x64",
+      "bin": "node-v24.21.0-win-x64"
+    },
+    "linux-x64": {
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz",
+      "sha256": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6",
+      "directory": "node-v24.21.0-linux-x64",
+      "bin": "node-v24.21.0-linux-x64/bin"
+    }
+  },
+  "media": {
+    "windows-x64": {
+      "url": "https://github.com/mltframework/shotcut/releases/download/v26.9.27/shotcut-win64-26.9.27.zip",
+      "sha256": "1f8c50ce7b125a2f0dcb60777b358e86baf03b8515982612b6adae10a83d93a5",
+      "directory": "Shotcut",
+      "bin": "Shotcut",
+      "repository": "Shotcut/lib/mlt",
+      "qt_plugins": "Shotcut/lib/qt6"
+    },
+    "linux-x64": {
+      "url": "https://github.com/mltframework/shotcut/releases/download/v26.9.27/shotcut-linux-x86_64-26.9.27.txz",
+      "sha256": "849da6bbd24737f9edd07ba185b46982f2fb330981c05e1752809e85bcbb7e7b",
+      "directory": "Shotcut.app",
+      "bin": "Shotcut.app",
+      "repository": "Shotcut.app/lib/mlt-7",
+      "qt_plugins": "Shotcut.app/lib/qt6"
+    }
+  }
+}

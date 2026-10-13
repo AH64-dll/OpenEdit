@@ -1,0 +1,300 @@
+{
+  "context": {
+    "before": {
+      "tool_schema_chars": 11080,
+      "mcp_instruction_chars": 1209,
+      "builtin_prompt_chars": 16607
+    },
+    "after": {
+      "tool_schema_chars": 5305,
+      "mcp_instruction_chars": 521,
+      "builtin_prompt_chars": 918
+    }
+  },
+  "ui": {
+    "before": {
+      "visible_buttons": 39,
+      "errors": []
+    },
+    "after": {
+      "visible_buttons": 23,
+      "errors": []
+    }
+  },
+  "media_preview_export": {
+    "tool_schema_chars": 5305,
+    "mcp_instruction_chars": 521,
+    "fixture": "4s red/blue video with 440Hz audio, repeated into an 8s timeline",
+    "ingest_sec": 0.0731,
+    "media_cold_sec": 0.3604,
+    "media_cached_sec": 0.0004,
+    "range_transcript_words": 10,
+    "whole_transcript_words": 40,
+    "focused_preview": {
+      "sec": 1.8799,
+      "diagnostics": {
+        "bytes_written": {
+          "audio": 42259,
+          "mux": 51048,
+          "video": 7928
+        },
+        "cache": {
+          "hits": 0,
+          "hits_by_plane": {
+            "audio": 0,
+            "playback": 0,
+            "video": 0
+          },
+          "misses": 9,
+          "misses_by_plane": {
+            "audio": 3,
+            "playback": 3,
+            "video": 3
+          }
+        },
+        "counts": {
+          "failed_chunks": 0,
+          "processed_chunks": 3,
+          "selected_chunks": 3,
+          "skipped_green": 0,
+          "total_chunks": 8
+        },
+        "elapsed_sec": {
+          "audio": 0.6201876800005266,
+          "mux": 0.2269804909992672,
+          "video": 0.7061367179994704
+        },
+        "errors": [],
+        "evictions": {
+          "cleared_fallbacks": 0,
+          "removed_bytes": 110991,
+          "removed_files": 18
+        },
+        "graph_changed": false,
+        "partial": false,
+        "selected_ranges": [
+          {
+            "end_sec": 1.0,
+            "start_sec": 0.0
+          },
+          {
+            "end_sec": 2.0,
+            "start_sec": 1.0
+          },
+          {
+            "end_sec": 3.0,
+            "start_sec": 2.0
+          }
+        ]
+      }
+    },
+    "remaining_preview": {
+      "sec": 2.8662,
+      "diagnostics": {
+        "bytes_written": {
+          "audio": 70433,
+          "mux": 85116,
+          "video": 13248
+        },
+        "cache": {
+          "hits": 9,
+          "hits_by_plane": {
+            "audio": 3,
+            "playback": 3,
+            "video": 3
+          },
+          "misses": 15,
+          "misses_by_plane": {
+            "audio": 5,
+            "playback": 5,
+            "video": 5
+          }
+        },
+        "counts": {
+          "failed_chunks": 0,
+          "processed_chunks": 5,
+          "selected_chunks": 5,
+          "skipped_green": 3,
+          "total_chunks": 8
+        },
+        "elapsed_sec": {
+          "audio": 1.0388546349931858,
+          "mux": 0.3742736620006326,
+          "video": 1.1015818270025193
+        },
+        "errors": [],
+        "evictions": {
+          "cleared_fallbacks": 0,
+          "removed_bytes": 185081,
+          "removed_files": 30
+        },
+        "graph_changed": false,
+        "partial": false,
+        "selected_ranges": [
+          {
+            "end_sec": 4.0,
+            "start_sec": 3.0
+          },
+          {
+            "end_sec": 5.0,
+            "start_sec": 4.0
+          },
+          {
+            "end_sec": 6.0,
+            "start_sec": 5.0
+          },
+          {
+            "end_sec": 7.0,
+            "start_sec": 6.0
+          },
+          {
+            "end_sec": 8.0,
+            "start_sec": 7.0
+          }
+        ]
+      }
+    },
+    "cached_preview": {
+      "sec": 0.2609,
+      "diagnostics": {
+        "bytes_written": {
+          "audio": 0,
+          "mux": 0,
+          "video": 0
+        },
+        "cache": {
+          "hits": 24,
+          "hits_by_plane": {
+            "audio": 8,
+            "playback": 8,
+            "video": 8
+          },
+          "misses": 0,
+          "misses_by_plane": {
+            "audio": 0,
+            "playback": 0,
+            "video": 0
+          }
+        },
+        "counts": {
+          "failed_chunks": 0,
+          "processed_chunks": 0,
+          "selected_chunks": 0,
+          "skipped_green": 8,
+          "total_chunks": 8
+        },
+        "elapsed_sec": {
+          "audio": 0.0,
+          "mux": 0.0,
+          "video": 0.0
+        },
+        "errors": [],
+        "evictions": {
+          "cleared_fallbacks": 0,
+          "removed_bytes": 0,
+          "removed_files": 0
+        },
+        "graph_changed": false,
+        "partial": false,
+        "selected_ranges": []
+      }
+    },
+    "edited_preview": {
+      "sec": 2.232,
+      "diagnostics": {
+        "bytes_written": {
+          "audio": 53182,
+          "mux": 65055,
+          "video": 10725
+        },
+        "cache": {
+          "hits": 12,
+          "hits_by_plane": {
+            "audio": 4,
+            "playback": 4,
+            "video": 4
+          },
+          "misses": 12,
+          "misses_by_plane": {
+            "audio": 4,
+            "playback": 4,
+            "video": 4
+          }
+        },
+        "counts": {
+          "failed_chunks": 0,
+          "processed_chunks": 4,
+          "selected_chunks": 4,
+          "skipped_green": 4,
+          "total_chunks": 8
+        },
+        "elapsed_sec": {
+          "audio": 0.7628617459995439,
+          "mux": 0.2837449649996415,
+          "video": 0.8737349030016048
+        },
+        "errors": [],
+        "evictions": {
+          "cleared_fallbacks": 0,
+          "removed_bytes": 142054,
+          "removed_files": 24
+        },
+        "graph_changed": false,
+        "partial": false,
+        "selected_ranges": [
+          {
+            "end_sec": 1.0,
+            "start_sec": 0.0
+          },
+          {
+            "end_sec": 2.0,
+            "start_sec": 1.0
+          },
+          {
+            "end_sec": 3.0,
+            "start_sec": 2.0
+          },
+          {
+            "end_sec": 4.0,
+            "start_sec": 3.0
+          }
+        ]
+      }
+    },
+    "final_export_sec": 5.5917,
+    "export_verification": {
+      "audio": true,
+      "codec": "h264",
+      "complete": true,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "duration_sec": 8.0,
+      "fps": 30.0,
+      "full_decode": true,
+      "passed": true
+    },
+    "output": {
+      "width": 1920,
+      "height": 1080,
+      "video_sec": 8.0,
+      "audio_sec": 8.0
+    },
+    "reopen_passed": true
+  },
+  "browser": {
+    "first_preview_ms": 1870,
+    "cached_seek_ms": 35,
+    "first_requested_range": {
+      "start_sec": 0,
+      "end_sec": 6
+    },
+    "timeline_duration_sec": 12,
+    "background_fill": true,
+    "ai_instruction_saved_and_reopened": true,
+    "frame_step_correct": true,
+    "javascript_errors": []
+  },
+  "method": "Local Linux CPU runs on synthetic known-color/tone media. Character counts measure prompt payload, not billed model tokens. Timings are observations on this machine, not cross-hardware guarantees."
+}

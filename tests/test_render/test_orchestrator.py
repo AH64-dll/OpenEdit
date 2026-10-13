@@ -192,7 +192,7 @@ def test_proxy_edit_emission_is_diagnosed_and_cache_scoped(
         "source_proxy_360_v1:"
     )
     assert "source_proxy_360_v1:" in diagnostics["cache_content_fingerprint"]
-    assert cache_keys and "source_proxy_360_v1:" in cache_keys[0]
+    assert cache_keys and "source_proxy_360_v1_" in cache_keys[0]
 
 
 def test_final_render_passes_repair_budget_and_records_policy(

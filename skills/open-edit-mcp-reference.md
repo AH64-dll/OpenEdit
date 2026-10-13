@@ -183,4 +183,4 @@ Notes from the UI → `query_project` / `get_pending_notes`.
 - `open_edit/kernel/tool_registry.py` — pillar schemas
 - `open_edit/kernel/pillar_tools.py` — dispatch
 - `open_edit/mcp/adapters.py` — MCP → kernel
-- `open_edit/kernel/tool_schemas.py` — `TOOL_USAGE_GUIDE` / IR summary
+- `open_edit/kernel/tool_registry.py` — `query_project describe` / IR summary

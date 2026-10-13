@@ -193,7 +193,7 @@ def build_pipe_commands(
     # labeling the codec rawvideo; ffmpeg ``-f rawvideo`` then misreads the
     # stream and produces green/corrupt frames (see debug session c7c4ca).
     melt_video_cmd = [
-        melt_bin, str(xml_path),
+        melt_bin, '-silent', str(xml_path),
         "-consumer", "avformat:pipe:",
         "f=rawvideo",
         "vcodec=rawvideo",
@@ -213,7 +213,7 @@ def build_pipe_commands(
     ]
 
     melt_audio_cmd = [
-        melt_bin, str(xml_path),
+        melt_bin, '-silent', str(xml_path),
         "-consumer", f"avformat:{audio_wav}",
         "video_off=1",
         "format=wav",

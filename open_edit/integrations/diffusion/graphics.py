@@ -70,6 +70,16 @@ def stop_worker() -> None:
         # can target a reused group or raise EPERM on macOS.
         return
     if os.name == 'posix':
+        # Let Node close its browser and reap children before killing the
+        # group. SIGKILL first leaves Chromium zombies in containers whose
+        # init does not reap adopted children.
+        with contextlib.suppress(ProcessLookupError):
+            proc.terminate()
+        try:
+            proc.wait(timeout=2)
+            return
+        except subprocess.TimeoutExpired:
+            pass
         with contextlib.suppress(ProcessLookupError):
             os.killpg(proc.pid, signal.SIGKILL)
     elif proc.poll() is None:

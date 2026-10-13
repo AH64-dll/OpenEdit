@@ -1,6 +1,6 @@
 """The agent loop: ``run_agent_turn``.
 
-Runs SDK tool loops and optional CLI chat turns. Patchable seams
+Runs SDK tool loops and native CLI editing turns. Patchable seams
 (``stream_chat``, ``_execute_tool``, ``effective_provider``,
 ``_resolve_project_path``) are looked up through the package
 namespace so tests that patch ``open_edit.serve.agent`` observe
@@ -230,6 +230,7 @@ async def _run_agent_turn(
     # to edit a project. Never expose mutation schemas to them and reject a
     # non-conforming provider's tool event before it can reach the executor.
     chat_only_provider = provider_spec is not None and provider_spec.agent_mode == "chat_only"
+    native_cli_provider = provider_spec is not None and provider_spec.agent_mode == "native_cli"
     chat_only_system_prompt = system_prompt
     if chat_only_provider:
         chat_only_system_prompt += (
@@ -253,6 +254,7 @@ async def _run_agent_turn(
         # Stream the LLM
         current_text_parts: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
+        native_started: set[str] = set()
         stop_reason = "end_turn"
 
         try:
@@ -285,6 +287,21 @@ async def _run_agent_turn(
                             "message": "This provider is chat-only and cannot apply project edits.",
                         }
                         continue
+                    if native_cli_provider:
+                        # The CLI executes through this project's MCP server.
+                        # Relay progress; executing again would duplicate edits.
+                        if event["id"] in native_started:
+                            continue
+                        native_started.add(event["id"])
+                        native_message = {"role": "assistant", "content": [{
+                            "type": "tool_use", "id": event["id"], "name": event["name"],
+                            "input": event.get("input", {})}]}
+                        conversation_history.append(native_message)
+                        if conv_id:
+                            _agent_pkg.append_to_conversation(project_id, conv_id, native_message)
+                        yield {"type": "tool_start", "id": event["id"], "name": event["name"],
+                               "input": event.get("input", {})}
+                        continue
                     tool_use_blocks.append({
                         "type": "tool_use",
                         "id": event["id"],
@@ -292,9 +309,17 @@ async def _run_agent_turn(
                         "input": event.get("input", {}),
                     })
                 elif etype == "tool_result":
-                    # The kernel executes tools. Provider-supplied results
-                    # cannot substitute for actual editing tool execution.
-                    pass
+                    if native_cli_provider:
+                        native_result = cap_tool_result(event.get("result", {}))
+                        native_message = {"role": "user", "content": [{
+                            "type": "tool_result", "tool_use_id": event["id"],
+                            "content": json.dumps(native_result, ensure_ascii=False)}]}
+                        conversation_history.append(native_message)
+                        if conv_id:
+                            _agent_pkg.append_to_conversation(project_id, conv_id, native_message)
+                        yield {"type": "tool_result", "id": event["id"], "name": event["name"],
+                               "result": native_result}
+                    # SDK providers still execute through the kernel below.
                 elif etype == "usage":
                     # v1.4 P1-3: aggregate per-call cost data into
                     # the turn total. ``accumulate_usage`` owns the
@@ -428,16 +453,11 @@ async def _run_agent_turn(
                 if isinstance(result, dict) and result.get("status") == "error":
                     failure_counts[fail_key] = failure_counts.get(fail_key, 0) + 1
                 yield {"type": "tool_result", "id": tu["id"], "name": tool_name, "result": result}
-                tool_result_messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tu["id"],
-                            "content": json.dumps(result, default=str),
-                        }
-                    ],
-                })
+                image = None
+                if tool_name == 'query_project' and tool_input.get('query') in {'inspect_media', 'get_timeline_view'}:
+                    from open_edit.kernel.media_context import query_image
+                    image = query_image(result, tool_input, Path(project_path))
+                tool_result_messages.append(_build_tool_result_message(tu["id"], result, image))
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

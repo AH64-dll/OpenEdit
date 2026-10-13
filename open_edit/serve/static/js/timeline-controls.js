@@ -1,5 +1,5 @@
 /* Manual timeline and effect tools write the same revision-checked IR as AI. */
-import { state, normalizeAssets } from './state.js';
+import { state, normalizeAssets, timelineFrameSeconds } from './state.js';
 import { studio, commitStudio, selectObjects, loadStudio } from './studio-state.js';
 import { showToast, keepDrafts } from './dom.js';
 const area = document.getElementById('timeline-tracks-area');
@@ -12,7 +12,7 @@ const tracks = () => timeline().tracks || [];
 const clips = () => tracks().flatMap(t => t.clips || []);
 const clipById = id => clips().find(c => c.clip_id === id);
 const trackById = id => tracks().find(t => t.track_id === id);
-const frame = () => 1 / (Number(state.currentProjectState?.fps) || 30);
+const frame = timelineFrameSeconds;
 const round = value => Math.round(value / frame()) * frame();
 const isLocked = clip => clip.locked || trackById(clip.track_id)?.locked || studio.objects.some(o => o.kind === 'document' && o.object_id === clip.document_id && o.data.locked);
 let owner = null,

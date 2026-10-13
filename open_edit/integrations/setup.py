@@ -9,9 +9,13 @@ from pathlib import Path
 
 def install(feature: str) -> None:
     if feature in ('media', 'graphics'):
-        command = [sys.executable, '-m', 'open_edit.integrations.diffusion.setup']
+        command = [sys.executable, '-I', '-m', 'open_edit.integrations.diffusion.setup']
         if feature == 'graphics':
-            command += ['--graphics', '--chromium']
+            from open_edit.integrations.readiness import chromium_available
+
+            command += ['--graphics']
+            if not chromium_available():
+                command += ['--chromium']
         subprocess.run(command, check=True, timeout=600)
         return
     directory = Path(__file__).parent / ('remotion' if feature == 'legacy-remotion' else 'hyperframes')

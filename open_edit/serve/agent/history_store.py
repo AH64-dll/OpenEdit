@@ -162,6 +162,7 @@ def new_conversation_id() -> str:
 def _build_tool_result_message(
     tu_id: str,
     result: dict[str, Any],
+    image: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the ``tool_result`` message for the conversation history.
 
@@ -177,7 +178,7 @@ def _build_tool_result_message(
 
     verification = result.get("verification") or {}
     frames = verification.get("frames") or []
-    if frames:
+    if frames or image:
         text_summary = json.dumps(_strip_verification_frames(result), default=str)
         blocks: list[dict[str, Any]] = [{"type": "text", "text": text_summary}]
         for frame in frames:
@@ -186,6 +187,8 @@ def _build_tool_result_message(
                 "data": frame["data"],
                 "mimeType": frame.get("mimeType", "image/jpeg"),
             })
+        if image:
+            blocks.append(image)
         content: Any = blocks
     else:
         content = json.dumps(result, default=str)

@@ -336,6 +336,9 @@ def cmd_preview_chunks(args: argparse.Namespace) -> int:
 
 def cmd_render(args: argparse.Namespace) -> int:
     """Render the current project to MP4."""
+    if os.environ.get('OPEN_EDIT_DEBUG_RENDER') == '1':
+        import faulthandler
+        faulthandler.dump_traceback_later(60, repeat=True)
     project_dir = _find_existing_project(Path.cwd())
     if project_dir is None:
         print("error: no open_edit project found", file=sys.stderr)
@@ -644,6 +647,22 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp_config(args: argparse.Namespace) -> int:
+    from open_edit.mcp.config import host_config
+    from open_edit.mcp.context import ProjectPathError
+
+    try:
+        text = host_config(args.project, args.format)
+    except ProjectPathError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    if args.output:
+        Path(args.output).write_text(text, encoding='utf-8')
+    else:
+        print(text, end='')
+    return 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     """Start the local stdio MCP server for an external agent host."""
     from open_edit.mcp.server import main as mcp_main
@@ -662,6 +681,9 @@ def _version() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from open_edit.runtime import activate
+
+    activate()
     parser = argparse.ArgumentParser(
         prog="open_edit",
         description="AI-native video editing platform",
@@ -674,6 +696,11 @@ def main(argv: list[str] | None = None) -> int:
     p_setup = sub.add_parser('setup', help='Install one optional editing capability')
     p_setup.add_argument('feature', choices=['media', 'graphics', 'html', 'legacy-remotion'])
     p_setup.set_defaults(func=cmd_setup)
+    p_config = sub.add_parser('mcp-config', help='Print a project-bound agent configuration')
+    p_config.add_argument('--project', required=True)
+    p_config.add_argument('--format', choices=['mcp', 'opencode', 'codex'], default='mcp')
+    p_config.add_argument('--output', help='Write UTF-8 configuration to this file')
+    p_config.set_defaults(func=cmd_mcp_config)
 
     p_init = sub.add_parser("init", help="Initialize a project in the given folder")
     p_init.add_argument("folder", nargs="?", default=".", help="folder of raw video files")

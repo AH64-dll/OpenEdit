@@ -46,6 +46,12 @@ class TimelineSnapshotStore:
                 "VALUES (?, ?, ?, ?)",
                 (edit_graph_hash, project_id, timeline_json, now_iso8601()),
             )
+            conn.execute(
+                "DELETE FROM timeline_snapshots WHERE project_id = ? AND rowid NOT IN "
+                "(SELECT rowid FROM timeline_snapshots WHERE project_id = ? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 32)",
+                (project_id, project_id),
+            )
 
     def load_timeline_snapshot(self, edit_graph_hash: str) -> str | None:
         """Return the stored timeline_json for a hash, or None."""

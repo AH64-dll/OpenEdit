@@ -91,6 +91,7 @@ globalThis.document.createElement = (tag) => {
     remove: () => {},
     querySelector: () => null,
     querySelectorAll: () => [],
+    pause: () => {}, load: () => {}, removeAttribute: () => {},
     set className(v) { node._classParts = String(v).split(/\s+/).filter(Boolean); },
     get className() { return node._classParts.join(' '); },
     get textContent() { return node._textContent; },
@@ -151,7 +152,7 @@ const makeStubEl = () => ({
   addEventListener: () => {}, removeChild: () => {}, dataset: {},
   textContent: '', value: '', style: {},
   querySelector: () => null, querySelectorAll: () => [],
-  removeAttribute: () => {}, load: () => {}, focus: () => {},
+  removeAttribute: () => {}, load: () => {}, pause: () => {}, focus: () => {},
   click: () => {}, replaceWith: () => {}, remove: () => {},
   disabled: true,
 });

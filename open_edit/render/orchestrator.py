@@ -554,7 +554,7 @@ def render_project(
         "source_proxy_hits": {},
         "source_proxy_fallbacks": {},
         "decode_backend": (
-            "cuda" if _gpu_decode_available() and resolve_backend(encoder_backend) == "gpu" else "cpu"
+            "cuda" if resolve_backend(encoder_backend) == "gpu" and _gpu_decode_available() else "cpu"
         ),
     }
     whole_file_repair = requested_emission_profile in {
@@ -838,7 +838,7 @@ def render_project(
     diagnostics["source_baseline"] = source_baseline
 
     config = EmitterConfig(profile=profile.model_dump())
-    hwaccel_on = _gpu_decode_available() and resolve_backend(encoder_backend) == "gpu"
+    hwaccel_on = resolve_backend(encoder_backend) == "gpu" and _gpu_decode_available()
     workdir.mkdir(parents=True, exist_ok=True)
     xml_path = workdir / f"project_{graph_hash[:12]}.mlt"
     emit_t0 = time.monotonic()

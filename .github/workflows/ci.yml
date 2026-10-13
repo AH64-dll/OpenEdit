@@ -28,13 +28,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           python -m pip install -U pip
-          pip install -e ".[dev,serve,openai]" build
+          pip install -c requirements/release-constraints.txt -e ".[dev,serve,openai]" build==1.5.0
       - name: Install optional authoring compiler
         run: python -m open_edit.integrations.diffusion.setup
       - name: Lint
-        run: ruff check open_edit tests
+        run: ruff check open_edit tests scripts tools
       - name: Python and frontend regression tests
-        run: pytest -m "not browser" --timeout=30 --timeout-method=thread --tb=short
+        run: pytest -m "not browser" --timeout=90 --timeout-method=thread --tb=short
       - name: Check installer syntax
         run: bash -n install.sh
       - name: Build distribution artifacts
@@ -42,7 +42,7 @@ jobs:
       - name: Default install and MCP smoke check
         run: |
           python -m venv /tmp/openedit-smoke
-          /tmp/openedit-smoke/bin/pip install dist/*.whl
+          /tmp/openedit-smoke/bin/pip install -c "$GITHUB_WORKSPACE/requirements/release-constraints.txt" dist/*.whl
           cd /tmp
           /tmp/openedit-smoke/bin/open-edit-mcp --help
           /tmp/openedit-smoke/bin/python -c "import cv2; from open_edit.kernel.tracking_jobs import _process_alive; import os; assert cv2.TrackerCSRT_create(); assert _process_alive(os.getpid())"

@@ -1,4 +1,4 @@
-"""Optional CLI chat adapters. External editing harnesses use the MCP server."""
+"""CLI adapters, including native editing through the project MCP server."""
 from __future__ import annotations
 
 import json
@@ -145,6 +145,7 @@ def _opencode_models_via_cli() -> list[str]:
 class _OpenCodeAdapter(_BaseCLIAdapter):
     name = "opencode"
     default_timeout_s = 3600
+    check_exit_status = True
 
     def available_models(self) -> list[str]:
         """Shell out to ``opencode models`` for live discovery."""
@@ -171,6 +172,7 @@ class _OpenCodeAdapter(_BaseCLIAdapter):
             "opencode",
             "run",
             "--format", "json",
+            "--agent", "openedit",
             "--model", model,
             full_message,
         ]

@@ -15,6 +15,7 @@
 
 import {
   state,
+  timelineFrameSeconds,
   normalizeAssets,
   normalizeEdits,
   normalizeNotes,
@@ -1195,9 +1196,9 @@ function bindEvents() {
   }
   // Keep the redesign's transport controls as a thin layer over the native
   // video element; native controls remain enabled for accessibility/fallback.
-  $('#btn-skip-back')?.addEventListener('click', () => seekPreviewBy(-5));
+  $('#btn-skip-back')?.addEventListener('click', () => seekPreviewBy(-timelineFrameSeconds()));
   $('#btn-play')?.addEventListener('click', togglePreviewPlayback);
-  $('#btn-skip-fwd')?.addEventListener('click', () => seekPreviewBy(5));
+  $('#btn-skip-fwd')?.addEventListener('click', () => seekPreviewBy(timelineFrameSeconds()));
 
   // Notes & Settings & Theme & Cmd+K
   $('#btn-show-notes').addEventListener('click', openNotesModal);

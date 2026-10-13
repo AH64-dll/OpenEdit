@@ -306,6 +306,27 @@ def test_render_cache_key_is_windows_safe() -> None:
     assert "|" not in key
 
 
+def test_custom_fractional_profile_cache_paths_are_portable_and_distinct(tmp_path):
+    import re
+
+    from open_edit.render.cache import render_cache_key
+
+    cache = RenderCache(tmp_path / 'cache')
+    source = tmp_path / 'source.mp4'
+    source.write_bytes(b'checked render')
+    keys = [render_cache_key('graph-hash', profile) for profile in (
+        'fast_proxy:custom:320x180@30000/1001|q=fast',
+        'fast_proxy/custom/320x180@30000:1001|q=fast',
+    )]
+    assert keys[0] != keys[1]
+    for key in keys:
+        assert len(key.encode('utf-8')) <= 180
+        assert not re.search(r'[<>:"/\\?*\x00-\x1f]', key)
+        stored = cache.put(key, source)
+        assert cache.get(key) == stored
+        assert stored.read_bytes() == source.read_bytes()
+
+
 def test_render_cache_key_stays_under_filesystem_filename_limit() -> None:
     from open_edit.render.cache import render_cache_key
 

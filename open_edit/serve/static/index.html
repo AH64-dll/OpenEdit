@@ -3,14 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Open Edit — Review Studio</title>
-  <meta name="description" content="Open Edit — review proxy renders, timeline, and edit graph while an external agent drives edits via MCP.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <title>Open Edit — AI Video Editor</title>
+  <meta name="description" content="Precise AI editing, fast timeline previews and professional video exports.">
   <link rel="stylesheet" href="/style.css?v=20261008-workspace">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20x%3D%222%22%20y%3D%225%22%20width%3D%2228%22%20height%3D%2219%22%20rx%3D%224%22%20fill%3D%22%232779c3%22%2F%3E%3Crect%20x%3D%227%22%20y%3D%2210%22%20width%3D%2218%22%20height%3D%229%22%20rx%3D%221.5%22%20fill%3D%22%230b1015%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2227%22%20width%3D%2212%22%20height%3D%223%22%20rx%3D%221.5%22%20fill%3D%22%23182027%22%2F%3E%3C%2Fsvg%3E">
-</head>
+<link rel="stylesheet" href="/studio.css?v=20261012-editor"></head>
 <body class="has-timeline" data-workspace="review">
   <div class="site-wrapper">
 
@@ -21,14 +18,14 @@
         <a class="logo" data-od-id="logo" id="logo" href="/" aria-label="Open Edit">
           <!-- TV mark is the letter O — keep it flush with "pen Edit". -->
           <span class="logo-mark" aria-hidden="true">
-            <svg class="logo-tv" viewBox="0 0 28 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M9.4 3.4 7.6 1.3M18.6 3.4l1.8-2.1" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>
-              <rect x="2.4" y="3.6" width="23.2" height="15.8" rx="4" stroke="currentColor" stroke-width="1.7"/>
-              <rect x="5.6" y="6.6" width="16.8" height="9.6" rx="2.1" fill="currentColor" fill-opacity="0.16"/>
-              <path d="M11 19.4v2.2h6v-2.2" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"/>
+            <svg class="logo-tv" viewbox="0 0 28 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9.4 3.4 7.6 1.3M18.6 3.4l1.8-2.1" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"></path>
+              <rect x="2.4" y="3.6" width="23.2" height="15.8" rx="4" stroke="currentColor" stroke-width="1.7"></rect>
+              <rect x="5.6" y="6.6" width="16.8" height="9.6" rx="2.1" fill="currentColor" fill-opacity="0.16"></rect>
+              <path d="M11 19.4v2.2h6v-2.2" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"></path>
             </svg>
           </span>
-          <span class="logo-text">pen&nbsp;Edit</span>
+          <span class="logo-text">pen Edit</span>
         </a>
         <span class="topbar-sep" aria-hidden="true">|</span>
       </div>
@@ -42,7 +39,7 @@
         <div class="topbar-project-actions">
           <button id="btn-new-project" class="btn btn-ghost btn-xs" title="New project" data-od-id="btn-new-project">+ New</button>
           <button id="btn-refresh-project" class="btn btn-ghost btn-xs" title="Refresh projects" data-od-id="btn-refresh-project">
-            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            <svg class="icon-svg" viewbox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>
           </button>
         </div>
       </div>
@@ -62,24 +59,16 @@
         <select id="llm-model-select" class="topbar-select" disabled>
           <option value="">—</option>
         </select>
-        <span id="llm-tools-warn" class="llm-warn hidden"
-              title="This provider does not support the 11 Open Edit tools"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-4zm-1 5H7v-6h4zm-4 2v2H7v-2zm0 2v2h2v-2zm2 0h2v-2h-2zm6 0v2h2v-2zm0 2v2h2v-2z"/></svg> no tools</span>
+        <span id="llm-tools-warn" class="llm-warn hidden" title="This provider does not support the 11 Open Edit tools"><svg class="icon-svg" viewbox="0 0 24 24"><path d="M12 9V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-4zm-1 5H7v-6h4zm-4 2v2H7v-2zm0 2v2h2v-2zm2 0h2v-2h-2zm6 0v2h2v-2zm0 2v2h2v-2z"></path></svg> no tools</span>
       </div>
     </div>
 
     <div class="topbar-right">
-      <button id="btn-setup" class="btn btn-ghost btn-xs" type="button">Setup</button>
-      <button id="btn-cmd-k" class="btn btn-ghost btn-xs" title="Command Palette (Cmd+K)" data-od-id="btn-cmd-k">
-        <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <span class="kbd-badge">Ctrl K</span>
-      </button>
-      <button id="btn-toggle-theme" class="btn btn-ghost btn-xs" title="Toggle Light/Dark Theme" data-od-id="btn-toggle-theme"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 0 1 11.21 3 7 7 0 0 0 12 19a9 9 0 0 0 9-6.21zM12 2a1 1 0 0 1 1 1v2a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1zm8.05 10.05a1 1 0 0 1-.05 2h-2a1 1 0 0 1 0-2h2zm-16 0a1 1 0 0 1 0 2H4a1 1 0 0 1 0-2h.05zM12 5.5a1 1 0 0 1 1 1V8a1 1 0 0 1-2 0V6.5a1 1 0 0 1 1-1z"/></svg></button>
-      <button id="btn-toggle-left-panel" class="btn btn-ghost btn-xs review-only" title="Toggle assets panel" data-od-id="btn-toggle-left-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 6h9v12H4zm12 0h2v12h-2z"/></svg></button>
-      <button id="btn-toggle-right-panel" class="btn btn-ghost btn-xs review-only" title="Toggle renders panel" data-od-id="btn-toggle-right-panel"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 6h9v12H4zm12 0h2v12h-2z"/></svg></button>
-      <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" hidden title="Settings & API Keys" data-od-id="btn-settings"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M19.14 12.94a6.5 6.5 0 0 0 0-2l2-1.5a.5.5 0 0 0 .12-.65l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.2.9a6.5 6.5 0 0 0-1.5-1l-.3-2.2a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.3 2.2a6.5 6.5 0 0 0-1.5 1l-2.2-.9a.5.5 0 0 0-.65.2l-1.9 3.2a.5.5 0 0 0 .12.65l2 1.5a6.5 6.5 0 0 0 0 2l-2 1.5a.5.5 0 0 0-.12.65l1.9 3.2a.5.5 0 0 0 .6.2l2.2-.9a6.5 6.5 0 0 0 1.5 1l.3 2.2a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.3-2.2a6.5 6.5 0 0 0 1.5-1l2.2.9a.5.5 0 0 0 .65-.2l1.9-3.2a.5.5 0 0 0-.12-.65zM12 15.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg> Settings</button>
-      <button id="btn-topbar-stop" class="btn btn-secondary hidden agent-only" title="Interrupt request" data-od-id="btn-topbar-stop"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg> Stop</button>
-      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets" aria-label="Toggle assets" data-od-id="btn-left-panel"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
-      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders" aria-label="Toggle renders" data-od-id="btn-right-panel"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <button id="btn-render-final" class="btn btn-primary btn-sm" data-od-id="btn-render-final" title="Export the edited timeline">Export</button>
+        <button id="btn-setup" class="btn btn-ghost btn-xs" type="button">Help</button>
+      <button id="btn-settings" class="btn btn-ghost btn-xs agent-only" hidden title="Settings &amp; API Keys" data-od-id="btn-settings"><svg class="icon-svg" viewbox="0 0 24 24"><path d="M19.14 12.94a6.5 6.5 0 0 0 0-2l2-1.5a.5.5 0 0 0 .12-.65l-1.9-3.2a.5.5 0 0 0-.6-.2l-2.2.9a6.5 6.5 0 0 0-1.5-1l-.3-2.2a.5.5 0 0 0-.5-.4h-3.8a.5.5 0 0 0-.5.4l-.3 2.2a6.5 6.5 0 0 0-1.5 1l-2.2-.9a.5.5 0 0 0-.65.2l-1.9 3.2a.5.5 0 0 0 .12.65l2 1.5a6.5 6.5 0 0 0 0 2l-2 1.5a.5.5 0 0 0-.12.65l1.9 3.2a.5.5 0 0 0 .6.2l2.2-.9a6.5 6.5 0 0 0 1.5 1l.3 2.2a.5.5 0 0 0 .5.4h3.8a.5.5 0 0 0 .5-.4l.3-2.2a6.5 6.5 0 0 0 1.5-1l2.2.9a.5.5 0 0 0 .65-.2l1.9-3.2a.5.5 0 0 0-.12-.65zM12 15.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"></path></svg> Settings</button>
+      <button id="btn-left-panel" class="btn btn-ghost mobile-only" title="Toggle assets" aria-label="Toggle assets" data-od-id="btn-left-panel"><svg class="icon-svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"></path></svg></button>
+      <button id="btn-right-panel" class="btn btn-ghost mobile-only" title="Toggle renders" aria-label="Toggle renders" data-od-id="btn-right-panel"><svg class="icon-svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"></path></svg></button>
       <span id="conn-status" class="conn conn-status disconnected" title="Disconnected" data-od-id="conn-status">
         <i aria-hidden="true"></i><span class="conn-label">Connected</span>
       </span>
@@ -88,25 +77,25 @@
 
   <nav class="workspace-bar" aria-label="Workspace">
     <div role="tablist" aria-label="Editing views">
-      <button id="workspace-review" class="workspace-tab active" role="tab" aria-selected="true" aria-controls="preview-panel" data-workspace="review">Review</button>
+      <button id="workspace-review" class="workspace-tab active" role="tab" aria-selected="true" aria-controls="preview-panel" data-workspace="review">Edit</button>
       <button id="workspace-graphics" class="workspace-tab" role="tab" aria-selected="false" aria-controls="graphics-panel" data-workspace="graphics">Graphics</button>
-      <button id="workspace-code" class="workspace-tab" role="tab" aria-selected="false" aria-controls="authoring-panel" data-workspace="code">Code</button>
-    </div>
+      </div>
     <div class="history-controls">
       <button id="history-undo" class="btn btn-ghost btn-xs" type="button" disabled title="Undo (Ctrl/Cmd+Z)">Undo</button>
       <button id="history-redo" class="btn btn-ghost btn-xs" type="button" disabled title="Redo (Ctrl/Cmd+Shift+Z)">Redo</button>
       <span id="history-status" class="muted small" role="status" aria-live="polite"></span>
     </div>
-  </nav>
+  <details class="editor-advanced"><summary>More</summary><button id="workspace-code" class="workspace-tab" role="tab" aria-selected="false" aria-controls="authoring-panel" data-workspace="code">Code</button>
+    </details></nav>
   <!-- =================== Main 3-column layout =================== -->
   <main class="layout" data-od-id="layout">
     <!-- ----- LEFT panel ----- -->
     <aside id="left-panel" class="panel panel-left" data-od-id="panel-left">
       <div class="panel-tabs">
-        <button class="tab active" data-tab="assets">Assets</button>
-        <button class="tab" data-tab="layers">Layers</button>
-        <button class="tab" data-tab="captions">Captions</button>
-        <button class="tab" data-tab="edits">History</button>
+        <select id="library-view" aria-label="Media library view"><option value="assets">Media</option><option value="layers">Graphics layers</option><option value="captions">Captions</option><option value="edits">Edit history</option></select><button class="tab active" data-tab="assets" hidden="hidden" tabindex="-1">Media</button>
+        <button class="tab" data-tab="layers" hidden="hidden" tabindex="-1">Layers</button>
+        <button class="tab" data-tab="captions" hidden="hidden" tabindex="-1">Captions</button>
+        <button class="tab" data-tab="edits" hidden="hidden" tabindex="-1">Edits</button>
       </div>
 
       <div class="tab-content active" data-tab="assets">
@@ -117,7 +106,7 @@
         <div id="dropzone" class="dropzone">
           <div class="dropzone-inner">
             <div class="dropzone-icon">
-              <svg class="icon-svg" style="width:24px;height:24px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+              <svg class="icon-svg" style="width:24px;height:24px;" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"></path></svg>
             </div>
             <div class="dropzone-text">Drop video, audio, or images<br><span class="muted">or click to browse</span></div>
           </div>
@@ -173,12 +162,12 @@
           <div id="preview-empty" class="empty-state preview-empty" hidden aria-hidden="true"></div>
         </div>
         <div class="transport" role="group" aria-label="Preview transport">
-          <button id="btn-skip-back" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-back" title="Skip back 5 seconds" aria-label="Skip back 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 6v12"/><path d="M8 9v6l-5-3z" fill="currentColor" stroke="none"/></svg></button>
-          <button id="btn-play" type="button" class="btn btn-primary btn-icon" data-preview-action="play" title="Play preview" aria-label="Play preview"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M10 6L18 12 10 18z"/></svg></button>
-          <button id="btn-skip-fwd" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-fwd" title="Skip forward 5 seconds" aria-label="Skip forward 5 seconds"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v12"/><path d="M16 9v6l5-3z" fill="currentColor" stroke="none"/></svg></button>
+          <button id="btn-skip-back" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-back" title="Previous frame" aria-label="Previous frame" data-frame-step="-1"><svg class="icon-svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 6v12"></path><path d="M8 9v6l-5-3z" fill="currentColor" stroke="none"></path></svg></button>
+          <button id="btn-play" type="button" class="btn btn-primary btn-icon" data-preview-action="play" title="Play preview" aria-label="Play preview"><svg class="icon-svg" viewbox="0 0 24 24"><path d="M10 6L18 12 10 18z"></path></svg></button>
+          <button id="btn-skip-fwd" type="button" class="btn btn-ghost btn-icon" data-preview-action="skip-fwd" title="Next frame" aria-label="Next frame" data-frame-step="1"><svg class="icon-svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6v12"></path><path d="M16 9v6l5-3z" fill="currentColor" stroke="none"></path></svg></button>
           <span class="transport-time" aria-label="Preview time"><strong id="tc-current">00:00.00</strong><span class="transport-total"> / —</span></span>
           <label class="preview-volume"><span class="muted small">Volume</span><input id="preview-volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Preview volume"></label>
-          <button id="preview-fullscreen" class="btn btn-ghost btn-xs" type="button" aria-label="Fullscreen preview">Fullscreen</button>
+          <button id="preview-fullscreen" class="btn btn-ghost btn-xs" type="button" aria-label="Fullscreen preview">Full screen</button>
         </div>
         <input id="preview-seek" type="range" min="0" max="0" step="0.01" value="0" aria-label="Seek timeline">
       </div>
@@ -224,7 +213,7 @@
             <div class="graphics-canvas-wrap">
               <canvas id="graphics-live" width="960" height="540" aria-label="Interactive graphics"></canvas>
               <video id="graphics-video" muted loop playsinline hidden aria-label="Checked graphics preview"></video>
-              <svg id="graphics-guides" viewBox="0 0 960 540" aria-hidden="true"></svg>
+              <svg id="graphics-guides" viewbox="0 0 960 540" aria-hidden="true"></svg>
               <canvas id="graphics-canvas" width="960" height="540" aria-label="Graphics canvas; select a layer and drag to move it"></canvas>
               <div id="graphics-empty" class="graphics-empty" hidden>
                 <div class="graphics-empty-card">
@@ -286,11 +275,11 @@
         <textarea id="chat-input" class="chat-input" placeholder="Type a prompt to edit video... (Enter to send, Shift+Enter for newline, Ctrl+K for commands)" aria-label="Editing prompt for the selected project" rows="1" disabled></textarea>
         <button id="btn-send" class="btn btn-primary" disabled data-od-id="btn-send">
           Send
-          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          <svg class="icon-svg" viewbox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"></path></svg>
         </button>
         <button id="btn-stop" class="btn btn-secondary hidden" title="Interrupt request">
           Stop
-          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+          <svg class="icon-svg" viewbox="0 0 24 24"><path d="M6 6h12v12H6z"></path></svg>
         </button>
       </div>
     </section>
@@ -348,11 +337,11 @@
               <button id="graphics-convert-mark" class="btn btn-secondary btn-xs" type="button">Convert to graphic</button>
             </form>
       </section>
-      <div class="panel-section section-block">
-        <div class="panel-section-header panel-head">
+      <details class="panel-section editor-secondary">
+        <summary>Recent exports</summary><div class="panel-section-header panel-head">
           <span class="panel-title">Outputs</span>
           <button id="btn-refresh-renders" class="btn btn-ghost btn-xs" title="Refresh" aria-label="Refresh renders" data-od-id="btn-refresh-renders">
-            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            <svg class="icon-svg" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>
           </button>
         </div>
         <div id="renders-list" class="renders-list">
@@ -366,17 +355,16 @@
             </select>
           </label></details>
           <button id="btn-render-proxy" class="btn btn-secondary btn-sm" data-od-id="btn-render-proxy">Refresh preview</button>
-          <button id="btn-render-final" class="btn btn-primary btn-sm" data-od-id="btn-render-final">Export video</button>
-        </div>
-      </div>
+          </div>
+      </details>
 
-      <div class="panel-section section-block">
-        <div class="panel-section-header panel-head">
+      <details class="panel-section editor-secondary">
+        <summary>Review notes</summary><div class="panel-section-header panel-head">
           <span class="panel-title">Notes</span>
           <button id="btn-show-notes" class="btn btn-ghost btn-xs" data-od-id="btn-show-notes">View</button>
         </div>
         <div id="notes-summary" class="notes-summary muted small">—</div>
-      </div>
+      </details>
 
     </aside>
   </main>
@@ -388,12 +376,10 @@
       <div class="timeline-panel-controls">
         <span class="timeline-timecode" id="timeline-timecode-label">00:00.00</span>
         <span class="timeline-zoom-label" id="timeline-duration-label">—</span>
-        <button id="btn-copy-timecode" class="btn btn-ghost btn-xs" title="Copy playhead time for agent" data-od-id="btn-copy-timecode">Copy time</button>
-        <button id="btn-add-note-playhead" class="btn btn-ghost btn-xs" title="Add review note at playhead" data-od-id="btn-add-note-playhead">Note</button>
-        <button id="btn-add-note-audio" class="btn btn-ghost btn-xs" title="Add review note on audio at playhead" data-od-id="btn-add-note-audio">Audio note</button>
-        <button id="btn-timeline-zoom-in"  class="btn btn-ghost btn-xs" title="Zoom in" data-od-id="btn-timeline-zoom-in">+</button>
+        <button id="btn-add-note-playhead" class="btn btn-ghost btn-xs" title="Add review note at playhead" data-od-id="btn-add-note-playhead">Mark for AI</button>
+        <button id="btn-timeline-zoom-in" class="btn btn-ghost btn-xs" title="Zoom in" data-od-id="btn-timeline-zoom-in">+</button>
         <button id="btn-timeline-zoom-out" class="btn btn-ghost btn-xs" title="Zoom out" data-od-id="btn-timeline-zoom-out">-</button>
-        <button id="btn-timeline-fit"      class="btn btn-ghost btn-xs" title="Fit to window" data-od-id="btn-timeline-fit">Fit</button>
+        <button id="btn-timeline-fit" class="btn btn-ghost btn-xs" title="Fit to window" data-od-id="btn-timeline-fit">Fit</button>
       </div>
     </div>
     <div class="timeline-body">
@@ -420,7 +406,7 @@
     <div class="modal-backdrop" data-modal-close></div>
     <div class="cmd-palette-card">
       <div class="cmd-input-container">
-        <svg class="icon-svg" style="color:var(--text-dim);" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <svg class="icon-svg" style="color:var(--text-dim);" viewbox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><path d="M21 21l-4.35-4.35"></path></svg>
         <input type="text" id="cmd-input" class="cmd-input" placeholder="Type a command or search..." autocomplete="off">
         <span class="kbd-badge">ESC</span>
       </div>

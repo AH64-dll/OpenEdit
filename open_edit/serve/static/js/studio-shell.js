@@ -1,6 +1,6 @@
 /* Accessible persistent panel sizes and provider-independent AI context. */
 import { state } from './state.js';
-import { studio, editingContext } from './studio-state.js';
+import { studio, editingContext, commitStudio, selectMarks } from './studio-state.js';
 import { showToast } from './dom.js';
 
 function divider(host, side, property, initial, min, max) {
@@ -27,17 +27,16 @@ function divider(host, side, property, initial, min, max) {
   }); host.append(button);
 }
 document.addEventListener('DOMContentLoaded', () => {
-  const style = document.createElement('link'); style.rel = 'stylesheet'; style.href = '/studio.css?v=20261008'; document.head.append(style);
   divider(document.getElementById('left-panel'), 'left', '--studio-left', 240, 180, 480);
   divider(document.getElementById('right-panel'), 'right', '--studio-right', 280, 240, 600);
   divider(document.getElementById('timeline-panel'), 'timeline', '--studio-timeline', 190, 120, 500);
   const dock = document.createElement('details'); dock.className = 'studio-ai-dock'; dock.open = true; dock.id = 'studio-ai-dock';
   const heading = document.createElement('summary'); heading.textContent = 'AI editing'; dock.append(heading);
-  const hint = document.createElement('p'); hint.className = 'muted small'; hint.textContent = 'Select layers and add marks to direct an edit. External agents can read the same context through MCP.'; dock.append(hint);
+  const hint = document.createElement('p'); hint.className = 'muted small'; hint.textContent = 'Select a clip or region, then describe the change.'; dock.append(hint);
   const summary = document.createElement('p'); summary.id = 'studio-ai-selection'; summary.setAttribute('role', 'status'); dock.append(summary);
   const buttons = document.createElement('div'); buttons.className = 'studio-ai-actions';
-  const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'btn btn-secondary btn-xs'; copy.textContent = 'Copy AI context'; copy.id = 'studio-copy-context';
-  const inspect = document.createElement('button'); inspect.type = 'button'; inspect.className = 'btn btn-ghost btn-xs'; inspect.textContent = 'View context';
+  const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'btn btn-secondary btn-xs'; copy.textContent = 'Copy for AI'; copy.id = 'studio-copy-context';
+  const inspect = document.createElement('button'); inspect.type = 'button'; inspect.className = 'btn btn-ghost btn-xs'; inspect.textContent = 'Inspect selection';
   const context = document.createElement('pre'); context.className = 'studio-ai-context'; context.hidden = true;
   const run = async copyText => { try { const result = await editingContext(); const text = JSON.stringify(result, null, 2); context.textContent = text;
     if (copyText) { await navigator.clipboard.writeText(text); showToast('AI context copied.', 'success'); } else context.hidden = !context.hidden;
@@ -45,7 +44,35 @@ document.addEventListener('DOMContentLoaded', () => {
   copy.addEventListener('click', () => run(true)); inspect.addEventListener('click', () => run(false)); buttons.append(copy, inspect); dock.append(buttons, context);
   for (const id of ['chat-log', 'chat-status']) { const node = document.getElementById(id); if (node) dock.append(node); }
   const row = document.querySelector('.chat-input-row'); if (row) dock.append(row);
+  const form = document.createElement('form'); form.className = 'editor-request-form'; form.id = 'editor-request-form';
+  const prompt = document.createElement('textarea'); prompt.id = 'editor-request'; prompt.rows = 3;
+  prompt.placeholder = 'Describe an edit at this time or in the selected region…';
+  prompt.setAttribute('aria-label', 'AI edit instruction'); prompt.maxLength = 10000;
+  const save = document.createElement('button'); save.className = 'btn btn-primary btn-sm'; save.textContent = 'Save instruction'; save.type = 'submit';
+  const saved = document.createElement('span'); saved.id = 'editor-request-status'; saved.setAttribute('role', 'status');
+  form.append(prompt, save, saved);
+  form.addEventListener('submit', async event => {
+    event.preventDefault(); const text = prompt.value.trim(); if (!text) return;
+    save.disabled = true;
+    try {
+      const id = `request-${crypto.randomUUID()}`, region = studio.region;
+      await commitStudio([{kind:'annotation', object_id:id, data:{
+        tool:region ? 'rectangle' : 'note', text, points:region
+          ? [[region.left, region.top], [region.right, region.bottom]] : [[0,0]],
+        target_ids:studio.selectedIds, anchor_sec:region?.playhead_sec ?? state.playheadSec ?? 0,
+        scope:studio.selectedIds.length ? 'object' : 'frame', coordinate_space:'composition',
+      }}], 'AI edit instruction');
+      selectMarks([id]); prompt.value = ''; saved.textContent = 'Saved · available to your AI agent';
+    } catch (error) { showToast(error.message, 'error'); } finally { save.disabled = false; }
+  });
+  dock.insertBefore(form, buttons);
   document.getElementById('right-panel').prepend(dock);
+  document.getElementById('library-view')?.addEventListener('change', event => {
+    document.querySelector(`.tab[data-tab="${event.target.value}"]`)?.click();
+  });
+  for (const button of document.querySelectorAll('.tab[data-tab]')) button.addEventListener('click', () => {
+    document.getElementById('library-view').value = button.dataset.tab;
+  });
   function selection() { summary.textContent = `${studio.selectedIds.length} selected · ${studio.selectedMarks.length} marked${studio.region ? ` · region at ${studio.region.playhead_sec.toFixed(2)}s` : ''}${state.reviewOnly ? ' · external MCP available' : ''}`; }
   selection(); window.addEventListener('openedit:studio-selection', selection);
 });

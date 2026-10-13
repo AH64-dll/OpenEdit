@@ -85,6 +85,17 @@ def _with_project_id(params: dict[str, Any], project_path: Path) -> dict[str, An
 
 def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:
     """Dispatch a query to one of the 6 read-only tools."""
+    if query == 'describe':
+        try:
+            return describe_capability(**params)
+        except TypeError as exc:
+            return {'status': 'error', 'error': str(exc)}
+    if query == 'inspect_media':
+        from open_edit.kernel.media_context import inspect_media
+        try:
+            return inspect_media(project_path, **params)
+        except (TypeError, ValueError, OSError) as exc:
+            return {'status': 'error', 'error': str(exc)}
     if query == 'get_tracking_job':
         from open_edit.kernel.tracking_jobs import get_tracking_job
         try:
@@ -106,6 +117,70 @@ def dispatch_query(query: str, params: dict[str, Any], project_path: Path) -> di
         return {"status": "error", "error": f"unknown query: {query!r}"}
     p = _with_project_id(params, project_path)
     return fn(p, str(project_path))
+
+
+def describe_capability(name: str | None = None) -> dict[str, Any]:
+    """Discover parameters only when needed, rather than loading every manual."""
+    import inspect
+
+    if name == 'ir':
+        from open_edit.ir.api import IR
+        return {'status': 'ok', 'name': 'ir', 'documentation': inspect.getdoc(IR),
+                'methods': {key: str(inspect.signature(value)) for key, value in vars(IR).items()
+                            if not key.startswith('_') and callable(value)}}
+
+    from open_edit.kernel.media_context import inspect_media
+    from open_edit.kernel.studio_service import (
+        apply_graphics_edits,
+        commit_studio,
+        get_editing_context,
+        get_studio,
+    )
+
+    direct = {'inspect_media': inspect_media, 'get_editing_context': get_editing_context,
+              'get_studio': get_studio, 'apply_studio_changes': commit_studio,
+              'apply_graphics_edits': apply_graphics_edits}
+    if name is None:
+        return {'status': 'ok', 'queries': sorted(set(_QUERY_ROUTING) | {
+            'inspect_media', 'get_editing_context', 'get_studio', 'get_history', 'get_tracking_job'}),
+            'operations': sorted(set(_EDIT_ROUTING) | {'apply_studio_changes', 'apply_graphics_edits',
+                'undo', 'redo', 'revert_request', 'start_tracking', 'cancel_tracking',
+                'apply_tracking_job', 'edit_object_track', 'apply_generated_ops'}),
+            'generators': sorted(_GENERATE_ROUTING)}
+    if name in direct:
+        fn = direct[name]
+        parameters = str(inspect.signature(fn).replace(parameters=[
+            p for p in inspect.signature(fn).parameters.values()
+            if p.name != 'project_path' and not p.name.startswith('_')]))
+    elif name in {'undo', 'redo', 'get_history'}:
+        return {'status': 'ok', 'name': name, 'parameters':
+                {} if name == 'get_history' else {'expected_revision': 'nonnegative integer'}}
+    elif name == 'apply_generated_ops':
+        return {'status': 'ok', 'name': name, 'parameters': {'ops': 'list of IR operation objects'}}
+    else:
+        tool_name = _QUERY_ROUTING.get(name) or _EDIT_ROUTING.get(name) or _GENERATE_ROUTING.get(name)
+        if not tool_name:
+            tracking = {'start_tracking', 'cancel_tracking', 'apply_tracking_job', 'get_tracking_job'}
+            if name in tracking:
+                from open_edit.kernel import tracking_jobs
+                fn = getattr(tracking_jobs, name)
+            elif name == 'edit_object_track':
+                from open_edit.kernel.object_tracking import edit_object_track
+                fn = edit_object_track
+            elif name == 'revert_request':
+                from open_edit.kernel.request_history import revert_request
+                fn = revert_request
+            else:
+                return {'status': 'error', 'error': f'Unknown capability: {name}'}
+            parameters = str(inspect.signature(fn).replace(parameters=[
+                p for p in inspect.signature(fn).parameters.values()
+                if p.name != 'project_path' and not p.name.startswith('_')]))
+        else:
+            from open_edit.agent import tools
+            fn = getattr(tools, tool_name)
+            parameters = 'params object; see documentation for fields'
+    return {'status': 'ok', 'name': name, 'parameters': parameters,
+            'documentation': inspect.getdoc(fn) or ''}
 
 
 def dispatch_edit(operation: str, params: dict[str, Any], project_path: Path) -> dict[str, Any]:

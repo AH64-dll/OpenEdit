@@ -49,7 +49,9 @@ form.append(node('span', 'Full-quality check', {
 }), start, node('span', 'to', {
   class: 'muted quality-check-sep'
 }), end, button, cancel, status);
-toolbar.append(form);
+const advanced = node('details', undefined, {class:'editor-quality-check'});
+advanced.append(node('summary', 'Check export quality'), form);
+toolbar.append(advanced);
 const dialog = node('dialog', undefined, {
     id: 'quality-check-dialog'
   }),

@@ -1,0 +1,101 @@
+{
+  "project": "openedit-in-10-seconds",
+  "graph_revision": 3,
+  "animation": {
+    "width": 1920,
+    "height": 1080,
+    "fps_num": 30,
+    "fps_den": 1,
+    "video_frames": 300,
+    "video_duration_sec": 10,
+    "audio_duration_sec": 10.005,
+    "audio_channels": 2,
+    "audio_sample_rate": 48000,
+    "source_characters": 25553,
+    "source_sha256": "2d57ba48e6ef461682ad4c5daab54008ed919dc7efb562f384970c6f0ae76419"
+  },
+  "authoring": {
+    "retained_mcp_call_records": 19,
+    "additional_repeated_help_queries": 1,
+    "retained_structured_error_results": 2,
+    "application_tools": [
+      "query_project",
+      "edit_project"
+    ],
+    "live_model_edit_verified": false,
+    "blocked_model": "opencode/ling-3.1-flash-free",
+    "blocked_model_error": "Forbidden: Domain forbidden",
+    "model_token_usage_verified": false
+  },
+  "exports": {
+    "initial": {
+      "elapsed_sec": 52.447,
+      "status": "Export verified and saved.",
+      "errors": []
+    },
+    "audio_refinement_before_cache_fix": {
+      "elapsed_sec": 37.375,
+      "status": "Export verified and saved.",
+      "errors": []
+    },
+    "after_cache_fix_first": {
+      "elapsed_sec": 14.281,
+      "status": "Export verified and saved.",
+      "errors": []
+    },
+    "after_cache_fix_repeat": {
+      "elapsed_sec": 16.304,
+      "status": "Export verified and saved.",
+      "errors": []
+    }
+  },
+  "reopen": {
+    "state": {
+      "revision": 3,
+      "duration": 10,
+      "source_chars": 25553
+    },
+    "timings": [
+      {
+        "seconds": 0.9,
+        "two_frame_update_ms": 23.699999999254942
+      },
+      {
+        "seconds": 3.8,
+        "two_frame_update_ms": 21.899999998509884
+      },
+      {
+        "seconds": 6.6,
+        "two_frame_update_ms": 25
+      },
+      {
+        "seconds": 8.9,
+        "two_frame_update_ms": 19.800000000745058
+      }
+    ],
+    "errors": []
+  },
+  "decode": {
+    "exit_code": 0,
+    "errors": ""
+  },
+  "audio": {
+    "peak": 0.601884126663208,
+    "rms": 0.07139953225851059,
+    "clipped_samples": 0
+  },
+  "validation": {
+    "non_browser_tests": 1788,
+    "failures": 0,
+    "errors": 0,
+    "browser_marked_tests_deselected": 11,
+    "runtime_sec": 185.704,
+    "lint": "passed",
+    "diff_whitespace_check": "passed",
+    "actual_ui_exports": "verified and saved",
+    "actual_ui_reopen": "passed",
+    "native_opencode_mcp_connection": "connected (OpenCode 1.19.0)",
+    "native_scripted_cli_mutation": "passed; graph revision advances once",
+    "graphics_cache_reuse_without_frame_capture": "passed"
+  }
+}

@@ -48,6 +48,14 @@ export const state = {
   previewChunkEnd: 0,
 };
 
+export function timelineFrameSeconds() {
+  const numerator = Number(state.previewManifest?.fps_num);
+  const denominator = Number(state.previewManifest?.fps_den || 1);
+  if (numerator > 0 && denominator > 0) return denominator / numerator;
+  const asset = normalizeAssets(state.currentProjectState?.assets).find(a => Number(a.fps) > 0);
+  return 1 / (Number(asset?.fps) || 30);
+}
+
 // Hydrate from localStorage if it's available (browser). Tests stub
 // it on globalThis; in pure-Node environments without the stub
 // we leave the fields null.

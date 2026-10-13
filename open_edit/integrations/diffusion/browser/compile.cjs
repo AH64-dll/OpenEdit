@@ -129,7 +129,7 @@ function parse(source) {
     tracks.add(key);
     const times = new Set();
     for (const frame of elements.filter(e=>e.parent_id===track.id)) {
-      if (typeof frame.time!=='number' || times.has(frame.time)) throw new Error('Keyframes need unique numeric times');
+      if (typeof frame.time!=='number' || times.has(frame.time)) throw new Error(`Keyframes need unique numeric times (track ${track.id}, frame ${frame.id}, time ${frame.time})`);
       times.add(frame.time);
       if (track.property==='color' ? typeof frame.value!=='string' || !/^#(?:[a-f0-9]{3}|[a-f0-9]{6})$/i.test(frame.value) : typeof frame.value!=='number') throw new Error('Keyframe values must match their property; colors use hex RGB');
       if (track.property==='opacity' && (frame.value<0 || frame.value>1)) throw new Error('Animated opacity must be between 0 and 1');

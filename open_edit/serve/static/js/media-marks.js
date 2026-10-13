@@ -83,7 +83,7 @@ const panel = make('details', undefined, {
   id: 'media-marks-inspector',
   class: 'panel-section inspector'
 });
-panel.open = true;
+panel.open = false;
 panel.append(make('summary', 'Video AI marks'));
 const content = make('div');
 panel.append(content);
@@ -150,6 +150,7 @@ function drawMark(m, p, id) {
   }
 }
 function paint() {
+  if (studio.selectedMarks.length) panel.open = true;
   clearRegion.hidden = !studio.region;
   regionStatus.textContent = studio.region ? `Region at ${studio.region.playhead_sec.toFixed(2)}s` : '';
   const [width, height] = size(),

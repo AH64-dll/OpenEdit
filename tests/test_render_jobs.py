@@ -404,7 +404,7 @@ async def test_preview_launch_uses_durable_job_id_without_shell_params(
 
     assert result["mode"] == "preview-chunks"
     assert captured["cmd"] == [
-        sys.executable, "-m", "open_edit.cli", "preview-chunks",
+        sys.executable, "-I", "-m", "open_edit.cli", "preview-chunks",
         "--job-id", "preview-job", "--json",
     ]
 
@@ -549,3 +549,35 @@ async def test_launch_surfaces_structured_worker_error(tmp_path: Path, monkeypat
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
     with pytest.raises(RuntimeError, match="timeline overlap"):
         await service._launch(tmp_path, "failed-job", "preview-chunks")
+@pytest.mark.asyncio
+async def test_file_capture_finishes_while_another_process_holds_log_handles(tmp_path, monkeypatch):
+    import sys
+    import time
+
+    from open_edit.kernel import render_jobs
+
+    monkeypatch.setattr(render_jobs, '_FILE_CAPTURE', True)
+    service = render_jobs.RenderJobService(timeout_s=2)
+    original = asyncio.create_subprocess_exec
+    holders = []
+    output = tmp_path / 'render.mp4'
+    output.write_bytes(b'verified fixture')
+    expected = {'ok': True, 'output_path': str(output)}
+
+    async def launch(*args, **kwargs):
+        # Model a media subprocess retaining the worker's output handles.
+        holders.append(await original(sys.executable, '-c', 'import time; time.sleep(10)',
+                                      stdout=kwargs['stdout'], stderr=kwargs['stderr']))
+        return await original(sys.executable, '-c', f'print({json.dumps(expected)!r})', **kwargs)
+
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', launch)
+    started = time.monotonic()
+    try:
+        assert await service._launch(tmp_path, 'capture-job', 'proxy') == expected
+        assert time.monotonic() - started < 2
+        assert holders[0].returncode is None
+    finally:
+        for holder in holders:
+            if holder.returncode is None:
+                holder.terminate()
+            await holder.wait()

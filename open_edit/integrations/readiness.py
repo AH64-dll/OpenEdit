@@ -72,7 +72,7 @@ def readiness() -> dict:
             {'name': 'Video and audio tools', 'ready': base,
              'help': 'Install a full FFmpeg build including ffprobe and the libx264 encoder.'},
             {'name': 'Timeline preview and export', 'ready': timeline,
-             'help': 'Install MLT/melt (Linux: sudo apt install melt; macOS: brew install mlt; Windows: use Shotcut melt or WSL).'},
+             'help': 'Run the Windows/Linux installer for its verified FFmpeg/MLT runtime. Source setup: Linux apt install melt; macOS brew install mlt.'},
             {'name': 'Clip properties and source editing', 'ready': media,
              'help': 'Install Node.js 24 and npm, then run: open_edit setup media'},
             {'name': 'Editable graphics', 'ready': graphics,

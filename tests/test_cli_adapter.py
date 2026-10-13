@@ -41,9 +41,9 @@ def test_opencode_default_timeout_s_is_set() -> None:
 
 
 
-def test_opencode_supports_tools_is_false() -> None:
-    """Opencode has no open_edit extension yet (v1.8+)."""
-    assert get_adapter("opencode").supports_tools() is False
+def test_native_cli_adapters_support_project_tools() -> None:
+    for name in ("opencode",):
+        assert get_adapter(name).supports_tools() is True
 
 
 def test_both_adapters_manage_own_auth() -> None:
