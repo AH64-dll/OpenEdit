@@ -156,6 +156,40 @@ async def verify(root: Path, graphics: bool, progress: dict) -> dict:
             assert b'id="preview-player"' in response.read()
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/app.js', timeout=5) as response:
             assert response.status == 200 and len(response.read()) > 1000
+        stage('export through installed UI API')
+        def api(path, body=None):
+            request = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
+                data=json.dumps(body).encode() if body is not None else None,
+                headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read())
+        projects = api('/api/projects')
+        project_id = next(p['id'] for p in projects if Path(p['path']) == project)
+        exported = api(f'/api/projects/{project_id}/export', {
+            'expected_revision': saved_revision,
+            'settings': {'filename': 'Release export', 'folder': str(root / 'exports with spaces'),
+                         'width': 320, 'height': 180, 'fps_num': 30, 'fps_den': 1,
+                         'quality': 'high', 'encoder': 'cpu'}})
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            job = api(f"/api/projects/{project_id}/render_jobs/{exported['job_id']}")
+            if job['status'] == 'succeeded':
+                break
+            if job['status'] in ('failed', 'cancelled', 'orphaned'):
+                raise RuntimeError(json.dumps(job))
+            await asyncio.sleep(.1)
+        else:
+            raise RuntimeError('Installed UI export did not finish')
+        assert job['result']['export_verification']['passed']
+        assert job['graph_revision'] == saved_revision
+        output = Path(job['output_path'])
+        command(['ffmpeg', '-v', 'error', '-i', str(output), '-f', 'null', '-'])
+        for t, color in ((.1, 0), (1.4, 2)):
+            assert sample(t, 300, 150)[color] > 180
+        if graphics:
+            assert sample(1.4, 225, 32)[1] > 140
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/projects/{project_id}/exports/{exported['job_id']}/file", timeout=10) as response:
+            assert hashlib.sha256(response.read()).digest() == hashlib.sha256(output.read_bytes()).digest()
     finally:
         ui.terminate()
         try:
@@ -163,7 +197,8 @@ async def verify(root: Path, graphics: bool, progress: dict) -> dict:
         except subprocess.TimeoutExpired:
             ui.kill()
             ui.communicate()
-    return {'passed': True, 'installed_ui_verified': True, 'tools': names, 'saved_revision': saved_revision,
+    return {'passed': True, 'installed_ui_verified': True, 'ui_export_verified': True,
+            'tools': names, 'saved_revision': saved_revision,
             'graphics': graphics, 'duration_sec': float(video['duration']),
             'preview_verified': True, 'export_verified': True, 'reopen_verified': True, 'cut_transition_pixels_verified': True,
             'animated_overlay_pixels_verified': graphics,

@@ -82,9 +82,10 @@ tools appear. [Detailed host instructions](docs/agent-configure.md).
 
 ## Install from source
 
-Clone this repository, then run `bash install.sh` or the PowerShell installer.
-The installer builds the current checkout as a normal installed package. For a
-Linux/macOS development environment:
+For Windows/Linux x64, clone this repository and run `bash install.sh` or the
+PowerShell installer. It builds the checkout as a normal installed package.
+For macOS, other architectures or an editable development environment, supply
+the native runtimes and install manually; check readiness before editing:
 
 ```bash
 python3 -m venv .venv

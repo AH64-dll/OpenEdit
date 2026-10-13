@@ -114,7 +114,7 @@ jobs:
           capabilities = json.loads(result.stdout)['capabilities']
           assert all(capabilities[name] for name in ('timeline', 'media', 'graphics', 'audio_eq')), capabilities
           report = json.loads((prefix / 'install-report.json').read_text())
-          assert report['passed'] and report['animated_overlay_pixels_verified']
+          assert report['passed'] and report['animated_overlay_pixels_verified'] and report['ui_export_verified']
       - uses: actions/upload-artifact@v4
         with:
           name: openedit-${{ matrix.platform }}
