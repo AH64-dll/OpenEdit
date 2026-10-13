@@ -104,8 +104,8 @@ jobs:
           from pathlib import Path
           prefix = Path(os.environ['INSTALL_ROOT'])
           python = prefix / ('.venv/Scripts/python.exe' if os.name == 'nt' else '.venv/bin/python')
-          subprocess.run([str(python), '-m', 'pip', 'check'], check=True)
-          result = subprocess.run([str(python), '-m', 'open_edit.cli', 'doctor', '--json'], capture_output=True, text=True, check=True)
+          subprocess.run([str(python), '-I', '-m', 'pip', 'check'], check=True)
+          result = subprocess.run([str(python), '-I', '-m', 'open_edit.cli', 'doctor', '--json'], capture_output=True, text=True, check=True)
           capabilities = json.loads(result.stdout)['capabilities']
           assert all(capabilities[name] for name in ('timeline', 'media', 'graphics', 'audio_eq')), capabilities
           report = json.loads((prefix / 'install-report.json').read_text())
