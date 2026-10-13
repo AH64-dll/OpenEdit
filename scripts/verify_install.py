@@ -164,7 +164,11 @@ async def verify(root: Path, graphics: bool, progress: dict) -> dict:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.loads(response.read())
         projects = api('/api/projects')
-        project_id = next(p['id'] for p in projects if Path(p['path']) == project)
+        # Windows temporary paths can use 8.3 aliases; the UI returns canonical paths.
+        match = next((p for p in projects if Path(p['path']).resolve() == project.resolve()), None)
+        if match is None:
+            raise RuntimeError(f'Test project is missing from installed UI: {projects!r}')
+        project_id = match['id']
         exported = api(f'/api/projects/{project_id}/export', {
             'expected_revision': saved_revision,
             'settings': {'filename': 'Release export', 'folder': str(root / 'exports with spaces'),
