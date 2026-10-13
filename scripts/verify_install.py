@@ -51,6 +51,8 @@ async def verify(root: Path, graphics: bool) -> dict:
                                 'get_render_job', 'cancel_render_job']), names
         assert len(initialization.instructions or '') < 1500
         async def call(name, args):
+            detail = args.get('operation') or args.get('query') or args.get('mode') or ''
+            print(f'Verify: {name} {detail}', flush=True)
             started = time.perf_counter()
             response = await session.call_tool(name, args)
             result = json.loads(response.content[0].text)
@@ -165,7 +167,10 @@ def main() -> None:
     activate()
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix='openedit-install-check-') as scratch:
-        report = asyncio.run(verify(Path(scratch), args.graphics))
+        # This fixed 1.6-second workflow must fail promptly if a worker stalls.
+        async def bounded_verify():
+            return await asyncio.wait_for(verify(Path(scratch), args.graphics), timeout=300)
+        report = asyncio.run(bounded_verify())
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             artifact = args.output.with_suffix('.mp4')

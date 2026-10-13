@@ -49,7 +49,9 @@ Run-Checked $Python.Command ($Python.Arguments + @('-I','-m','venv',(Join-Path $
 $Py = Join-Path $InstallDir '.venv\Scripts\python.exe'
 $Bootstrap = @((Join-Path $Source 'scripts\bootstrap_runtime.py'),'--prefix',$InstallDir)
 if ($SystemRuntime) { $Bootstrap += '--system-runtime' }
+Write-Host 'Setup: media and Node runtimes'
 Run-Checked $Py $Bootstrap
+Write-Host 'Setup: Python dependencies'
 Run-Checked $Py @('-I','-m','pip','install','--upgrade','pip')
 if (Test-Path (Join-Path $Source 'wheels')) {
     $Wheels = @(Get-ChildItem (Join-Path $Source 'wheels\open_edit-*.whl'))
@@ -61,9 +63,11 @@ if ($Extras.Count) { $Package += '[' + ($Extras -join ',') + ']' }
 Run-Checked $Py @('-I','-m','pip','install','--upgrade','--force-reinstall','-c',(Join-Path $Source 'requirements\release-constraints.txt'),$Package)
 Run-Checked $Py @('-I','-m','pip','check')
 $Feature = 'graphics'; if ($MediaOnly) { $Feature = 'media' }
+Write-Host "Setup: $Feature worker"
 Run-Checked $Py @('-I','-m','open_edit.cli','setup',$Feature)
 $Verify = @('-I',(Join-Path $Source 'scripts\verify_install.py'),'--output',(Join-Path $InstallDir 'install-report.json'))
 if (-not $MediaOnly) { $Verify += '--graphics' }
+Write-Host 'Setup: actual editing, preview, export and reopen verification'
 Run-Checked $Py $Verify
 $Launcher = '@echo off' + "`r`n" + '"%~dp0.venv\Scripts\python.exe" -I -m open_edit.cli serve %*' + "`r`n"
 [IO.File]::WriteAllText((Join-Path $InstallDir 'OpenEdit.cmd'),$Launcher)

@@ -21,6 +21,7 @@ def install_archive(spec: dict, folder: Path, cache: Path) -> Path:
     marker = destination / '.openedit-download.sha256'
     if marker.is_file() and marker.read_text().strip() == spec['sha256']:
         return folder / spec['bin']
+    print(f"Runtime: preparing {spec['url'].rsplit('/', 1)[-1]}", flush=True)
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / spec['url'].rsplit('/', 1)[-1]
     def digest(path):
@@ -37,6 +38,7 @@ def install_archive(spec: dict, folder: Path, cache: Path) -> Path:
         finally:
             temporary.unlink(missing_ok=True)
     folder.mkdir(parents=True, exist_ok=True)
+    print(f'Runtime: extracting {archive.name}', flush=True)
     with tempfile.TemporaryDirectory(dir=folder) as scratch:
         if archive.suffix == '.zip':
             with zipfile.ZipFile(archive) as package:
@@ -90,12 +92,16 @@ def main() -> None:
             raise RuntimeError(f'{name} cannot run: {result.stderr[-800:]}')
         if name == 'node' and int(result.stdout.strip().lstrip('v').split('.')[0]) < 24:
             raise RuntimeError('Node 24 or newer is required')
-        print(f'{name}: {(result.stdout or result.stderr).splitlines()[0]}')
+        print(f'{name}: {(result.stdout or result.stderr).splitlines()[0]}', flush=True)
+    config = prefix / '.openedit-runtime.json'
     browser = os.environ.get('OPEN_EDIT_CHROMIUM')
+    if not browser and config.is_file():
+        # An update must retain a previously selected local browser.
+        previous = json.loads(config.read_text(encoding='utf-8'))
+        browser = previous.get('environment', {}).get('OPEN_EDIT_CHROMIUM')
     if browser and Path(browser).is_file():
         env['OPEN_EDIT_CHROMIUM'] = str(Path(browser).resolve())
     prefix.mkdir(parents=True, exist_ok=True)
-    config = prefix / '.openedit-runtime.json'
     temp = config.with_suffix('.tmp')
     temp.write_text(json.dumps({'version': 1, 'path': paths, 'environment': env}, indent=2))
     temp.replace(config)

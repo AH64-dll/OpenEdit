@@ -91,7 +91,10 @@ jobs:
         shell: pwsh
         run: |
           try {
-            & "$env:DOWNLOAD_ROOT\install.ps1" -InstallDir "$env:INSTALL_ROOT" -NoProject *>&1 | Tee-Object "$env:RUNNER_TEMP\install-full.log"
+            & "$env:DOWNLOAD_ROOT\install.ps1" -InstallDir "$env:INSTALL_ROOT" -NoProject *>&1 | Tee-Object "$env:RUNNER_TEMP\install-full.log" | ForEach-Object {
+              Write-Host $_
+              if ("$_" -match '^(Setup:|Runtime:|Verify:|node:|melt:|Diffusion .* installed)') { Write-Host "::notice::$_" }
+            }
           } catch {
             $tail = (Get-Content "$env:RUNNER_TEMP\install-full.log" -Tail 25) -join "`n"
             Write-Host ('::error::' + $tail.Replace('%','%25').Replace("`n",'%0A').Replace("`r",'%0D'))

@@ -2,11 +2,11 @@
 
 Run `open_edit serve` and open the printed local URL. Review mode is the default;
 projects, media, operations and render jobs remain in the existing project store.
-The Diffusion implementation plan is unchanged.
+The default installation includes the timeline renderer and editable graphics.
 
 ## Setup and optional capabilities
 
-Use **Setup** or `open_edit doctor --json` to check readiness. Checks verify
+Use **Help** or `open_edit doctor --json` to check readiness. Checks verify
 FFmpeg's libx264 support, ffprobe, melt, Node 24+, npm, optional worker packages,
 and Chromium. They explain installation steps without downloading anything.
 
@@ -30,12 +30,13 @@ extension: install `open-edit[agent]`, then launch with `--with-agent`. Review
 startup does not import agent/provider implementations or load browser chat/WS
 modules. Existing optional API URLs remain compatible.
 
-## Review, Graphics and Code
+## Edit, Graphics and Code
 
-**Review** shows the timeline preview and one transport with seek, volume and
-fullscreen. Select a timeline clip to edit it in the right inspector. **Graphics**
+**Edit** shows the timeline preview and one transport with seek, volume and
+fullscreen. Select a clip or mark a timeline range, then leave a precise AI
+instruction. Select a timeline clip to edit it in the right inspector. **Graphics**
 shows the editable canvas, layer inspector and checked graphics preview. Expand
-**Edit graphics source** for its JSX. **Code** shows project source. All views
+**Edit graphics source** for its JSX. **More → Code** shows project source. All views
 share the timeline; changing views does not discard drafts. On small screens,
 selecting a clip opens the inspector drawer, also available from the panel button.
 
@@ -52,8 +53,9 @@ to **Auto**, with manual CPU/GPU preferences under Advanced export settings.
 ## Automatic previews
 
 Opening a nonempty timeline or receiving a new graph revision schedules a preview
-after a short debounce. The existing dirty-range worker reuses checked unchanged
-chunks and renders changed ranges. Playback seeks across the cached chunks.
+after a short debounce. The existing dirty-range worker prioritizes the playhead,
+reuses checked unchanged chunks and fills the remaining changed ranges. Playback
+seeks across the cached chunks.
 
 **Current** means every playback range matches the displayed revision and is
 checked. **Updating…** keeps the previous checked preview playable. **Outdated**

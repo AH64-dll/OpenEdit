@@ -34,6 +34,9 @@ def main() -> None:
             shutil.copy2(ROOT / file, stage / file)
         for folder in ('scripts', 'requirements'):
             shutil.copytree(ROOT / folder, stage / folder, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        (stage / 'docs').mkdir()
+        for file in ('agent-configure.md', 'MCP.md', 'RUNTIME_LICENSES.md', 'RELEASE_NOTES.md'):
+            shutil.copy2(ROOT / 'docs' / file, stage / 'docs' / file)
         (stage / 'README.txt').write_text(
             f'OpenEdit {version} — {args.platform}\n\n'
             + ('Run: powershell -ExecutionPolicy Bypass -File .\\install.ps1\n'
