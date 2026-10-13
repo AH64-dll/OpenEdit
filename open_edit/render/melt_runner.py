@@ -66,7 +66,7 @@ class MeltRunner:
         mode: str = "proxy",
     ) -> list[str]:
         """Build the melt command line."""
-        args = [self.melt_bin, str(xml_path), "-consumer", f"avformat:{output_mp4}"]
+        args = [self.melt_bin, '-silent', str(xml_path), "-consumer", f"avformat:{output_mp4}"]
         args += profile_to_mlt_args(profile, backend=self.encoder_backend, mode=mode)
         if self.nice_level > 0 and os.name == "posix":
             return ["nice", "-n", str(self.nice_level), *args]
@@ -83,7 +83,7 @@ class MeltRunner:
         """Run melt against ``xml_path``; raise MeltTimeoutError on timeout."""
         cmd = self.build_command(xml_path, output_mp4, profile, mode=mode)
         try:
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+            return subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout_s)
         except subprocess.TimeoutExpired as exc:
             raise MeltTimeoutError(f"melt timed out after {timeout_s:g}s") from exc
 
@@ -209,6 +209,7 @@ def _run_pipe_with_frame_feeders(
         try:
             audio_proc = subprocess.run(
                 cmds.melt_audio_cmd,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
@@ -286,6 +287,7 @@ def _run_pipe_with_frame_feeders(
                     os.close(read_fd)
             melt = subprocess.Popen(
                 cmds.melt_video_cmd,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=melt_err_f,
             )

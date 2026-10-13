@@ -15,6 +15,7 @@ import os
 import signal
 import sqlite3
 import sys
+import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager, contextmanager
@@ -28,6 +29,7 @@ JobStatus = Literal[
 _TERMINAL = frozenset({"cancelled", "succeeded", "failed", "orphaned"})
 
 _log = logging.getLogger(__name__)
+_FILE_CAPTURE = os.name == "nt"
 
 
 @contextmanager
@@ -688,76 +690,97 @@ class RenderJobService:
             )
             if encoder in ("gpu", "cpu"):
                 command += ["--encoder", encoder]
-        kwargs: dict = {
-            "cwd": str(project_path), "stdout": asyncio.subprocess.PIPE,
-            "stderr": asyncio.subprocess.PIPE, "limit": 16 * 1024 * 1024,
-        }
-        if os.name == "posix":
-            kwargs["start_new_session"] = True
-        # Shield process creation so cancellation cannot abandon a child
-        # between spawn and registration (a shutdown race in asyncio).
-        spawn = asyncio.create_task(asyncio.create_subprocess_exec(*command, **kwargs))
-        try:
-            proc = await asyncio.shield(spawn)
-        except asyncio.CancelledError:
-            with contextlib.suppress(OSError):
-                proc = await spawn
-                cleanup = asyncio.create_task(proc.communicate())
+        with contextlib.ExitStack() as captures:
+            kwargs: dict = {
+                "cwd": str(project_path), "stdout": asyncio.subprocess.PIPE,
+                "stdin": asyncio.subprocess.DEVNULL,
+                "stderr": asyncio.subprocess.PIPE, "limit": 16 * 1024 * 1024,
+            }
+            if _FILE_CAPTURE:
+                stdout_file = captures.enter_context(tempfile.TemporaryFile())
+                stderr_file = captures.enter_context(tempfile.TemporaryFile())
+                kwargs.update(stdout=stdout_file, stderr=stderr_file)
+            if os.name == "posix":
+                kwargs["start_new_session"] = True
+            # Shield process creation so cancellation cannot abandon a child
+            # between spawn and registration (a shutdown race in asyncio).
+            spawn = asyncio.create_task(asyncio.create_subprocess_exec(*command, **kwargs))
+            try:
+                proc = await asyncio.shield(spawn)
+            except asyncio.CancelledError:
+                with contextlib.suppress(OSError):
+                    proc = await spawn
+                    cleanup = asyncio.create_task(proc.communicate())
+                    try:
+                        await self._terminate_process_group(proc)
+                        await asyncio.wait_for(cleanup, timeout=max(1.0, self.cancel_grace_s))
+                    finally:
+                        cleanup.cancel()
+                        await asyncio.gather(cleanup, return_exceptions=True)
+                raise
+            self._processes[job_id] = proc
+            async def collect_output():
+                if not _FILE_CAPTURE:
+                    return await proc.communicate()
+                # Windows descendants can retain pipe handles after the worker exits.
+                # Wait for the owned process, then read its complete file-backed logs.
+                await proc.wait()
+                stdout_file.seek(0)
+                stderr_file.seek(0)
+                stdout = stdout_file.read(16 * 1024 * 1024 + 1)
+                if len(stdout) > 16 * 1024 * 1024:
+                    raise RuntimeError('Renderer response exceeds 16 MiB')
+                stderr_file.seek(0, 2)
+                stderr_file.seek(max(0, stderr_file.tell() - 4 * 1024 * 1024))
+                return stdout, stderr_file.read()
+
+            communication = asyncio.create_task(collect_output())
+            try:
+                deadline = asyncio.get_running_loop().time() + self.timeout_s
+                while not communication.done():
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise TimeoutError("render timed out")
+                    await asyncio.wait({communication}, timeout=min(0.25, remaining))
+                    current = self.get(project_path, job_id)
+                    if current is not None and current.status in ("cancelling", "cancelled"):
+                        raise asyncio.CancelledError
+                stdout, stderr = await communication
+            except (TimeoutError, asyncio.CancelledError) as exc:
+                detail = ''
                 try:
+                    # Keep draining while terminating. Cancelling communicate
+                    # first can strand wait() behind a full stdout/stderr pipe.
                     await self._terminate_process_group(proc)
-                    await asyncio.wait_for(cleanup, timeout=max(1.0, self.cancel_grace_s))
+                    _stdout, stderr = await asyncio.wait_for(communication, timeout=max(1.0, self.cancel_grace_s))
+                    detail = stderr.decode('utf-8', errors='replace')[-4000:]
                 finally:
-                    cleanup.cancel()
-                    await asyncio.gather(cleanup, return_exceptions=True)
-            raise
-        self._processes[job_id] = proc
-        communication = asyncio.create_task(proc.communicate())
-        try:
-            deadline = asyncio.get_running_loop().time() + self.timeout_s
-            while not communication.done():
-                remaining = deadline - asyncio.get_running_loop().time()
-                if remaining <= 0:
-                    raise TimeoutError("render timed out")
-                await asyncio.wait({communication}, timeout=min(0.25, remaining))
-                current = self.get(project_path, job_id)
-                if current is not None and current.status in ("cancelling", "cancelled"):
-                    raise asyncio.CancelledError
-            stdout, stderr = await communication
-        except (TimeoutError, asyncio.CancelledError) as exc:
-            detail = ''
+                    communication.cancel()
+                    await asyncio.gather(communication, return_exceptions=True)
+                if isinstance(exc, TimeoutError) and detail:
+                    raise TimeoutError(f'render timed out:\n{detail}') from exc
+                raise
+            if proc.returncode != 0:
+                stdout_text = stdout.decode("utf-8", errors="replace").strip()
+                stderr_text = stderr.decode("utf-8", errors="replace").strip()
+                try:
+                    failed_result = json.loads(stdout_text)
+                except json.JSONDecodeError:
+                    failed_result = {}
+                raise RuntimeError(
+                    failed_result.get("error")
+                    or stderr_text
+                    or stdout_text
+                    or f"renderer exited {proc.returncode}"
+                )
             try:
-                # Keep draining while terminating. Cancelling communicate
-                # first can strand wait() behind a full stdout/stderr pipe.
-                await self._terminate_process_group(proc)
-                _stdout, stderr = await asyncio.wait_for(communication, timeout=max(1.0, self.cancel_grace_s))
-                detail = stderr.decode('utf-8', errors='replace')[-4000:]
-            finally:
-                communication.cancel()
-                await asyncio.gather(communication, return_exceptions=True)
-            if isinstance(exc, TimeoutError) and detail:
-                raise TimeoutError(f'render timed out:\n{detail}') from exc
-            raise
-        if proc.returncode != 0:
-            stdout_text = stdout.decode("utf-8", errors="replace").strip()
-            stderr_text = stderr.decode("utf-8", errors="replace").strip()
-            try:
-                failed_result = json.loads(stdout_text)
-            except json.JSONDecodeError:
-                failed_result = {}
-            raise RuntimeError(
-                failed_result.get("error")
-                or stderr_text
-                or stdout_text
-                or f"renderer exited {proc.returncode}"
-            )
-        try:
-            result = json.loads(stdout.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("renderer did not emit a structured JSON result") from exc
-        output_path = result.get("output_path")
-        if not result.get("ok") or not isinstance(output_path, str) or not output_path:
-            raise RuntimeError(result.get("error") or "renderer reported no output")
-        return result
+                result = json.loads(stdout.decode("utf-8"))
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("renderer did not emit a structured JSON result") from exc
+            output_path = result.get("output_path")
+            if not result.get("ok") or not isinstance(output_path, str) or not output_path:
+                raise RuntimeError(result.get("error") or "renderer reported no output")
+            return result
 
 
 def public_job(job: RenderJob, *, include_details: bool = True) -> dict:
