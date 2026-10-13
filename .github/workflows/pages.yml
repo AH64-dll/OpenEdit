@@ -1,0 +1,47 @@
+name: Publish website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/guide/**'
+      - 'examples/openedit-explainer/preview.mp4'
+      - 'examples/openedit-explainer/poster.png'
+      - 'examples/openedit-explainer/openedit-kinetic-project.zip'
+      - 'scripts/build_site.py'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: openedit-website
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build site with the current verified animation
+        run: python scripts/build_site.py --output "$RUNNER_TEMP/openedit-site"
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: published-site
+      - name: Publish to the configured Pages branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -c "import os, shutil; shutil.copytree(os.environ['RUNNER_TEMP'] + '/openedit-site', 'published-site', dirs_exist_ok=True)"
+          git -C published-site config user.name github-actions[bot]
+          git -C published-site config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C published-site add .
+          if ! git -C published-site diff --cached --quiet; then
+            git -C published-site commit -m "Publish website from $GITHUB_SHA"
+            git -C published-site push origin HEAD:gh-pages
+          fi
+          # Token-authenticated pushes do not automatically trigger Pages builds.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds" > /dev/null

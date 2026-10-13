@@ -1,87 +1,103 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>OpenEdit — select the moment, describe the edit.</title>
-  <meta name="description" content="A local AI-native video editor with a precise timeline, compact agent tools, fast previews and verified exports.">
-  <link rel="stylesheet" href="css/style.css?v=1.4.0">
-  <style>
-    pre { overflow-x: auto; }
-    p code { display: inline; white-space: normal; overflow-wrap: anywhere; }
-    .oe-h1 { font-size: clamp(2rem, 5vw, 4rem); line-height: 1.12; }
-  </style>
+  <title>OpenEdit — Think it. Edit it.</title>
+  <meta name="description" content="A focused AI-native video editor. Select a moment, direct your agent, preview the changes and export your story. Windows/Linux setup, MCP connections and an editable animation demo.">
+  <meta property="og:title" content="OpenEdit — Think it. Edit it.">
+  <meta property="og:description" content="Your agent makes the creative decisions. OpenEdit handles the timeline, preview and export.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ah64-dll.github.io/OpenEdit/">
+  <meta property="og:image" content="https://ah64-dll.github.io/OpenEdit/media/poster.png">
+  <link rel="canonical" href="https://ah64-dll.github.io/OpenEdit/">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ccff5f'/%3E%3Cpath d='M7 9h18M7 16h11M7 23h15' stroke='%23090b0e' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css?v=1.4-trailer">
+  <script src="js/main.js?v=1.4-trailer" defer></script>
 </head>
 <body>
-  <main>
-    <section id="hero" class="oe-section">
-      <div class="oe-container">
-        <p class="oe-annot">OPENEDIT · LOCAL AI VIDEO EDITING</p>
-        <h1 class="oe-h1">Select the moment.<br>Describe the edit.</h1>
-        <p class="oe-lead">Your agent makes the creative decisions. OpenEdit handles the timeline, media processing, preview and export.</p>
-        <p><a class="oe-btn oe-btn--primary" href="https://github.com/AH64-dll/OpenEdit/releases">Download releases</a>
-          <a class="oe-btn" href="#install">Install and connect</a></p>
-        <p class="oe-note">Windows x64 and Linux x64 download packages. New builds and their verification reports are also available in the <a href="https://github.com/AH64-dll/OpenEdit/actions/workflows/release.yml">Release packages workflow</a>.</p>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"><nav class="container navigation" aria-label="Main navigation">
+    <a class="brand" href="#home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><path d="M7 9h18M7 16h11M7 23h15"/></svg>OpenEdit</a>
+    <div class="nav-links"><a href="#features">The editor</a><a href="#install">Install</a><a href="#connect">Connect an agent</a><a href="https://github.com/AH64-dll/OpenEdit">GitHub</a></div>
+  </nav></header>
+  <main id="main">
+    <section id="home" class="hero section"><div class="container hero-grid">
+      <div><p class="eyebrow"><span class="status-dot"></span> OPENEDIT 1.4 · AI-NATIVE VIDEO EDITING</p>
+        <h1>Your ideas.<br><span>In motion.</span></h1>
+        <p class="lead">Select the moment. Describe the edit. Your agent makes the creative decisions; OpenEdit handles the timeline, preview and export.</p>
+        <div class="actions"><a class="button primary" href="#install">Get OpenEdit</a><a class="button" href="#connect">Connect your agent</a></div>
+        <p class="small muted">Local editing · Windows &amp; Linux x64 · Six composable MCP tools</p>
       </div>
-    </section>
+      <figure class="demo">
+        <div class="demo-heading"><span class="status-dot"></span> MADE IN OPENEDIT <span>00:10 / 60 FPS</span></div>
+        <video id="trailer" controls playsinline preload="none" width="1920" height="1080" poster="media/poster.png" aria-label="OpenEdit product animation with music and sound effects" aria-describedby="demo-description">
+          <source src="media/openedit-trailer.mp4" type="video/mp4">
+          <track kind="captions" src="media/trailer-en.vtt" srclang="en" label="English">
+          Your browser can’t play this video. <a href="media/openedit-trailer.mp4">Download the MP4</a>.
+        </video>
+        <figcaption id="demo-description">Think it. Edit it. Ten seconds of kinetic typography, flying clips and custom stereo sound. Press play to hear it.</figcaption>
+        <div class="demo-links"><a href="media/openedit-trailer.mp4" download="OpenEdit-Trailer.mp4">Download animation ↓</a><a href="media/openedit-kinetic-project.zip" download="OpenEdit-editable-project.zip">Get editable project ↓</a></div>
+      </figure>
+    </div></section>
 
-    <section id="editing" class="oe-section oe-section--alt">
-      <div class="oe-container">
-        <h2 class="oe-h2">One focused workspace</h2>
-        <p class="oe-lead">Video preview, a precise timeline, AI instructions, media and export.</p>
-        <p>Scrub to a frame, select a clip or mark a region, then describe the change. Use Graphics for text, shapes and animation. Undo, redo and reopening preserve your work. Source editing and advanced controls stay secondary.</p>
-        <p>Agents retrieve selected timestamped frames and transcript ranges. Cached analysis and previews reduce repeated work. The application owns deterministic timing, transitions, compositing and encoding.</p>
-        <p><a href="https://github.com/AH64-dll/OpenEdit/tree/main/examples/openedit-explainer">Watch the ten-second explainer and recreate its editable project</a>.</p>
+    <section id="features" class="section alternate"><div class="container">
+      <p class="eyebrow">THREE JOBS. ONE FOCUSED WORKSPACE.</p><h2>Made for directing the edit.</h2>
+      <p class="section-intro">Preview, timeline, AI instructions, media and export. The essentials are close at hand.</p>
+      <div class="cards">
+        <article class="card"><span class="card-number">01 / DIRECT</span><h3>A precise, simple timeline.</h3><p>Scrub to a frame, select clips or mark a region, then describe the change. Review and refine it. Undo, redo and saved editing history keep your work recoverable.</p></article>
+        <article class="card"><span class="card-number">02 / UNDERSTAND</span><h3>Give your agent the right context.</h3><p>Retrieve timestamped frames, contact sheets and selected transcript ranges. Cached analysis and on-demand tool help reduce repeated inspection and unnecessary context.</p></article>
+        <article class="card"><span class="card-number">03 / FINISH</span><h3>Preview quickly. Export reliably.</h3><p>Preview work starts around the playhead and reuses unchanged ranges. OpenEdit handles cuts, transitions, overlays, keyframed graphics and synchronized audio, then verifies the export.</p></article>
       </div>
-    </section>
+      <p class="feature-note"><strong>More room for animation.</strong> Graphics supports 500 visual layers and 4,096 total nodes, including keyframes. Completed graphics are reused across matching previews and exports.</p>
+    </div></section>
 
-    <section id="install" class="oe-section">
-      <div class="oe-container">
-        <h2 class="oe-h2">Download, extract, install</h2>
-        <p>Download your platform's ZIP and matching SHA-256 file from GitHub Releases. Verify the checksum, extract the ZIP, then run its installer. Python 3.12 is recommended; 3.11.8 or newer is required. Git is unnecessary for download releases.</p>
-        <h3 class="oe-h3">Linux x64 · Ubuntu 24.04 recommended</h3>
-        <div class="oe-code"><pre><code>bash ./install.sh
-~/OpenEdit/OpenEdit.sh</code></pre></div>
-        <h3 class="oe-h3">Windows 10/11 x64 · PowerShell</h3>
-        <div class="oe-code"><pre><code>powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-&amp; "$env:USERPROFILE\OpenEdit\OpenEdit.cmd"</code></pre></div>
-        <p>The installer creates a private Python environment, downloads checksum-verified Node 24 and FFmpeg/MLT runtimes, and sets up the locked graphics worker and Chromium. It tests actual editing, a transition, an animated overlay, preview, export and reopening before reporting success.</p>
-        <p>Windows setup can install Python through winget. Debian/Ubuntu setup requests administrator access for Python venv and media/browser system libraries. Other Linux distributions need equivalent prerequisites. Projects stay separate under <code>~/OpenEditProjects</code>.</p>
-        <p><a href="https://github.com/AH64-dll/OpenEdit/blob/main/INSTALL.md">Complete installation, update and uninstall instructions</a>. macOS and ARM require source installation; tested download packages are not advertised for those platforms.</p>
+    <section id="install" class="section"><div class="container">
+      <p class="eyebrow">START WITH THE CURRENT EDITOR</p><h2>Download. Install. Make something.</h2>
+      <p class="section-intro">The latest source is OpenEdit 1.4.0. Download and extract the source ZIP, open a terminal in its <code>OpenEdit-main</code> folder, then run your platform’s installer.</p>
+      <div class="actions"><a class="button primary" href="https://github.com/AH64-dll/OpenEdit/archive/refs/heads/main.zip">Latest source ZIP ↓</a><a class="button" href="https://github.com/AH64-dll/OpenEdit/releases">Check Windows / Linux releases</a></div>
+      <p class="release-note">For packaged downloads, choose <strong>1.4.0 or newer</strong> when available. Earlier 1.3 releases use the previous editor and setup. Current release ZIPs contain the same installers; Git is not required for either extracted ZIP.</p>
+      <div class="install-grid">
+        <article class="install-card"><h3>Linux x64</h3><p class="small muted">Ubuntu 24.04 recommended</p>
+          <div class="code-heading"><span>In the extracted folder</span><button type="button" data-copy="linux-install" hidden aria-label="Copy Linux installation commands">Copy</button></div>
+          <pre><code id="linux-install">bash ./install.sh
+~/OpenEdit/OpenEdit.sh</code></pre>
+          <p class="small">Debian/Ubuntu setup requests administrator access for Python venv and browser/media libraries. Other distributions need equivalent prerequisites.</p>
+        </article>
+        <article class="install-card"><h3>Windows x64</h3><p class="small muted">Windows 10 / 11 · PowerShell</p>
+          <div class="code-heading"><span>In the extracted folder</span><button type="button" data-copy="windows-install" hidden aria-label="Copy Windows installation commands">Copy</button></div>
+          <pre><code id="windows-install">powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+&amp; "$env:USERPROFILE\OpenEdit\OpenEdit.cmd"</code></pre>
+          <p class="small">Setup can install Python through winget. Native Windows media tools are provisioned; WSL and a manual MLT build are unnecessary.</p>
+        </article>
       </div>
-    </section>
+      <div class="requirements"><p><strong>Required:</strong> Python 3.11.8+ (3.12 recommended) and Internet access for initial setup. The installer provisions pinned Node 24, FFmpeg/MLT, the graphics worker and Chromium, then tests an actual editing/export workflow.</p><p>Projects live separately under <code>~/OpenEditProjects</code>. Back up the entire project, including <code>.open_edit</code>. macOS and ARM need source setup with their own native runtimes.</p></div>
+      <p><a href="https://github.com/AH64-dll/OpenEdit/blob/main/INSTALL.md">Complete setup, update and uninstall instructions</a></p>
+    </div></section>
 
-    <section id="configure" class="oe-section oe-section--alt">
-      <div class="oe-container">
-        <h2 class="oe-h2">Connect your agent</h2>
-        <p>The installer generates <code>mcp.json</code> for standard MCP hosts, <code>opencode.json</code> for OpenCode and <code>codex.toml</code> for Codex. Merge the OpenEdit entry into your host's existing settings, then reload its MCP servers. Existing agent settings are preserved.</p>
-        <p>For another project, use the installation's CLI to generate its configuration:</p>
-        <div class="oe-code"><pre><code>open_edit init /absolute/path/to/project
-open_edit mcp-config --project /absolute/path/to/project --format mcp
-open_edit mcp-config --project /absolute/path/to/project --format opencode
-open_edit mcp-config --project /absolute/path/to/project --format codex</code></pre></div>
-        <p>If the private environment is inactive, use <code>~/OpenEdit/.venv/bin/open_edit</code> on Linux or <code>%USERPROFILE%\OpenEdit\.venv\Scripts\open_edit.exe</code> on Windows. Generated configurations use absolute paths and pin the project.</p>
-        <p>Confirm six tools appear: <code>query_project</code>, <code>edit_project</code>, <code>run_script</code>, <code>trigger_render</code>, <code>get_render_job</code> and <code>cancel_render_job</code>. Ask the agent to inspect the timeline and make an edit. Parameter help is available through the tools.</p>
-        <p>External agents use their own authentication; OpenEdit needs no provider key. Built-in chat is optional: install with <code>--with-agent</code> / <code>-WithAgent</code>, then start with <code>--with-agent</code>.</p>
-        <p><a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/agent-configure.md">Host-specific connection instructions</a> · <a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/MCP.md">MCP reference</a></p>
-      </div>
-    </section>
+    <section id="connect" class="section alternate"><div class="container">
+      <p class="eyebrow">YOUR AGENT. YOUR DIRECTION.</p><h2>Connect through MCP.</h2>
+      <p class="section-intro">The installer creates connection files for its starter project. Merge the OpenEdit entry into your agent host’s existing settings, then reload its MCP servers.</p>
+      <div class="table-wrap"><table><caption class="visually-hidden">Generated connection files and compatible agent hosts</caption><thead><tr><th scope="col">Your host</th><th scope="col">Generated file</th><th scope="col">Entry to merge</th></tr></thead><tbody>
+        <tr><td>OpenCode</td><td><code>opencode.json</code></td><td><code>mcp.openedit</code></td></tr>
+        <tr><td>Codex CLI</td><td><code>codex.toml</code></td><td><code>[mcp_servers.openedit]</code></td></tr>
+        <tr><td>Cursor / Claude Desktop / standard MCP host</td><td><code>mcp.json</code></td><td><code>mcpServers.openedit</code></td></tr>
+      </tbody></table></div>
+      <p>Find these files in <code>~/OpenEdit</code> on Linux or <code>%USERPROFILE%\OpenEdit</code> on Windows. Generated commands use absolute paths and connect to one project. Existing agent settings are preserved.</p>
+      <div class="prompt"><span class="card-number">TRY AN EDIT</span><p>“Use OpenEdit to inspect my selected moment. Make it more energetic, add an animated title, and show me a preview.”</p></div>
+      <p>Confirm six tools appear: <code>query_project</code>, <code>edit_project</code>, <code>run_script</code>, <code>trigger_render</code>, <code>get_render_job</code> and <code>cancel_render_job</code>. Your agent gets editing context and parameter help through these tools.</p>
+      <p>External agents use their own authentication; OpenEdit needs no provider key for MCP. Built-in chat is optional. To connect another project, generate a new configuration using the installation’s CLI.</p>
+      <p><a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/agent-configure.md">Host-specific connection instructions</a> · <a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/MCP.md">Six-tool reference</a></p>
+    </div></section>
 
-    <section id="verification" class="oe-section">
-      <div class="oe-container">
-        <h2 class="oe-h2">Verified media, clear requirements</h2>
-        <p>Native Linux and Windows release checks install the actual download ZIPs into paths with spaces. They check dependency consistency, transition and animated-overlay pixels, audio/video timing, complete output decoding, project reopening and the installed UI. Each installation retains <code>install-report.json</code> and a rendered <code>install-report.mp4</code>.</p>
-        <p><code>open_edit doctor</code> reports available capabilities. CPU export is provided by the downloaded runtime. Hardware encoding depends on compatible hardware and drivers. Local transcription, advanced HTML and legacy Remotion are optional additions.</p>
-        <p><a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/RELEASE_VERIFICATION.md">Recorded verification and limitations</a> · <a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/RUNTIME_LICENSES.md">Runtime licenses and source notices</a></p>
-      </div>
-    </section>
+    <section id="verification" class="section"><div class="container">
+      <p class="eyebrow">REAL EDITS. RECORDED CHECKS.</p><h2>Built and tested through OpenEdit.</h2>
+      <div class="verification-grid"><div><p>The trailer was authored through real MCP tools, reviewed on the live graphics canvas and exported through OpenEdit’s UI at 1080p/60 fps. Its editable ZIP reopened with graphics, separate music/effects tracks and history intact.</p><p>The recorded regression run passed <strong>1,797 tests</strong>; browser workflows ran separately. Native Windows/Linux package checks exercise imports, transitions, animation, synchronized audio, full decoding, UI export/download and reopening.</p><p><a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/OPENEDIT_KINETIC_TRAILER_WORKFLOW.md">Trailer workflow and fixes</a> · <a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/RELEASE_VERIFICATION.md">Platform verification</a></p></div>
+      <aside class="card"><h3>What depends on your setup?</h3><p>Hardware encoding requires compatible hardware and drivers. Local transcription is optional. Advanced HTML and legacy Remotion are separate additions.</p><p>Model accuracy and billed token usage depend on your agent and provider. Media-pipeline tests verify editing/rendering; they don’t prove a live model’s creative decisions.</p><p>Use <code>open_edit doctor</code> in the installed environment to check capabilities.</p></aside></div>
+    </div></section>
   </main>
-  <footer class="oe-footer">
-    <div class="oe-container">
-      <p>OpenEdit · <a href="https://github.com/AH64-dll/OpenEdit">Source on GitHub</a> · <a href="#hero">Back to top</a></p>
-      <p class="oe-footer-small">OpenEdit is MIT. Vendored Diffusion is MPL-2.0; the bundled font is OFL-1.1. Optional Remotion has separate licensing terms.</p>
-    </div>
-  </footer>
+  <footer class="footer"><div class="container"><div class="footer-row"><a class="brand" href="#home">OpenEdit</a><p>Think it. Edit it.</p><a href="https://github.com/AH64-dll/OpenEdit">Source on GitHub</a></div><p class="small muted">OpenEdit is MIT. Vendored Diffusion is MPL-2.0; the bundled font is OFL-1.1. <a href="https://github.com/AH64-dll/OpenEdit/blob/main/docs/RUNTIME_LICENSES.md">Runtime licenses and source notices</a>.</p></div></footer>
+  <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
 </body>
 </html>
