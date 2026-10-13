@@ -30,7 +30,12 @@ def command(args):
     return result.stdout
 
 
-async def verify(root: Path, graphics: bool) -> dict:
+async def verify(root: Path, graphics: bool, progress: dict) -> dict:
+    def stage(name):
+        progress['phase'] = name
+        print(f'Verify: {name}', flush=True)
+
+    stage('create test project and media')
     project = root / 'project with spaces'
     project.mkdir()
     command([sys.executable, '-I', '-m', 'open_edit.cli', 'init', str(project)])
@@ -43,8 +48,11 @@ async def verify(root: Path, graphics: bool) -> dict:
     config = json.loads(host_config(project))['mcpServers']['openedit']
     calls = []
     server = StdioServerParameters(command=config['command'], args=config['args'], env=dict(os.environ))
+    stage('start MCP server')
     async with stdio_client(server) as (read, write), ClientSession(read, write) as session:
+        stage('initialize MCP')
         initialization = await session.initialize()
+        stage('list MCP tools')
         tools = await session.list_tools()
         names = sorted(tool.name for tool in tools.tools)
         assert names == sorted(['query_project', 'edit_project', 'run_script', 'trigger_render',
@@ -52,7 +60,7 @@ async def verify(root: Path, graphics: bool) -> dict:
         assert len(initialization.instructions or '') < 1500
         async def call(name, args):
             detail = args.get('operation') or args.get('query') or args.get('mode') or ''
-            print(f'Verify: {name} {detail}', flush=True)
+            stage(f'{name} {detail}')
             started = time.perf_counter()
             response = await session.call_tool(name, args)
             result = json.loads(response.content[0].text)
@@ -94,11 +102,14 @@ async def verify(root: Path, graphics: bool) -> dict:
                            'scale': '320x180', 'quality': 'high'})
         for result in (preview, final):
             assert Path(result['output_path']).is_file()
+        stage('close first MCP session')
+    stage('reopen MCP project')
     async with stdio_client(server) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
         response = await session.call_tool('query_project', {'query': 'get_editing_context', 'params': {}})
         assert json.loads(response.content[0].text)['graph_revision'] == saved_revision
     output = Path(final['output_path'])
+    stage('check media timing, decoding and animation pixels')
     probe = json.loads(command(['ffprobe', '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(output)]))
     video = next(s for s in probe['streams'] if s['codec_type'] == 'video')
     audio = next(s for s in probe['streams'] if s['codec_type'] == 'audio')
@@ -121,6 +132,7 @@ async def verify(root: Path, graphics: bool) -> dict:
             pixel = sample(time_, x, 32)
             assert pixel[0] > 180 and pixel[1] > 140 and pixel[2] < 160, pixel
     # A wheel must also serve its bundled UI, not only expose the Python API.
+    stage('start installed UI')
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
         port = listener.getsockname()[1]
@@ -166,11 +178,20 @@ def main() -> None:
     args = parser.parse_args()
     activate()
     started = time.perf_counter()
+    progress = {'phase': 'start'}
     with tempfile.TemporaryDirectory(prefix='openedit-install-check-') as scratch:
         # This fixed 1.6-second workflow must fail promptly if a worker stalls.
         async def bounded_verify():
-            return await asyncio.wait_for(verify(Path(scratch), args.graphics), timeout=300)
-        report = asyncio.run(bounded_verify())
+            return await asyncio.wait_for(verify(Path(scratch), args.graphics, progress), timeout=300)
+        try:
+            report = asyncio.run(bounded_verify())
+        except Exception as error:
+            report = {'passed': False, **progress, 'error': repr(error),
+                      'elapsed_sec': round(time.perf_counter() - started, 3)}
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
+            raise RuntimeError(f"Installation verification failed during {progress['phase']}: {error!r}") from error
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             artifact = args.output.with_suffix('.mp4')
