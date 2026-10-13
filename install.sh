@@ -34,7 +34,9 @@ if [ "$SKIP_SYSTEM" = 0 ] && command -v apt-get >/dev/null; then
     RUN_AS_ROOT=(sudo)
   fi
   "${RUN_AS_ROOT[@]}" apt-get update
-  "${RUN_AS_ROOT[@]}" apt-get install -y python3-venv libnss3 libatk-bridge2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 fonts-liberation
+  ALSA_PACKAGE=libasound2
+  if apt-cache show libasound2t64 >/dev/null 2>&1; then ALSA_PACKAGE=libasound2t64; fi
+  "${RUN_AS_ROOT[@]}" apt-get install -y python3-venv libnss3 libatk-bridge2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 fonts-liberation libva2 libva-drm2 libva-x11-2 libdrm2 libxcb-dri3-0 libx11-xcb1 libwayland-client0 libwayland-cursor0 libwayland-egl1 "$ALSA_PACKAGE"
 fi
 PYTHON=""
 for candidate in python3 python; do
@@ -76,4 +78,9 @@ if [ "$NO_PROJECT" = 0 ]; then
   "$PY" -I -m open_edit.cli mcp-config --project "$PROJECT" --format opencode --output "$PREFIX/opencode.json"
   "$PY" -I -m open_edit.cli mcp-config --project "$PROJECT" --format codex --output "$PREFIX/codex.toml"
 fi
-printf '\nVerified OpenEdit installation: %s\nStart: %s/OpenEdit.sh\nAgent configuration: %s/mcp.json (or run open_edit mcp-config --project PATH)\n' "$PREFIX" "$PREFIX" "$PREFIX"
+printf '\nVerified OpenEdit installation: %s\nStart: %s/OpenEdit.sh\n' "$PREFIX" "$PREFIX"
+if [ "$NO_PROJECT" = 0 ]; then
+  printf 'Agent configuration: %s/mcp.json, opencode.json or codex.toml\n' "$PREFIX"
+else
+  printf 'Create a project, then generate its agent settings with open_edit mcp-config --project PATH.\n'
+fi

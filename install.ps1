@@ -79,4 +79,8 @@ if (-not $NoProject) {
 }
 Write-Host "Verified OpenEdit installation: $InstallDir"
 Write-Host "Start: $(Join-Path $InstallDir 'OpenEdit.cmd')"
-Write-Host "Agent settings: $(Join-Path $InstallDir 'mcp.json'), opencode.json or codex.toml"
+if (-not $NoProject) {
+    Write-Host "Agent settings: $(Join-Path $InstallDir 'mcp.json'), opencode.json or codex.toml"
+} else {
+    Write-Host 'Create a project, then run open_edit mcp-config --project PATH for agent settings.'
+}
