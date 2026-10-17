@@ -1,0 +1,3 @@
+thk_live_g9jAi1UZmcgN_DqFLOwTWpk3QHGRlrZtZGFOkxSFVtCVL5vlb2MxGGYafoWJV1iw
+
+curl -fsSL https://tokenharbor.ai/connect.sh | sh
